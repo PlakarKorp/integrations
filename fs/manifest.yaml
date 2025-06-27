@@ -1,0 +1,9 @@
+name: fis
+description: file storage but as external plugin
+version: 1.0.0
+connectors:
+- type: storage
+  executable: integration-fs
+  homepage: https://github.com/PlakarKorp/integration-fs
+  license: ISC
+  protocols: [fis]
