@@ -1,0 +1,35 @@
+.Dd July 4, 2025
+.Dt PLAKAR-NOTION 1
+.Os
+.Sh NAME
+.Nm plakar-notion
+.Nd Plakar plugin to back up Notion pages or workspace
+.Sh DESCRIPTION
+The
+.Nm
+plugin allows backing up content from a Notion workspace or individual pages using the Notion API.
+
+Data is retrieved in structured JSON format and stored into a Plakar repository, including page content and metadata.
+.Sh REQUIREMENTS
+A valid Notion API integration token is required. Tokens can be created at:
+.Lk https://www.notion.com/my-integrations
+
+The integration must be shared with each Notion page to be backed up. For more information, see:
+.Lk https://developers.notion.com/docs/getting-started#step-1-create-an-integration
+.Sh CONFIGURATION
+The required parameters are:
+.Bl -tag -width Ds
+.It Ar token
+Your Notion integration token (starting with
+.Li ntn_
+).
+.El
+.Sh USAGE
+The following command backs up a Notion workspace or shared pages to a Plakar repository:
+.Bd -literal -offset indent
+$ plakar at /path/to/repo backup notion:// token=ntn_xxxxxxxxxxxxxxxxxxxxxxxxx
+.Ed
+.Sh SEE ALSO
+.Xr plakar 1 ,
+.Lk https://www.notion.com/my-integrations ,
+.Lk https://developers.notion.com/docs
