@@ -1,0 +1,9 @@
+name: notion
+description: notion backend
+version: 1.0.0
+connectors:
+  - type: importer
+    executable: notion-importer
+    homepage: https://github.com/PlakarKorp/integration-notion
+    license: ISC
+    protocols: [notion]
