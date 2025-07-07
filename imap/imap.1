@@ -6,10 +6,14 @@
 .Sh DESCRIPTION
 The
 .Nm
-module allows for backup of an IMAP mailbox.
+integration package provides source and destination connectors
+that allows backup and restoration of an IMAP mail folders.
 .Sh CONFIGURATION
 The configuration parameters are as follow:
 .Bl -tag -width Ds
+.It Ar location
+The URL of the IMAP server in the form
+.Li imap://<host>:<port> .
 .It Ar username
 Username to login.
 .It Ar password
@@ -22,6 +26,10 @@ Possible values are
 .Li starttls
 and
 .Li no-tls .
+.It Ar tls_no_verify
+If set to
+.Li yes ,
+the client will not verify the server certificate in tls mode.
 .El
 .Sh EXAMPLES
 The following example shows how to configure a source called
@@ -31,11 +39,13 @@ for an IMAP mailbox to backup:
 $ plakar source add mymail imap://my.imap.server.com:143 username=foo password=bar tls=starttls
 .Ed
 .Pp
-Supposing that a Plakar store named
+Supposing that a Kloset store named
 .Li mystore
-is already configured, the following command will backup the above mailbox to this store:
+is already configured,
+the following command will backup the above mailbox to this store:
 .Bd -literal -offset indent
 $ plakar at @mystore backup @mymail
 .Ed
+.Pp
 .Sh LIMITATIONS
-The current implementation is very simple.
+The current implementation is currently very simple and lacks many features.
