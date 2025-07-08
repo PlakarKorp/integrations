@@ -46,15 +46,15 @@ func (p *GooglePhotoExporter) StoreFile(pathname string, fp io.Reader, size int6
 		return err
 	}
 
-	relativePath := strings.TrimPrefix(pathname, p.getPathInBackup(""))
-	if p.base != "" {
-		relativePath = p.base + "/" + relativePath
+	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
+	if p.Base != "" {
+		relativePath = p.Base + "/" + relativePath
 	}
 
 	payload := map[string]string{
 		"srcFs":     "/",
 		"srcRemote": tmpFile.Name(),
-		"dstFs":     p.remote + ":",
+		"dstFs":     p.Remote + ":",
 		"dstRemote": func() string {
 			if strings.HasPrefix(relativePath, "media/") {
 				return "upload/" + stdpath.Base(relativePath)

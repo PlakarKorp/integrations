@@ -35,12 +35,12 @@ type Response struct {
 }
 
 type RcloneImporter struct {
-	remote   string
-	base     string
+	Remote   string
+	Base     string
 	provider string
 	confFile *os.File
 
-	ino uint64
+	Ino uint64
 }
 
 // NewRcloneImporter creates a new RcloneImporter instance. It expects the location
@@ -60,8 +60,8 @@ func NewRcloneImporter(ctx context.Context, opts *importer.Options, providerName
 	librclone.Initialize()
 
 	return &RcloneImporter{
-		remote:   remote,
-		base:     base,
+		Remote:   remote,
+		Base:     base,
 		provider: providerName,
 		confFile: file,
 	}, nil
@@ -72,7 +72,7 @@ func (p *RcloneImporter) Scan() (<-chan *importer.ScanResult, error) {
 	var wg sync.WaitGroup
 
 	go func() {
-		p.generateBaseDirectories(results)
+		p.GenerateBaseDirectories(results)
 		p.scanRecursive(results, "", &wg)
 		wg.Wait()
 		close(results)
@@ -81,28 +81,28 @@ func (p *RcloneImporter) Scan() (<-chan *importer.ScanResult, error) {
 	return results, nil
 }
 
-// getPathInBackup returns the full normalized path of a file within the backup.
+// GetPathInBackup returns the full normalized path of a file within the backup.
 //
 // The resulting path is constructed by joining the base path of the backup (p.base)
 // with the provided relative path. If the base path (p.base) is not absolute,
 // it is treated as relative to the root ("/").
-func (p *RcloneImporter) getPathInBackup(path string) string {
-	path = stdpath.Join(p.base, path)
+func (p *RcloneImporter) GetPathInBackup(path string) string {
+	path = stdpath.Join(p.Base, path)
 
-	if !stdpath.IsAbs(p.base) {
+	if !stdpath.IsAbs(p.Base) {
 		path = "/" + path
 	}
 
 	return stdpath.Clean(path)
 }
 
-// generateBaseDirectories sends all parent directories of the base path in
+// GenerateBaseDirectories sends all parent directories of the base path in
 // reverse order to the provided results channel.
 //
 // For example, if the base is "remote:/path/to/dir", this function generates
 // the directories "/path/to/dir", "/path/to", "/path", and "/".
-func (p *RcloneImporter) generateBaseDirectories(results chan *importer.ScanResult) {
-	parts := generatePathComponents(p.getPathInBackup(""))
+func (p *RcloneImporter) GenerateBaseDirectories(results chan *importer.ScanResult) {
+	parts := generatePathComponents(p.GetPathInBackup(""))
 
 	for _, part := range parts {
 		results <- importer.NewScanRecord(
@@ -114,7 +114,7 @@ func (p *RcloneImporter) generateBaseDirectories(results chan *importer.ScanResu
 				0700|os.ModeDir,
 				time.Unix(0, 0).UTC(),
 				0,
-				atomic.AddUint64(&p.ino, 1),
+				atomic.AddUint64(&p.Ino, 1),
 				0,
 				0,
 				0,
@@ -160,35 +160,35 @@ func generatePathComponents(path string) []string {
 }
 
 func (p *RcloneImporter) scanRecursive(results chan *importer.ScanResult, path string, wg *sync.WaitGroup) {
-	results, response, err := p.listFolder(results, path)
+	results, response, err := p.ListFolder(results, path)
 	if err {
 		return
 	}
 	p.scanFolder(results, path, response, wg)
 }
 
-func (p *RcloneImporter) listFolder(results chan *importer.ScanResult, path string) (chan *importer.ScanResult, Response, bool) {
+func (p *RcloneImporter) ListFolder(results chan *importer.ScanResult, path string) (chan *importer.ScanResult, Response, bool) {
 	payload := map[string]interface{}{
-		"fs":     fmt.Sprintf("%s:%s", p.remote, p.base),
+		"fs":     fmt.Sprintf("%s:%s", p.Remote, p.Base),
 		"remote": path,
 	}
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		results <- importer.NewScanError(p.getPathInBackup(path), err)
+		results <- importer.NewScanError(p.GetPathInBackup(path), err)
 		return nil, Response{}, true
 	}
 
 	output, status := librclone.RPC("operations/list", string(jsonPayload))
 	if status != http.StatusOK {
-		results <- importer.NewScanError(p.getPathInBackup(path), fmt.Errorf("failed to list directory: %s", output))
+		results <- importer.NewScanError(p.GetPathInBackup(path), fmt.Errorf("failed to list directory: %s", output))
 		return nil, Response{}, true
 	}
 
 	var response Response
 	err = json.Unmarshal([]byte(output), &response)
 	if err != nil {
-		results <- importer.NewScanError(p.getPathInBackup(path), err)
+		results <- importer.NewScanError(p.GetPathInBackup(path), err)
 		return nil, Response{}, true
 	}
 	return results, response, false
@@ -214,7 +214,7 @@ func (p *RcloneImporter) scanFolder(results chan *importer.ScanResult, path stri
 				}()
 
 				results <- importer.NewScanRecord(
-					p.getPathInBackup(file.Path),
+					p.GetPathInBackup(file.Path),
 					"",
 					objects.NewFileInfo(
 						stdpath.Base(file.Name),
@@ -222,7 +222,7 @@ func (p *RcloneImporter) scanFolder(results chan *importer.ScanResult, path stri
 						0700|os.ModeDir,
 						parsedTime,
 						0,
-						atomic.AddUint64(&p.ino, 1),
+						atomic.AddUint64(&p.Ino, 1),
 						0,
 						0,
 						0,
@@ -241,19 +241,19 @@ func (p *RcloneImporter) scanFolder(results chan *importer.ScanResult, path stri
 					0600,
 					parsedTime,
 					1,
-					atomic.AddUint64(&p.ino, 1),
+					atomic.AddUint64(&p.Ino, 1),
 					0,
 					0,
 					0,
 				)
 
 				results <- importer.NewScanRecord(
-					p.getPathInBackup(file.Path),
+					p.GetPathInBackup(file.Path),
 					"",
 					fi,
 					nil,
 					func() (io.ReadCloser, error) {
-						return p.newReader(file.Path)
+						return p.NewReader(file.Path)
 					},
 				)
 			}
@@ -299,17 +299,17 @@ func (file *AutoremoveTmpFile) Close() error {
 	return file.File.Close()
 }
 
-func (p *RcloneImporter) newReader(pathname string) (io.ReadCloser, error) {
+func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 	// pathname is an absolute path within the backup. Let's convert it to a
 	// relative path to the base path.
-	relativePath := strings.TrimPrefix(pathname, p.getPathInBackup(""))
+	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
 	name, err := createTempPath("plakar_temp_*")
 	if err != nil {
 		return nil, err
 	}
 
 	payload := map[string]string{
-		"srcFs":     fmt.Sprintf("%s:%s", p.remote, p.base),
+		"srcFs":     fmt.Sprintf("%s:%s", p.Remote, p.Base),
 		"srcRemote": strings.TrimPrefix(relativePath, "/"),
 
 		"dstFs":     strings.TrimSuffix(name, "/"+stdpath.Base(name)),
@@ -342,11 +342,11 @@ func (p *RcloneImporter) Close() error {
 }
 
 func (p *RcloneImporter) Root() string {
-	return p.getPathInBackup("")
+	return p.GetPathInBackup("")
 }
 
 func (p *RcloneImporter) Origin() string {
-	return p.remote
+	return p.Remote
 }
 
 func (p *RcloneImporter) Type() string {

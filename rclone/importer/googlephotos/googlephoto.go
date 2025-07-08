@@ -32,7 +32,7 @@ func (p *GooglePhotoImporter) Scan() (<-chan *importer.ScanResult, error) {
 	var wg sync.WaitGroup
 
 	go func() {
-		p.generateBaseDirectories(results)
+		p.GenerateBaseDirectories(results)
 		p.scanRecursive(results, "", &wg)
 		wg.Wait()
 		close(results)
@@ -42,7 +42,7 @@ func (p *GooglePhotoImporter) Scan() (<-chan *importer.ScanResult, error) {
 }
 
 func (p *GooglePhotoImporter) scanRecursive(results chan *importer.ScanResult, path string, wg *sync.WaitGroup) {
-	results, response, err := p.listFolder(results, path)
+	results, response, err := p.ListFolder(results, path)
 	if err {
 		return
 	}
@@ -62,7 +62,7 @@ func ggdPhotoSpeCase(filename string) error {
 	return nil
 }
 
-func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path string, response Response, wg *sync.WaitGroup) {
+func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path string, response rclone.Response, wg *sync.WaitGroup) {
 	for _, file := range response.List {
 		wg.Add(1)
 		go func() {
@@ -85,7 +85,7 @@ func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path
 				}()
 
 				results <- importer.NewScanRecord(
-					p.getPathInBackup(file.Path),
+					p.GetPathInBackup(file.Path),
 					"",
 					objects.NewFileInfo(
 						stdpath.Base(file.Name),
@@ -93,7 +93,7 @@ func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path
 						0700|os.ModeDir,
 						parsedTime,
 						0,
-						atomic.AddUint64(&p.ino, 1),
+						atomic.AddUint64(&p.Ino, 1),
 						0,
 						0,
 						0,
@@ -107,15 +107,15 @@ func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path
 				filesize := file.Size
 
 				if file.Size < 0 {
-					handle, err := p.newReader(p.getPathInBackup(file.Path))
+					handle, err := p.NewReader(p.GetPathInBackup(file.Path))
 					if err != nil {
-						results <- importer.NewScanError(p.getPathInBackup(path), err)
+						results <- importer.NewScanError(p.GetPathInBackup(path), err)
 						return
 					}
-					name := handle.(*AutoremoveTmpFile).Name()
+					name := handle.(*rclone.AutoremoveTmpFile).Name()
 					size, err := os.Stat(name)
 					if err != nil {
-						results <- importer.NewScanError(p.getPathInBackup(path), err)
+						results <- importer.NewScanError(p.GetPathInBackup(path), err)
 						return
 					}
 
@@ -130,19 +130,19 @@ func (p *GooglePhotoImporter) scanFolder(results chan *importer.ScanResult, path
 					0600,
 					parsedTime,
 					1,
-					atomic.AddUint64(&p.ino, 1),
+					atomic.AddUint64(&p.Ino, 1),
 					0,
 					0,
 					0,
 				)
 
 				results <- importer.NewScanRecord(
-					p.getPathInBackup(file.Path),
+					p.GetPathInBackup(file.Path),
 					"",
 					fi,
 					nil,
 					func() (io.ReadCloser, error) {
-						return p.newReader(p.getPathInBackup(file.Path))
+						return p.NewReader(p.GetPathInBackup(file.Path))
 					},
 				)
 			}

@@ -18,8 +18,8 @@ import (
 )
 
 type RcloneExporter struct {
-	remote   string
-	base     string
+	Remote   string
+	Base     string
 	provider string
 }
 
@@ -34,21 +34,21 @@ func NewRcloneExporter(ctx context.Context, opts *exporter.Options, name string,
 	librclone.Initialize()
 
 	return &RcloneExporter{
-		remote:   remote,
-		base:     base,
+		Remote:   remote,
+		Base:     base,
 		provider: provider,
 	}, nil
 }
 
-// getPathInBackup returns the full normalized path of a file within the backup.
+// GetPathInBackup returns the full normalized path of a file within the backup.
 //
 // The resulting path is constructed by joining the base path of the backup (p.base)
 // with the provided relative path. If the base path (p.base) is not absolute,
 // it is treated as relative to the root ("/").
-func (p *RcloneExporter) getPathInBackup(path string) string {
-	path = stdpath.Join(p.base, path)
+func (p *RcloneExporter) GetPathInBackup(path string) string {
+	path = stdpath.Join(p.Base, path)
 
-	if !stdpath.IsAbs(p.base) {
+	if !stdpath.IsAbs(p.Base) {
 		path = "/" + path
 	}
 
@@ -56,14 +56,14 @@ func (p *RcloneExporter) getPathInBackup(path string) string {
 }
 
 func (p *RcloneExporter) Root() string {
-	return p.getPathInBackup("")
+	return p.GetPathInBackup("")
 }
 
 func (p *RcloneExporter) CreateDirectory(pathname string) error {
-	relativePath := strings.TrimPrefix(pathname, p.getPathInBackup(""))
+	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
 
 	payload := map[string]string{
-		"fs":     fmt.Sprintf("%s:%s", p.remote, p.base),
+		"fs":     fmt.Sprintf("%s:%s", p.Remote, p.Base),
 		"remote": relativePath,
 	}
 
@@ -98,12 +98,12 @@ func (p *RcloneExporter) StoreFile(pathname string, fp io.Reader, size int64) er
 		return err
 	}
 
-	relativePath := strings.TrimPrefix(pathname, p.getPathInBackup(""))
+	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
 
 	payload := map[string]string{
 		"srcFs":     "/",
 		"srcRemote": tmpFile.Name(),
-		"dstFs":     fmt.Sprintf("%s:%s", p.remote, p.base),
+		"dstFs":     fmt.Sprintf("%s:%s", p.Remote, p.Base),
 		"dstRemote": relativePath,
 	}
 
