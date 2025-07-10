@@ -1,0 +1,10 @@
+name: caldav
+description: caldav backend
+version: 1.0.0
+connectors:
+  - type: importer
+    executable: caldav-importer
+    protocols: [caldav]
+  - type: exporter
+    executable: caldav-exporter
+    protocols: [caldav]
