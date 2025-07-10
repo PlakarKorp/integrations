@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2021 Gilles Chehade <gilles@poolp.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
 package fs
 
 import (
@@ -12,29 +28,35 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/reading"
 	"github.com/PlakarKorp/kloset/repository"
 	"github.com/PlakarKorp/kloset/storage"
 )
 
-type Storage struct {
+type Store struct {
 	location  string
 	packfiles Buckets
 	states    Buckets
 }
 
+func init() {
+	storage.Register("fs", location.FLAG_LOCALFS, NewStore)
+}
+
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
-	return &Storage{
+	return &Store{
 		location: storeConfig["location"],
 	}, nil
 }
 
-func (s *Storage) Location() string {
+func (s *Store) Location() string {
 	return s.location
 }
 
-func (s *Storage) Path(args ...string) string {
-	root := strings.TrimPrefix(s.Location(), "fis://")
+func (s *Store) Path(args ...string) string {
+	root := strings.TrimPrefix(s.Location(), "fs://")
 
 	args = append(args, "")
 	copy(args[1:], args)
@@ -42,10 +64,11 @@ func (s *Storage) Path(args ...string) string {
 
 	return filepath.Join(args...)
 }
-func (s *Storage) Create(ctx context.Context, config []byte) error {
+
+func (s *Store) Create(ctx context.Context, config []byte) error {
 	dirfp, err := os.Open(s.Path())
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		err = os.MkdirAll(s.Path(), 0700)
@@ -82,7 +105,7 @@ func (s *Storage) Create(ctx context.Context, config []byte) error {
 	return err
 }
 
-func (s *Storage) Open(ctx context.Context) ([]byte, error) {
+func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	s.packfiles = NewBuckets(s.Path("packfiles"))
 	s.states = NewBuckets(s.Path("states"))
 
@@ -100,13 +123,13 @@ func (s *Storage) Open(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Storage) Mode() storage.Mode {
+func (s *Store) Mode() storage.Mode {
 	return storage.ModeRead | storage.ModeWrite
 }
 
-func (s *Storage) Size() int64 {
+func (s *Store) Size() int64 {
 	var size int64
-	location := strings.TrimPrefix(s.Location(), "fis://")
+	location := strings.TrimPrefix(s.Location(), "fs://")
 	_ = filepath.WalkDir(location, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -128,11 +151,11 @@ func (s *Storage) Size() int64 {
 	return size
 }
 
-func (s *Storage) GetPackfiles() ([]objects.MAC, error) {
+func (s *Store) GetPackfiles() ([]objects.MAC, error) {
 	return s.packfiles.List()
 }
 
-func (s *Storage) GetPackfile(mac objects.MAC) (io.Reader, error) {
+func (s *Store) GetPackfile(mac objects.MAC) (io.Reader, error) {
 	fp, err := s.packfiles.Get(mac)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -144,7 +167,7 @@ func (s *Storage) GetPackfile(mac objects.MAC) (io.Reader, error) {
 	return fp, nil
 }
 
-func (s *Storage) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.Reader, error) {
+func (s *Store) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.Reader, error) {
 	res, err := s.packfiles.GetBlob(mac, offset, length)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -155,36 +178,36 @@ func (s *Storage) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32)
 	return res, nil
 }
 
-func (s *Storage) DeletePackfile(mac objects.MAC) error {
+func (s *Store) DeletePackfile(mac objects.MAC) error {
 	return s.packfiles.Remove(mac)
 }
 
-func (s *Storage) PutPackfile(mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) PutPackfile(mac objects.MAC, rd io.Reader) (int64, error) {
 	return s.packfiles.Put(mac, rd)
 }
 
-func (s *Storage) Close() error {
+func (s *Store) Close() error {
 	return nil
 }
 
 /* Indexes */
-func (s *Storage) GetStates() ([]objects.MAC, error) {
+func (s *Store) GetStates() ([]objects.MAC, error) {
 	return s.states.List()
 }
 
-func (s *Storage) PutState(mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) PutState(mac objects.MAC, rd io.Reader) (int64, error) {
 	return s.states.Put(mac, rd)
 }
 
-func (s *Storage) GetState(mac objects.MAC) (io.Reader, error) {
+func (s *Store) GetState(mac objects.MAC) (io.Reader, error) {
 	return s.states.Get(mac)
 }
 
-func (s *Storage) DeleteState(mac objects.MAC) error {
+func (s *Store) DeleteState(mac objects.MAC) error {
 	return s.states.Remove(mac)
 }
 
-func (s *Storage) GetLocks() ([]objects.MAC, error) {
+func (s *Store) GetLocks() ([]objects.MAC, error) {
 	ret := make([]objects.MAC, 0)
 
 	locksdir, err := os.ReadDir(s.Path("locks"))
@@ -212,20 +235,20 @@ func (s *Storage) GetLocks() ([]objects.MAC, error) {
 	return ret, nil
 }
 
-func (s *Storage) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
 	return WriteToFileAtomicTempDir(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])), rd, s.Path(""))
 }
 
-func (s *Storage) GetLock(lockID objects.MAC) (io.Reader, error) {
+func (s *Store) GetLock(lockID objects.MAC) (io.Reader, error) {
 	fp, err := os.Open(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
 	}
 
-	return ClosingReader(fp)
+	return reading.ClosingReader(fp), nil
 }
 
-func (s *Storage) DeleteLock(lockID objects.MAC) error {
+func (s *Store) DeleteLock(lockID objects.MAC) error {
 	if err := os.Remove(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:]))); err != nil {
 		return err
 	}
