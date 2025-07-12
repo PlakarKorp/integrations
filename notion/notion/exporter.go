@@ -163,6 +163,26 @@ func loadJSONFromFile(filePath string) (map[string]any, error) {
 	return data, nil
 }
 
+func preparePayload(payload map[string]any, parentType, parentID string) (cleanedPayload map[string]any, children []map[string]any, err error) {
+	childrenRaw, ok := payload["children"].([]any)
+	if !ok {
+		childrenRaw = []any{}
+	}
+	children = make([]map[string]any, len(childrenRaw))
+	for i, child := range childrenRaw {
+		children[i] = child.(map[string]any)
+	}
+
+	// Remove ID and replace parent + children
+	delete(payload, "id")
+	payload["children"] = []any{}
+	payload["parent"] = map[string]any{
+		"type":     parentType,
+		parentType: parentID,
+	}
+	return payload, children, nil
+}
+
 // AddAllBlocks adds all blocks to the page with the given ID
 func (n *NotionExporter) AddAllBlocks(jsonData []map[string]any, newID, pathTo string) error {
 	for _, block := range jsonData { //PATCH each block to the page
@@ -178,13 +198,7 @@ func (n *NotionExporter) AddAllBlocks(jsonData []map[string]any, newID, pathTo s
 				return err
 			}
 
-			delete(payload, "id")
-			children := payload["children"].([]any) // save it for later
-			payload["children"] = []any{}           // since request are limited to 100 blocks, we will add them later
-			payload["parent"] = map[string]any{
-				"type":    "page_id",
-				"page_id": newID,
-			}
+			payload, children, err := preparePayload(payload, "page_id", newID)
 
 			data, err := json.Marshal(payload)
 
@@ -199,11 +213,7 @@ func (n *NotionExporter) AddAllBlocks(jsonData []map[string]any, newID, pathTo s
 			}
 			log.Printf("Created page with ID: %s", newPageID)
 
-			blocks := make([]map[string]any, len(children))
-			for i, child := range children {
-				blocks[i] = child.(map[string]any)
-			}
-			err = n.AddAllBlocks(blocks, newPageID, dir)
+			err = n.AddAllBlocks(children, newPageID, dir)
 			if err != nil {
 				return fmt.Errorf("failed to add blocks to page %s: %w", newPageID, err)
 			}
@@ -269,13 +279,7 @@ func (n *NotionExporter) AddEntries(newID, pathTo string) error {
 			return err
 		}
 
-		delete(payload, "id")
-		children := payload["children"].([]any) // save it for later
-		payload["children"] = []any{}           // since request are limited to 100 blocks, we will add them later
-		payload["parent"] = map[string]any{
-			"type":        "database_id",
-			"database_id": newID,
-		}
+		payload, children, err := preparePayload(payload, "database_id", newID)
 
 		data, err := json.Marshal(payload)
 
@@ -290,11 +294,7 @@ func (n *NotionExporter) AddEntries(newID, pathTo string) error {
 		}
 		log.Printf("Created page with ID: %s", newPageID)
 
-		blocks := make([]map[string]any, len(children))
-		for i, child := range children {
-			blocks[i] = child.(map[string]any)
-		}
-		err = n.AddAllBlocks(blocks, newPageID, dir)
+		err = n.AddAllBlocks(children, newPageID, dir)
 		if err != nil {
 			return fmt.Errorf("failed to add blocks to page %s: %w", newPageID, err)
 		}
@@ -325,13 +325,7 @@ func (n *NotionExporter) Export() error {
 				return err
 			}
 
-			delete(payload, "id")
-			children := payload["children"].([]any) // save it for later
-			payload["children"] = []any{}           // since request are limited to 100 blocks, we will add them later
-			payload["parent"] = map[string]any{
-				"type":    "page_id",
-				"page_id": n.rootID,
-			}
+			payload, children, err := preparePayload(payload, "page_id", n.rootID) //TODO: look if we always want to use a page as parent here
 
 			data, err := json.Marshal(payload)
 
@@ -346,11 +340,7 @@ func (n *NotionExporter) Export() error {
 			}
 			log.Printf("Created page with ID: %s", newPageID)
 
-			blocks := make([]map[string]any, len(children))
-			for i, child := range children {
-				blocks[i] = child.(map[string]any)
-			}
-			err = n.AddAllBlocks(blocks, newPageID, dir)
+			err = n.AddAllBlocks(children, newPageID, dir)
 			if err != nil {
 				return fmt.Errorf("failed to add blocks to page %s: %w", newPageID, err)
 			}
