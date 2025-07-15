@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -11,6 +12,8 @@ import (
 )
 
 const MB = 1048576
+
+var ErrNotExist = fs.ErrNotExist
 
 type ImapConnector struct {
 	Address     string
