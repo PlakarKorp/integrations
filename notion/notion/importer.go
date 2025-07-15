@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"sync"
@@ -123,7 +124,52 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				results <- importer.NewScanError("", err)
 				continue
 			}
-			if b.HasChildren && b.Type != "child_page" {
+
+			if b.Type == "image" {
+				type imageBlock struct {
+					Image struct {
+						File struct {
+							URL string `json:"url"`
+						} `json:"file"`
+					} `json:"image"`
+				}
+
+				var ib imageBlock
+				if err := json.Unmarshal(record.Block, &ib); err != nil {
+					results <- importer.NewScanError("", err)
+					continue
+				}
+
+				imageURL := ib.Image.File.URL
+				resp, err := http.Get(imageURL) // imageURL from Notion's response
+				if err != nil {
+					results <- importer.NewScanError("", fmt.Errorf("failed to fetch image: %w", err))
+					continue
+				}
+
+				if resp.StatusCode != http.StatusOK {
+					results <- importer.NewScanError("", fmt.Errorf("failed to fetch image, status code: %d", resp.StatusCode))
+					continue
+				}
+
+				fInfo := objects.NewFileInfo(
+					b.ID+".jpg",
+					0,
+					0,
+					time.Time{},
+					0,
+					0,
+					0,
+					0,
+					0,
+				)
+
+				pathname := record.pathTo + "/" + b.ID + ".jpg"
+				results <- importer.NewScanRecord(pathname, "", fInfo, nil, func() (io.ReadCloser, error) {
+					return resp.Body, nil
+				})
+
+			} else if b.HasChildren && b.Type != "child_page" {
 				fInfo := objects.NewFileInfo(
 					b.ID,
 					0,
