@@ -12,6 +12,9 @@ import (
 	"net/http"
 	"os"
 	"path"
+
+	"regexp"
+	"strings"
 )
 
 func DebugResponse(resp *http.Response) {
@@ -38,6 +41,20 @@ type NotionExporter struct {
 	rootID string //TODO : change this to a user friendly name (e.g. "My Notion Page" instead of "1234567890abcdef")
 }
 
+func normalizeUUID(id string) string {
+	// if it already a valid dashed UUID, return it
+	matched, _ := regexp.MatchString(`^[0-9a-fA-F\-]{36}$`, id)
+	if matched {
+		return id
+	}
+
+	id = strings.ReplaceAll(id, "-", "")
+	if len(id) != 32 {
+		return id
+	}
+	return id[:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
+}
+
 func NewNotionExporter(ctx context.Context, options *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	token, ok := config["token"]
 	if !ok {
@@ -47,6 +64,7 @@ func NewNotionExporter(ctx context.Context, options *exporter.Options, name stri
 	if !ok {
 		return nil, fmt.Errorf("missing rootID in config")
 	}
+	rootID = normalizeUUID(rootID)
 
 	return &NotionExporter{
 		token:  token,
