@@ -48,7 +48,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"/",
 			0,
-			os.ModeDir,
+			os.ModeDir|0700,
 			time.Time{},
 			0,
 			0,
@@ -155,7 +155,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID+".jpg",
 					0,
-					0,
+					0700,
 					time.Time{},
 					0,
 					0,
@@ -173,7 +173,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID,
 					0,
-					os.ModeDir,
+					os.ModeDir|0700,
 					time.Time{},
 					0,
 					0,
@@ -208,7 +208,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"content.json",
 			0,
-			0,
+			0700,
 			time.Time{},
 			0,
 			0,
