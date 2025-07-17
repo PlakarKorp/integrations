@@ -29,11 +29,11 @@ Then, you need to build the plugin package. This requires Plakar to be installed
 plakar pkg build integration-notion/manifest.yaml
 ```
 
-This command builds the plugin in a .ptar file named `notion-vx.x.x.ptar` (where `x.x.x` is the version number).
+This command builds the plugin in a .ptar file named `notion-vx.x.x-tag.ptar` (where `x.x.x-tag` is the version number).
 Then, install the plugin:
 
 ```bash
-plakar pkg install notion-vx.x.x.ptar
+plakar pkg add notion-vx.x.x-tag.ptar
 ```
 
 That’s it — you’re ready to configure and use it.
@@ -45,10 +45,11 @@ That’s it — you’re ready to configure and use it.
 To back up your Notion pages, run:
 
 ```bash
-plakar at /path/to/repo backup notion:// token=<ntn_xxx>
+plakar source set mynotion notion:// token=<ntn_xxx>
+plakar backup @mynotion
 ```
 
-Suppsing you have a Plakar repository at `/path/to/repo` and Replace `<ntn_xxx>` with your actual Notion API token.
+Replace `<ntn_xxx>` with your actual Notion API token.
 
 ---
 
@@ -67,8 +68,11 @@ To restore your Notion backups, you can use the `restore` command:
 considering you have a Plakar repository at `/path/to/repo` and and have a Notion page with the ID `<root_page_id>` where you want to restore the content:
 
 ```bash
-plakar at /path/to/repo restore -to /path/to/restore notion:// token=<ntn_xxx> rootID=<root_page_id> <snapshot_id>
+plakar source set mynotion notion:// token=<ntn_xxx>
+plakar  restore -to @mynotion token=<ntn_xxx> rootID=<root_page_id> <snapshot_id>
 ```
+
+Replace `<ntn_xxx>` with your actual Notion API token.
 
 This will restore the backed-up Notion pages to the specified directory, maintaining the original structure.
 /!\ Make sure the `root_page_id` corresponds to a valid Notion page where you have write access. Notion public API does not let you restore directly to a workspace.
