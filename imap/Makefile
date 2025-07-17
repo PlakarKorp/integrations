@@ -2,7 +2,7 @@ GO = go
 PLAKAR = ../plakar/plakar
 VERSION = v0.0.1
 
-all: build create uninstall install
+all: build
 
 build:
 	${GO} build -v -o imapImporter ./plugin/importer

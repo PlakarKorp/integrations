@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/PlakarKorp/go-kloset-sdk/sdk"
+	"github.com/PlakarKorp/go-kloset-sdk"
 	"github.com/PlakarKorp/integration-imap/exporter"
 )
 
