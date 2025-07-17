@@ -25,19 +25,19 @@ type RcloneExporter struct {
 }
 
 func NewRcloneExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
-	protocole, base, found := strings.Cut(config["location"], ":")
+	_, base, found := strings.Cut(config["location"], ":")
 	if !found {
-		return nil, fmt.Errorf("invalid location: %s. Expected format: remote:path/to/dir", name+"://"+config["location"])
-	}
-
-	file, err := writeRcloneConfigFile(protocole, config)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid location: %s. Expected format: location: <provider>://", config["location"])
 	}
 
 	typee, found := config["type"]
 	if !found {
-		return nil, fmt.Errorf("missing type in configuration for %s", name)
+		return nil, fmt.Errorf("missing type in configuration")
+	}
+
+	file, err := writeRcloneConfigFile(typee, config)
+	if err != nil {
+		return nil, err
 	}
 
 	librclone.Initialize()

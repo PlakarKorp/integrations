@@ -46,19 +46,19 @@ type RcloneImporter struct {
 // to be in the format "remote:path/to/dir". The path is optional, but the remote
 // storage location is required, so the colon separator is always expected.
 func NewRcloneImporter(ctx context.Context, opts *importer.Options, providerName string, config map[string]string) (importer.Importer, error) {
-	protocole, base, found := strings.Cut(config["location"], ":")
+	_, base, found := strings.Cut(config["location"], ":")
 	if !found {
-		return nil, fmt.Errorf("invalid location: %s. Expected format: remote:path/to/dir", providerName+"://"+config["location"])
-	}
-
-	file, err := writeRcloneConfigFile(protocole, config)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid location: %s. Expected format: location: <provider>://", config["location"])
 	}
 
 	typee, found := config["type"]
 	if !found {
-		return nil, fmt.Errorf("missing type in configuration for %s", providerName)
+		return nil, fmt.Errorf("missing type in configuration")
+	}
+
+	file, err := writeRcloneConfigFile(typee, config)
+	if err != nil {
+		return nil, err
 	}
 
 	librclone.Initialize()

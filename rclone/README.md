@@ -70,11 +70,11 @@ Supported `location` values:
 
 * `onedrive://`
 * `opendrive://`
-* `drive://` (Google Drive)
+* `googledrive://`
 * `iclouddrive://`
-* `googlephotos://` (Google Photos)
-* `dropbox://` (Dropbox)
-* `protondrive://` (Proton Drive)
+* `googlephotos://`
+* `dropbox://`
+* `protondrive://`
 
 *Note:* iCloud Drive support excludes iCloud Photos at this time.
 
