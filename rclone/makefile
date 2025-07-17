@@ -1,4 +1,4 @@
-all: importer exporter
+all: importer exporter storage
 
 importer:
 	go build -o rclone-importer -v importer/rclone/main/main.go
@@ -8,7 +8,10 @@ exporter:
 	go build -o rclone-exporter -v exporter/rclone/main/main.go
 	go build -o googlephotos-exporter -v exporter/googlephoto/main/main.go
 
+storage:
+	go build -o rclone-storage -v storage/main/main.go
+
 clean:
 	@rm -f rclone-importer googlephotos-importer rclone-exporter googlephotos-exporter
 
-.PHONY: all importer exporter clean
+.PHONY: all importer exporter storage clean

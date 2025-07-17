@@ -15,3 +15,8 @@ connectors:
   - type: exporter
     executable: googlephotos-exporter
     protocols: ['googlephotos']
+
+  - type: storage
+    executable: rclone-storage
+    protocols: ['drive']
+
