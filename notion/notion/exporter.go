@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path"
+
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/snapshot/exporter"
 
 	"regexp"
 	"strings"
@@ -77,7 +78,7 @@ func (n *NotionExporter) Root() string {
 }
 
 func (n *NotionExporter) CreateDirectory(pathname string) error {
-	return os.MkdirAll(path.Join(tempDir, pathname), 0755)
+	return os.MkdirAll(path.Join(tempDir, pathname), 0700)
 }
 
 func (n *NotionExporter) StoreFile(pathname string, fp io.Reader, size int64) error {

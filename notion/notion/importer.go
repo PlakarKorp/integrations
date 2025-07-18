@@ -52,7 +52,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"/",
 			0,
-			os.ModeDir|0755,
+			os.ModeDir|0700,
 			time.Time{},
 			0,
 			0,
@@ -159,7 +159,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID+".jpg",
 					0,
-					0755,
+					0700,
 					time.Time{},
 					0,
 					0,
@@ -177,7 +177,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID,
 					0,
-					os.ModeDir|0755,
+					os.ModeDir|0700,
 					time.Time{},
 					0,
 					0,
@@ -187,7 +187,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				)
 				pathname := record.pathTo + "/" + b.ID + "/blocks.json"
 				results <- importer.NewScanRecord(path.Dir(pathname), "", fInfo, nil, nil)
-				fInfo.Lmode = 0755
+				fInfo.Lmode = 0700
 				fInfo.Lname = path.Base(pathname)
 				results <- importer.NewScanRecord(pathname, "", fInfo, nil, func() (io.ReadCloser, error) {
 					return p.NewReader(pathname)
@@ -212,7 +212,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"content.json",
 			0,
-			0755,
+			0700,
 			time.Time{},
 			0,
 			0,
