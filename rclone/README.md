@@ -82,7 +82,13 @@ Supported `location` values:
 
 ## 🚀 Usage
 
-Back up your cloud data into a Kloset repository at `/path/to/backup`:
+Create a Plakar repository to back up your data:
+
+```bash
+plakar at @myremote create
+```
+
+Or back up your cloud data into a Kloset repository at `/path/to/backup`:
 
 ```bash
 plakar at /path/to/backup create
@@ -95,12 +101,13 @@ Restore data from the Kloset repository back to your cloud provider:
 plakar at /path/to/backup restore -to @myremote <snapshot_id> [path/to/file]
 ```
 
-You can list snapshots with:
+You can combine all these commands with multiple cloud providers. For example, to back up from iCloud Drive to Google Drive, with OneDrive as the kloset repository:
 
 ```bash
-plakar at /path/to/backup ls
+plakar at @onedrive create
+plakar at @onedrive backup @iclouddrive
+plakar at @onedrive restore -to @googledrive <snapshot_id>
 ```
-
 ---
 
 ## 📂 Backup Format
