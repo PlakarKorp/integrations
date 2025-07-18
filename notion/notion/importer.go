@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -30,6 +31,9 @@ func NewNotionImporter(ctx context.Context, options *importer.Options, name stri
 	if !ok {
 		return nil, fmt.Errorf("missing token in config")
 	}
+
+	log.Printf("versionning, v42")
+
 	return &NotionImporter{
 		token:      token,
 		rootID:     "/",
@@ -48,7 +52,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"/",
 			0,
-			os.ModeDir|0700,
+			os.ModeDir|0755,
 			time.Time{},
 			0,
 			0,
@@ -155,7 +159,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID+".jpg",
 					0,
-					0700,
+					0755,
 					time.Time{},
 					0,
 					0,
@@ -173,7 +177,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				fInfo := objects.NewFileInfo(
 					b.ID,
 					0,
-					os.ModeDir|0700,
+					os.ModeDir|0755,
 					time.Time{},
 					0,
 					0,
@@ -183,7 +187,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 				)
 				pathname := record.pathTo + "/" + b.ID + "/blocks.json"
 				results <- importer.NewScanRecord(path.Dir(pathname), "", fInfo, nil, nil)
-				fInfo.Lmode = 0
+				fInfo.Lmode = 0755
 				fInfo.Lname = path.Base(pathname)
 				results <- importer.NewScanRecord(pathname, "", fInfo, nil, func() (io.ReadCloser, error) {
 					return p.NewReader(pathname)
@@ -208,7 +212,7 @@ func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
 		fInfo := objects.NewFileInfo(
 			"content.json",
 			0,
-			0700,
+			0755,
 			time.Time{},
 			0,
 			0,

@@ -162,7 +162,7 @@ func (p *NotionImporter) propagateConnectionToRoot(node *PageNode, results chan<
 
 	if node.Page.Object != "block" {
 		pageName := node.Page.Object + ".json"
-		results <- importer.NewScanRecord(GetPathToRoot(node), "", objects.NewFileInfo(node.Page.ID, 0, os.ModeDir, time.Time{}, 0, 0, 0, 0, 0), nil, nil)
+		results <- importer.NewScanRecord(GetPathToRoot(node), "", objects.NewFileInfo(node.Page.ID, 0, os.ModeDir|0755, time.Time{}, 0, 0, 0, 0, 0), nil, nil)
 		results <- importer.NewScanRecord(GetPathToRoot(node)+"/"+pageName, "", objects.NewFileInfo(pageName, 0, 0, time.Time{}, 0, 0, 0, 0, 0), nil, func() (io.ReadCloser, error) {
 			return p.NewReader(GetPathToRoot(node) + "/" + pageName)
 		})

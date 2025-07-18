@@ -77,7 +77,7 @@ func (n *NotionExporter) Root() string {
 }
 
 func (n *NotionExporter) CreateDirectory(pathname string) error {
-	return os.MkdirAll(path.Join(tempDir, pathname), 0700)
+	return os.MkdirAll(path.Join(tempDir, pathname), 0755)
 }
 
 func (n *NotionExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
