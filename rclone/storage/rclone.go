@@ -6,40 +6,41 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/PlakarKorp/integration-rclone/utils"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/storage"
+	_ "github.com/rclone/rclone/backend/all" // import all backends
+	"github.com/rclone/rclone/librclone/librclone"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	stdpath "path"
 	"strings"
-
-	"github.com/PlakarKorp/integration-rclone/utils"
-
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/storage"
-	"github.com/rclone/rclone/librclone/librclone"
 )
 
 type RcloneStorage struct {
 	Typee    string
 	Base     string
 	confFile *os.File
+
+	location string
 }
 
 func NewRcloneStorage(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
-	protocol, base, found := strings.Cut(config["location"], ":")
+	_, base, found := strings.Cut(config["location"], "://")
 	if !found {
 		return nil, fmt.Errorf("invalid location: %s. Expected format: remote:path/to/dir", name+"://"+config["location"])
-	}
-
-	file, err := utils.WriteRcloneConfigFile(protocol, config)
-	if err != nil {
-		return nil, err
 	}
 
 	typee, found := config["type"]
 	if !found {
 		return nil, fmt.Errorf("missing type in configuration for %s", name)
+	}
+
+	file, err := utils.WriteRcloneConfigFile(typee, config)
+	if err != nil {
+		return nil, err
 	}
 
 	librclone.Initialize()
@@ -48,6 +49,8 @@ func NewRcloneStorage(ctx context.Context, name string, config map[string]string
 		Typee:    typee,
 		Base:     base,
 		confFile: file,
+
+		location: config["location"],
 	}, nil
 }
 
@@ -95,6 +98,8 @@ func (r *RcloneStorage) putFile(name string, rd io.Reader) (int64, error) {
 		return 0, err
 	}
 
+	log.Printf("Put file payload: %s", string(jsonPayload))
+
 	body, resp := librclone.RPC("operations/copyfile", string(jsonPayload))
 
 	if resp != http.StatusOK {
@@ -116,7 +121,7 @@ func (r *RcloneStorage) getFile(pathname string) (io.ReadSeekCloser, error) {
 	}
 
 	payload := map[string]string{
-		"srcFs":     fmt.Sprintf("%s:%s", r.Typee, ""),
+		"srcFs":     fmt.Sprintf("%s:%s", r.Typee, r.Base),
 		"srcRemote": pathname,
 
 		"dstFs":     strings.TrimSuffix(name, "/"+stdpath.Base(name)),
@@ -128,7 +133,7 @@ func (r *RcloneStorage) getFile(pathname string) (io.ReadSeekCloser, error) {
 		return nil, err
 	}
 
-	log.Printf("Copying payload: %s", string(jsonPayload))
+	log.Printf("Get file payload: %s", string(jsonPayload))
 
 	body, status := librclone.RPC("operations/copyfile", string(jsonPayload))
 
@@ -155,6 +160,8 @@ func (r *RcloneStorage) deleteFile(pathname string) error {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
+	log.Printf("Delete file payload: %s", string(jsonPayload))
+
 	body, resp := librclone.RPC("operations/deletefile", string(jsonPayload))
 	if resp != http.StatusOK {
 		return fmt.Errorf("failed to delete file: %s", body)
@@ -165,9 +172,13 @@ func (r *RcloneStorage) deleteFile(pathname string) error {
 
 func (r *RcloneStorage) Create(ctx context.Context, config []byte) error {
 
-	r.getFile("plakar.go")
+	rd, err := r.getFile("CONFIG")
+	if err == nil {
+		rd.Close()
+		return fmt.Errorf("storage already exists at %s:%s", r.Typee, r.Base)
+	}
 
-	_, err := r.putFile("CONFIG", bytes.NewReader(config))
+	_, err = r.putFile("CONFIG", bytes.NewReader(config))
 	if err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
@@ -204,7 +215,7 @@ func (r *RcloneStorage) Open(ctx context.Context) ([]byte, error) {
 }
 
 func (r *RcloneStorage) Location() string {
-	return fmt.Sprintf("%s://%s", r.Typee, r.Base)
+	return r.location
 }
 
 func (r *RcloneStorage) Mode() storage.Mode {
@@ -212,8 +223,7 @@ func (r *RcloneStorage) Mode() storage.Mode {
 }
 
 func (r *RcloneStorage) Size() int64 {
-	//TODO implement me
-	panic("implement me")
+	return -1 //TODO: Implement size calculation
 }
 
 type Response struct {
@@ -317,7 +327,7 @@ func (r *RcloneStorage) GetLocks() ([]objects.MAC, error) {
 }
 
 func (r *RcloneStorage) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
-	return r.putFile(fmt.Sprintf("lock/%064x", lockID), rd)
+	return r.putFile(fmt.Sprintf("locks/%064x", lockID), rd)
 }
 
 func (r *RcloneStorage) GetLock(lockID objects.MAC) (io.Reader, error) {

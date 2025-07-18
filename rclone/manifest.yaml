@@ -18,5 +18,5 @@ connectors:
 
   - type: storage
     executable: rclone-storage
-    protocols: ['drive']
+    protocols: ['onedrive', 'opendrive', 'googledrive', 'iclouddrive', 'dropbox', 'protondrive']
 
