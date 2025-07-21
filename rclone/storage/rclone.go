@@ -12,7 +12,6 @@ import (
 	_ "github.com/rclone/rclone/backend/all" // import all backends
 	"github.com/rclone/rclone/librclone/librclone"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	stdpath "path"
@@ -98,8 +97,6 @@ func (r *RcloneStorage) putFile(name string, rd io.Reader) (int64, error) {
 		return 0, err
 	}
 
-	log.Printf("Put file payload: %s", string(jsonPayload))
-
 	body, resp := librclone.RPC("operations/copyfile", string(jsonPayload))
 
 	if resp != http.StatusOK {
@@ -133,8 +130,6 @@ func (r *RcloneStorage) getFile(pathname string) (io.ReadSeekCloser, error) {
 		return nil, err
 	}
 
-	log.Printf("Get file payload: %s", string(jsonPayload))
-
 	body, status := librclone.RPC("operations/copyfile", string(jsonPayload))
 
 	if status != http.StatusOK {
@@ -159,8 +154,6 @@ func (r *RcloneStorage) deleteFile(pathname string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
-
-	log.Printf("Delete file payload: %s", string(jsonPayload))
 
 	body, resp := librclone.RPC("operations/deletefile", string(jsonPayload))
 	if resp != http.StatusOK {
