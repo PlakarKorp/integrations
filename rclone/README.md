@@ -75,6 +75,7 @@ Supported `location` values:
 * `googlephotos://`
 * `dropbox://`
 * `protondrive://`
+* `koofr://`
 
 *Note:* iCloud Drive support excludes iCloud Photos at this time.
 
