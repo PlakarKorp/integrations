@@ -1,4 +1,4 @@
-package importer
+package main
 
 import (
 	"bytes"
@@ -34,25 +34,50 @@ func NewCaldavImporter(appCtx context.Context, opts *importer.Options, name stri
 		return nil, fmt.Errorf("missing 'location' in configuration")
 	}
 	url := strings.TrimPrefix(location, "caldav://")
-	username := config["username"]
-	password := config["password"]
-	isOAuthClient := false //TODO: Determine if the client is OAuth2 based on config or opts
+
+	name, isOAuthClient := config["oauth2"]
 
 	var client *gowebdav.Client
 	if !isOAuthClient {
+		username, ok := config["username"]
+		if !ok {
+			return nil, fmt.Errorf("missing 'username' in configuration")
+		}
+		password, ok := config["password"]
+		if !ok {
+			return nil, fmt.Errorf("missing 'password' in configuration")
+		}
 		client = gowebdav.NewClient(url, username, password)
-	} else { // OAuth2 client setup //TODO: make the service used (e.g., Google Calendar) configurable
-		googleCal := oauth2utils.OAuthProvider{
-			Name: "name",
+	} else { // OAuth2 client setup
+
+		clientID, ok := config["client_id"]
+		if !ok {
+			return nil, fmt.Errorf("missing 'client_id' in configuration")
+		}
+		clientSecret, ok := config["client_secret"]
+		if !ok {
+			return nil, fmt.Errorf("missing 'client_secret' in configuration")
+		}
+		serviceScope, ok := config["service_scope"]
+		if !ok {
+			return nil, fmt.Errorf("missing 'service_scope' in configuration")
+		}
+		endpoint, err := oauth2utils.GetOAuth2Endpoint(name)
+		if err != nil {
+			return nil, fmt.Errorf("error getting OAuth2 endpoint for provider '%s': %w", name, err)
+		}
+
+		calOAuthProvider := oauth2utils.OAuthProvider{
+			Name: name,
 			Config: &oauth2.Config{
-				ClientID:     "ID",     // client ID (provided by the plakar app (production) or by the user directly in a personal app)
-				ClientSecret: "SECRET", // client secret (same as above)
+				ClientID:     clientID,     // client ID (provided by the plakar app (production) or by the user directly in a personal app)
+				ClientSecret: clientSecret, // client secret (same as above)
 				RedirectURL:  "urn:ietf:wg:oauth:2.0:oob",
-				Scopes:       []string{"SERVICE_SCOPE"}, // e.g., "https://www.googleapis.com/auth/calendar"
-				Endpoint:     oauth2.Endpoint{},         // e.g., google.Endpoint for Google Calendar
+				Scopes:       []string{serviceScope}, // e.g., "https://www.googleapis.com/auth/calendar"
+				Endpoint:     endpoint,               // e.g., google.Endpoint for Google Calendar //TODO: make the endpoint configurable
 			},
 		}
-		client = googleCal.GetClient(url) // maybe not using the url directly... the url could be built from the username
+		client = calOAuthProvider.GetClient(url) // maybe not using the url directly... the url could be built from the username
 	}
 
 	return &CaldavImporter{
