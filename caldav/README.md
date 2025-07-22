@@ -31,7 +31,8 @@ You're now ready to sync calendar data!
 ### ⬇️ Import calendar events into Plakar
 
 ```bash
-plakar at /path/to/repo import caldav://<url> username=<user> password=<pass>
+plakar source add mycaldav caldav://<url> username=<user> password=<pass>
+plakar at /path/to/repo backup @mycaldav
 ```
 
 This fetches all calendar events accessible via the CalDAV endpoint and stores them as `.ics` files in the repository.
@@ -39,7 +40,8 @@ This fetches all calendar events accessible via the CalDAV endpoint and stores t
 ### ⬆️ Export calendar events from Plakar
 
 ```bash
-plakar at /path/to/repo export caldav://<url> username=<user> password=<pass>
+plakar destination add mycaldav caldav://<url> username=<user> password=<pass>
+plakar at /path/to/repo restore @mycaldav
 ```
 
 This pushes `.ics` calendar files previously stored in Plakar back to your CalDAV server.
