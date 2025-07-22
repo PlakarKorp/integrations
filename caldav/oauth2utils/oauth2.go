@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/oauth2/endpoints"
 	"log"
 	"os"
 	"os/user"
@@ -68,4 +69,18 @@ func saveToken(path string, token *oauth2.Token) {
 	f, _ := os.Create(path)
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
+}
+
+func GetOAuth2Endpoint(provider string) (oauth2.Endpoint, error) {
+	switch provider {
+	case "google":
+		return endpoints.Google, nil
+	//case "microsoft": //TODO: test it
+	//	return endpoints.Microsoft, nil
+	//case "apple": //TODO: test it
+	//	return endpoints.Apple, nil
+	//TODO: add more providers as needed
+	default:
+		return oauth2.Endpoint{}, fmt.Errorf("unknown provider: %s", provider)
+	}
 }
