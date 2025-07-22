@@ -48,6 +48,28 @@ This pushes `.ics` calendar files previously stored in Plakar back to your CalDA
 
 ---
 
+## 🔐 OAuth2 Configuration
+
+Some CalDAV providers (e.g. Google, Microsoft, Apple, or enterprise platforms) require **OAuth2** instead of basic username/password authentication.
+
+To use such services, you must manually supply the required OAuth2 fields in your Plakar configuration:
+
+```ini
+name=<provider>             # e.g. google, microsoft, apple
+client_id=<your-client-id>
+client_secret=<your-client-secret>
+service_scope=<provider-specific-scope>
+```
+
+These values must be set in the plugin configuration (`config`) when adding the source or destination.
+
+Plakar uses them to retrieve an access token from the appropriate OAuth2 endpoint.
+
+> The `name` field determines which OAuth2 provider configuration to use. Make sure it matches one of the supported providers built into the plugin.
+
+
+---
+
 ## 📂 Backup Format
 
 Calendar events are saved in standard **`.ics` (iCalendar)** format, including:
