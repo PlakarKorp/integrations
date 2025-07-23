@@ -6,16 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/PlakarKorp/integration-rclone/utils"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/storage"
-	_ "github.com/rclone/rclone/backend/all" // import all backends
-	"github.com/rclone/rclone/librclone/librclone"
 	"io"
 	"net/http"
 	"os"
 	stdpath "path"
 	"strings"
+
+	"github.com/PlakarKorp/integration-rclone/utils"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/storage"
+	_ "github.com/rclone/rclone/backend/all" // import all backends
+	"github.com/rclone/rclone/librclone/librclone"
 )
 
 type RcloneStorage struct {
@@ -44,12 +45,17 @@ func NewRcloneStorage(ctx context.Context, name string, config map[string]string
 
 	librclone.Initialize()
 
+	location := config["location"]
+	if value, ok := config["root_folder_id"]; ok {
+		location = location + value
+	}
+
 	return &RcloneStorage{
 		Typee:    typee,
 		Base:     base,
 		confFile: file,
 
-		location: config["location"],
+		location: location,
 	}, nil
 }
 
