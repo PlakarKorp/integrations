@@ -1,7 +1,6 @@
 package gcs
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -194,20 +193,9 @@ func (g *gcsStore) PutState(mac objects.MAC, rd io.Reader) (int64, error) {
 	return g.put("locks", mac, rd)
 }
 
-func (g *gcsStore) GetState(mac objects.MAC) (io.Reader, error) {
+func (g *gcsStore) GetState(mac objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("states/%02x/%016x", mac[0], mac)
-	rd, err := g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rd.Close()
-
-	buf, err := io.ReadAll(rd)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes.NewReader(buf), nil
+	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
 }
 
 func (g *gcsStore) DeleteState(mac objects.MAC) error {
@@ -223,36 +211,14 @@ func (g *gcsStore) PutPackfile(mac objects.MAC, rd io.Reader) (int64, error) {
 	return g.put("packfiles", mac, rd)
 }
 
-func (g *gcsStore) GetPackfile(mac objects.MAC) (io.Reader, error) {
+func (g *gcsStore) GetPackfile(mac objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	rd, err := g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rd.Close()
-
-	buf, err := io.ReadAll(rd)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes.NewReader(buf), nil
+	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
 }
 
-func (g *gcsStore) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.Reader, error) {
+func (g *gcsStore) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
 	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	rd, err := g.bucket.Object(g.realpath(name)).NewRangeReader(g.ctx, int64(offset), int64(length))
-	if err != nil {
-		return nil, err
-	}
-	defer rd.Close()
-
-	buf, err := io.ReadAll(rd)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes.NewReader(buf), nil
+	return g.bucket.Object(g.realpath(name)).NewRangeReader(g.ctx, int64(offset), int64(length))
 }
 
 func (g *gcsStore) DeletePackfile(mac objects.MAC) error {
@@ -268,20 +234,9 @@ func (g *gcsStore) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
 	return g.put("locks", lockID, rd)
 }
 
-func (g *gcsStore) GetLock(lockID objects.MAC) (io.Reader, error) {
+func (g *gcsStore) GetLock(lockID objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("locks/%02x/%016x", lockID[0], lockID)
-	rd, err := g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rd.Close()
-
-	buf, err := io.ReadAll(rd)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes.NewReader(buf), nil
+	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
 }
 
 func (g *gcsStore) DeleteLock(lockID objects.MAC) error {
