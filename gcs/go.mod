@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integration-gcs
 
-go 1.24.4
+go 1.24.3
 
 require (
 	cloud.google.com/go/storage v1.55.0
