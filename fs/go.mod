@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integration-fs
 
-go 1.24.4
+go 1.24.1
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v0.0.0-20250619143226-bd1bec8c5435
