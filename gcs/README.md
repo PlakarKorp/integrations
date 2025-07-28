@@ -18,3 +18,16 @@ The supported configuration options are:
 - `no_auth`: to avoid authentication, useful to backup a public bucket
   for example
 
+
+## Example usage
+
+```sh
+# back up a bucket
+$ plakar backup gcs://bucket_name
+
+# restore the snapshot "abc" to a bucket
+$ plakar restore -to gcs://bucket_name abc
+
+# create a kloset repository to store your backups on a bucket
+$ plakar at gcs://bucket_name create
+```
