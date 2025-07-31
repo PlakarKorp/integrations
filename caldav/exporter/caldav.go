@@ -16,14 +16,13 @@ import (
 )
 
 type CaldavExporter struct {
-	ctx  context.Context
 	opts *exporter.Options
 
 	client *gowebdav.Client
 	url    string // The URL of the CalDAV server
 }
 
-func NewCaldavExporter(appCtx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
 
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
@@ -80,7 +79,6 @@ func NewCaldavExporter(appCtx context.Context, opts *exporter.Options, name stri
 	}
 
 	return &CaldavExporter{
-		ctx:  appCtx,
 		opts: opts,
 
 		client: client,
@@ -88,15 +86,15 @@ func NewCaldavExporter(appCtx context.Context, opts *exporter.Options, name stri
 	}, nil
 }
 
-func (c *CaldavExporter) Root() string {
-	return "/"
+func (c *CaldavExporter) Root(ctx context.Context) (string, error) {
+	return "/", nil
 }
 
-func (c *CaldavExporter) CreateDirectory(pathname string) error {
+func (c *CaldavExporter) CreateDirectory(ctx context.Context, pathname string) error {
 	return nil
 }
 
-func (c *CaldavExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
+func (c *CaldavExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
 	pathname = path.Base(pathname)
 
 	if path.Ext(pathname) != ".ics" {
@@ -115,10 +113,10 @@ func (c *CaldavExporter) StoreFile(pathname string, fp io.Reader, size int64) er
 	return nil
 }
 
-func (c *CaldavExporter) SetPermissions(pathname string, fileinfo *objects.FileInfo) error {
+func (c *CaldavExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
 }
 
-func (c *CaldavExporter) Close() error {
+func (c *CaldavExporter) Close(ctx context.Context) error {
 	return nil
 }

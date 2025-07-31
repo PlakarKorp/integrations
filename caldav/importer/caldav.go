@@ -17,14 +17,13 @@ import (
 )
 
 type CaldavImporter struct {
-	ctx  context.Context
 	opts *importer.Options
 
 	client *gowebdav.Client
 	url    string // The URL of the CalDAV server
 }
 
-func NewCaldavImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
 
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
@@ -81,7 +80,6 @@ func NewCaldavImporter(appCtx context.Context, opts *importer.Options, name stri
 	}
 
 	return &CaldavImporter{
-		ctx:  appCtx,
 		opts: opts,
 
 		client: client,
@@ -89,19 +87,19 @@ func NewCaldavImporter(appCtx context.Context, opts *importer.Options, name stri
 	}, nil
 }
 
-func (c *CaldavImporter) Origin() string {
-	return c.url
+func (c *CaldavImporter) Origin(ctx context.Context) (string, error) {
+	return c.url, nil
 }
 
-func (c *CaldavImporter) Type() string {
-	return "caldav"
+func (c *CaldavImporter) Type(ctx context.Context) (string, error) {
+	return "caldav", nil
 }
 
-func (c *CaldavImporter) Root() string {
-	return "/"
+func (c *CaldavImporter) Root(ctx context.Context) (string, error) {
+	return "/", nil
 }
 
-func (c *CaldavImporter) Scan() (<-chan *importer.ScanResult, error) {
+func (c *CaldavImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
 
 	results := make(chan *importer.ScanResult, 1000)
 	var wg sync.WaitGroup
@@ -155,6 +153,6 @@ func (c *CaldavImporter) Scan() (<-chan *importer.ScanResult, error) {
 	return results, nil
 }
 
-func (c *CaldavImporter) Close() error {
+func (c *CaldavImporter) Close(ctx context.Context) error {
 	return nil
 }
