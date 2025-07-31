@@ -42,7 +42,7 @@ func NewNotionImporter(ctx context.Context, options *importer.Options, name stri
 	}, nil
 }
 
-func (p *NotionImporter) Scan() (<-chan *importer.ScanResult, error) {
+func (p *NotionImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
 	results := make(chan *importer.ScanResult, 1000)
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -280,19 +280,19 @@ func (p *NotionImporter) GetExtendedAttributes(pathname string) ([]importer.Exte
 	return nil, fmt.Errorf("extended attributes are not supported on Notion")
 }
 
-func (p *NotionImporter) Close() error {
+func (p *NotionImporter) Close(ctx context.Context) error {
 	ClearNodeTree()
 	return nil
 }
 
-func (p *NotionImporter) Root() string {
-	return p.rootID
+func (p *NotionImporter) Root(ctx context.Context) (string, error) {
+	return p.rootID, nil
 }
 
-func (p *NotionImporter) Origin() string {
-	return "notion.so"
+func (p *NotionImporter) Origin(ctx context.Context) (string, error) {
+	return "notion.so", nil
 }
 
-func (p *NotionImporter) Type() string {
-	return "notion"
+func (p *NotionImporter) Type(ctx context.Context) (string, error) {
+	return "notion", nil
 }
