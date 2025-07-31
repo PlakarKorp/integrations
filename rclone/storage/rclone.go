@@ -208,16 +208,16 @@ func (r *RcloneStorage) Open(ctx context.Context) ([]byte, error) {
 	return configData, nil
 }
 
-func (r *RcloneStorage) Location() string {
-	return r.location
+func (r *RcloneStorage) Location(ctx context.Context) (string, error) {
+	return r.location, nil
 }
 
-func (r *RcloneStorage) Mode() storage.Mode {
-	return storage.ModeRead | storage.ModeWrite
+func (r *RcloneStorage) Mode(ctx context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
 }
 
-func (r *RcloneStorage) Size() int64 {
-	return -1 //TODO: Implement size calculation
+func (r *RcloneStorage) Size(ctx context.Context) (int64, error) {
+	return -1, nil //TODO: Implement size calculation
 }
 
 type Response struct {
@@ -271,35 +271,44 @@ func (r *RcloneStorage) getMacs(name string) ([]objects.MAC, error) {
 	return macs, nil
 }
 
-func (r *RcloneStorage) GetStates() ([]objects.MAC, error) {
+func (r *RcloneStorage) GetStates(ctx context.Context) ([]objects.MAC, error) {
 	return r.getMacs("states")
 }
 
-func (r *RcloneStorage) PutState(mac objects.MAC, rd io.Reader) (int64, error) {
+func (r *RcloneStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
 	return r.putFile(fmt.Sprintf("states/%064x", mac), rd)
 }
 
-func (r *RcloneStorage) GetState(mac objects.MAC) (io.Reader, error) {
+func (r *RcloneStorage) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	return r.getFile(fmt.Sprintf("states/%064x", mac))
 }
 
-func (r *RcloneStorage) DeleteState(mac objects.MAC) error {
+func (r *RcloneStorage) DeleteState(ctx context.Context, mac objects.MAC) error {
 	return r.deleteFile(fmt.Sprintf("states/%064x", mac))
 }
 
-func (r *RcloneStorage) GetPackfiles() ([]objects.MAC, error) {
+func (r *RcloneStorage) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
 	return r.getMacs("packfiles")
 }
 
-func (r *RcloneStorage) PutPackfile(mac objects.MAC, rd io.Reader) (int64, error) {
+func (r *RcloneStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
 	return r.putFile(fmt.Sprintf("packfiles/%064x", mac), rd)
 }
 
-func (r *RcloneStorage) GetPackfile(mac objects.MAC) (io.Reader, error) {
+func (r *RcloneStorage) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	return r.getFile(fmt.Sprintf("packfiles/%064x", mac))
 }
 
-func (r *RcloneStorage) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.Reader, error) {
+func limitReadCloser(r io.ReadCloser, n int64) io.ReadCloser {
+	return &limitedReadCloser{io.LimitReader(r, n), r}
+}
+
+type limitedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func (r *RcloneStorage) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
 	rd, err := r.getFile(fmt.Sprintf("packfiles/%064x", mac))
 	if err != nil {
 		return nil, err
@@ -309,30 +318,31 @@ func (r *RcloneStorage) GetPackfileBlob(mac objects.MAC, offset uint64, length u
 	if err != nil {
 		return nil, err
 	}
-	return io.LimitReader(rd, int64(length)), nil
+
+	return limitReadCloser(rd, int64(length)), nil
 }
 
-func (r *RcloneStorage) DeletePackfile(mac objects.MAC) error {
+func (r *RcloneStorage) DeletePackfile(ctx context.Context, mac objects.MAC) error {
 	return r.deleteFile(fmt.Sprintf("packfiles/%064x", mac))
 }
 
-func (r *RcloneStorage) GetLocks() ([]objects.MAC, error) {
+func (r *RcloneStorage) GetLocks(ctx context.Context) ([]objects.MAC, error) {
 	return r.getMacs("locks")
 }
 
-func (r *RcloneStorage) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
+func (r *RcloneStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
 	return r.putFile(fmt.Sprintf("locks/%064x", lockID), rd)
 }
 
-func (r *RcloneStorage) GetLock(lockID objects.MAC) (io.Reader, error) {
+func (r *RcloneStorage) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
 	return r.getFile(fmt.Sprintf("locks/%064x", lockID))
 }
 
-func (r *RcloneStorage) DeleteLock(lockID objects.MAC) error {
+func (r *RcloneStorage) DeleteLock(ctx context.Context, lockID objects.MAC) error {
 	return r.deleteFile(fmt.Sprintf("locks/%064x", lockID))
 }
 
-func (r *RcloneStorage) Close() error {
+func (r *RcloneStorage) Close(ctx context.Context) error {
 	utils.DeleteTempConf(r.confFile.Name())
 	librclone.Finalize()
 	return nil

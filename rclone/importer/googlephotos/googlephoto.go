@@ -1,18 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"context"
+	"fmt"
+	"github.com/PlakarKorp/integration-rclone/importer/rclone"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/importer"
+	"io"
 	"os"
 	stdpath "path"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"io"
-	"github.com/PlakarKorp/integration-rclone/importer/rclone"
 )
 
 type GooglePhotoImporter struct {
@@ -27,7 +27,7 @@ func NewGooglePhotoImporter(ctx context.Context, opts *importer.Options, name st
 	return &GooglePhotoImporter{RcloneImporter: imp.(*rclone.RcloneImporter)}, nil
 }
 
-func (p *GooglePhotoImporter) Scan() (<-chan *importer.ScanResult, error) {
+func (p *GooglePhotoImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
 	results := make(chan *importer.ScanResult, 1000)
 	var wg sync.WaitGroup
 

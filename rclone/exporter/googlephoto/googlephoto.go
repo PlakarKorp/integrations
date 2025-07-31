@@ -1,9 +1,9 @@
 package googlephoto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"context"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"io"
 	"net/http"
@@ -29,11 +29,11 @@ func NewGooglePhotoExporter(ctx context.Context, opts *exporter.Options, name st
 }
 
 // The operation mkdir is a no-op for Google Photos
-func (p *GooglePhotoExporter) CreateDirectory(pathname string) error {
+func (p *GooglePhotoExporter) CreateDirectory(ctx context.Context, pathname string) error {
 	return nil
 }
 
-func (p *GooglePhotoExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
+func (p *GooglePhotoExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
 	tmpFile, err := os.CreateTemp("", "tempfile-*.tmp")
 	if err != nil {
 		return err

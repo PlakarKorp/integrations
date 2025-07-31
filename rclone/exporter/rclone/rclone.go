@@ -19,7 +19,7 @@ import (
 )
 
 type RcloneExporter struct {
-	Typee   string
+	Typee    string
 	Base     string
 	confFile *os.File
 }
@@ -43,7 +43,7 @@ func NewRcloneExporter(ctx context.Context, opts *exporter.Options, name string,
 	librclone.Initialize()
 
 	return &RcloneExporter{
-		Typee:   typee,
+		Typee:    typee,
 		Base:     base,
 		confFile: file,
 	}, nil
@@ -64,11 +64,11 @@ func (p *RcloneExporter) GetPathInBackup(path string) string {
 	return stdpath.Clean(path)
 }
 
-func (p *RcloneExporter) Root() string {
-	return p.GetPathInBackup("")
+func (p *RcloneExporter) Root(ctx context.Context) (string, error) {
+	return p.GetPathInBackup(""), nil
 }
 
-func (p *RcloneExporter) CreateDirectory(pathname string) error {
+func (p *RcloneExporter) CreateDirectory(ctx context.Context, pathname string) error {
 	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
 
 	payload := map[string]string{
@@ -94,7 +94,7 @@ func (p *RcloneExporter) CreateDirectory(pathname string) error {
 // second file, it is possible that Google Drive doesn't see the root directory
 // yet, and creates a new one. This results in a duplicated root directory, with
 // some files in the first directory and the rest in the second.
-func (p *RcloneExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
+func (p *RcloneExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
 	tmpFile, err := os.CreateTemp("", "tempfile-*.tmp")
 	if err != nil {
 		return err
@@ -130,11 +130,11 @@ func (p *RcloneExporter) StoreFile(pathname string, fp io.Reader, size int64) er
 	return nil
 }
 
-func (p *RcloneExporter) SetPermissions(pathname string, fileinfo *objects.FileInfo) error {
+func (p *RcloneExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
 }
 
-func (p *RcloneExporter) Close() error {
+func (p *RcloneExporter) Close(ctx context.Context) error {
 	if p.confFile != nil {
 		utils.DeleteTempConf(p.confFile.Name())
 	}

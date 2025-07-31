@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/PlakarKorp/go-kloset-sdk"
 	"github.com/PlakarKorp/integration-rclone/importer/rclone"
-	"github.com/PlakarKorp/go-kloset-sdk/sdk"
 )
 
 func main() {

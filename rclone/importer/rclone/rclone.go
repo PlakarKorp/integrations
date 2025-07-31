@@ -1,13 +1,13 @@
 package rclone
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"context"
 	stdpath "path"
 	"strings"
 	"sync"
@@ -36,7 +36,7 @@ type Response struct {
 }
 
 type RcloneImporter struct {
-	Typee     string
+	Typee    string
 	Base     string
 	confFile *os.File
 
@@ -65,13 +65,13 @@ func NewRcloneImporter(ctx context.Context, opts *importer.Options, providerName
 	librclone.Initialize()
 
 	return &RcloneImporter{
-		Typee:	 typee,
+		Typee:    typee,
 		Base:     base,
 		confFile: file,
 	}, nil
 }
 
-func (p *RcloneImporter) Scan() (<-chan *importer.ScanResult, error) {
+func (p *RcloneImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
 	results := make(chan *importer.ScanResult, 1000)
 	var wg sync.WaitGroup
 
@@ -339,20 +339,20 @@ func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 	return &AutoremoveTmpFile{tmpFile}, nil
 }
 
-func (p *RcloneImporter) Close() error {
+func (p *RcloneImporter) Close(ctx context.Context) error {
 	utils.DeleteTempConf(p.confFile.Name())
 	librclone.Finalize()
 	return nil
 }
 
-func (p *RcloneImporter) Root() string {
-	return p.GetPathInBackup("")
+func (p *RcloneImporter) Root(ctx context.Context) (string, error) {
+	return p.GetPathInBackup(""), nil
 }
 
-func (p *RcloneImporter) Origin() string {
-	return p.Typee
+func (p *RcloneImporter) Origin(ctx context.Context) (string, error) {
+	return p.Typee, nil
 }
 
-func (p *RcloneImporter) Type() string {
-	return p.Typee
+func (p *RcloneImporter) Type(ctx context.Context) (string, error) {
+	return p.Typee, nil
 }
