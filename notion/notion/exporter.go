@@ -73,15 +73,15 @@ func NewNotionExporter(ctx context.Context, options *exporter.Options, name stri
 	}, nil
 }
 
-func (n *NotionExporter) Root() string {
-	return ""
+func (n *NotionExporter) Root(ctx context.Context) (string, error) {
+	return "", nil
 }
 
-func (n *NotionExporter) CreateDirectory(pathname string) error {
+func (n *NotionExporter) CreateDirectory(ctx context.Context, pathname string) error {
 	return os.MkdirAll(path.Join(tempDir, pathname), 0700)
 }
 
-func (n *NotionExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
+func (n *NotionExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
 	dest := path.Join(tempDir, pathname)
 	f, err := os.Create(dest)
 	defer f.Close()
@@ -98,11 +98,11 @@ func (n *NotionExporter) StoreFile(pathname string, fp io.Reader, size int64) er
 	return nil
 }
 
-func (n *NotionExporter) SetPermissions(pathname string, fileinfo *objects.FileInfo) error {
+func (n *NotionExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
 }
 
-func (n *NotionExporter) Close() error {
+func (n *NotionExporter) Close(ctx context.Context) error {
 	err := n.export()
 	if err != nil {
 		log.Printf("failed to close exporter %v", err)
