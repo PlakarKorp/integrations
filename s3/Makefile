@@ -8,4 +8,4 @@ build:
 	${GO} build -v -o s3Storage ./plugin/exporter
 
 clean:
-	rm -f s3Importer s3Exporter s3-*.ptar
+	rm -f s3Importer s3Exporter s3Storage s3-*.ptar
