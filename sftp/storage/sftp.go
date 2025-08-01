@@ -28,10 +28,10 @@ import (
 	"path"
 	"strings"
 
+	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/repository"
 	"github.com/PlakarKorp/kloset/storage"
-	plakarsftp "github.com/PlakarKorp/plakar/sftp"
 	"github.com/pkg/sftp"
 )
 

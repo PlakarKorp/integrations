@@ -14,7 +14,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := sdk.RunExporter(exporter.NewExporter); err != nil {
+	if err := sdk.RunExporter(exporter.NewSFTPExporter); err != nil {
 		panic(err)
 	}
 }

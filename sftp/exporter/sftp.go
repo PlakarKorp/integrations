@@ -22,9 +22,9 @@ import (
 	"net/url"
 	"os"
 
+	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
-	plakarsftp "github.com/PlakarKorp/plakar/sftp"
 	"github.com/pkg/sftp"
 )
 

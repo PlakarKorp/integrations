@@ -14,7 +14,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := sdk.RunImporter(importer.NewImporter); err != nil {
+	if err := sdk.RunImporter(importer.NewSFTPImporter); err != nil {
 		panic(err)
 	}
 }

@@ -20,8 +20,8 @@ import (
 	"context"
 	"net/url"
 
+	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
 	"github.com/PlakarKorp/kloset/snapshot/importer"
-	plakarsftp "github.com/PlakarKorp/plakar/sftp"
 	"github.com/pkg/sftp"
 )
 
