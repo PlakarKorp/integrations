@@ -15,7 +15,6 @@ import (
 )
 
 type gcsImporter struct {
-	ctx        context.Context
 	bucketName string
 	path       string
 	base       string
@@ -32,7 +31,6 @@ func NewImporter(ctx context.Context, _ *importer.Options, proto string, params 
 	}
 
 	return &gcsImporter{
-		ctx:        ctx,
 		bucketName: bucket,
 		path:       path,
 		base:       "/" + path,
@@ -40,8 +38,8 @@ func NewImporter(ctx context.Context, _ *importer.Options, proto string, params 
 	}, nil
 }
 
-func (g *gcsImporter) Scan() (<-chan *importer.ScanResult, error) {
-	client, err := storage.NewClient(g.ctx, g.opts...)
+func (g *gcsImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
+	client, err := storage.NewClient(ctx, g.opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a GCS client: %w", err)
 	}
@@ -50,7 +48,7 @@ func (g *gcsImporter) Scan() (<-chan *importer.ScanResult, error) {
 	g.bucket = client.Bucket(g.bucketName)
 
 	results := make(chan *importer.ScanResult, 1000)
-	go g.scan(results)
+	go g.scan(ctx, results)
 	return results, nil
 }
 
@@ -69,13 +67,13 @@ func (g *gcsImporter) mkparents(results chan<- *importer.ScanResult, p string) {
 	}
 }
 
-func (g *gcsImporter) scan(results chan<- *importer.ScanResult) {
+func (g *gcsImporter) scan(ctx context.Context, results chan<- *importer.ScanResult) {
 	defer close(results)
 
 	g.mkparents(results, g.base)
 
 	query := storage.Query{Prefix: g.path}
-	it := g.bucket.Objects(g.ctx, &query)
+	it := g.bucket.Objects(ctx, &query)
 	for {
 		obj, err := it.Next()
 		if err == iterator.Done {
@@ -99,17 +97,19 @@ func (g *gcsImporter) scan(results chan<- *importer.ScanResult) {
 		}
 
 		results <- importer.NewScanRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
-			return g.bucket.Object(obj.Name).NewReader(g.ctx)
+			return g.bucket.Object(obj.Name).NewReader(ctx)
 		})
 	}
 }
 
-func (g *gcsImporter) Location() string { return "gcs://" + path.Join(g.bucketName, g.path) }
-func (g *gcsImporter) Origin() string   { return g.bucketName }
-func (g *gcsImporter) Type() string     { return "gcs" }
-func (g *gcsImporter) Root() string     { return g.base }
+func (g *gcsImporter) Location(ctx context.Context) (string, error) {
+	return "gcs://" + path.Join(g.bucketName, g.path), nil
+}
+func (g *gcsImporter) Origin(ctx context.Context) (string, error) { return g.bucketName, nil }
+func (g *gcsImporter) Type(ctx context.Context) (string, error)   { return "gcs", nil }
+func (g *gcsImporter) Root(ctx context.Context) (string, error)   { return g.base, nil }
 
-func (g *gcsImporter) Close() error {
+func (g *gcsImporter) Close(ctx context.Context) error {
 	if g.client != nil {
 		return g.client.Close()
 	}

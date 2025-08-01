@@ -18,7 +18,6 @@ import (
 )
 
 type gcsStore struct {
-	ctx        context.Context
 	bucketName string
 	path       string
 	opts       []option.ClientOption
@@ -77,15 +76,14 @@ func NewStore(ctx context.Context, proto string, params map[string]string) (ksto
 	}
 
 	return &gcsStore{
-		ctx:        ctx,
 		bucketName: bucket,
 		path:       path,
 		opts:       opts,
 	}, nil
 }
 
-func (g *gcsStore) connect() error {
-	client, err := storage.NewClient(g.ctx, g.opts...)
+func (g *gcsStore) connect(ctx context.Context) error {
+	client, err := storage.NewClient(ctx, g.opts...)
 	if err != nil {
 		return err
 	}
@@ -97,9 +95,9 @@ func (g *gcsStore) connect() error {
 
 func (g *gcsStore) realpath(rel string) string { return path.Join(g.path, rel) }
 
-func (g *gcsStore) put(prefix string, mac objects.MAC, rd io.Reader) (int64, error) {
+func (g *gcsStore) put(ctx context.Context, prefix string, mac objects.MAC, rd io.Reader) (int64, error) {
 	name := fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
-	w := g.bucket.Object(g.realpath(name)).NewWriter(g.ctx)
+	w := g.bucket.Object(g.realpath(name)).NewWriter(ctx)
 
 	len, err := io.Copy(w, rd)
 	if err != nil {
@@ -114,12 +112,12 @@ func (g *gcsStore) put(prefix string, mac objects.MAC, rd io.Reader) (int64, err
 	return len, nil
 }
 
-func (g *gcsStore) getall(prefix string) (ret []objects.MAC, err error) {
+func (g *gcsStore) getall(ctx context.Context, prefix string) (ret []objects.MAC, err error) {
 	prefix = g.realpath(prefix)
 	l := len(prefix) + 4 // /%02x/
 
 	query := &storage.Query{Prefix: prefix}
-	it := g.bucket.Objects(g.ctx, query)
+	it := g.bucket.Objects(ctx, query)
 	for {
 		obj, err := it.Next()
 		if err == iterator.Done {
@@ -145,7 +143,7 @@ func (g *gcsStore) getall(prefix string) (ret []objects.MAC, err error) {
 }
 
 func (g *gcsStore) Create(ctx context.Context, config []byte) error {
-	if err := g.connect(); err != nil {
+	if err := g.connect(ctx); err != nil {
 		return err
 	}
 
@@ -164,7 +162,7 @@ func (g *gcsStore) Create(ctx context.Context, config []byte) error {
 }
 
 func (g *gcsStore) Open(ctx context.Context) ([]byte, error) {
-	if err := g.connect(); err != nil {
+	if err := g.connect(ctx); err != nil {
 		return nil, err
 	}
 
@@ -181,69 +179,75 @@ func (g *gcsStore) Open(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-func (g *gcsStore) Location() string    { return "gcs://" + path.Join(g.bucketName, g.path) }
-func (g *gcsStore) Mode() kstorage.Mode { return kstorage.ModeRead | kstorage.ModeWrite }
-func (g *gcsStore) Size() int64         { return -1 }
-
-func (g *gcsStore) GetStates() ([]objects.MAC, error) {
-	return g.getall("states")
+func (g *gcsStore) Location(ctx context.Context) (string, error) {
+	return "gcs://" + path.Join(g.bucketName, g.path), nil
 }
 
-func (g *gcsStore) PutState(mac objects.MAC, rd io.Reader) (int64, error) {
-	return g.put("locks", mac, rd)
+func (g *gcsStore) Mode(ctx context.Context) (kstorage.Mode, error) {
+	return kstorage.ModeRead | kstorage.ModeWrite, nil
 }
 
-func (g *gcsStore) GetState(mac objects.MAC) (io.ReadCloser, error) {
+func (g *gcsStore) Size(ctx context.Context) (int64, error) { return -1, nil }
+
+func (g *gcsStore) GetStates(ctx context.Context) ([]objects.MAC, error) {
+	return g.getall(ctx, "states")
+}
+
+func (g *gcsStore) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+	return g.put(ctx, "locks", mac, rd)
+}
+
+func (g *gcsStore) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("states/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
+	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
 }
 
-func (g *gcsStore) DeleteState(mac objects.MAC) error {
+func (g *gcsStore) DeleteState(ctx context.Context, mac objects.MAC) error {
 	name := fmt.Sprintf("states/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).Delete(g.ctx)
+	return g.bucket.Object(g.realpath(name)).Delete(ctx)
 }
 
-func (g *gcsStore) GetPackfiles() ([]objects.MAC, error) {
-	return g.getall("packfiles")
+func (g *gcsStore) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
+	return g.getall(ctx, "packfiles")
 }
 
-func (g *gcsStore) PutPackfile(mac objects.MAC, rd io.Reader) (int64, error) {
-	return g.put("packfiles", mac, rd)
+func (g *gcsStore) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+	return g.put(ctx, "packfiles", mac, rd)
 }
 
-func (g *gcsStore) GetPackfile(mac objects.MAC) (io.ReadCloser, error) {
+func (g *gcsStore) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
+	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
 }
 
-func (g *gcsStore) GetPackfileBlob(mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
+func (g *gcsStore) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
 	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewRangeReader(g.ctx, int64(offset), int64(length))
+	return g.bucket.Object(g.realpath(name)).NewRangeReader(ctx, int64(offset), int64(length))
 }
 
-func (g *gcsStore) DeletePackfile(mac objects.MAC) error {
+func (g *gcsStore) DeletePackfile(ctx context.Context, mac objects.MAC) error {
 	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).Delete(g.ctx)
+	return g.bucket.Object(g.realpath(name)).Delete(ctx)
 }
 
-func (g *gcsStore) GetLocks() ([]objects.MAC, error) {
-	return g.getall("locks")
+func (g *gcsStore) GetLocks(ctx context.Context) ([]objects.MAC, error) {
+	return g.getall(ctx, "locks")
 }
 
-func (g *gcsStore) PutLock(lockID objects.MAC, rd io.Reader) (int64, error) {
-	return g.put("locks", lockID, rd)
+func (g *gcsStore) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
+	return g.put(ctx, "locks", lockID, rd)
 }
 
-func (g *gcsStore) GetLock(lockID objects.MAC) (io.ReadCloser, error) {
+func (g *gcsStore) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
 	name := fmt.Sprintf("locks/%02x/%016x", lockID[0], lockID)
-	return g.bucket.Object(g.realpath(name)).NewReader(g.ctx)
+	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
 }
 
-func (g *gcsStore) DeleteLock(lockID objects.MAC) error {
+func (g *gcsStore) DeleteLock(ctx context.Context, lockID objects.MAC) error {
 	name := fmt.Sprintf("locks/%02x/%016x", lockID[0], lockID)
-	return g.bucket.Object(g.realpath(name)).Delete(g.ctx)
+	return g.bucket.Object(g.realpath(name)).Delete(ctx)
 }
 
-func (g *gcsStore) Close() error {
+func (g *gcsStore) Close(ctx context.Context) error {
 	return g.client.Close()
 }

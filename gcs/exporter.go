@@ -13,7 +13,6 @@ import (
 )
 
 type gcsExporter struct {
-	ctx        context.Context
 	bucketName string
 	path       string
 
@@ -33,7 +32,6 @@ func NewExporter(ctx context.Context, _ *exporter.Options, proto string, params 
 	}
 
 	return &gcsExporter{
-		ctx:        ctx,
 		bucketName: bucket,
 		path:       path,
 
@@ -44,23 +42,25 @@ func NewExporter(ctx context.Context, _ *exporter.Options, proto string, params 
 
 func (g *gcsExporter) realpath(rel string) string { return path.Join(g.path, rel) }
 
-func (g *gcsExporter) Root() string { return g.path }
+func (g *gcsExporter) Root(ctx context.Context) (string, error) { return g.path, nil }
 
-func (g *gcsExporter) CreateDirectory(pathname string) error { return nil }
+func (g *gcsExporter) CreateDirectory(ctx context.Context, pathname string) error { return nil }
 
-func (g *gcsExporter) StoreFile(pathname string, fp io.Reader, size int64) error {
+func (g *gcsExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
 	pathname = g.realpath(strings.TrimLeft(pathname, "/"))
 
-	w := g.bucket.Object(pathname).NewWriter(g.ctx)
+	w := g.bucket.Object(pathname).NewWriter(ctx)
 	if _, err := io.Copy(w, fp); err != nil {
 		return err
 	}
 	return w.Close()
 }
 
-func (g *gcsExporter) SetPermissions(pathname string, fileinfo *objects.FileInfo) error { return nil }
+func (g *gcsExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
+	return nil
+}
 
-func (g *gcsExporter) Close() error {
+func (g *gcsExporter) Close(ctx context.Context) error {
 	if g.client != nil {
 		return g.client.Close()
 	}
