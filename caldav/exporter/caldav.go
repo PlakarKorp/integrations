@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"golang.org/x/oauth2"
 	"io"
 	"io/ioutil"
 	"path"
 	"strings"
+
+	"golang.org/x/oauth2"
 
 	"github.com/PlakarKorp/integration-caldav/oauth2utils"
 	"github.com/PlakarKorp/kloset/objects"
@@ -115,6 +117,10 @@ func (c *CaldavExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 
 func (c *CaldavExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
+}
+
+func (c *CaldavExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
+	return errors.ErrUnsupported
 }
 
 func (c *CaldavExporter) Close(ctx context.Context) error {
