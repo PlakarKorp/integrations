@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -100,6 +101,10 @@ func (n *NotionExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 
 func (n *NotionExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
+}
+
+func (n *NotionExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
+	return errors.ErrUnsupported
 }
 
 func (n *NotionExporter) Close(ctx context.Context) error {
