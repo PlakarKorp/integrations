@@ -3,6 +3,7 @@ package exporter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -153,6 +154,10 @@ func (p *RcloneExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 
 func (p *RcloneExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
+}
+
+func (p *RcloneExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
+	return errors.ErrUnsupported
 }
 
 func (p *RcloneExporter) Close(ctx context.Context) error {
