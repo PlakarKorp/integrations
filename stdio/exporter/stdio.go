@@ -33,6 +33,11 @@ type StdioExporter struct {
 	w        io.Writer
 }
 
+func init() {
+	exporter.Register("stdout", 0, NewStdioExporter)
+	exporter.Register("stderr", 0, NewStdioExporter)
+}
+
 func NewStdioExporter(appCtx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	var w io.Writer
 
