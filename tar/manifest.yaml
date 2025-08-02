@@ -1,0 +1,9 @@
+name: tar
+description: tar backend
+version: 0.1.0-beta.1
+connectors:
+- type: importer
+  executable: tarImporter
+  homepage: https://github.com/PlakarKorp/integration-tar
+  license: ISC
+  protocols: [tar, tar+gzip]
