@@ -3,14 +3,14 @@ module github.com/PlakarKorp/integration-ftp
 go 1.24.4
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v0.1.0-devel.03f7be1
+	github.com/PlakarKorp/go-kloset-sdk v0.1.0-devel.3dcd81a
 	github.com/PlakarKorp/kloset v1.0.1-beta.4
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4
 )
 
 require (
 	github.com/DataDog/zstd v1.5.7 // indirect
-	github.com/PlakarKorp/plakar v1.0.3-devel.dc37b62 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/crlib v0.0.0-20250718215705-7ff5051265b9 // indirect
