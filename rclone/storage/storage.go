@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	stdpath "path"
+	"path"
 	"strings"
 
 	"github.com/PlakarKorp/integration-rclone/utils"
@@ -122,8 +122,8 @@ func (r *RcloneStorage) getFile(pathname string) (io.ReadSeekCloser, error) {
 		"srcFs":     fmt.Sprintf("%s:%s", r.Typee, r.Base),
 		"srcRemote": pathname,
 
-		"dstFs":     strings.TrimSuffix(name, "/"+stdpath.Base(name)),
-		"dstRemote": stdpath.Base(name),
+		"dstFs":     strings.TrimSuffix(name, "/"+path.Base(name)),
+		"dstRemote": path.Base(name),
 	}
 
 	jsonPayload, err := json.Marshal(payload)
@@ -164,12 +164,44 @@ func (r *RcloneStorage) deleteFile(pathname string) error {
 	return nil
 }
 
-func (r *RcloneStorage) Create(ctx context.Context, config []byte) error {
+func (r *RcloneStorage) ListFolder(pathname string) ([]string, error) {
+	payload := map[string]interface{}{
+		"fs":     fmt.Sprintf("%s:%s", r.Typee, r.Base),
+		"remote": pathname,
+	}
 
-	rd, err := r.getFile("CONFIG")
-	if err == nil {
-		rd.Close()
-		return fmt.Errorf("storage already exists at %s:%s", r.Typee, r.Base)
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	output, status := librclone.RPC("operations/list", string(jsonPayload))
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("failed to list directory: %s", output)
+	}
+
+	var response Response
+	err = json.Unmarshal([]byte(output), &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	var files []string
+	for _, file := range response.List {
+		files = append(files, file.Path)
+	}
+	return files, nil
+}
+
+func (r *RcloneStorage) Create(ctx context.Context, config []byte) error {
+	entries, err := r.ListFolder("")
+	if err != nil {
+		return fmt.Errorf("failed to list root folder: %w", err)
+	}
+	for _, entry := range entries {
+		if entry == "CONFIG" || entry == "states" || entry == "packfiles" || entry == "locks" {
+			return fmt.Errorf("storage %s already exists at %s:%s", entry, r.Typee, r.Base)
+		}
 	}
 
 	_, err = r.putFile("CONFIG", bytes.NewReader(config))
@@ -233,36 +265,16 @@ type Response struct {
 }
 
 func (r *RcloneStorage) getMacs(name string) ([]objects.MAC, error) {
-	payload := map[string]string{
-		"fs":     fmt.Sprintf("%s:%s", r.Typee, r.Base),
-		"remote": name,
-	}
-
-	jsonPayload, err := json.Marshal(payload)
+	entries, err := r.ListFolder(name)
 	if err != nil {
-		return nil, err
-	}
-
-	body, resp := librclone.RPC("operations/list", string(jsonPayload))
-	if resp != http.StatusOK {
-		return nil, fmt.Errorf("failed to list states: %s", body)
-	}
-
-	var response Response
-	err = json.Unmarshal([]byte(body), &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to list folder %s: %w", name, err)
 	}
 
 	var macs []objects.MAC
-	for _, file := range response.List {
-		if file.IsDir {
-			continue // Skip directories
-		}
-
-		mac, err := hex.DecodeString(file.Name)
+	for _, file := range entries {
+		mac, err := hex.DecodeString(path.Base(file))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create MAC from ID %s: %w", file.ID, err)
+			return nil, fmt.Errorf("failed to create MAC from ID %s: %w", file, err)
 		}
 
 		macs = append(macs, objects.MAC(mac))
