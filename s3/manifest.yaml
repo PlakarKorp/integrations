@@ -1,6 +1,10 @@
 name: s3
-description: s3 backend
-version: 0.1.0-beta.1
+display_name: S3
+description: Integration providing storage, import and export capabilities to and from/to buckets hosted on S3-compatible servers.
+homepage: https://github.com/PlakarKorp/integration-s3
+license: ISC
+api_version: 1.0.0
+version: 1.0.0
 connectors:
 - type: importer
   executable: s3Importer
