@@ -1,11 +1,11 @@
 module github.com/PlakarKorp/integration-gcs
 
-go 1.24.3
+go 1.23.4
 
 require (
 	cloud.google.com/go/storage v1.55.0
-	github.com/PlakarKorp/go-kloset-sdk v0.1.0-devel.03f7be1
-	github.com/PlakarKorp/kloset v1.0.1-beta.4
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.1
+	github.com/PlakarKorp/kloset v1.0.1-beta.5
 	google.golang.org/api v0.235.0
 )
 
@@ -21,7 +21,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.27.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
-	github.com/PlakarKorp/plakar v1.0.3-devel.dc37b62 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443 // indirect
@@ -84,8 +84,8 @@ require (
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250528174236-200df99c418a // indirect
+	google.golang.org/genproto v0.0.0-20250728155136-f173205681a0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250721164621-a45f3dfb1074 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250728155136-f173205681a0 // indirect
 	google.golang.org/grpc v1.74.2 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
