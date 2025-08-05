@@ -2,7 +2,7 @@
 
 ## Overview
 
-IMAP (Internet Message Access Protocol) is a standard email protocol used by mail clients to retrieve messages from a mail server over a TCP/IP connection.
+**IMAP (Internet Message Access Protocol)** is a standard email protocol used by mail clients to retrieve messages from a mail server over a TCP/IP connection.
 It is widely adopted for managing and accessing email stored on remote servers.
 
 This integration allows:
