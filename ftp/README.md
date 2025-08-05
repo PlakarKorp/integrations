@@ -6,9 +6,12 @@
 
 This integrations allows:
 
-- Seamless backup of files hosted on FTP servers into a Kloset repository
-- Direct restoration of snapshots to remote FTP destinations
-- Compatibility with legacy systems and tools that use FTP
+- **Seamless backup of files hosted on FTP servers into a Kloset repository:**
+Capture and store entire directories over FTP.
+- **Direct restoration of snapshots to remote FTP destinations:**
+Restore previously backed-up snapshots directly to any compatible FTP destination, maintaining folder structure and message integrity.
+- **Compatibility with legacy systems and tools that use FTP:**
+Ensures support for a wide range of FTP providers and servers, including self-hosted and enterprise environments.
 
 
 ## Configuration
@@ -18,6 +21,7 @@ The configuration parameters are as follow:
 - `location` (required): The URL of the FTP server in the form ftp://&lt;host&gt;[:&lt;port&gt;]
 - `username` (optional): The username to authenticate as (defaults to anonymous)
 - `password` (optional): The password to authenticate with (defaults to anonymous)
+
 
 ## Examples
 
