@@ -3,8 +3,8 @@ module github.com/PlakarKorp/integration-ftp
 go 1.23.4
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v0.1.0-devel.3dcd81a
-	github.com/PlakarKorp/kloset v1.0.1-beta.4
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.1
+	github.com/PlakarKorp/kloset v1.0.1-beta.5
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4
 )
 
