@@ -1,9 +1,10 @@
 name: http
-description: http backend
-version: 0.1.0-beta.1
+display_name: HTTP(S)
+description: Integration providing storage capabilities to HTTP(S) servers.
+version: v1.0.0-beta.1
 connectors:
 - type: storage
   executable: httpStorage
   homepage: https://github.com/PlakarKorp/integration-http
   license: ISC
-  protocols: [http]
+  protocols: [http, https]
