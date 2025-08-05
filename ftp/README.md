@@ -1,6 +1,6 @@
 # FTP Integration
 
-## What is FTP?
+## Overview
 
 **FTP (File Transfer Protocol)** is a standard network protocol used to transfer files between a client and server over a TCP/IP connection. It’s widely used for accessing and managing files on remote servers.
 
@@ -11,28 +11,6 @@ This integrations allows:
 - Compatibility with legacy systems and tools that use FTP
 
 
-## Installation
-
-If a pre-built package exists for your system and architecture,
-you can simply install it using:
-
-```sh
-$ plakar pkg add ftp
-```
-
-Otherwise,
-you can first build it:
-
-```sh
-$ plakar pkg build ftp
-```
-
-This should produce `ftp-vX.Y.Z.ptar` that can be installed with:
-
-```bash
-$ plakar pkg add ./ftp-v0.1.0.ptar
-```
-
 ## Configuration
 
 The configuration parameters are as follow:
@@ -41,7 +19,7 @@ The configuration parameters are as follow:
 - `username` (optional): The username to authenticate as (defaults to anonymous)
 - `password` (optional): The password to authenticate with (defaults to anonymous)
 
-## Example Usage
+## Examples
 
 ```bash
 # configure an FTP source
