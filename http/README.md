@@ -4,7 +4,6 @@
 
 **HTTP(S)** is a ubiquitous, protocol-agnostic transport layer for accessing content over the web.
 This integration allows a Kloset repository to be backed by a remote HTTP-based object store or content endpoint that exposes read/write operations over standard HTTP(S).
-
 This integration allows:
 
 * **Storing a Kloset repository on an HTTP-accessible storage endpoint:**
@@ -17,25 +16,19 @@ This integration allows:
 * **Compatibility with custom cloud gateways and CDN-backed object layers:**
   Useful in advanced setups involving reverse proxies, serverless gateways, or content distribution networks exposing HTTP-backed object storage.
 
-
----
-
 ## Configuration
 
-No configuration is exposed for this integration.
+The configuration parameters are as follow:
+- `location` (required): The URL of the HTTP endpoint (e.g., http://example.com/data)
 
-
----
+> **Note:** The location can be write directly in the command, with `http://` or `https://` prefix.
 
 ## Examples
 
-```sh
-# create a repository on a remote HTTP server
-$ plakar at http://storage.example.com/ create
+```bash
+# create the kloset store
+$ plakar at http://example.com/data create
 
-# back up a local directory to the HTTP-backed repository
-$ plakar at http://storage.example.com/ backup /etc
-
-# list snapshots in the repository
-$ plakar at http://storage.example.com/ ls
+# backup in the store
+$ plakar at http://example.com/data backup /tmp
 ```
