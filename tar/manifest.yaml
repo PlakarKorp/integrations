@@ -1,6 +1,7 @@
 name: tar
-description: tar backend
-version: 0.1.0-beta.1
+display_name: TAR (Tape ARchive)
+description: Integration providing import capabilities from TAR archives.
+version: v1.0.0-beta.1
 connectors:
 - type: importer
   executable: tarImporter
