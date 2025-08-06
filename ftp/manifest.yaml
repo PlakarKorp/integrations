@@ -1,4 +1,5 @@
-name: FTP
+name: ftp
+display_name: FTP
 description: Integration providing import and export capabilities for FTP servers.
 version: v0.1.0
 connectors:
