@@ -1,6 +1,6 @@
-name: imap
-description: imap backend
-version: 0.1.0
+name: IMAP
+description: Integration providing import and export capabilities for IMAP accounts.
+version: v1.0.0-rc1
 connectors:
 - type: importer
   executable: imapImporter
