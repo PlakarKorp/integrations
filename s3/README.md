@@ -16,27 +16,37 @@ This integration allows:
 * **Compatibility with modern cloud-native workflows and tools:**
   Integrates with AWS environments, serverless pipelines, and hybrid cloud architectures, supporting use cases like disaster recovery, data archiving, and cross-region backups.
 
----
-
 ## Configuration
 
-The supported configuration options are:
+The configuration parameters are as follow:
 
-* `access_key_id`: AWS access key ID
-* `secret_access_key`: AWS secret access key
-* `use_tls` (default: true): disable TLS support, useful for local instances such as Minio.
+- `location` (required): The path to the location in the bucket where data will be taken, resotred, or stored (e.g., `s3://my-bucket/path/to/data`)
+- `bucket` (required): The name of the S3 bucket
+- `access_key` (required): AWS access key ID
+- `use_tls` (required): Whether to use TLS for secure connections (It has to be set to `true~`)
+- `secret_access_key` (required): AWS secret access key
 
----
+For S3-compatible storage providers, you may also need to specify:
+- `storage_class` (required): The storage class to use (e.g., `STANDARD`, `GLACIER`)
 
 ## Examples
 
-```sh
-# back up a bucket
-$ plakar backup s3://bucket_name
+```bash
+# Configure an S3 source
+$ plakar source add myS3src s3://my-bucket access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
 
-# restore the snapshot "abc" to a bucket
-$ plakar restore -to s3://bucket_name abc
+# Backup the source
+$ plakar at /tmp/example backup @myS3src
 
-# create a kloset repository to store your backups on a bucket
-$ plakar at s3://bucket_name create
-```
+# Configure an S3 destination
+$ plakar destination add myS3dst s3://my-bucket/restore access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
+
+# Restore the snapshot to the destination
+$ plakar at /tmp/example restore -to @myS3dst <snapid>
+
+# Configure an S3 store
+$ plakar store add myS3store s3://my-bucket/store access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true storage_class=STANDARD
+
+# Create the store
+$ plakar at @myS3store create
+``` 
