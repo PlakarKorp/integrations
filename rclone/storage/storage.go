@@ -33,6 +33,8 @@ func NewRcloneStorage(ctx context.Context, name string, config map[string]string
 		return nil, fmt.Errorf("invalid location: %s. Expected format: location: <provider>://", config["location"])
 	}
 
+	utils.CleanPlakarRcloneConf(config)
+
 	typee, found := config["type"]
 	if !found {
 		return nil, fmt.Errorf("missing type in configuration for %s", name)

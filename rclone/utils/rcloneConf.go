@@ -2,9 +2,22 @@ package utils
 
 import (
 	"fmt"
-	"github.com/rclone/rclone/fs/config"
 	"os"
+	"strings"
+
+	"github.com/rclone/rclone/fs/config"
 )
+
+func CleanPlakarRcloneConf(configMap map[string]string) {
+	delete(configMap, "location")
+	for k, v := range configMap {
+		if strings.HasPrefix(k, "rclone_") {
+			newKey := strings.TrimPrefix(k, "rclone_")
+			configMap[newKey] = v
+			delete(configMap, k)
+		}
+	}
+}
 
 func WriteRcloneConfigFile(name string, remoteMap map[string]string) (*os.File, error) {
 	file, err := createTempConf()

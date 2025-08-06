@@ -65,6 +65,8 @@ func NewRcloneImporter(ctx context.Context, opts *importer.Options, providerName
 		return nil, fmt.Errorf("invalid location: %s. Expected format: location: <provider>://", config["location"])
 	}
 
+	utils.CleanPlakarRcloneConf(config)
+
 	typee, found := config["type"]
 	if !found {
 		return nil, fmt.Errorf("missing type in configuration")
