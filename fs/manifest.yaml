@@ -1,6 +1,6 @@
 name: fis
 description: file storage but as external plugin
-version: 1.0.0
+version: v1.0.0
 connectors:
 - type: importer
   executable: fs-importer
