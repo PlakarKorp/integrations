@@ -1,6 +1,6 @@
 # Rclone Integration
 
-## What is Rclone?
+## Overview
 
 **Rclone** is a command-line program to manage files on cloud storage. It supports a wide range of cloud providers (Google Drive, OneDrive, Dropbox, iCloud Drive, and more) and allows seamless transfer, backup, and synchronization of files.
 
@@ -64,7 +64,7 @@ Plakar supports the following Rclone providers for backup and restore operations
 
 > *Note:* iCloud Drive support excludes iCloud Photos at this time.
 
-## Example Usage
+## Examples
 
 The following commands illustrate how to use the integration Rclone with Plakar for backup, restore and store:
 
@@ -106,16 +106,3 @@ $ rclone config show | plakar store import myCloudProv
 $ plakar @myCloudProv create
 ```
 >*Note:* This kloset repository can be used to store files, snapshots, and other data directly in the cloud provider, like a classic kloset.
-
-## Tips
-
-- Ensure your Rclone remote is correctly configured and authenticated before use.
-- Keep your tokens and credentials secure.
-- Plakar currently supports a subset of Rclone’s providers. More will be added upon demand.
-
-## Feedback
-
-Encounter an issue or want a new provider supported? Please:
-
-- [Open an issue on GitHub](https://github.com/PlakarKorp/plakar/issues/new?title=Rclone%20integration%20issue)
-- Join our [Discord community](https://discord.gg/uuegtnF2Q5) to discuss and get real-time help.
