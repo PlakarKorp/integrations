@@ -1,7 +1,7 @@
 
 # CalDAV Integration
 
-## What is CalDAV?
+## Overview
 
 **CalDAV** is a standard protocol for accessing and managing calendar data on a remote server.
 It allows clients to read, write, and sync calendar events using HTTP-based requests. CalDAV is supported by many calendar providers, including Nextcloud, Fastmail, Google, and Apple.
@@ -31,9 +31,6 @@ For providers that require OAuth2 (e.g. Google, Microsoft, Apple), you must also
 - `service_scope`: Provider-specific OAuth2 scope
 
 These values must be set in the plugin configuration when adding the source or destination.
-
-
---- 
 
 ## Examples
 
