@@ -15,15 +15,13 @@ This integration allows:
 * **Compatibility with filesystem-based tools and version control:**
   SQLite repositories can be checked into version control, duplicated, archived, or copied across systems easily.
 
----
-
 ## Configuration
 
-The supported configuration options are:
+The configuration parameters are as follow:
 
-* `location`: full path to the SQLite database file (e.g., `sqlite:/home/user/backup.db`)
+- `location`: full path to the SQLite database file (e.g., `sqlite:/home/user/backup.db`)
 
----
+> **Note:** The location can be write directly in the command, with `sqlite://` prefix. No need to add it in the configuration.
 
 ## Examples
 
