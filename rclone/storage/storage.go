@@ -28,7 +28,7 @@ type RcloneStorage struct {
 }
 
 func NewRcloneStorage(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
-	location, base, found := strings.Cut(config["location"], ":")
+	location, base, found := strings.Cut(config["location"], "://")
 	if !found {
 		return nil, fmt.Errorf("invalid location: %s. Expected format: location: <provider>://", config["location"])
 	}
@@ -246,7 +246,7 @@ func (r *RcloneStorage) Open(ctx context.Context) ([]byte, error) {
 }
 
 func (r *RcloneStorage) Location(ctx context.Context) (string, error) {
-	return r.location, nil
+	return r.location + "+" + r.Typee + "://" + r.Base, nil
 }
 
 func (r *RcloneStorage) Mode(ctx context.Context) (storage.Mode, error) {
