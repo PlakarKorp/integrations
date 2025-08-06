@@ -1,7 +1,7 @@
 name: caldav
 display_name: CalDAV
 description: Integration providing import and export capabilities to CalDAV servers.
-version: 1.0.0
+version: v1.0.0
 connectors:
   - type: importer
     executable: importer-caldav
