@@ -84,3 +84,29 @@ func GetOAuth2Endpoint(provider string) (oauth2.Endpoint, error) {
 		return oauth2.Endpoint{}, fmt.Errorf("unknown provider: %s", provider)
 	}
 }
+
+func GetOAuth2Scopes(provider string) ([]string, error) {
+	switch provider {
+	case "google":
+		return []string{"https://www.googleapis.com/auth/calendar"}, nil
+	//case "microsoft": //TODO: test it
+	//	return []string{"https://graph.microsoft.com/Calendars.ReadWrite"}, nil
+	//case "apple": //TODO: test it
+	//	return []string{"https://p12.plakar.app/calendars.readwrite"}, nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", provider)
+	}
+}
+
+func GetOAuth2Url(provider, username string) string {
+	switch provider {
+	case "google":
+		return fmt.Sprintf("https://apidata.googleusercontent.com/caldav/v2/%s/events", username)
+	//case "microsoft": //TODO: test it
+	//	return fmt.Sprintf("https://graph.microsoft.com/v1.0/users/%s/calendars", username)
+	//case "apple": //TODO: test it
+	//	return fmt.Sprintf("https://p12.plakar.app/calendars/%s/events", username)
+	default:
+		return ""
+	}
+}

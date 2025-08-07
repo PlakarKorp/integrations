@@ -28,7 +28,6 @@ For providers that require OAuth2 (e.g. Google, Microsoft, Apple), you must also
 - `name`: The provider name (e.g. google, microsoft, apple)
 - `client_id`: Your OAuth2 client ID
 - `client_secret`: Your OAuth2 client secret
-- `service_scope`: Provider-specific OAuth2 scope
 
 These values must be set in the plugin configuration when adding the source or destination.
 
