@@ -18,34 +18,33 @@ This integration allows:
 
 ## Configuration
 
-The configuration parameters are as follow:
+The configuration parameters are as follows:
 
-- `location` (required): The path to the location in the bucket where data will be taken, resotred, or stored (e.g., `s3://my-bucket/path/to/data`)
-- `bucket` (required): The name of the S3 bucket
+- `location` (required): The path to the location in the bucket where data will be taken, restored, or stored (e.g., `s3://my-bucket/path/to/data`)
 - `access_key` (required): AWS access key ID
-- `use_tls` (required): Whether to use TLS for secure connections (It has to be set to `true~`)
+- `use_tls` (required): Whether to use TLS for secure connections (must be set to `true`)
 - `secret_access_key` (required): AWS secret access key
 
 For S3-compatible storage providers, you may also need to specify:
-- `storage_class` (required): The storage class to use (e.g., `STANDARD`, `GLACIER`)
+- `storage_class`: The storage class to use (e.g., `STANDARD`, `GLACIER`)
 
 ## Examples
 
 ```bash
 # Configure an S3 source
-$ plakar source add myS3src s3://my-bucket access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
+$ plakar source add myS3src s3://s3.us-east-1.amazonaws.com/mybucket access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
 
 # Backup the source
 $ plakar at /tmp/example backup @myS3src
 
 # Configure an S3 destination
-$ plakar destination add myS3dst s3://my-bucket/restore access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
+$ plakar destination add myS3dst s3://s3.us-east-1.amazonaws.com/mybucketdst access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true
 
 # Restore the snapshot to the destination
 $ plakar at /tmp/example restore -to @myS3dst <snapid>
 
 # Configure an S3 store
-$ plakar store add myS3store s3://my-bucket/store access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true storage_class=STANDARD
+$ plakar store add myS3store s3://s3.us-east-1.amazonaws.com/mystore access_key=YOUR_ACCESS_KEY secret_access_key=YOUR_SECRET_KEY use_tls=true storage_class=STANDARD
 
 # Create the store
 $ plakar at @myS3store create
