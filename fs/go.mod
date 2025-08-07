@@ -3,8 +3,8 @@ module github.com/PlakarKorp/integration-fs
 go 1.23.4
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.1
-	github.com/PlakarKorp/kloset v1.0.1-beta.5
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.2
+	github.com/PlakarKorp/kloset v1.0.1
 	github.com/pkg/xattr v0.4.12
 )
 
@@ -46,6 +46,7 @@ require (
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
+	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
