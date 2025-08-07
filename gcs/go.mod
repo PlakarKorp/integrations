@@ -4,8 +4,8 @@ go 1.23.4
 
 require (
 	cloud.google.com/go/storage v1.55.0
-	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.1
-	github.com/PlakarKorp/kloset v1.0.1-beta.5
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0-beta.2
+	github.com/PlakarKorp/kloset v1.0.1
 	google.golang.org/api v0.235.0
 )
 
@@ -78,6 +78,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
+	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
