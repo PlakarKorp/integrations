@@ -1,10 +1,10 @@
 name: sqlite
 display_name: SQLite
+homepage: https://github.com/PlakarKorp/integration-sqlite
+license: ISC
 description: Integration providing storage capabilities to SQLite databases.
 version: v1.0.0
 connectors:
 - type: storage
   executable: sqliteStorage
-  homepage: https://github.com/PlakarKorp/integration-sqlite
-  license: ISC
   protocols: [sqlite]
