@@ -193,7 +193,6 @@ func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reade
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutState stream: %w", err)
 	}
-	defer stream.CloseSend()
 
 	err = stream.Send(&grpc_storage.PutStateRequest{
 		Mac: toGrpcMAC(mac),
@@ -202,11 +201,19 @@ func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reade
 		return 0, fmt.Errorf("failed to send MAC: %w", err)
 	}
 
-	return SendChunks(io.NopCloser(rd), func(chunk []byte) error {
+	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
 		return stream.Send(&grpc_storage.PutStateRequest{
 			Chunk: chunk,
 		})
 	})
+	if err != nil {
+		return n, err
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return n, err
+	}
+	return resp.BytesWritten, nil
 }
 
 func (s *GrpcStorage) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
@@ -257,7 +264,6 @@ func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Re
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutPackfile stream: %w", err)
 	}
-	defer stream.CloseSend()
 
 	err = stream.Send(&grpc_storage.PutPackfileRequest{
 		Mac: toGrpcMAC(mac),
@@ -266,11 +272,19 @@ func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Re
 		return 0, fmt.Errorf("failed to send MAC: %w", err)
 	}
 
-	return SendChunks(io.NopCloser(rd), func(chunk []byte) error {
+	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
 		return stream.Send(&grpc_storage.PutPackfileRequest{
 			Chunk: chunk,
 		})
 	})
+	if err != nil {
+		return n, err
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return n, err
+	}
+	return resp.BytesWritten, nil
 }
 
 func (s *GrpcStorage) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
@@ -340,7 +354,6 @@ func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Rea
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutLock stream: %w", err)
 	}
-	defer stream.CloseSend()
 
 	err = stream.Send(&grpc_storage.PutLockRequest{
 		Mac: toGrpcMAC(lockID),
@@ -349,11 +362,19 @@ func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Rea
 		return 0, fmt.Errorf("failed to send MAC: %w", err)
 	}
 
-	return SendChunks(io.NopCloser(rd), func(chunk []byte) error {
+	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
 		return stream.Send(&grpc_storage.PutLockRequest{
 			Chunk: chunk,
 		})
 	})
+	if err != nil {
+		return n, err
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return n, err
+	}
+	return resp.BytesWritten, nil
 }
 
 func (s *GrpcStorage) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
