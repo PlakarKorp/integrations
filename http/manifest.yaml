@@ -1,7 +1,7 @@
 name: http
 display_name: HTTP(S)
 description: Integration providing storage capabilities to HTTP(S) servers.
-version: v1.0.0-beta.1
+version: v1.0.0
 connectors:
 - type: storage
   executable: httpStorage
