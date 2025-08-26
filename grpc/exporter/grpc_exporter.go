@@ -4,9 +4,9 @@ import (
 	"context"
 	"io"
 
-	"github.com/PlakarKorp/go-kloset-contracts/exporter"
-	"github.com/PlakarKorp/go-kloset-contracts/objects"
 	grpc_exporter "github.com/PlakarKorp/integration-grpc/exporter/pkg"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"google.golang.org/grpc"
 
 	// google being google I guess.  No idea why this is actually

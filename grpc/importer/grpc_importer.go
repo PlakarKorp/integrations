@@ -7,8 +7,8 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/PlakarKorp/go-kloset-contracts/importer"
-	"github.com/PlakarKorp/go-kloset-contracts/objects"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"google.golang.org/grpc"
 
 	grpc_importer_pkg "github.com/PlakarKorp/integration-grpc/importer/pkg"

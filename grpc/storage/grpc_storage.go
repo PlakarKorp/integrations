@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/PlakarKorp/go-kloset-contracts/objects"
-	"github.com/PlakarKorp/go-kloset-contracts/storage"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/storage"
 	"google.golang.org/grpc"
 
 	grpc_storage "github.com/PlakarKorp/integration-grpc/storage/pkg"
