@@ -18,6 +18,7 @@ package importer
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ import (
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(jobs <-chan string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
@@ -44,7 +45,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan string, results chan<- *importer
 			if !ok {
 				return
 			}
-		case <-f.ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 

@@ -1,1 +1,3 @@
-integration-fs
+/fs-exporter
+/fs-importer
+/fs-storage

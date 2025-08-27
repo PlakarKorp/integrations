@@ -32,7 +32,6 @@ import (
 )
 
 type FSImporter struct {
-	ctx      context.Context
 	opts     *importer.Options
 	rootDir  string
 	realpath string
@@ -51,7 +50,7 @@ func init() {
 
 func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := config["location"]
-	rootDir := strings.TrimPrefix(location, "fs://")
+	rootDir := strings.TrimPrefix(location, name+"://")
 
 	if !filepath.IsAbs(rootDir) {
 		return nil, fmt.Errorf("not an absolute path %s", location)
@@ -67,7 +66,6 @@ func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, 
 	}
 
 	return &FSImporter{
-		ctx:       appCtx,
 		opts:      opts,
 		rootDir:   rootDir,
 		realpath:  realpath,
@@ -88,16 +86,16 @@ func (p *FSImporter) Type(ctx context.Context) (string, error) {
 
 func (p *FSImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
 	results := make(chan *importer.ScanResult, 1000)
-	go p.walkDir_walker(results, 256)
+	go p.walkDir_walker(ctx, results, 256)
 	return results, nil
 }
 
-func (f *FSImporter) walkDir_walker(results chan<- *importer.ScanResult, numWorkers int) {
+func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importer.ScanResult, numWorkers int) {
 	jobs := make(chan string, 1000) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
 		wg.Add(1)
-		go f.walkDir_worker(jobs, results, &wg)
+		go f.walkDir_worker(ctx, jobs, results, &wg)
 	}
 
 	// Add prefix directories first
@@ -108,7 +106,7 @@ func (f *FSImporter) walkDir_walker(results chan<- *importer.ScanResult, numWork
 	}
 
 	err := filepath.WalkDir(f.realpath, func(path string, d fs.DirEntry, err error) error {
-		if f.ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return err
 		}
 
