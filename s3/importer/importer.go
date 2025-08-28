@@ -48,13 +48,23 @@ func init() {
 	importer.Register("s3", 0, NewS3Importer)
 }
 
-func connect(location *url.URL, useSsl bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
+func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
 	endpoint := location.Host
+
+	transport, err := minio.DefaultTransport(useSsl)
+	if err != nil {
+		return nil, err
+	}
+
+	if insecure {
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
 
 	// Initialize minio client object.
 	return minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSsl,
+		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure:    useSsl,
+		Transport: transport,
 	})
 }
 
@@ -84,12 +94,21 @@ func NewS3Importer(ctx context.Context, opts *importer.Options, name string, con
 		useSsl = tmp
 	}
 
+	insecure := false
+	if value, ok := config["tls_insecure_no_verify"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+		}
+		insecure = tmp
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := connect(parsed, useSsl, accessKey, secretAccessKey)
+	conn, err := connect(parsed, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
