@@ -43,6 +43,7 @@ type Store struct {
 	prefixDir   string
 
 	useSsl          bool
+	insecure        bool
 	accessKey       string
 	secretAccessKey string
 
@@ -81,6 +82,15 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		useSsl = tmp
 	}
 
+	insecure := false
+	if value, ok := storeConfig["tls_insecure_no_verify"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+		}
+		insecure = tmp
+	}
+
 	storageClass := "STANDARD"
 	if value, ok := storeConfig["storage_class"]; ok {
 		storageClass = strings.ToUpper(value)
@@ -94,6 +104,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		accessKey:       accessKey,
 		secretAccessKey: secretAccessKey,
 		useSsl:          useSsl,
+		insecure:        insecure,
 		storageClass:    storageClass,
 
 		bufPool: sync.Pool{
@@ -123,11 +134,22 @@ func (s *Store) realpath(path string) string {
 func (s *Store) connect(location *url.URL) error {
 	endpoint := location.Host
 	useSSL := s.useSsl
+	insecure := s.insecure
+
+	transport, err := minio.DefaultTransport(useSSL)
+	if err != nil {
+		return err
+	}
+
+	if insecure {
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(s.accessKey, s.secretAccessKey, ""),
-		Secure: useSSL,
+		Creds:     credentials.NewStaticV4(s.accessKey, s.secretAccessKey, ""),
+		Secure:    useSSL,
+		Transport: transport,
 	})
 	if err != nil {
 		return fmt.Errorf("create minio client: %w", err)

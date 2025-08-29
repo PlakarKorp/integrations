@@ -22,7 +22,8 @@ The configuration parameters are as follows:
 
 - `location` (required): The path to the location in the bucket where data will be taken, restored, or stored (e.g., `s3://my-bucket/path/to/data`)
 - `access_key` (required): AWS access key ID
-- `use_tls` (required): Whether to use TLS for secure connections (must be set to `true`)
+- `use_tls` (optional): Whether to use TLS for secure connections (defaults to `true`)
+- `tls_insecure_no_verify` (optional): If set to `true`, disables certificate verification (defaults to `false`)
 - `secret_access_key` (required): AWS secret access key
 
 For S3-compatible storage providers, you may also need to specify:
