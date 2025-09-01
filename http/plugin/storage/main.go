@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) != 1 {
-		fmt.Printf("Usage: %s\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s\n", os.Args[0])
 		os.Exit(1)
 	}
 
