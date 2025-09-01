@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/storage"
@@ -32,7 +34,7 @@ import (
 type Store struct {
 	config     storage.Configuration
 	Repository string
-	location   string
+	location   *url.URL
 }
 
 func init() {
@@ -41,27 +43,34 @@ func init() {
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+	location, err := url.Parse(storeConfig["location"])
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL %q: %w", storeConfig["location"], err)
+	}
+
 	return &Store{
-		location: storeConfig["location"],
+		location: location,
 	}, nil
 }
 
 func (s *Store) Location(ctx context.Context) (string, error) {
-	return s.location, nil
+	return s.location.String(), nil
 }
 
-func (s *Store) sendRequest(method string, requestType string, payload interface{}) (*http.Response, error) {
+func (s *Store) sendRequest(method string, requestType string, payload any) (*http.Response, error) {
 	requestBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(method, s.location+requestType, bytes.NewBuffer(requestBody))
+
+	u := *s.location
+	u.Path = path.Join(u.Path, requestType)
+	req, err := http.NewRequest(method, u.String(), bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	return client.Do(req)
+	return http.DefaultClient.Do(req)
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
@@ -69,10 +78,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	s.Repository = s.location
-	r, err := s.sendRequest("GET", "/", network.ReqOpen{
-		Repository: "",
-	})
+	r, err := s.sendRequest("GET", "/", network.ReqOpen{})
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +120,7 @@ func (s *Store) GetStates(ctx context.Context) ([]objects.MAC, error) {
 		return nil, fmt.Errorf("%s", resGetStates.Err)
 	}
 
-	ret := make([]objects.MAC, len(resGetStates.MACs))
-	for i, MAC := range resGetStates.MACs {
-		ret[i] = MAC
-	}
-	return ret, nil
+	return resGetStates.MACs, nil
 }
 
 func (s *Store) PutState(ctx context.Context, MAC objects.MAC, rd io.Reader) (int64, error) {
@@ -196,11 +198,7 @@ func (s *Store) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
 		return nil, fmt.Errorf("%s", resGetPackfiles.Err)
 	}
 
-	ret := make([]objects.MAC, len(resGetPackfiles.MACs))
-	for i, MAC := range resGetPackfiles.MACs {
-		ret[i] = MAC
-	}
-	return ret, nil
+	return resGetPackfiles.MACs, nil
 }
 
 func (s *Store) PutPackfile(ctx context.Context, MAC objects.MAC, rd io.Reader) (int64, error) {
