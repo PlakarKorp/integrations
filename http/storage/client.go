@@ -57,7 +57,7 @@ func (s *Store) Location(ctx context.Context) (string, error) {
 	return s.location.String(), nil
 }
 
-func (s *Store) sendRequest(method string, requestType string, payload interface{}) (*http.Response, error) {
+func (s *Store) sendRequest(method string, requestType string, payload any) (*http.Response, error) {
 	requestBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -70,8 +70,7 @@ func (s *Store) sendRequest(method string, requestType string, payload interface
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-	return client.Do(req)
+	return http.DefaultClient.Do(req)
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
@@ -121,11 +120,7 @@ func (s *Store) GetStates(ctx context.Context) ([]objects.MAC, error) {
 		return nil, fmt.Errorf("%s", resGetStates.Err)
 	}
 
-	ret := make([]objects.MAC, len(resGetStates.MACs))
-	for i, MAC := range resGetStates.MACs {
-		ret[i] = MAC
-	}
-	return ret, nil
+	return resGetStates.MACs, nil
 }
 
 func (s *Store) PutState(ctx context.Context, MAC objects.MAC, rd io.Reader) (int64, error) {
@@ -203,11 +198,7 @@ func (s *Store) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
 		return nil, fmt.Errorf("%s", resGetPackfiles.Err)
 	}
 
-	ret := make([]objects.MAC, len(resGetPackfiles.MACs))
-	for i, MAC := range resGetPackfiles.MACs {
-		ret[i] = MAC
-	}
-	return ret, nil
+	return resGetPackfiles.MACs, nil
 }
 
 func (s *Store) PutPackfile(ctx context.Context, MAC objects.MAC, rd io.Reader) (int64, error) {
