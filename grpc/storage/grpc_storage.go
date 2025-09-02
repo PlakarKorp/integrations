@@ -117,8 +117,8 @@ func SendChunks(rd io.Reader, chunkSendFn func(chunk []byte) error) (int64, erro
 	for {
 		n, err := rd.Read(buffer)
 		if n > 0 {
-			if sendErr := chunkSendFn(buffer[:n]); sendErr != nil {
-				return totalBytes, fmt.Errorf("failed to send chunk: %w", sendErr)
+			if err := chunkSendFn(buffer[:n]); err != nil {
+				return totalBytes, fmt.Errorf("failed to send chunk: %w", unwrap(err))
 			}
 			totalBytes += int64(n)
 		}
@@ -220,9 +220,16 @@ func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reade
 	}
 
 	n, err := SendChunks(rd, func(chunk []byte) error {
-		return stream.Send(&grpc_storage.PutStateRequest{
+		err := stream.Send(&grpc_storage.PutStateRequest{
 			Chunk: chunk,
 		})
+
+		if err == io.EOF {
+			_, err := stream.CloseAndRecv()
+			return err
+		}
+
+		return err
 	})
 	if err != nil {
 		return n, unwrap(err)
@@ -291,10 +298,18 @@ func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Re
 	}
 
 	n, err := SendChunks(rd, func(chunk []byte) error {
-		return stream.Send(&grpc_storage.PutPackfileRequest{
+		err := stream.Send(&grpc_storage.PutPackfileRequest{
 			Chunk: chunk,
 		})
+
+		if err == io.EOF {
+			_, err := stream.CloseAndRecv()
+			return err
+		}
+
+		return err
 	})
+
 	if err != nil {
 		return n, unwrap(err)
 	}
@@ -381,9 +396,16 @@ func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Rea
 	}
 
 	n, err := SendChunks(rd, func(chunk []byte) error {
-		return stream.Send(&grpc_storage.PutLockRequest{
+		err := stream.Send(&grpc_storage.PutLockRequest{
 			Chunk: chunk,
 		})
+
+		if err == io.EOF {
+			_, err := stream.CloseAndRecv()
+			return err
+		}
+
+		return err
 	})
 	if err != nil {
 		return n, unwrap(err)
