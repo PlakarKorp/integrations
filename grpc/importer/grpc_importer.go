@@ -22,6 +22,10 @@ type GrpcImporter struct {
 }
 
 func unwrap(err error) error {
+	if err == nil {
+		return nil
+	}
+
 	status, ok := status.FromError(err)
 	if !ok {
 		return err
