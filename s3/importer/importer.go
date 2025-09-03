@@ -181,7 +181,7 @@ func (p *S3Importer) Scan(ctx context.Context) (<-chan *importer.ScanResult, err
 					0,
 					0,
 				)
-				result <- importer.NewScanRecord("/"+parent, "", fi, nil, nil)
+				result <- importer.NewScanRecord(parent, "", fi, nil, nil)
 				parent = path.Dir(parent)
 			}
 
