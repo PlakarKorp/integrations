@@ -17,6 +17,10 @@ import (
 	"google.golang.org/api/option"
 )
 
+func init() {
+	kstorage.Register("gcs", 0, NewStore)
+}
+
 type gcsStore struct {
 	bucketName string
 	path       string

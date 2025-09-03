@@ -13,6 +13,10 @@ import (
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
 )
 
+func init() {
+	exporter.Register("gcs", 0, NewExporter)
+}
+
 type gcsExporter struct {
 	bucketName string
 	path       string

@@ -14,6 +14,10 @@ import (
 	"google.golang.org/api/option"
 )
 
+func init() {
+	importer.Register("gcs", 0, NewImporter)
+}
+
 type gcsImporter struct {
 	bucketName string
 	path       string
