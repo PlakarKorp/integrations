@@ -1,10 +1,12 @@
 package main
 
 import (
-	"github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-gcs"
+	"os"
+
+	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	gcs "github.com/PlakarKorp/integration-gcs"
 )
 
 func main() {
-	sdk.RunImporter(gcs.NewImporter)
+	sdk.EntrypointImporter(os.Args, gcs.NewImporter)
 }
