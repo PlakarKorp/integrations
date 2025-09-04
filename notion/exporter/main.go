@@ -1,13 +1,12 @@
 package main
 
 import (
-	"github.com/PlakarKorp/go-kloset-sdk"
+	"os"
+
+	sdk "github.com/PlakarKorp/go-kloset-sdk"
 	"github.com/PlakarKorp/notion-integration/notion"
 )
 
 func main() {
-	err := sdk.RunExporter(notion.NewNotionExporter)
-	if err != nil {
-		panic(err)
-	}
+	sdk.EntrypointExporter(os.Args, notion.NewNotionExporter)
 }
