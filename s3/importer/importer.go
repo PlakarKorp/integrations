@@ -174,7 +174,7 @@ func (p *S3Importer) Scan(ctx context.Context) (<-chan *importer.ScanResult, err
 					path.Base(parent),
 					0,
 					0700|os.ModeDir,
-					time.Unix(0, 0),
+					time.Unix(0, 0).UTC(),
 					0,
 					0,
 					0,
