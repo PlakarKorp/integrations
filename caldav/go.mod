@@ -1,17 +1,17 @@
 module github.com/PlakarKorp/integration-caldav
 
-go 1.24.0
+go 1.23.4
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.0-rc.7
-	github.com/PlakarKorp/kloset v1.0.3
+	github.com/PlakarKorp/go-kloset-sdk v1.0.0
+	github.com/PlakarKorp/kloset v1.0.4
 	github.com/studio-b12/gowebdav v0.10.0
 	golang.org/x/oauth2 v0.30.0
 )
 
 require (
 	github.com/DataDog/zstd v1.5.7 // indirect
-	github.com/PlakarKorp/integration-grpc v1.0.10 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.13 // indirect
 	github.com/RaduBerinde/axisds v0.0.0-20250419182453-5135a0650657 // indirect
 	github.com/RaduBerinde/btreemap v0.0.0-20250419232817-bf0d809ae648 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -49,10 +49,10 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
-	golang.org/x/mod v0.27.0 // indirect
+	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250826171959-ef028d996bc1 // indirect
 	google.golang.org/grpc v1.75.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
