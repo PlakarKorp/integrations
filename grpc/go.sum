@@ -4,8 +4,8 @@ github.com/NickBall/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 h1:5BIUS5
 github.com/NickBall/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5/go.mod h1:w5D10RxC0NmPYxmQ438CC1S07zaC1zpvuNW7s5sUk2Q=
 github.com/PlakarKorp/go-cdc-chunkers v1.0.2 h1:sBWPtDQiezaTjPqF5skLbdjoo8RgiIuseGaFNQnmoOs=
 github.com/PlakarKorp/go-cdc-chunkers v1.0.2/go.mod h1:y7ag92JABKPBDoSOPwedssQ5NIOgjRm4Mu6yTBpmUMY=
-github.com/PlakarKorp/kloset v1.0.4 h1:sFG5iOcWh5oSTF5NMS6bJBkg5DMesxoCk3MvX8OofKw=
-github.com/PlakarKorp/kloset v1.0.4/go.mod h1:/IopLH08yaBsNW73qMuu2QUm4pGpscYATSS+xd/X2GY=
+github.com/PlakarKorp/kloset v1.0.5 h1:PS8nQntkCvZ9UfWlGZYQe08ILHaqkiMByVJzmkySNas=
+github.com/PlakarKorp/kloset v1.0.5/go.mod h1:75bnDZddjiUEd/inZnHLr+qz2bkB4t+3tOPnYx5a29U=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f h1:JjxwchlOepwsUWcQwD2mLUAGE9aCp0/ehy6yCHFBOvo=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f/go.mod h1:tMDTce/yLLN/SK8gMOxQfnyeMeCg8KGzp0D1cbECEeo=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
