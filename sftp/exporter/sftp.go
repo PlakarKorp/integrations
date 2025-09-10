@@ -69,11 +69,11 @@ func (p *SFTPExporter) StoreFile(ctx context.Context, pathname string, fp io.Rea
 		return err
 	}
 
-	if _, err := io.Copy(f, fp); err != nil {
-		//logging.Warn("copy failure: %s: %s", pathname, err)
+	if _, err := f.ReadFromWithConcurrency(fp, 0); err != nil {
 		f.Close()
 		return err
 	}
+
 	if err := f.Sync(); err != nil {
 		//logging.Warn("sync failure: %s: %s", pathname, err)
 	}
