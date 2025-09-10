@@ -11,7 +11,6 @@ import (
 	stdpath "path"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/PlakarKorp/integration-rclone/utils"
@@ -133,7 +132,7 @@ func (p *RcloneImporter) GenerateBaseDirectories(results chan *importer.ScanResu
 				0700|os.ModeDir,
 				time.Unix(0, 0).UTC(),
 				0,
-				atomic.AddUint64(&p.Ino, 1),
+				0,
 				0,
 				0,
 				0,
@@ -247,7 +246,7 @@ func (p *RcloneImporter) scanFolder(results chan *importer.ScanResult, path stri
 						0700|os.ModeDir,
 						parsedTime,
 						0,
-						atomic.AddUint64(&p.Ino, 1),
+						0,
 						0,
 						0,
 						0,
@@ -266,7 +265,7 @@ func (p *RcloneImporter) scanFolder(results chan *importer.ScanResult, path stri
 					0600,
 					parsedTime,
 					1,
-					atomic.AddUint64(&p.Ino, 1),
+					0,
 					0,
 					0,
 					0,
