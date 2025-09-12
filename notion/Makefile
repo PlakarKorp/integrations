@@ -1,9 +1,12 @@
+GO=go
+EXT=
+
 all: importer exporter
 
 importer:
-	go build -o notion-importer -v ./importer
+	${GO} build -o notion-importer${EXT} -v ./importer
 
 exporter:
-	go build -o notion-exporter -v ./exporter
+	${GO} build -o notion-exporter${EXT} -v ./exporter
 
 .PHONY: all importer exporter
