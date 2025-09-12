@@ -1,12 +1,13 @@
 GO = go
 PLAKAR = ../plakar/plakar
 VERSION = v0.0.1
+EXT=
 
 all: build
 
 build:
-	${GO} build -v -o imapImporter ./plugin/importer
-	${GO} build -v -o imapExporter ./plugin/exporter
+	${GO} build -v -o imapImporter${EXT} ./plugin/importer
+	${GO} build -v -o imapExporter${EXT} ./plugin/exporter
 
 create:
 	${PLAKAR} pkg create manifest.yaml
