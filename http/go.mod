@@ -5,14 +5,14 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.1
-	github.com/PlakarKorp/kloset v1.0.5
+	github.com/PlakarKorp/go-kloset-sdk v1.0.2
+	github.com/PlakarKorp/kloset v1.0.7
 	github.com/PlakarKorp/plakar v1.0.3-rc.2
 )
 
 require (
 	github.com/DataDog/zstd v1.5.7 // indirect
-	github.com/PlakarKorp/integration-grpc v1.0.14 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.15 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/crlib v0.0.0-20250718215705-7ff5051265b9 // indirect
