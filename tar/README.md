@@ -28,6 +28,6 @@ The configuration parameters are as follow:
 ## Examples
 
 ```sh
-# import a tarball into the current Kloset repository
-$ plakar import tar:/home/user/backup.tar.gz
+# backup a tarball into the current Kloset repository
+$ plakar backup tar:/home/user/backup.tar.gz
 ```
