@@ -21,10 +21,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"golang.org/x/sys/unix"
 )
 
 type FSExporter struct {
@@ -69,9 +71,20 @@ func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reade
 	return nil
 }
 
+// Lutimes sets the access and modification times of the named file.
+// If the file is a symlink, it changes the times of the symlink, not the target.
+func Lutimes(path string, atime time.Time, mtime time.Time) error {
+	var utimes [2]unix.Timeval
+	utimes[0] = unix.NsecToTimeval(atime.UnixNano())
+	utimes[1] = unix.NsecToTimeval(mtime.UnixNano())
+	return unix.Lutimes(path, utimes[0:])
+}
+
 func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	if err := os.Chmod(pathname, fileinfo.Mode()); err != nil {
-		return err
+	if fileinfo.Mode()&os.ModeSymlink == 0 {
+		if err := os.Chmod(pathname, fileinfo.Mode()); err != nil {
+			return err
+		}
 	}
 	if os.Getuid() == 0 {
 		if fileinfo.Mode()&os.ModeSymlink != 0 {
@@ -84,8 +97,14 @@ func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, filein
 			}
 		}
 	}
-	if err := os.Chtimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-		return err
+	if fileinfo.Mode()&os.ModeSymlink != 0 {
+		if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+			return err
+		}
+	} else {
+		if err := os.Chtimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
