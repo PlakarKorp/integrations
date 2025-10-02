@@ -70,10 +70,8 @@ func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reade
 }
 
 func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	if fileinfo.Mode()&os.ModeSymlink == 0 {
-		if err := os.Chmod(pathname, fileinfo.Mode()); err != nil {
-			return err
-		}
+	if err := os.Chmod(pathname, fileinfo.Mode()); err != nil {
+		return err
 	}
 	if os.Getuid() == 0 {
 		if fileinfo.Mode()&os.ModeSymlink != 0 {
@@ -86,10 +84,8 @@ func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, filein
 			}
 		}
 	}
-	if fileinfo.Mode()&os.ModeSymlink == 0 {
-		if err := os.Chtimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-			return err
-		}
+	if err := os.Chtimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+		return err
 	}
 	return nil
 }
