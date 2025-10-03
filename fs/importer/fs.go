@@ -85,13 +85,13 @@ func (p *FSImporter) Type(ctx context.Context) (string, error) {
 }
 
 func (p *FSImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	results := make(chan *importer.ScanResult, 1000)
-	go p.walkDir_walker(ctx, results, 256)
+	results := make(chan *importer.ScanResult, p.opts.MaxConcurrency*4)
+	go p.walkDir_walker(ctx, results, p.opts.MaxConcurrency)
 	return results, nil
 }
 
 func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importer.ScanResult, numWorkers int) {
-	jobs := make(chan string, 1000) // Buffered channel to feed paths to workers
+	jobs := make(chan string, numWorkers*4) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
 		wg.Add(1)
