@@ -20,14 +20,11 @@ import (
 	"context"
 	"io"
 	"os"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
-	"golang.org/x/sys/unix"
 )
 
 type FSExporter struct {
@@ -70,19 +67,6 @@ func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reade
 		//logging.Warn("close failure: %s: %s", pathname, err)
 	}
 	return nil
-}
-
-// Lutimes sets the access and modification times of the named file.
-// If the file is a symlink, it changes the times of the symlink, not the target.
-func Lutimes(path string, atime time.Time, mtime time.Time) error {
-	if runtime.GOOS == "windows" {
-		// Windows doesn't support Lutimes for symlinks
-		return nil
-	}
-	var utimes [2]unix.Timeval
-	utimes[0] = unix.NsecToTimeval(atime.UnixNano())
-	utimes[1] = unix.NsecToTimeval(mtime.UnixNano())
-	return unix.Lutimes(path, utimes[0:])
 }
 
 func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
