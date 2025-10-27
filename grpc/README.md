@@ -2,14 +2,22 @@
 
 ## Overview
 
-**gRPC** is a high-performance, open-source universal RPC framework that enables client and server applications to communicate transparently, and makes it easier to build connected systems. It uses HTTP/2 for transport, Protocol Buffers as the interface description language, and provides features such as authentication, load balancing, and more.
+If you're looking for how to write [Plakar][plakar] integrations,
+please take a look at the [SDK][sdk] instead.  It only exists to
+provide the Plakar-side bits to talk with plugins.
 
-This integration allows:
+[plakar]: https://github.com/PlakarKorp/plakar
+[sdk]:    https://github.com/PlakarKorp/go-kloset-sdk
 
-- Seamless backup of files and data using gRPC services into a Kloset repository
-- Direct restoration of snapshots to remote destinations via gRPC
-- Compatibility with modern systems and tools that use gRPC for communication
+---
+
+This integration exists to wrap a client talking our GRPC protocol as
+a Kloset exporter, importer or storage.  It also includes the protobuf
+declarations needed to write integrations in other languages for which
+we don't provide yet an official SDK.
+
 
 ## Configuration
 
-> **Note:** gRPC integration does not require any specific configuration parameters. It exist as a connector to all the plugins made with the sdk of Plakar.
+The gRPC integration does not require any specific configuration
+parameters; it merely proxies the one given.
