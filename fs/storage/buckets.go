@@ -73,7 +73,7 @@ func (buckets *Buckets) List() ([]objects.MAC, error) {
 			if entry.Name() == "." || entry.Name() == ".." {
 				continue
 			}
-			if entry.IsDir() {
+			if !entry.Type().IsRegular() {
 				continue
 			}
 			t, err := hex.DecodeString(entry.Name())
