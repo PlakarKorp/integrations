@@ -78,7 +78,8 @@ func (buckets *Buckets) List() ([]objects.MAC, error) {
 			}
 			t, err := hex.DecodeString(entry.Name())
 			if err != nil {
-				return nil, err
+				// XXX ignore the gibberish?
+				continue
 			}
 			if len(t) != 32 {
 				continue
