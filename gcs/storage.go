@@ -253,5 +253,8 @@ func (g *gcsStore) DeleteLock(ctx context.Context, lockID objects.MAC) error {
 }
 
 func (g *gcsStore) Close(ctx context.Context) error {
-	return g.client.Close()
+	if g.client != nil {
+		return g.client.Close()
+	}
+	return nil
 }
