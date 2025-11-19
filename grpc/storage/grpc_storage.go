@@ -235,19 +235,13 @@ func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reade
 	}
 
 	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
-		err := stream.Send(&grpc_storage.PutStateRequest{
+		return stream.Send(&grpc_storage.PutStateRequest{
 			Chunk:  chunk,
 			Cookie: s.cookie,
 		})
-
-		if err == io.EOF {
-			_, err := stream.CloseAndRecv()
-			return err
-		}
-
-		return err
 	})
 	if err != nil {
+		_, _ = stream.CloseAndRecv()
 		return n, unwrap(err)
 	}
 	resp, err := stream.CloseAndRecv()
@@ -319,20 +313,13 @@ func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Re
 	}
 
 	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
-		err := stream.Send(&grpc_storage.PutPackfileRequest{
+		return stream.Send(&grpc_storage.PutPackfileRequest{
 			Chunk:  chunk,
 			Cookie: s.cookie,
 		})
-
-		if err == io.EOF {
-			_, err := stream.CloseAndRecv()
-			return err
-		}
-
-		return err
 	})
-
 	if err != nil {
+		_, _ = stream.CloseAndRecv()
 		return n, unwrap(err)
 	}
 	resp, err := stream.CloseAndRecv()
@@ -424,19 +411,13 @@ func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Rea
 	}
 
 	n, err := SendChunks(io.NopCloser(rd), func(chunk []byte) error {
-		err := stream.Send(&grpc_storage.PutLockRequest{
+		return stream.Send(&grpc_storage.PutLockRequest{
 			Chunk:  chunk,
 			Cookie: s.cookie,
 		})
-
-		if err == io.EOF {
-			_, err := stream.CloseAndRecv()
-			return err
-		}
-
-		return err
 	})
 	if err != nil {
+		_, _ = stream.CloseAndRecv()
 		return n, unwrap(err)
 	}
 	resp, err := stream.CloseAndRecv()
