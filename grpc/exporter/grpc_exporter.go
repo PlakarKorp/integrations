@@ -134,7 +134,7 @@ func (g *GrpcExporter) StoreFile(ctx context.Context, pathname string, fp io.Rea
 		return unwrap(err)
 	}
 
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 1024*1024)
 	for {
 		n, err := fp.Read(buf)
 		if err == io.EOF {
