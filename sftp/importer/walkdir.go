@@ -145,13 +145,6 @@ func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, i
 		return err
 	}
 
-	mode := info.Mode()
-
-	// If it's a symlink, emit it but don't recurse into the target.
-	if mode&os.ModeSymlink != 0 {
-		return nil
-	}
-
 	// If it's not a directory, nothing more to do.
 	if !info.IsDir() {
 		return nil
