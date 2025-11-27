@@ -1,4 +1,4 @@
-name: fis
+name: fs
 description: file storage but as external plugin
 version: v1.0.0
 connectors:
@@ -6,14 +6,14 @@ connectors:
   executable: fs-importer
   homepage: https://github.com/PlakarKorp/integration-fs
   license: ISC
-  protocols: [fis]
+  protocols: [fs]
 - type: exporter
   executable: fs-exporter
   homepage: https://github.com/PlakarKorp/integration-fs
   license: ISC
-  protocols: [fis]
+  protocols: [fs]
 - type: storage
-  executable: fs-store
+  executable: fs-storage
   homepage: https://github.com/PlakarKorp/integration-fs
   license: ISC
-  protocols: [fis]
+  protocols: [fs]
