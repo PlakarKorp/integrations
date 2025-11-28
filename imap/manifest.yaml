@@ -1,7 +1,7 @@
 name: imap
 display_name: IMAP
 description: Integration providing import and export capabilities for IMAP accounts.
-version: v1.0.0-rc1
+version: v1.0.0-rc2
 connectors:
 - type: importer
   executable: imapImporter
