@@ -19,6 +19,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -184,11 +185,19 @@ func (g *grpcChunkReader) Read(p []byte) (int, error) {
 	return totalRead, nil
 }
 
-// Actual closing is done by the SendChunks function whenever it has read the
-// full content of the Reader. We do not actually forward the Close call over
-// GRPC, but we should at some point.
+// Closing of the actual reader is left to the caller, close is not to be
+// forwarded over grpc.
+// We still drain this in order to avoid a misuse of the API (where someone
+// would request less than what the server is sending), which leads to leaks.
 func (g *grpcChunkReader) Close() error {
-	return nil
+	for {
+		_, err := g.streamRecv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
 }
 
 func ReceiveChunks(chunkReceiverFn func() ([]byte, error)) io.ReadCloser {
