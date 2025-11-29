@@ -5,13 +5,13 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.4
-	github.com/PlakarKorp/kloset v1.0.11
+	github.com/PlakarKorp/go-kloset-sdk v1.0.5
+	github.com/PlakarKorp/kloset v1.0.12
 	github.com/PlakarKorp/plakar v1.0.3-rc.2
 )
 
 require (
-	github.com/PlakarKorp/integration-grpc v1.0.17 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.18 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
