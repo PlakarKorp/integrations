@@ -3,13 +3,13 @@ module github.com/PlakarKorp/integration-s3
 go 1.24.0
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.4
-	github.com/PlakarKorp/kloset v1.0.11
+	github.com/PlakarKorp/go-kloset-sdk v1.0.5
+	github.com/PlakarKorp/kloset v1.0.12
 	github.com/minio/minio-go/v7 v7.0.95
 )
 
 require (
-	github.com/PlakarKorp/integration-grpc v1.0.17 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.18 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
