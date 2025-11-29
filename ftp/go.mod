@@ -3,13 +3,13 @@ module github.com/PlakarKorp/integration-ftp
 go 1.24.0
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.4
-	github.com/PlakarKorp/kloset v1.0.11
+	github.com/PlakarKorp/go-kloset-sdk v1.0.5
+	github.com/PlakarKorp/kloset v1.0.12
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4
 )
 
 require (
-	github.com/PlakarKorp/integration-grpc v1.0.17 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.18 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
