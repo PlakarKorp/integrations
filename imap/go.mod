@@ -3,13 +3,13 @@ module github.com/PlakarKorp/integration-imap
 go 1.24.0
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.0.4
-	github.com/PlakarKorp/kloset v1.0.11
+	github.com/PlakarKorp/go-kloset-sdk v1.0.5
+	github.com/PlakarKorp/kloset v1.0.12
 	github.com/emersion/go-imap/v2 v2.0.0-beta.5
 )
 
 require (
-	github.com/PlakarKorp/integration-grpc v1.0.17 // indirect
+	github.com/PlakarKorp/integration-grpc v1.0.18 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/emersion/go-sasl v0.0.0-20231106173351-e73c9f7bad43 // indirect
