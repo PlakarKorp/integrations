@@ -21,11 +21,19 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
 )
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 4<<20) // 4 MiB
+		return &buf
+	},
+}
 
 type FSExporter struct {
 	rootDir string
@@ -55,14 +63,16 @@ func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reade
 		return err
 	}
 
-	if _, err := io.Copy(f, fp); err != nil {
+	bufPtr := copyBufPool.Get().(*[]byte)
+	buf := *bufPtr
+	defer copyBufPool.Put(bufPtr)
+
+	if _, err := io.CopyBuffer(f, fp, buf); err != nil {
 		//logging.Warn("copy failure: %s: %s", pathname, err)
 		f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		//logging.Warn("sync failure: %s: %s", pathname, err)
-	}
+
 	if err := f.Close(); err != nil {
 		//logging.Warn("close failure: %s: %s", pathname, err)
 	}
