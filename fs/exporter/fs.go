@@ -50,19 +50,19 @@ func (p *FSExporter) CreateDirectory(ctx context.Context, pathname string) error
 }
 
 func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
+	buf := make([]byte, 4096)
+
 	f, err := os.Create(pathname)
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.Copy(f, fp); err != nil {
+	if _, err := io.CopyBuffer(f, fp, buf); err != nil {
 		//logging.Warn("copy failure: %s: %s", pathname, err)
 		f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		//logging.Warn("sync failure: %s: %s", pathname, err)
-	}
+
 	if err := f.Close(); err != nil {
 		//logging.Warn("close failure: %s: %s", pathname, err)
 	}

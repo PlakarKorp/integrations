@@ -1,6 +1,6 @@
 name: fs
 description: file storage but as external plugin
-version: v1.0.13
+version: v1.0.14
 connectors:
 - type: importer
   executable: fs-importer
