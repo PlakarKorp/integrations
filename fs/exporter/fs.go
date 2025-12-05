@@ -50,7 +50,7 @@ func (p *FSExporter) CreateDirectory(ctx context.Context, pathname string) error
 }
 
 func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 4<<20) // 4MiB buffer
 
 	f, err := os.Create(pathname)
 	if err != nil {
