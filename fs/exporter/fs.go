@@ -86,14 +86,8 @@ func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, filein
 			}
 		}
 	}
-	if fileinfo.Mode()&os.ModeSymlink != 0 {
-		if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-			return err
-		}
-	} else {
-		if err := os.Chtimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-			return err
-		}
+	if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+		return err
 	}
 	return nil
 }
