@@ -1,7 +1,7 @@
 name: sftp
 display_name: SFTP
 description: Integration providing storage, import and export capabilities to and from SFTP servers.
-version: v1.0.6
+version: v1.0.8
 connectors:
 - type: importer
   executable: sftpImporter

@@ -73,10 +73,6 @@ func (p *SFTPExporter) StoreFile(ctx context.Context, pathname string, fp io.Rea
 		f.Close()
 		return err
 	}
-
-	if err := f.Sync(); err != nil {
-		//logging.Warn("sync failure: %s: %s", pathname, err)
-	}
 	if err := f.Close(); err != nil {
 		//logging.Warn("close failure: %s: %s", pathname, err)
 	}
