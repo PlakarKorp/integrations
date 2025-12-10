@@ -71,7 +71,9 @@ func (p *FSExporter) StoreFile(ctx context.Context, pathname string, fp io.Reade
 
 func (p *FSExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	if fileinfo.Mode()&os.ModeSymlink == 0 {
-		if err := os.Chmod(pathname, fileinfo.Mode()); err != nil {
+		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
+		// Use the full mode which includes these special bits, not just Mode().Perm()
+		if err := os.Chmod(pathname, fileinfo.Mode().Perm()|fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)); err != nil {
 			return err
 		}
 	}
