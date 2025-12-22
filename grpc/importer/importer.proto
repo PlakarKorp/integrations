@@ -19,6 +19,7 @@ message Options {
   string arch = 3;
   string cwd = 4;
   int64 maxconcurrency = 5;
+  repeated string excludes = 6;
 
   // TODO: stdin/out/err are missing
 }
