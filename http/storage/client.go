@@ -79,6 +79,20 @@ func (s *Store) sendRequest(method string, requestType string, payload any) (*ht
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
+	var req network.ReqCreate
+	req.Configuration = config
+	r, err := s.sendRequest("POST", "/config", req)
+	if err != nil {
+		return err
+	}
+
+	var resCreate network.ResCreate
+	if err := json.NewDecoder(r.Body).Decode(&resCreate); err != nil {
+		return err
+	}
+	if resCreate.Err != "" {
+		return fmt.Errorf("%s", resCreate.Err)
+	}
 	return nil
 }
 
