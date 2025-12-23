@@ -35,6 +35,7 @@ type Store struct {
 	config     storage.Configuration
 	Repository string
 	location   *url.URL
+	authToken  string
 }
 
 func init() {
@@ -49,7 +50,8 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	return &Store{
-		location: location,
+		location:  location,
+		authToken: storeConfig["auth_token"],
 	}, nil
 }
 
@@ -70,6 +72,9 @@ func (s *Store) sendRequest(method string, requestType string, payload any) (*ht
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if s.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.authToken)
+	}
 	return http.DefaultClient.Do(req)
 }
 
