@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarKorp/kloset/exclude"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/snapshot/importer"
 )
@@ -35,6 +36,8 @@ type FSImporter struct {
 	opts     *importer.Options
 	rootDir  string
 	realpath string
+
+	excludes *exclude.RuleSet
 
 	uidToName map[uint64]string
 	gidToName map[uint64]string
@@ -65,10 +68,16 @@ func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, 
 		return nil, err
 	}
 
+	excludes := exclude.NewRuleSet()
+	if err := excludes.AddRulesFromArray(opts.Excludes); err != nil {
+		return nil, fmt.Errorf("failed to setup exclude rules: %w", err)
+	}
+
 	return &FSImporter{
 		opts:      opts,
 		rootDir:   rootDir,
 		realpath:  realpath,
+		excludes:  excludes,
 		uidToName: make(map[uint64]string),
 		gidToName: make(map[uint64]string),
 		nocrossfs: nocrossfs,
@@ -113,6 +122,12 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 		if err != nil {
 			results <- importer.NewScanError(path, err)
 			return nil
+		}
+
+		if path != "/" {
+			if f.excludes.IsExcluded(path, d.IsDir()) {
+				return filepath.SkipDir
+			}
 		}
 
 		if d.IsDir() && f.nocrossfs {
