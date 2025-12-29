@@ -107,8 +107,8 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 		Luid:       uint64(hdr.Uid),
 		Lgid:       uint64(hdr.Gid),
 		Lnlink:     1,
-		Lusername:  "",
-		Lgroupname: "",
+		Lusername:  hdr.Uname,
+		Lgroupname: hdr.Gname,
 	}
 
 	switch hdr.Typeflag {
