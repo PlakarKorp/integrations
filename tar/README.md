@@ -30,7 +30,7 @@ The configuration parameters are as follow:
 - `location` (required): Path to the TAR archive file
 
 > **Note:** The location can be write directly in the command, with
-> `tgz:` or `tgz:` prefix, depending on whether the tar to be imported
+> `tgz:` or `tar:` prefix, depending on whether the tar to be imported
 > has been compressed or not.  No need to add it in the configuration.
 
 ## Examples
