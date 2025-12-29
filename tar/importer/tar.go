@@ -35,8 +35,8 @@ import (
 
 func init() {
 	importer.Register("tar", location.FLAG_LOCALFS, NewTarImporter)
-	importer.Register("tag+gz", location.FLAG_LOCALFS, NewTarImporter)
-	importer.Register("tag+gzip", location.FLAG_LOCALFS, NewTarImporter)
+	importer.Register("tar+gz", location.FLAG_LOCALFS, NewTarImporter)
+	importer.Register("tar+gzip", location.FLAG_LOCALFS, NewTarImporter)
 	importer.Register("tgz", location.FLAG_LOCALFS, NewTarImporter)
 }
 
