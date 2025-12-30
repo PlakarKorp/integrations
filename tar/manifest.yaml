@@ -8,3 +8,4 @@ connectors:
   homepage: https://github.com/PlakarKorp/integration-tar
   license: ISC
   protocols: [tar, tar+gz, tar+gzip, tgz]
+  location_flags: localfs,stream

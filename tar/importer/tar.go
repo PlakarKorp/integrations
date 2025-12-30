@@ -34,10 +34,12 @@ import (
 )
 
 func init() {
-	importer.Register("tar", location.FLAG_LOCALFS, NewTarImporter)
-	importer.Register("tar+gz", location.FLAG_LOCALFS, NewTarImporter)
-	importer.Register("tar+gzip", location.FLAG_LOCALFS, NewTarImporter)
-	importer.Register("tgz", location.FLAG_LOCALFS, NewTarImporter)
+	flags := location.FLAG_LOCALFS | location.FLAG_STREAM
+
+	importer.Register("tar", flags, NewTarImporter)
+	importer.Register("tar+gz", flags, NewTarImporter)
+	importer.Register("tar+gzip", flags, NewTarImporter)
+	importer.Register("tgz", flags, NewTarImporter)
 }
 
 type TarImporter struct {
