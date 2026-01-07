@@ -40,8 +40,6 @@ type S3Importer struct {
 	bucket  string
 	host    string
 	scanDir string
-
-	ino uint64
 }
 
 func init() {

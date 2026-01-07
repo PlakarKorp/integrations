@@ -37,7 +37,6 @@ import (
 
 type Store struct {
 	location    string
-	Repository  string
 	minioClient *minio.Client
 	bucketName  string
 	prefixDir   string
