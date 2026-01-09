@@ -26,15 +26,16 @@ import (
 	"net/url"
 	"path"
 
+	network "github.com/PlakarKorp/integration-http/storage/contract"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/storage"
-	"github.com/PlakarKorp/plakar/network"
 )
 
 type Store struct {
 	config     storage.Configuration
 	Repository string
 	location   *url.URL
+	authToken  string
 }
 
 func init() {
@@ -49,7 +50,8 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	return &Store{
-		location: location,
+		location:  location,
+		authToken: storeConfig["auth_token"],
 	}, nil
 }
 
@@ -70,15 +72,32 @@ func (s *Store) sendRequest(method string, requestType string, payload any) (*ht
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if s.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.authToken)
+	}
 	return http.DefaultClient.Do(req)
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
+	var req network.ReqCreate
+	req.Configuration = config
+	r, err := s.sendRequest("POST", "/config", req)
+	if err != nil {
+		return err
+	}
+
+	var resCreate network.ResCreate
+	if err := json.NewDecoder(r.Body).Decode(&resCreate); err != nil {
+		return err
+	}
+	if resCreate.Err != "" {
+		return fmt.Errorf("%s", resCreate.Err)
+	}
 	return nil
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	r, err := s.sendRequest("GET", "/", network.ReqOpen{})
+	r, err := s.sendRequest("GET", "/config", network.ReqOpen{})
 	if err != nil {
 		return nil, err
 	}

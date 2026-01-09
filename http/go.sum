@@ -10,8 +10,6 @@ github.com/PlakarKorp/integration-grpc v1.0.18 h1:RD3BC0+eiflaLa5/5V6hgXOn9FTnCR
 github.com/PlakarKorp/integration-grpc v1.0.18/go.mod h1:wvnPX9NYjAMWiptLy5Vx0J6U3Ff8at759B9o+5zMfPw=
 github.com/PlakarKorp/kloset v1.0.12 h1:Vj8IT+Cw3uY0ehv+A/GbhQxPIG+U/1heqQGFaDq3Yp0=
 github.com/PlakarKorp/kloset v1.0.12/go.mod h1:nwkO5CSMAXp5HKJvxiQRkD1CSK4PN0oEjlt42cjPzYs=
-github.com/PlakarKorp/plakar v1.0.3-rc.2 h1:mzio3kjMWpYHaiQrfPnkU8jqWSqnfbC+4r44vOC3jAg=
-github.com/PlakarKorp/plakar v1.0.3-rc.2/go.mod h1:c9jvTa4VSR8mFY8rUz92Ig3Xc9Datij/JYx7c36ZYFM=
 github.com/RaduBerinde/axisds v0.0.0-20250419182453-5135a0650657 h1:8XBWWQD+vFF+JqOsm16t0Kab1a7YWV8+GISVEP8AuZ8=
 github.com/RaduBerinde/axisds v0.0.0-20250419182453-5135a0650657/go.mod h1:UHGJonU9z4YYGKJxSaC6/TNcLOBptpmM5m2Cksbnw0Y=
 github.com/RaduBerinde/btreemap v0.0.0-20250419174037-3d62b7205d54 h1:bsU8Tzxr/PNz75ayvCnxKZWEYdLMPDkUgticP4a4Bvk=

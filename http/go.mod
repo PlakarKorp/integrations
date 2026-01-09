@@ -7,13 +7,12 @@ toolchain go1.24.5
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.0.5
 	github.com/PlakarKorp/kloset v1.0.12
-	github.com/PlakarKorp/plakar v1.0.3-rc.2
+	github.com/google/uuid v1.6.0
 )
 
 require (
 	github.com/PlakarKorp/integration-grpc v1.0.18 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/nickball/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
