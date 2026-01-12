@@ -15,15 +15,10 @@ func dirDevice(info os.FileInfo) uint64 {
 	return 0
 }
 
-func isSameFs(devno uint64, d fs.DirEntry) (bool, error) {
-	info, err := d.Info()
-	if err != nil {
-		return false, err
-	}
-
+func isSameFs(devno uint64, info fs.FileInfo) bool {
 	if sb, ok := info.Sys().(*syscall.Stat_t); ok {
-		return uint64(sb.Dev) == devno, nil
+		return uint64(sb.Dev) == devno
 	}
 
-	return true, nil
+	return true
 }

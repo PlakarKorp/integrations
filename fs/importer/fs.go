@@ -47,6 +47,11 @@ type FSImporter struct {
 	devno     uint64
 }
 
+type file struct {
+	path string
+	info fs.FileInfo
+}
+
 func init() {
 	importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
 }
@@ -100,7 +105,7 @@ func (p *FSImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, err
 }
 
 func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importer.ScanResult, numWorkers int) {
-	jobs := make(chan string, numWorkers*4) // Buffered channel to feed paths to workers
+	jobs := make(chan file, numWorkers*4) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
 		wg.Add(1)
@@ -108,9 +113,8 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 	}
 
 	// Add prefix directories first
-	walkDir_addPrefixDirectories(f.realpath, results)
+	walkDir_addPrefixDirectories(filepath.Dir(f.realpath), results)
 	if f.realpath != f.rootDir {
-		jobs <- f.rootDir
 		walkDir_addPrefixDirectories(f.rootDir, results)
 	}
 
@@ -130,18 +134,20 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 			}
 		}
 
+		info, err := d.Info()
+		if err != nil {
+			results <- importer.NewScanError(path, err)
+			return nil
+		}
+
 		if d.IsDir() && f.nocrossfs {
-			same, err := isSameFs(f.devno, d)
-			if err != nil {
-				results <- importer.NewScanError(path, err)
-				return nil
-			}
+			same := isSameFs(f.devno, info)
 			if !same {
 				return filepath.SkipDir
 			}
 		}
 
-		jobs <- path
+		jobs <- file{path: path, info: info}
 		return nil
 	})
 	if err != nil {

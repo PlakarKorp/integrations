@@ -31,17 +31,17 @@ import (
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan file, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {
 		var (
-			path string
-			ok   bool
+			p  file
+			ok bool
 		)
 
 		select {
-		case path, ok = <-jobs:
+		case p, ok = <-jobs:
 			if !ok {
 				return
 			}
@@ -49,45 +49,39 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 			return
 		}
 
-		info, err := os.Lstat(path)
-		if err != nil {
-			results <- importer.NewScanError(path, err)
-			continue
-		}
-
 		// fixup the rootdir if it happened to be a file
-		if !info.IsDir() && path == f.rootDir {
+		if !p.info.IsDir() && p.path == f.rootDir {
 			f.rootDir = filepath.Dir(f.rootDir)
 		}
 
-		extendedAttributes, err := xattr.LList(path)
+		extendedAttributes, err := xattr.LList(p.path)
 		if err != nil {
-			results <- importer.NewScanError(path, err)
+			results <- importer.NewScanError(p.path, err)
 			continue
 		}
 
-		fileinfo := objects.FileInfoFromStat(info)
+		fileinfo := objects.FileInfoFromStat(p.info)
 		fileinfo.Lusername, fileinfo.Lgroupname = f.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
 
 		var originFile string
-		if info.Mode()&os.ModeSymlink != 0 {
-			originFile, err = os.Readlink(path)
+		if p.info.Mode()&os.ModeSymlink != 0 {
+			originFile, err = os.Readlink(p.path)
 			if err != nil {
-				results <- importer.NewScanError(path, err)
+				results <- importer.NewScanError(p.path, err)
 				continue
 			}
 		}
 
-		entrypath := toslash(path)
+		entrypath := toslash(p.path)
 
 		results <- importer.NewScanRecord(entrypath, originFile, fileinfo, extendedAttributes,
 			func() (io.ReadCloser, error) {
-				return os.Open(path)
+				return os.Open(p.path)
 			})
 		for _, attr := range extendedAttributes {
 			results <- importer.NewScanXattr(entrypath, attr, objects.AttributeExtended,
 				func() (io.ReadCloser, error) {
-					data, err := xattr.LGet(path, attr)
+					data, err := xattr.LGet(p.path, attr)
 					if err != nil {
 						return nil, err
 					}
@@ -98,7 +92,6 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan string, res
 }
 
 func walkDir_addPrefixDirectories(root string, results chan<- *importer.ScanResult) {
-	root = filepath.Dir(root)
 	for {
 		var finfo objects.FileInfo
 
