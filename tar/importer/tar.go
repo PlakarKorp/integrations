@@ -26,16 +26,16 @@ import (
 	"os"
 	"path"
 	"strings"
-	"time"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 )
 
-func init() {
-	flags := location.FLAG_LOCALFS | location.FLAG_STREAM
+const flags = location.FLAG_LOCALFS | location.FLAG_STREAM | location.FLAG_NEEDACK
 
+func init() {
 	importer.Register("tar", flags, NewTarImporter)
 	importer.Register("tar+gz", flags, NewTarImporter)
 	importer.Register("tar+gzip", flags, NewTarImporter)
@@ -49,13 +49,13 @@ type TarImporter struct {
 	rd  *gzip.Reader
 	tar *tar.Reader
 
+	opts *connectors.Options
+
 	location string
 	name     string
-
-	next chan struct{}
 }
 
-func NewTarImporter(ctx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewTarImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := strings.TrimPrefix(config["location"], name+"://")
 
 	fp, err := os.Open(location)
@@ -63,7 +63,7 @@ func NewTarImporter(ctx context.Context, opts *importer.Options, name string, co
 		return nil, err
 	}
 
-	t := &TarImporter{ctx: ctx, fp: fp, location: location, name: name}
+	t := &TarImporter{ctx: ctx, fp: fp, location: location, name: name, opts: opts}
 
 	if name == "tar+gz" || name == "tar+gzip" || name == "tgz" {
 		rd, err := gzip.NewReader(fp)
@@ -77,26 +77,43 @@ func NewTarImporter(ctx context.Context, opts *importer.Options, name string, co
 		t.tar = tar.NewReader(t.fp)
 	}
 
-	t.next = make(chan struct{}, 1)
-
 	return t, nil
 }
 
-func (t *TarImporter) Type(ctx context.Context) (string, error) { return t.name, nil }
-func (t *TarImporter) Root(ctx context.Context) (string, error) { return "/", nil }
+func (t *TarImporter) Type() string          { return t.name }
+func (t *TarImporter) Root() string          { return "/" }
+func (t *TarImporter) Origin() string        { return t.opts.Hostname }
+func (t *TarImporter) Flags() location.Flags { return flags }
 
-func (p *TarImporter) Origin(ctx context.Context) (string, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "", err
+func (t *TarImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
+
+	for {
+		hdr, err := t.tar.Next()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				return err
+			}
+			return nil
+		}
+
+		name := path.Join("/", hdr.Name)
+		records <- &connectors.Record{
+			Pathname: name,
+			Target:   hdr.Linkname,
+			FileInfo: finfo(hdr),
+			Reader:   io.NopCloser(t.tar),
+		}
+
+		select {
+		case <-t.ctx.Done():
+			return t.ctx.Err()
+
+		case <-results:
+			// wait for the ack before continuing
+		}
 	}
-	return hostname, nil
-}
 
-func (t *TarImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	ch := make(chan *importer.ScanResult, 1)
-	go t.scan(ch)
-	return ch, nil
 }
 
 func finfo(hdr *tar.Header) objects.FileInfo {
@@ -131,57 +148,8 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 	return f
 }
 
-type entry struct {
-	t  *tar.Reader
-	ch chan<- struct{}
-}
-
-func (e *entry) Read(buf []byte) (int, error) {
-	return e.t.Read(buf)
-}
-
-func (e *entry) Close() error {
-	e.ch <- struct{}{}
+func (t *TarImporter) Ping(ctx context.Context) error {
 	return nil
-}
-
-func (t *TarImporter) scan(ch chan<- *importer.ScanResult) {
-	defer close(ch)
-
-	info := objects.NewFileInfo("/", 0, 0700|os.ModeDir, time.Unix(0, 0), 0, 0, 0, 0, 1)
-	ch <- &importer.ScanResult{
-		Record: &importer.ScanRecord{
-			Pathname: "/",
-			FileInfo: info,
-		},
-	}
-
-	for {
-		hdr, err := t.tar.Next()
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				ch <- importer.NewScanError(t.location, err)
-			}
-			return
-		}
-
-		name := path.Join("/", hdr.Name)
-		ch <- &importer.ScanResult{
-			Record: &importer.ScanRecord{
-				Pathname: name,
-				Target:   hdr.Linkname,
-				FileInfo: finfo(hdr),
-				Reader:   &entry{t.tar, t.next},
-			},
-		}
-
-		select {
-		case <-t.next:
-			break
-		case <-t.ctx.Done():
-			return
-		}
-	}
 }
 
 func (t *TarImporter) Close(ctx context.Context) (err error) {
