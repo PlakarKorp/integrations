@@ -27,13 +27,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/exclude"
 	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 )
 
 type FSImporter struct {
-	opts     *importer.Options
+	opts     *connectors.Options
 	rootDir  string
 	realpath string
 
@@ -56,7 +57,7 @@ func init() {
 	importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
 }
 
-func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewFSImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
@@ -90,32 +91,35 @@ func NewFSImporter(appCtx context.Context, opts *importer.Options, name string, 
 	}, nil
 }
 
-func (p *FSImporter) Origin(ctx context.Context) (string, error) {
-	return p.opts.Hostname, nil
+func (p *FSImporter) Origin() string {
+	return p.opts.Hostname
 }
 
-func (p *FSImporter) Type(ctx context.Context) (string, error) {
-	return "fs", nil
+func (p *FSImporter) Type() string {
+	return "fs"
 }
 
-func (p *FSImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	results := make(chan *importer.ScanResult, p.opts.MaxConcurrency*4)
-	go p.walkDir_walker(ctx, results, p.opts.MaxConcurrency)
-	return results, nil
+func (p *FSImporter) Flags() location.Flags {
+	return location.FLAG_LOCALFS
 }
 
-func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importer.ScanResult, numWorkers int) {
+func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
+	return p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
+}
+
+func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connectors.Record, numWorkers int) error {
 	jobs := make(chan file, numWorkers*4) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
 		wg.Add(1)
-		go f.walkDir_worker(ctx, jobs, results, &wg)
+		go f.walkDir_worker(ctx, jobs, records, &wg)
 	}
 
 	// Add prefix directories first
-	walkDir_addPrefixDirectories(filepath.Dir(f.realpath), results)
+	walkDir_addPrefixDirectories(filepath.Dir(f.realpath), records)
 	if f.realpath != f.rootDir {
-		walkDir_addPrefixDirectories(f.rootDir, results)
+		walkDir_addPrefixDirectories(f.rootDir, records)
 	}
 
 	err := filepath.WalkDir(f.realpath, func(path string, d fs.DirEntry, err error) error {
@@ -124,7 +128,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 		}
 
 		if err != nil {
-			results <- importer.NewScanError(path, err)
+			records <- connectors.NewError(path, err)
 			return nil
 		}
 
@@ -136,7 +140,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 
 		info, err := d.Info()
 		if err != nil {
-			results <- importer.NewScanError(path, err)
+			records <- connectors.NewError(path, err)
 			return nil
 		}
 
@@ -150,13 +154,10 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, results chan<- *importe
 		jobs <- file{path: path, info: info}
 		return nil
 	})
-	if err != nil {
-		results <- importer.NewScanError(f.realpath, err)
-	}
 
 	close(jobs)
 	wg.Wait()
-	close(results)
+	return err
 }
 
 func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
@@ -219,12 +220,16 @@ func realpathFollow(path string) (resolved string, dev uint64, err error) {
 	return path, dev, nil
 }
 
+func (p *FSImporter) Ping(ctx context.Context) error {
+	return nil
+}
+
 func (p *FSImporter) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *FSImporter) Root(ctx context.Context) (string, error) {
-	return toslash(p.rootDir), nil
+func (p *FSImporter) Root() string {
+	return toslash(p.rootDir)
 }
 
 // convert paths to the internal format.  For unix nothing changes,
