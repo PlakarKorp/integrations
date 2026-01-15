@@ -18,19 +18,20 @@ package exporter
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
 )
 
 type StdioExporter struct {
 	filePath string
 	appCtx   context.Context
 	w        io.Writer
+	opts     *connectors.Options
 }
 
 func init() {
@@ -38,7 +39,7 @@ func init() {
 	exporter.Register("stderr", 0, NewStdioExporter)
 }
 
-func NewStdioExporter(appCtx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewStdioExporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	var w io.Writer
 
 	switch name {
@@ -54,30 +55,33 @@ func NewStdioExporter(appCtx context.Context, opts *exporter.Options, name strin
 		filePath: strings.TrimPrefix(config["location"], name+"://"),
 		appCtx:   appCtx,
 		w:        w,
+		opts:     opts,
 	}, nil
 }
 
-func (p *StdioExporter) Root(ctx context.Context) (string, error) {
-	return "/", nil
-}
+func (p *StdioExporter) Origin() string        { return p.opts.Hostname }
+func (p *StdioExporter) Type() string          { return "stdio" }
+func (p *StdioExporter) Root() string          { return "/" }
+func (p *StdioExporter) Flags() location.Flags { return 0 }
 
-func (p *StdioExporter) CreateDirectory(ctx context.Context, pathname string) error {
-	// can't mkdir on Stdio
+func (p *StdioExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	for record := range records {
+		if record.Err != nil || !record.FileInfo.Mode().IsRegular() {
+			results <- record.Ok()
+			continue
+		}
+
+		if _, err := io.Copy(p.w, record.Reader); err != nil {
+			results <- record.Error(err)
+		} else {
+			results <- record.Ok()
+		}
+	}
 	return nil
 }
 
-func (p *StdioExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	_, err := io.Copy(p.w, fp)
-	return err
-}
-
-func (p *StdioExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	// can't chown/chmod on Stdio
+func (p *StdioExporter) Ping(ctx context.Context) error {
 	return nil
-}
-
-func (p *StdioExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
 }
 
 func (p *StdioExporter) Close(ctx context.Context) error {
