@@ -21,17 +21,17 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 )
 
 type S3Importer struct {
@@ -66,7 +66,7 @@ func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccess
 	})
 }
 
-func NewS3Importer(ctx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	target := config["location"]
 
 	var accessKey string
@@ -123,110 +123,58 @@ func NewS3Importer(ctx context.Context, opts *importer.Options, name string, con
 	}, nil
 }
 
-func (p *S3Importer) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	result := make(chan *importer.ScanResult)
-	go func() {
-		defer close(result)
+func (p *S3Importer) Root() string          { return p.scanDir }
+func (p *S3Importer) Origin() string        { return p.host + "/" + p.bucket }
+func (p *S3Importer) Type() string          { return "s3" }
+func (p *S3Importer) Flags() location.Flags { return 0 }
 
-		// First verify that we can connect and that it exists.
-		exists, err := p.minioClient.BucketExists(ctx, p.bucket)
-		if err != nil {
-			result <- importer.NewScanError("/", err)
-			return
+func (p *S3Importer) Ping(ctx context.Context) error {
+	ok, err := p.minioClient.BucketExists(ctx, p.bucket)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("bucket does not exist")
+	}
+	return nil
+}
+
+func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
+
+	// racy, but ListObjects doesn't seem to signal failure
+	// accessing the APIs.
+	if err := p.Ping(ctx); err != nil {
+		return err
+	}
+
+	listopts := minio.ListObjectsOptions{
+		Prefix:    strings.TrimPrefix(p.scanDir, "/"),
+		Recursive: true,
+	}
+	for object := range p.minioClient.ListObjects(ctx, p.bucket, listopts) {
+		// Some backend actually return _folders_, which they
+		// shouldn't so just skip over those.
+		if strings.HasSuffix(object.Key, "/") {
+			continue
 		}
 
-		if !exists {
-			result <- importer.NewScanError("/", fmt.Errorf("bucket %q does not exists", p.bucket))
-			return
+		fi := objects.FileInfo{
+			Lname:    path.Base("/" + object.Key),
+			Lsize:    object.Size,
+			Lmode:    0700,
+			LmodTime: object.LastModified,
+			Ldev:     1,
 		}
 
-		// Create scandir entries.
-		parent := p.scanDir
-		for {
-			fi := objects.NewFileInfo(
-				path.Base(parent),
-				0,
-				0700|os.ModeDir,
-				time.Unix(0, 0),
-				0,
-				0,
-				0,
-				0,
-				0,
-			)
-			result <- importer.NewScanRecord(parent, "", fi, nil, nil)
+		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
+			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{})
+		})
+	}
 
-			if parent == "/" {
-				break
-			}
-			parent = path.Dir(parent)
-		}
-
-		prefix := strings.TrimPrefix(p.scanDir, "/")
-
-		for object := range p.minioClient.ListObjects(ctx, p.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-
-			// Some backend actually return _folders_, which they shouldn't so just skip over those.
-			if strings.HasSuffix(object.Key, "/") {
-				continue
-			}
-
-			// Create a record for each of the parent directories of the object.
-			// Two objects in a same directory will generate the same records for this directory, but the backup layer ignores duplicates.
-			parent := path.Dir("/" + object.Key)
-			for {
-				// p.scanDir directories have already been created above.
-				if parent == "/"+prefix {
-					break
-				}
-
-				fi := objects.NewFileInfo(
-					path.Base(parent),
-					0,
-					0700|os.ModeDir,
-					time.Unix(0, 0).UTC(),
-					0,
-					0,
-					0,
-					0,
-					0,
-				)
-				result <- importer.NewScanRecord(parent, "", fi, nil, nil)
-				parent = path.Dir(parent)
-			}
-
-			fi := objects.NewFileInfo(
-				path.Base("/"+object.Key),
-				object.Size,
-				0700,
-				object.LastModified,
-				1,
-				0,
-				0,
-				0,
-				0,
-			)
-			result <- importer.NewScanRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
-				return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{})
-			})
-		}
-
-	}()
-	return result, nil
+	return nil
 }
 
 func (p *S3Importer) Close(ctx context.Context) error {
 	return nil
-}
-
-func (p *S3Importer) Root(ctx context.Context) (string, error) {
-	return p.scanDir, nil
-}
-
-func (p *S3Importer) Origin(ctx context.Context) (string, error) {
-	return p.host + "/" + p.bucket, nil
-}
-
-func (p *S3Importer) Type(ctx context.Context) (string, error) {
-	return "s3", nil
 }
