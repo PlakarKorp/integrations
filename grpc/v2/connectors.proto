@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package plakar.connectors;
+option go_package = "github.com/PlakarKorp/integration-grpc/v2;integration_grpc";
+
+import "google/protobuf/timestamp.proto";
+
+message FileInfo {
+  string name = 1;
+  int64 size = 2;
+  uint32 mode = 3;
+  google.protobuf.Timestamp mod_time = 4;
+  uint64 dev = 5;
+  uint64 ino = 6;
+  uint64 uid = 7;
+  uint64 gid = 8;
+  uint32 nlink = 9;     // but is really uint16
+  string username = 10;
+  string groupname = 11;
+  uint32 flags = 12;
+}
+
+enum ExtendedAttributeType {
+  EXTENDED_ATTRIBUTE_TYPE_UNSPECIFIED = 0;
+  EXTENDED_ATTRIBUTE_TYPE_EXTENDED = 1;
+  EXTENDED_ATTRIBUTE_TYPE_ADS = 2;
+}
+
+message Record {
+  bool hasReader = 1;
+  string pathname = 2;
+  string error = 3;
+  bool isXattr = 4;
+  string xattrName = 5;
+  ExtendedAttributeType xattrType = 6;
+  string target = 7;
+  FileInfo fileInfo = 8;
+  repeated string extendedAttributes = 9;
+  uint32 fileAttributes = 10;
+}
+
+message Result {
+  Record header = 1;
+  string error = 2;
+}

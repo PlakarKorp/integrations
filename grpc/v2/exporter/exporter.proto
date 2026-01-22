@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package plakar.exporter.v2;
+
+import "connectors.proto";
+
+service Exporter {
+  rpc Init(InitRequest) returns (InitResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Export(stream ExportRequest) returns (stream ExportResponse);
+  rpc Close(CloseRequest) returns (CloseResponse);
+}
+
+message Options {
+  string hostname = 1;
+  string os = 2;
+  string arch = 3;
+  string cwd = 4;
+  int64 maxconcurrency = 5;
+}
+
+message InitRequest {
+  Options options = 1;
+  string proto = 2;
+  map<string, string> config = 3;
+}
+
+message InitResponse {
+  string origin = 1;
+  string type = 2;
+  string root = 3;
+  uint32 flags = 4;
+}
+
+message PingRequest {}
+
+message PingResponse {}
+
+message ExportRequest {
+  oneof packet {
+    plakar.connectors.Record record = 1;
+    bytes chunk = 2;
+  }
+}
+
+message ExportResponse {
+  plakar.connectors.Result result = 1;
+}
+
+message CloseRequest {}
+
+message CloseResponse {}

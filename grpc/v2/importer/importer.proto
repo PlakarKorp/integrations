@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package plakar.importer.v2;
+
+import "connectors.proto";
+
+service Importer {
+  rpc Init(InitRequest) returns (InitResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Import(stream ImportRequest) returns (stream ImportResponse);
+  rpc Open(OpenRequest) returns (stream OpenResponse);
+  rpc Close(CloseRequest) returns (CloseResponse);
+}
+
+message Options {
+  string hostname = 1;
+  string os = 2;
+  string arch = 3;
+  string cwd = 4;
+  int64 maxconcurrency = 5;
+  repeated string excludes = 6;
+}
+
+message InitRequest {
+  Options options = 1;
+  string proto = 2;
+  map<string, string> config = 3;
+}
+
+message InitResponse {
+  string origin = 1;
+  string type = 2;
+  string root = 3;
+  uint32 flags = 4;
+}
+
+message PingRequest {}
+
+message PingResponse {}
+
+message ImportRequest {
+  plakar.connectors.Result result = 1;
+}
+
+message ImportResponse {
+  plakar.connectors.Record record = 1;
+
+  // signals that the importer is done sending records, will just wait
+  // for the acknowledgments.  result will be ignored if this is set.
+  bool finished = 2;
+}
+
+message OpenRequest {
+  plakar.connectors.Record record = 1;
+}
+
+message OpenResponse {
+  bytes chunk = 1;
+}
+
+message CloseRequest {}
+
+message CloseResponse {}
