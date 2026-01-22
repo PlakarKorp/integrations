@@ -23,8 +23,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/PlakarKorp/kloset/connectors/storage"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,6 +36,10 @@ import (
 type GrpcStorage struct {
 	GrpcClient grpc_storage.StoreClient
 	cookie     string
+	typ        string
+	origin     string
+	root       string
+	mode       storage.Mode
 }
 
 func unwrap(err error) error {
@@ -56,11 +61,11 @@ func unwrap(err error) error {
 }
 
 func NewStorage(ctx context.Context, client grpc.ClientConnInterface, proto string, config map[string]string) (storage.Store, error) {
-	storage := &GrpcStorage{
+	s := &GrpcStorage{
 		GrpcClient: grpc_storage.NewStoreClient(client),
 	}
 
-	res, err := storage.GrpcClient.Init(ctx, &grpc_storage.InitRequest{
+	res, err := s.GrpcClient.Init(ctx, &grpc_storage.InitRequest{
 		Proto:  proto,
 		Config: config,
 	})
@@ -68,8 +73,25 @@ func NewStorage(ctx context.Context, client grpc.ClientConnInterface, proto stri
 		return nil, unwrap(err)
 	}
 
-	storage.cookie = res.Cookie
-	return storage, nil
+	s.cookie = res.Cookie
+
+	if resp, err := s.GrpcClient.GetLocation(ctx, &grpc_storage.GetLocationRequest{
+		Cookie: s.cookie,
+	}); err != nil {
+		return nil, unwrap(err)
+	} else {
+		s.origin = resp.Location
+	}
+
+	if resp, err := s.GrpcClient.GetMode(ctx, &grpc_storage.GetModeRequest{
+		Cookie: s.cookie,
+	}); err != nil {
+		return nil, unwrap(err)
+	} else {
+		s.mode = storage.Mode(resp.Mode)
+	}
+
+	return s, nil
 }
 
 func (s *GrpcStorage) Create(ctx context.Context, config []byte) error {
@@ -91,24 +113,31 @@ func (s *GrpcStorage) Open(ctx context.Context) ([]byte, error) {
 	return resp.Config, nil
 }
 
-func (s *GrpcStorage) Location(ctx context.Context) (string, error) {
-	resp, err := s.GrpcClient.GetLocation(ctx, &grpc_storage.GetLocationRequest{
-		Cookie: s.cookie,
-	})
-	if err != nil {
-		return "", unwrap(err)
-	}
-	return resp.Location, nil
+func (s *GrpcStorage) Ping(ctx context.Context) error {
+	return nil
 }
 
-func (s *GrpcStorage) Mode(ctx context.Context) (storage.Mode, error) {
-	resp, err := s.GrpcClient.GetMode(ctx, &grpc_storage.GetModeRequest{
-		Cookie: s.cookie,
-	})
-	if err != nil {
-		return storage.Mode(0), unwrap(err)
-	}
-	return storage.Mode(resp.Mode), nil
+func (s *GrpcStorage) Origin() string {
+	return s.origin
+}
+
+func (s *GrpcStorage) Mode() storage.Mode {
+	return s.mode
+}
+
+func (s *GrpcStorage) Root() string {
+	// Old protocol didn't have this, no way to get it?
+	return ""
+}
+
+func (s *GrpcStorage) Type() string {
+	// Old protocol didn't have this, no way to get it?
+	return "grpc"
+}
+
+func (s *GrpcStorage) Flags() location.Flags {
+	// Old protocol didn't have this, no way to get it?
+	return 0
 }
 
 func (s *GrpcStorage) Size(ctx context.Context) (int64, error) {
@@ -211,7 +240,63 @@ func toGrpcMAC(mac objects.MAC) *grpc_storage.MAC {
 	return &grpc_storage.MAC{Value: mac[:]}
 }
 
-func (s *GrpcStorage) GetStates(ctx context.Context) ([]objects.MAC, error) {
+func (s *GrpcStorage) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.getPackfiles(ctx)
+	case storage.StorageResourceStatefile:
+		return s.getStates(ctx)
+	case storage.StorageResourceLockfile:
+		return s.getLocks(ctx)
+	}
+
+	return nil, errors.ErrUnsupported
+}
+
+func (s *GrpcStorage) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.putPackfile(ctx, mac, rd)
+	case storage.StorageResourceStatefile:
+		return s.putState(ctx, mac, rd)
+	case storage.StorageResourceLockfile:
+		return s.putLock(ctx, mac, rd)
+	}
+
+	return -1, errors.ErrUnsupported
+}
+
+func (s *GrpcStorage) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		if rg != nil {
+			return s.getPackfileBlob(ctx, mac, rg.Offset, rg.Length)
+		} else {
+			return s.getPackfile(ctx, mac)
+		}
+	case storage.StorageResourceStatefile:
+		return s.getState(ctx, mac)
+	case storage.StorageResourceLockfile:
+		return s.getLock(ctx, mac)
+	}
+
+	return nil, errors.ErrUnsupported
+}
+
+func (s *GrpcStorage) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.deletePackfile(ctx, mac)
+	case storage.StorageResourceStatefile:
+		return s.deleteState(ctx, mac)
+	case storage.StorageResourceLockfile:
+		return s.deleteLock(ctx, mac)
+	}
+
+	return errors.ErrUnsupported
+}
+
+func (s *GrpcStorage) getStates(ctx context.Context) ([]objects.MAC, error) {
 	resp, err := s.GrpcClient.GetStates(ctx, &grpc_storage.GetStatesRequest{
 		Cookie: s.cookie,
 	})
@@ -229,7 +314,7 @@ func (s *GrpcStorage) GetStates(ctx context.Context) ([]objects.MAC, error) {
 	return states, nil
 }
 
-func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *GrpcStorage) putState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
 	stream, err := s.GrpcClient.PutState(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutState stream: %w", unwrap(err))
@@ -262,7 +347,7 @@ func (s *GrpcStorage) PutState(ctx context.Context, mac objects.MAC, rd io.Reade
 	return resp.BytesWritten, nil
 }
 
-func (s *GrpcStorage) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
+func (s *GrpcStorage) getState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	stream, err := s.GrpcClient.GetState(ctx, &grpc_storage.GetStateRequest{
 		Mac:    toGrpcMAC(mac),
 		Cookie: s.cookie,
@@ -280,7 +365,7 @@ func (s *GrpcStorage) GetState(ctx context.Context, mac objects.MAC) (io.ReadClo
 	}), nil
 }
 
-func (s *GrpcStorage) DeleteState(ctx context.Context, mac objects.MAC) error {
+func (s *GrpcStorage) deleteState(ctx context.Context, mac objects.MAC) error {
 	_, err := s.GrpcClient.DeleteState(ctx, &grpc_storage.DeleteStateRequest{
 		Mac:    toGrpcMAC(mac),
 		Cookie: s.cookie,
@@ -291,7 +376,7 @@ func (s *GrpcStorage) DeleteState(ctx context.Context, mac objects.MAC) error {
 	return nil
 }
 
-func (s *GrpcStorage) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
+func (s *GrpcStorage) getPackfiles(ctx context.Context) ([]objects.MAC, error) {
 	resp, err := s.GrpcClient.GetPackfiles(ctx, &grpc_storage.GetPackfilesRequest{
 		Cookie: s.cookie,
 	})
@@ -309,7 +394,7 @@ func (s *GrpcStorage) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
 	return packfiles, nil
 }
 
-func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *GrpcStorage) putPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
 	stream, err := s.GrpcClient.PutPackfile(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutPackfile stream: %w", unwrap(err))
@@ -342,7 +427,7 @@ func (s *GrpcStorage) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Re
 	return resp.BytesWritten, nil
 }
 
-func (s *GrpcStorage) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
+func (s *GrpcStorage) getPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
 	stream, err := s.GrpcClient.GetPackfile(ctx, &grpc_storage.GetPackfileRequest{
 		Mac:    toGrpcMAC(mac),
 		Cookie: s.cookie,
@@ -360,7 +445,7 @@ func (s *GrpcStorage) GetPackfile(ctx context.Context, mac objects.MAC) (io.Read
 	}), nil
 }
 
-func (s *GrpcStorage) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
+func (s *GrpcStorage) getPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
 	stream, err := s.GrpcClient.GetPackfileBlob(ctx, &grpc_storage.GetPackfileBlobRequest{
 		Mac:    toGrpcMAC(mac),
 		Offset: offset,
@@ -380,7 +465,7 @@ func (s *GrpcStorage) GetPackfileBlob(ctx context.Context, mac objects.MAC, offs
 	}), nil
 }
 
-func (s *GrpcStorage) DeletePackfile(ctx context.Context, mac objects.MAC) error {
+func (s *GrpcStorage) deletePackfile(ctx context.Context, mac objects.MAC) error {
 	_, err := s.GrpcClient.DeletePackfile(ctx, &grpc_storage.DeletePackfileRequest{
 		Mac:    toGrpcMAC(mac),
 		Cookie: s.cookie,
@@ -391,7 +476,7 @@ func (s *GrpcStorage) DeletePackfile(ctx context.Context, mac objects.MAC) error
 	return nil
 }
 
-func (s *GrpcStorage) GetLocks(ctx context.Context) ([]objects.MAC, error) {
+func (s *GrpcStorage) getLocks(ctx context.Context) ([]objects.MAC, error) {
 	resp, err := s.GrpcClient.GetLocks(ctx, &grpc_storage.GetLocksRequest{
 		Cookie: s.cookie,
 	})
@@ -409,7 +494,7 @@ func (s *GrpcStorage) GetLocks(ctx context.Context) ([]objects.MAC, error) {
 	return locks, nil
 }
 
-func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
+func (s *GrpcStorage) putLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
 	stream, err := s.GrpcClient.PutLock(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to start PutLock stream: %w", unwrap(err))
@@ -442,7 +527,7 @@ func (s *GrpcStorage) PutLock(ctx context.Context, lockID objects.MAC, rd io.Rea
 	return resp.BytesWritten, nil
 }
 
-func (s *GrpcStorage) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
+func (s *GrpcStorage) getLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
 	stream, err := s.GrpcClient.GetLock(ctx, &grpc_storage.GetLockRequest{
 		Mac:    toGrpcMAC(lockID),
 		Cookie: s.cookie,
@@ -460,7 +545,7 @@ func (s *GrpcStorage) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadC
 	}), nil
 }
 
-func (s *GrpcStorage) DeleteLock(ctx context.Context, lockID objects.MAC) error {
+func (s *GrpcStorage) deleteLock(ctx context.Context, lockID objects.MAC) error {
 	_, err := s.GrpcClient.DeleteLock(ctx, &grpc_storage.DeleteLockRequest{
 		Mac:    toGrpcMAC(lockID),
 		Cookie: s.cookie,
