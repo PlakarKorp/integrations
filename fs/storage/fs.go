@@ -46,12 +46,12 @@ func init() {
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
 	return &Store{
-		location: storeConfig["location"],
+		location: strings.TrimPrefix(storeConfig["location"], proto+"://"),
 	}, nil
 }
 
 func (s *Store) Origin() string {
-	return s.location
+	return "localhost"
 }
 
 func (s *Store) Root() string {
@@ -71,11 +71,9 @@ func (s *Store) Flags() location.Flags {
 }
 
 func (s *Store) Path(args ...string) string {
-	root := strings.TrimPrefix(s.location, "fs://")
-
 	args = append(args, "")
 	copy(args[1:], args)
-	args[0] = root
+	args[0] = s.location
 
 	return filepath.Join(args...)
 }
