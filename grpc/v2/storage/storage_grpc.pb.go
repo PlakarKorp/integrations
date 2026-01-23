@@ -19,26 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Store_Init_FullMethodName            = "/plakar.store.v2.Store/Init"
-	Store_Create_FullMethodName          = "/plakar.store.v2.Store/Create"
-	Store_Open_FullMethodName            = "/plakar.store.v2.Store/Open"
-	Store_Close_FullMethodName           = "/plakar.store.v2.Store/Close"
-	Store_GetLocation_FullMethodName     = "/plakar.store.v2.Store/GetLocation"
-	Store_GetMode_FullMethodName         = "/plakar.store.v2.Store/GetMode"
-	Store_GetSize_FullMethodName         = "/plakar.store.v2.Store/GetSize"
-	Store_GetStates_FullMethodName       = "/plakar.store.v2.Store/GetStates"
-	Store_PutState_FullMethodName        = "/plakar.store.v2.Store/PutState"
-	Store_GetState_FullMethodName        = "/plakar.store.v2.Store/GetState"
-	Store_DeleteState_FullMethodName     = "/plakar.store.v2.Store/DeleteState"
-	Store_GetPackfiles_FullMethodName    = "/plakar.store.v2.Store/GetPackfiles"
-	Store_PutPackfile_FullMethodName     = "/plakar.store.v2.Store/PutPackfile"
-	Store_GetPackfile_FullMethodName     = "/plakar.store.v2.Store/GetPackfile"
-	Store_GetPackfileBlob_FullMethodName = "/plakar.store.v2.Store/GetPackfileBlob"
-	Store_DeletePackfile_FullMethodName  = "/plakar.store.v2.Store/DeletePackfile"
-	Store_GetLocks_FullMethodName        = "/plakar.store.v2.Store/GetLocks"
-	Store_PutLock_FullMethodName         = "/plakar.store.v2.Store/PutLock"
-	Store_GetLock_FullMethodName         = "/plakar.store.v2.Store/GetLock"
-	Store_DeleteLock_FullMethodName      = "/plakar.store.v2.Store/DeleteLock"
+	Store_Init_FullMethodName   = "/plakar.store.v2.Store/Init"
+	Store_Create_FullMethodName = "/plakar.store.v2.Store/Create"
+	Store_Open_FullMethodName   = "/plakar.store.v2.Store/Open"
+	Store_Ping_FullMethodName   = "/plakar.store.v2.Store/Ping"
+	Store_Mode_FullMethodName   = "/plakar.store.v2.Store/Mode"
+	Store_Size_FullMethodName   = "/plakar.store.v2.Store/Size"
+	Store_List_FullMethodName   = "/plakar.store.v2.Store/List"
+	Store_Put_FullMethodName    = "/plakar.store.v2.Store/Put"
+	Store_Get_FullMethodName    = "/plakar.store.v2.Store/Get"
+	Store_Delete_FullMethodName = "/plakar.store.v2.Store/Delete"
+	Store_Close_FullMethodName  = "/plakar.store.v2.Store/Close"
 )
 
 // StoreClient is the client API for Store service.
@@ -48,23 +39,14 @@ type StoreClient interface {
 	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	Open(ctx context.Context, in *OpenRequest, opts ...grpc.CallOption) (*OpenResponse, error)
+	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
+	Mode(ctx context.Context, in *ModeRequest, opts ...grpc.CallOption) (*ModeResponse, error)
+	Size(ctx context.Context, in *SizeRequest, opts ...grpc.CallOption) (*SizeResponse, error)
+	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error)
+	Put(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutRequest, PutResponse], error)
+	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetResponse], error)
+	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*CloseResponse, error)
-	GetLocation(ctx context.Context, in *GetLocationRequest, opts ...grpc.CallOption) (*GetLocationResponse, error)
-	GetMode(ctx context.Context, in *GetModeRequest, opts ...grpc.CallOption) (*GetModeResponse, error)
-	GetSize(ctx context.Context, in *GetSizeRequest, opts ...grpc.CallOption) (*GetSizeResponse, error)
-	GetStates(ctx context.Context, in *GetStatesRequest, opts ...grpc.CallOption) (*GetStatesResponse, error)
-	PutState(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutStateRequest, PutStateResponse], error)
-	GetState(ctx context.Context, in *GetStateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetStateResponse], error)
-	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
-	GetPackfiles(ctx context.Context, in *GetPackfilesRequest, opts ...grpc.CallOption) (*GetPackfilesResponse, error)
-	PutPackfile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutPackfileRequest, PutPackfileResponse], error)
-	GetPackfile(ctx context.Context, in *GetPackfileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetPackfileResponse], error)
-	GetPackfileBlob(ctx context.Context, in *GetPackfileBlobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetPackfileBlobResponse], error)
-	DeletePackfile(ctx context.Context, in *DeletePackfileRequest, opts ...grpc.CallOption) (*DeletePackfileResponse, error)
-	GetLocks(ctx context.Context, in *GetLocksRequest, opts ...grpc.CallOption) (*GetLocksResponse, error)
-	PutLock(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutLockRequest, PutLockResponse], error)
-	GetLock(ctx context.Context, in *GetLockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetLockResponse], error)
-	DeleteLock(ctx context.Context, in *DeleteLockRequest, opts ...grpc.CallOption) (*DeleteLockResponse, error)
 }
 
 type storeClient struct {
@@ -105,215 +87,92 @@ func (c *storeClient) Open(ctx context.Context, in *OpenRequest, opts ...grpc.Ca
 	return out, nil
 }
 
+func (c *storeClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PingResponse)
+	err := c.cc.Invoke(ctx, Store_Ping_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storeClient) Mode(ctx context.Context, in *ModeRequest, opts ...grpc.CallOption) (*ModeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModeResponse)
+	err := c.cc.Invoke(ctx, Store_Mode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storeClient) Size(ctx context.Context, in *SizeRequest, opts ...grpc.CallOption) (*SizeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SizeResponse)
+	err := c.cc.Invoke(ctx, Store_Size_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storeClient) List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (*ListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListResponse)
+	err := c.cc.Invoke(ctx, Store_List_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storeClient) Put(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutRequest, PutResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[0], Store_Put_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[PutRequest, PutResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Store_PutClient = grpc.ClientStreamingClient[PutRequest, PutResponse]
+
+func (c *storeClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[1], Store_Get_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetRequest, GetResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Store_GetClient = grpc.ServerStreamingClient[GetResponse]
+
+func (c *storeClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResponse)
+	err := c.cc.Invoke(ctx, Store_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *storeClient) Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*CloseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CloseResponse)
 	err := c.cc.Invoke(ctx, Store_Close_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetLocation(ctx context.Context, in *GetLocationRequest, opts ...grpc.CallOption) (*GetLocationResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetLocationResponse)
-	err := c.cc.Invoke(ctx, Store_GetLocation_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetMode(ctx context.Context, in *GetModeRequest, opts ...grpc.CallOption) (*GetModeResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetModeResponse)
-	err := c.cc.Invoke(ctx, Store_GetMode_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetSize(ctx context.Context, in *GetSizeRequest, opts ...grpc.CallOption) (*GetSizeResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetSizeResponse)
-	err := c.cc.Invoke(ctx, Store_GetSize_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetStates(ctx context.Context, in *GetStatesRequest, opts ...grpc.CallOption) (*GetStatesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetStatesResponse)
-	err := c.cc.Invoke(ctx, Store_GetStates_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) PutState(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutStateRequest, PutStateResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[0], Store_PutState_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[PutStateRequest, PutStateResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutStateClient = grpc.ClientStreamingClient[PutStateRequest, PutStateResponse]
-
-func (c *storeClient) GetState(ctx context.Context, in *GetStateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetStateResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[1], Store_GetState_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[GetStateRequest, GetStateResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetStateClient = grpc.ServerStreamingClient[GetStateResponse]
-
-func (c *storeClient) DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteStateResponse)
-	err := c.cc.Invoke(ctx, Store_DeleteState_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetPackfiles(ctx context.Context, in *GetPackfilesRequest, opts ...grpc.CallOption) (*GetPackfilesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetPackfilesResponse)
-	err := c.cc.Invoke(ctx, Store_GetPackfiles_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) PutPackfile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutPackfileRequest, PutPackfileResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[2], Store_PutPackfile_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[PutPackfileRequest, PutPackfileResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutPackfileClient = grpc.ClientStreamingClient[PutPackfileRequest, PutPackfileResponse]
-
-func (c *storeClient) GetPackfile(ctx context.Context, in *GetPackfileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetPackfileResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[3], Store_GetPackfile_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[GetPackfileRequest, GetPackfileResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetPackfileClient = grpc.ServerStreamingClient[GetPackfileResponse]
-
-func (c *storeClient) GetPackfileBlob(ctx context.Context, in *GetPackfileBlobRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetPackfileBlobResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[4], Store_GetPackfileBlob_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[GetPackfileBlobRequest, GetPackfileBlobResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetPackfileBlobClient = grpc.ServerStreamingClient[GetPackfileBlobResponse]
-
-func (c *storeClient) DeletePackfile(ctx context.Context, in *DeletePackfileRequest, opts ...grpc.CallOption) (*DeletePackfileResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeletePackfileResponse)
-	err := c.cc.Invoke(ctx, Store_DeletePackfile_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) GetLocks(ctx context.Context, in *GetLocksRequest, opts ...grpc.CallOption) (*GetLocksResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetLocksResponse)
-	err := c.cc.Invoke(ctx, Store_GetLocks_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *storeClient) PutLock(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PutLockRequest, PutLockResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[5], Store_PutLock_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[PutLockRequest, PutLockResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutLockClient = grpc.ClientStreamingClient[PutLockRequest, PutLockResponse]
-
-func (c *storeClient) GetLock(ctx context.Context, in *GetLockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetLockResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[6], Store_GetLock_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[GetLockRequest, GetLockResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetLockClient = grpc.ServerStreamingClient[GetLockResponse]
-
-func (c *storeClient) DeleteLock(ctx context.Context, in *DeleteLockRequest, opts ...grpc.CallOption) (*DeleteLockResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteLockResponse)
-	err := c.cc.Invoke(ctx, Store_DeleteLock_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -327,23 +186,14 @@ type StoreServer interface {
 	Init(context.Context, *InitRequest) (*InitResponse, error)
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
 	Open(context.Context, *OpenRequest) (*OpenResponse, error)
+	Ping(context.Context, *PingRequest) (*PingResponse, error)
+	Mode(context.Context, *ModeRequest) (*ModeResponse, error)
+	Size(context.Context, *SizeRequest) (*SizeResponse, error)
+	List(context.Context, *ListRequest) (*ListResponse, error)
+	Put(grpc.ClientStreamingServer[PutRequest, PutResponse]) error
+	Get(*GetRequest, grpc.ServerStreamingServer[GetResponse]) error
+	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	Close(context.Context, *CloseRequest) (*CloseResponse, error)
-	GetLocation(context.Context, *GetLocationRequest) (*GetLocationResponse, error)
-	GetMode(context.Context, *GetModeRequest) (*GetModeResponse, error)
-	GetSize(context.Context, *GetSizeRequest) (*GetSizeResponse, error)
-	GetStates(context.Context, *GetStatesRequest) (*GetStatesResponse, error)
-	PutState(grpc.ClientStreamingServer[PutStateRequest, PutStateResponse]) error
-	GetState(*GetStateRequest, grpc.ServerStreamingServer[GetStateResponse]) error
-	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
-	GetPackfiles(context.Context, *GetPackfilesRequest) (*GetPackfilesResponse, error)
-	PutPackfile(grpc.ClientStreamingServer[PutPackfileRequest, PutPackfileResponse]) error
-	GetPackfile(*GetPackfileRequest, grpc.ServerStreamingServer[GetPackfileResponse]) error
-	GetPackfileBlob(*GetPackfileBlobRequest, grpc.ServerStreamingServer[GetPackfileBlobResponse]) error
-	DeletePackfile(context.Context, *DeletePackfileRequest) (*DeletePackfileResponse, error)
-	GetLocks(context.Context, *GetLocksRequest) (*GetLocksResponse, error)
-	PutLock(grpc.ClientStreamingServer[PutLockRequest, PutLockResponse]) error
-	GetLock(*GetLockRequest, grpc.ServerStreamingServer[GetLockResponse]) error
-	DeleteLock(context.Context, *DeleteLockRequest) (*DeleteLockResponse, error)
 	mustEmbedUnimplementedStoreServer()
 }
 
@@ -363,56 +213,29 @@ func (UnimplementedStoreServer) Create(context.Context, *CreateRequest) (*Create
 func (UnimplementedStoreServer) Open(context.Context, *OpenRequest) (*OpenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Open not implemented")
 }
+func (UnimplementedStoreServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Ping not implemented")
+}
+func (UnimplementedStoreServer) Mode(context.Context, *ModeRequest) (*ModeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Mode not implemented")
+}
+func (UnimplementedStoreServer) Size(context.Context, *SizeRequest) (*SizeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Size not implemented")
+}
+func (UnimplementedStoreServer) List(context.Context, *ListRequest) (*ListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method List not implemented")
+}
+func (UnimplementedStoreServer) Put(grpc.ClientStreamingServer[PutRequest, PutResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method Put not implemented")
+}
+func (UnimplementedStoreServer) Get(*GetRequest, grpc.ServerStreamingServer[GetResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedStoreServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
 func (UnimplementedStoreServer) Close(context.Context, *CloseRequest) (*CloseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Close not implemented")
-}
-func (UnimplementedStoreServer) GetLocation(context.Context, *GetLocationRequest) (*GetLocationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetLocation not implemented")
-}
-func (UnimplementedStoreServer) GetMode(context.Context, *GetModeRequest) (*GetModeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetMode not implemented")
-}
-func (UnimplementedStoreServer) GetSize(context.Context, *GetSizeRequest) (*GetSizeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSize not implemented")
-}
-func (UnimplementedStoreServer) GetStates(context.Context, *GetStatesRequest) (*GetStatesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetStates not implemented")
-}
-func (UnimplementedStoreServer) PutState(grpc.ClientStreamingServer[PutStateRequest, PutStateResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method PutState not implemented")
-}
-func (UnimplementedStoreServer) GetState(*GetStateRequest, grpc.ServerStreamingServer[GetStateResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method GetState not implemented")
-}
-func (UnimplementedStoreServer) DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteState not implemented")
-}
-func (UnimplementedStoreServer) GetPackfiles(context.Context, *GetPackfilesRequest) (*GetPackfilesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetPackfiles not implemented")
-}
-func (UnimplementedStoreServer) PutPackfile(grpc.ClientStreamingServer[PutPackfileRequest, PutPackfileResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method PutPackfile not implemented")
-}
-func (UnimplementedStoreServer) GetPackfile(*GetPackfileRequest, grpc.ServerStreamingServer[GetPackfileResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method GetPackfile not implemented")
-}
-func (UnimplementedStoreServer) GetPackfileBlob(*GetPackfileBlobRequest, grpc.ServerStreamingServer[GetPackfileBlobResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method GetPackfileBlob not implemented")
-}
-func (UnimplementedStoreServer) DeletePackfile(context.Context, *DeletePackfileRequest) (*DeletePackfileResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeletePackfile not implemented")
-}
-func (UnimplementedStoreServer) GetLocks(context.Context, *GetLocksRequest) (*GetLocksResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetLocks not implemented")
-}
-func (UnimplementedStoreServer) PutLock(grpc.ClientStreamingServer[PutLockRequest, PutLockResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method PutLock not implemented")
-}
-func (UnimplementedStoreServer) GetLock(*GetLockRequest, grpc.ServerStreamingServer[GetLockResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method GetLock not implemented")
-}
-func (UnimplementedStoreServer) DeleteLock(context.Context, *DeleteLockRequest) (*DeleteLockResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteLock not implemented")
 }
 func (UnimplementedStoreServer) mustEmbedUnimplementedStoreServer() {}
 func (UnimplementedStoreServer) testEmbeddedByValue()               {}
@@ -489,6 +312,114 @@ func _Store_Open_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Store_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Store_Ping_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).Ping(ctx, req.(*PingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Store_Mode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).Mode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Store_Mode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).Mode(ctx, req.(*ModeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Store_Size_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SizeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).Size(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Store_Size_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).Size(ctx, req.(*SizeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Store_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Store_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).List(ctx, req.(*ListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Store_Put_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(StoreServer).Put(&grpc.GenericServerStream[PutRequest, PutResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Store_PutServer = grpc.ClientStreamingServer[PutRequest, PutResponse]
+
+func _Store_Get_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StoreServer).Get(m, &grpc.GenericServerStream[GetRequest, GetResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Store_GetServer = grpc.ServerStreamingServer[GetResponse]
+
+func _Store_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Store_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).Delete(ctx, req.(*DeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Store_Close_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CloseRequest)
 	if err := dec(in); err != nil {
@@ -503,233 +434,6 @@ func _Store_Close_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StoreServer).Close(ctx, req.(*CloseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetLocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetLocationRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetLocation(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetLocation_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetLocation(ctx, req.(*GetLocationRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetMode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetModeRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetMode(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetMode_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetMode(ctx, req.(*GetModeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetSize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetSizeRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetSize(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetSize_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetSize(ctx, req.(*GetSizeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetStates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetStatesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetStates(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetStates_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetStates(ctx, req.(*GetStatesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_PutState_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(StoreServer).PutState(&grpc.GenericServerStream[PutStateRequest, PutStateResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutStateServer = grpc.ClientStreamingServer[PutStateRequest, PutStateResponse]
-
-func _Store_GetState_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(GetStateRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(StoreServer).GetState(m, &grpc.GenericServerStream[GetStateRequest, GetStateResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetStateServer = grpc.ServerStreamingServer[GetStateResponse]
-
-func _Store_DeleteState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteStateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).DeleteState(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_DeleteState_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).DeleteState(ctx, req.(*DeleteStateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetPackfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetPackfilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetPackfiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetPackfiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetPackfiles(ctx, req.(*GetPackfilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_PutPackfile_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(StoreServer).PutPackfile(&grpc.GenericServerStream[PutPackfileRequest, PutPackfileResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutPackfileServer = grpc.ClientStreamingServer[PutPackfileRequest, PutPackfileResponse]
-
-func _Store_GetPackfile_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(GetPackfileRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(StoreServer).GetPackfile(m, &grpc.GenericServerStream[GetPackfileRequest, GetPackfileResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetPackfileServer = grpc.ServerStreamingServer[GetPackfileResponse]
-
-func _Store_GetPackfileBlob_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(GetPackfileBlobRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(StoreServer).GetPackfileBlob(m, &grpc.GenericServerStream[GetPackfileBlobRequest, GetPackfileBlobResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetPackfileBlobServer = grpc.ServerStreamingServer[GetPackfileBlobResponse]
-
-func _Store_DeletePackfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeletePackfileRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).DeletePackfile(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_DeletePackfile_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).DeletePackfile(ctx, req.(*DeletePackfileRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_GetLocks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetLocksRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).GetLocks(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_GetLocks_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).GetLocks(ctx, req.(*GetLocksRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Store_PutLock_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(StoreServer).PutLock(&grpc.GenericServerStream[PutLockRequest, PutLockResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_PutLockServer = grpc.ClientStreamingServer[PutLockRequest, PutLockResponse]
-
-func _Store_GetLock_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(GetLockRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(StoreServer).GetLock(m, &grpc.GenericServerStream[GetLockRequest, GetLockResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Store_GetLockServer = grpc.ServerStreamingServer[GetLockResponse]
-
-func _Store_DeleteLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteLockRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(StoreServer).DeleteLock(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Store_DeleteLock_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(StoreServer).DeleteLock(ctx, req.(*DeleteLockRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -754,80 +458,39 @@ var Store_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Store_Open_Handler,
 		},
 		{
+			MethodName: "Ping",
+			Handler:    _Store_Ping_Handler,
+		},
+		{
+			MethodName: "Mode",
+			Handler:    _Store_Mode_Handler,
+		},
+		{
+			MethodName: "Size",
+			Handler:    _Store_Size_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _Store_List_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _Store_Delete_Handler,
+		},
+		{
 			MethodName: "Close",
 			Handler:    _Store_Close_Handler,
-		},
-		{
-			MethodName: "GetLocation",
-			Handler:    _Store_GetLocation_Handler,
-		},
-		{
-			MethodName: "GetMode",
-			Handler:    _Store_GetMode_Handler,
-		},
-		{
-			MethodName: "GetSize",
-			Handler:    _Store_GetSize_Handler,
-		},
-		{
-			MethodName: "GetStates",
-			Handler:    _Store_GetStates_Handler,
-		},
-		{
-			MethodName: "DeleteState",
-			Handler:    _Store_DeleteState_Handler,
-		},
-		{
-			MethodName: "GetPackfiles",
-			Handler:    _Store_GetPackfiles_Handler,
-		},
-		{
-			MethodName: "DeletePackfile",
-			Handler:    _Store_DeletePackfile_Handler,
-		},
-		{
-			MethodName: "GetLocks",
-			Handler:    _Store_GetLocks_Handler,
-		},
-		{
-			MethodName: "DeleteLock",
-			Handler:    _Store_DeleteLock_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "PutState",
-			Handler:       _Store_PutState_Handler,
+			StreamName:    "Put",
+			Handler:       _Store_Put_Handler,
 			ClientStreams: true,
 		},
 		{
-			StreamName:    "GetState",
-			Handler:       _Store_GetState_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "PutPackfile",
-			Handler:       _Store_PutPackfile_Handler,
-			ClientStreams: true,
-		},
-		{
-			StreamName:    "GetPackfile",
-			Handler:       _Store_GetPackfile_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "GetPackfileBlob",
-			Handler:       _Store_GetPackfileBlob_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "PutLock",
-			Handler:       _Store_PutLock_Handler,
-			ClientStreams: true,
-		},
-		{
-			StreamName:    "GetLock",
-			Handler:       _Store_GetLock_Handler,
+			StreamName:    "Get",
+			Handler:       _Store_Get_Handler,
 			ServerStreams: true,
 		},
 	},

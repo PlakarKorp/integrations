@@ -2,202 +2,104 @@ syntax = "proto3";
 
 package plakar.store.v2;
 
-
-message MAC {
-    bytes value = 1;
+enum StorageResource {
+  STORAGE_RESOURCE_UNDEFINED = 0;
+  STORAGE_RESOURCE_PACKFILE = 1;
+  STORAGE_RESOURCE_STATE = 2;
+  STORAGE_RESOURCE_LOCK = 3;
+  STORAGE_RESOURCE_ECC_PACKFILE = 4;
+  STORAGE_RESOURCE_ECC_STATE = 5;
 }
 
 service Store {
-    rpc Init(InitRequest) returns (InitResponse);
+  rpc Init(InitRequest) returns (InitResponse);
 
-    rpc Create(CreateRequest) returns (CreateResponse);
-    rpc Open(OpenRequest) returns (OpenResponse);
-    rpc Close(CloseRequest) returns (CloseResponse);
+  rpc Create(CreateRequest) returns (CreateResponse);
+  rpc Open(OpenRequest) returns (OpenResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
 
-    rpc GetLocation(GetLocationRequest) returns (GetLocationResponse);
-    rpc GetMode(GetModeRequest) returns (GetModeResponse);
-    rpc GetSize(GetSizeRequest) returns (GetSizeResponse);
+  rpc Mode(ModeRequest) returns (ModeResponse);
+  rpc Size(SizeRequest) returns (SizeResponse);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Put(stream PutRequest) returns (PutResponse);
+  rpc Get(GetRequest) returns (stream GetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
 
-    rpc GetStates(GetStatesRequest) returns (GetStatesResponse);
-    rpc PutState(stream PutStateRequest) returns (PutStateResponse);
-    rpc GetState(GetStateRequest) returns (stream GetStateResponse);
-    rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse);
-
-    rpc GetPackfiles(GetPackfilesRequest) returns (GetPackfilesResponse);
-    rpc PutPackfile(stream PutPackfileRequest) returns (PutPackfileResponse);
-    rpc GetPackfile(GetPackfileRequest) returns (stream GetPackfileResponse);
-    rpc GetPackfileBlob(GetPackfileBlobRequest) returns (stream GetPackfileBlobResponse);
-    rpc DeletePackfile(DeletePackfileRequest) returns (DeletePackfileResponse);
-
-    rpc GetLocks(GetLocksRequest) returns (GetLocksResponse);
-    rpc PutLock(stream PutLockRequest) returns (PutLockResponse);
-    rpc GetLock(GetLockRequest) returns (stream GetLockResponse);
-    rpc DeleteLock(DeleteLockRequest) returns (DeleteLockResponse);
+  rpc Close(CloseRequest) returns (CloseResponse);
 }
 
 message InitRequest {
-    string proto = 1;
-    map<string, string> config = 2;
+  string proto = 1;
+  map<string, string> config = 2;
 }
 
 message InitResponse {
-    string cookie = 1;
+  string origin = 1;
+  string type = 2;
+  string root = 3;
+  uint32 flags = 5;
 }
 
 message CreateRequest {
-    bytes config = 1;
-    string cookie = 2;
+  bytes config = 1;
 }
-
 message CreateResponse {}
 
-message OpenRequest {
-    string cookie = 1;
-}
-
+message OpenRequest {}
 message OpenResponse {
-    bytes config = 1;
+  bytes config = 1;
 }
 
-message CloseRequest {
-    string cookie = 1;
+message PingRequest {}
+message PingResponse {}
+
+message ModeRequest {}
+message ModeResponse {
+  int32 mode = 1;
 }
 
+message CloseRequest {}
 message CloseResponse {}
 
-message GetLocationRequest {
-    string cookie = 1;
+
+message SizeRequest {}
+message SizeResponse {
+  int64 size = 1;
 }
 
-message GetLocationResponse {
-    string location = 1;
+message ListRequest {
+  StorageResource type = 1;
+}
+message ListResponse {
+  repeated bytes macs = 1;
 }
 
-message GetModeRequest {
-    string cookie = 1;
+message PutRequest {
+  bytes mac = 1;
+  StorageResource type = 2;
+  bytes chunk = 3;
+}
+message PutResponse {
+  int64 bytes_written = 1;
 }
 
-message GetModeResponse {
-    int32 mode = 1;
+message GetRequest {
+  message Range {
+    uint64 offset = 1;
+    uint32 length = 2;
+  }
+
+  bytes mac = 1;
+  StorageResource type = 2;
+  optional Range range = 3;
+}
+message GetResponse {
+  bytes chunk = 1;
 }
 
-message GetSizeRequest {
-    string cookie = 1;
+message DeleteRequest {
+  bytes mac = 1;
+  StorageResource type = 2;
 }
+message DeleteResponse {}
 
-message GetSizeResponse {
-    int64 size = 1;
-}
-
-message GetStatesRequest {
-    string cookie = 1;
-}
-
-message GetStatesResponse {
-    repeated MAC macs = 1;
-}
-
-message PutStateRequest {
-    MAC mac = 1;
-    bytes chunk = 2;
-    string cookie = 3;
-}
-
-message PutStateResponse {
-    int64 bytes_written = 1;
-}
-
-message GetStateRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message GetStateResponse {
-    bytes chunk = 1;
-}
-
-message DeleteStateRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message DeleteStateResponse {}
-
-message GetPackfilesRequest {
-    string cookie = 1;
-}
-
-message GetPackfilesResponse {
-    repeated MAC macs = 1;
-}
-
-message PutPackfileRequest {
-    MAC mac = 1;
-    bytes chunk = 2;
-    string cookie = 3;
-}
-
-message PutPackfileResponse {
-    int64 bytes_written = 1;
-}
-
-message GetPackfileRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message GetPackfileResponse {
-    bytes chunk = 1;
-}
-
-message GetPackfileBlobRequest {
-    MAC mac = 1;
-    uint64 offset = 2;
-    uint32 length = 3;
-    string cookie = 4;
-}
-
-message GetPackfileBlobResponse {
-    bytes chunk = 1;
-}
-
-message DeletePackfileRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message DeletePackfileResponse {}
-
-message GetLocksRequest {
-    string cookie = 1;
-}
-
-message GetLocksResponse {
-    repeated MAC macs = 1;
-}
-
-message PutLockRequest {
-    MAC mac = 1;
-    bytes chunk = 2;
-    string cookie = 3;
-}
-
-message PutLockResponse {
-    int64 bytes_written = 1;
-}
-
-message GetLockRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message GetLockResponse {
-    bytes chunk = 1;
-}
-
-message DeleteLockRequest {
-    MAC mac = 1;
-    string cookie = 2;
-}
-
-message DeleteLockResponse {}
