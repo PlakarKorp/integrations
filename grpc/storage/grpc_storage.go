@@ -78,6 +78,7 @@ func NewStorage(ctx context.Context, client grpc.ClientConnInterface, proto stri
 	if resp, err := s.GrpcClient.GetLocation(ctx, &grpc_storage.GetLocationRequest{
 		Cookie: s.cookie,
 	}); err != nil {
+		s.GrpcClient.Close(ctx, &grpc_storage.CloseRequest{Cookie: s.cookie})
 		return nil, unwrap(err)
 	} else {
 		s.origin = resp.Location
@@ -86,6 +87,7 @@ func NewStorage(ctx context.Context, client grpc.ClientConnInterface, proto stri
 	if resp, err := s.GrpcClient.GetMode(ctx, &grpc_storage.GetModeRequest{
 		Cookie: s.cookie,
 	}); err != nil {
+		s.GrpcClient.Close(ctx, &grpc_storage.CloseRequest{Cookie: s.cookie})
 		return nil, unwrap(err)
 	} else {
 		s.mode = storage.Mode(resp.Mode)
