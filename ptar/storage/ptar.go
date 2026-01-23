@@ -255,7 +255,7 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 // states
 func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
 	switch res {
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		if s.mode&storage.ModeWrite != 0 {
 			return []objects.MAC{}, nil
 		}
@@ -267,7 +267,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		return []objects.MAC{
 			packfileMAC,
 		}, nil
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return []objects.MAC{}, nil
 	}
 
@@ -276,7 +276,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
 	switch res {
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		if s.mode&storage.ModeWrite == 0 {
 			return 0, storage.ErrNotWritable
 		}
@@ -302,7 +302,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		s.packfileLength = nbytes
 
 		return nbytes, nil
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		if s.mode&storage.ModeWrite == 0 {
 			return 0, storage.ErrNotWritable
 		}
@@ -314,7 +314,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	switch res {
-	case storage.StorageResourceStatefile:
+	case storage.StorageResourceState:
 		if mac != stateMAC {
 			return nil, fmt.Errorf("invalid MAC: %s", mac)
 		}
@@ -325,7 +325,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 		} else {
 			return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset+int64(rg.Offset), int64(rg.Length))), nil
 		}
-	case storage.StorageResourceLockfile:
+	case storage.StorageResourceLock:
 		return io.NopCloser(bytes.NewBuffer([]byte{})), nil
 	}
 
