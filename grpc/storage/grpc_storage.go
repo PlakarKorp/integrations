@@ -91,15 +91,6 @@ func NewStorage(ctx context.Context, client grpc.ClientConnInterface, proto stri
 		s.typ = u.Scheme
 	}
 
-	if resp, err := s.GrpcClient.GetMode(ctx, &grpc_storage.GetModeRequest{
-		Cookie: s.cookie,
-	}); err != nil {
-		s.GrpcClient.Close(ctx, &grpc_storage.CloseRequest{Cookie: s.cookie})
-		return nil, unwrap(err)
-	} else {
-		s.mode = storage.Mode(resp.Mode)
-	}
-
 	return s, nil
 }
 
@@ -130,8 +121,14 @@ func (s *GrpcStorage) Origin() string {
 	return s.origin
 }
 
-func (s *GrpcStorage) Mode() storage.Mode {
-	return s.mode
+func (s *GrpcStorage) Mode(ctx context.Context) (storage.Mode, error) {
+	if resp, err := s.GrpcClient.GetMode(ctx, &grpc_storage.GetModeRequest{
+		Cookie: s.cookie,
+	}); err != nil {
+		return 0, unwrap(err)
+	} else {
+		return storage.Mode(resp.Mode), nil
+	}
 }
 
 func (s *GrpcStorage) Root() string {
