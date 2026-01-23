@@ -20,14 +20,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 
+	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/storage"
 	"github.com/PlakarKorp/kloset/versioning"
 	"github.com/dustin/go-humanize"
 )
@@ -35,7 +37,9 @@ import (
 type Store struct {
 	config     []byte
 	Repository string
-	location   string
+	location   string // What we were given on open, then split up in host and root
+	host       string
+	root       string
 
 	mode storage.Mode
 
@@ -69,10 +73,6 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}, nil
 }
 
-func (s *Store) Location(ctx context.Context) (string, error) {
-	return s.location, nil
-}
-
 func (s *Store) Create(ctx context.Context, config []byte) error {
 	s.config = config
 	s.mode = storage.ModeRead | storage.ModeWrite
@@ -81,8 +81,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return fmt.Errorf("unsupported protocol: %s", s.proto)
 	}
 
-	location := strings.TrimPrefix(s.location, "ptar://")
-	fp, err := os.OpenFile(location, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	s.host = "localhost"
+
+	s.root = strings.TrimPrefix(s.location, "ptar://")
+	fp, err := os.OpenFile(s.root, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
@@ -105,17 +107,25 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	s.mode = storage.ModeRead
 
-	var location string
 	var fp ReadWriteSeekStatReadAtCloser
 	var err error
 
 	switch s.proto {
 	case "ptar":
-		location = strings.TrimPrefix(s.location, "ptar://")
-		fp, err = os.Open(location)
+		s.root = strings.TrimPrefix(s.location, "ptar://")
+		s.host = "hostname"
+		fp, err = os.Open(s.root)
 
 	case "ptar+http", "ptar+https":
-		location = strings.TrimPrefix(s.location, "ptar+")
+		url, err := url.Parse(s.location)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse url endpoint: %w", err)
+		}
+
+		s.host = url.Host
+		s.root = url.Path
+
+		location := strings.TrimPrefix(s.location, "ptar+")
 		fp, err = NewHTTPReader(location)
 
 	default:
@@ -174,6 +184,27 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	return s.config, nil
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	switch s.proto {
+	case "ptar":
+		location := strings.TrimPrefix(s.location, "ptar://")
+		if _, err := os.Stat(location); err != nil {
+			return err
+		}
+
+	case "ptar+http", "ptar+https":
+		location := strings.TrimPrefix(s.location, "ptar+")
+		if _, err := NewHTTPReader(location); err != nil {
+			return err
+		}
+
+	default:
+		return fmt.Errorf("unsupported protocol: %s", s.proto)
+	}
+
+	return nil
+}
+
 func (s *Store) Close(ctx context.Context) error {
 	if s.mode&storage.ModeWrite != 0 {
 		binary.Write(s.fp, binary.LittleEndian, s.configOffset)
@@ -186,8 +217,31 @@ func (s *Store) Close(ctx context.Context) error {
 	return s.fp.Close()
 }
 
-func (s *Store) Mode(ctx context.Context) (storage.Mode, error) {
-	return s.mode, nil
+func (s *Store) Origin() string {
+	return s.host
+}
+
+func (s *Store) Type() string {
+	return "ptar"
+}
+
+func (s *Store) Root() string {
+	return s.root
+}
+
+func (s *Store) Flags() location.Flags {
+	switch s.proto {
+	case "ptar":
+		return location.FLAG_FILE | location.FLAG_LOCALFS
+	case "ptar+http", "ptar+https":
+		return location.FLAG_FILE
+	default:
+		return 0
+	}
+}
+
+func (s *Store) Mode() storage.Mode {
+	return s.mode
 }
 
 func (s *Store) Size(ctx context.Context) (int64, error) {
@@ -198,100 +252,86 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return fi.Size(), nil
 }
 
-// states
-func (s *Store) GetStates(ctx context.Context) ([]objects.MAC, error) {
-	if s.mode&storage.ModeWrite != 0 {
+func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	switch res {
+	case storage.StorageResourceState:
+		if s.mode&storage.ModeWrite != 0 {
+			return []objects.MAC{}, nil
+		}
+
+		return []objects.MAC{
+			stateMAC,
+		}, nil
+	case storage.StorageResourcePackfile:
+		return []objects.MAC{
+			packfileMAC,
+		}, nil
+	case storage.StorageResourceLock:
 		return []objects.MAC{}, nil
 	}
 
-	return []objects.MAC{
-		stateMAC,
-	}, nil
+	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	if s.mode&storage.ModeWrite == 0 {
-		return 0, storage.ErrNotWritable
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	switch res {
+	case storage.StorageResourceState:
+		if s.mode&storage.ModeWrite == 0 {
+			return 0, storage.ErrNotWritable
+		}
+
+		s.stateOffset = s.packfileOffset + s.packfileLength
+		nbytes, err := io.Copy(s.fp, rd)
+		if err != nil {
+			return 0, err
+		}
+		s.stateLength = nbytes
+
+		return nbytes, nil
+	case storage.StorageResourcePackfile:
+		if s.mode&storage.ModeWrite == 0 {
+			return 0, storage.ErrNotWritable
+		}
+
+		s.packfileOffset = s.configOffset + s.configLength
+		nbytes, err := io.Copy(s.fp, rd)
+		if err != nil {
+			return 0, err
+		}
+		s.packfileLength = nbytes
+
+		return nbytes, nil
+	case storage.StorageResourceLock:
+		if s.mode&storage.ModeWrite == 0 {
+			return 0, storage.ErrNotWritable
+		}
+		return 0, nil
 	}
 
-	s.stateOffset = s.packfileOffset + s.packfileLength
-	nbytes, err := io.Copy(s.fp, rd)
-	if err != nil {
-		return 0, err
-	}
-	s.stateLength = nbytes
-
-	return nbytes, nil
+	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	if mac != stateMAC {
-		return nil, fmt.Errorf("invalid MAC: %s", mac)
-	}
-	return io.NopCloser(io.NewSectionReader(s.fp, s.stateOffset, s.stateLength)), nil
-}
-
-func (s *Store) DeleteState(ctx context.Context, mac objects.MAC) error {
-	if s.mode&storage.ModeWrite == 0 {
-		return storage.ErrNotWritable
-	}
-	return nil
-}
-
-// packfiles
-func (s *Store) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
-	return []objects.MAC{
-		packfileMAC,
-	}, nil
-}
-
-func (s *Store) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	if s.mode&storage.ModeWrite == 0 {
-		return 0, storage.ErrNotWritable
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+	switch res {
+	case storage.StorageResourceState:
+		if mac != stateMAC {
+			return nil, fmt.Errorf("invalid MAC: %s", mac)
+		}
+		return io.NopCloser(io.NewSectionReader(s.fp, s.stateOffset, s.stateLength)), nil
+	case storage.StorageResourcePackfile:
+		if rg == nil {
+			return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset, s.packfileLength)), nil
+		} else {
+			return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset+int64(rg.Offset), int64(rg.Length))), nil
+		}
+	case storage.StorageResourceLock:
+		return io.NopCloser(bytes.NewBuffer([]byte{})), nil
 	}
 
-	s.packfileOffset = s.configOffset + s.configLength
-	nbytes, err := io.Copy(s.fp, rd)
-	if err != nil {
-		return 0, err
-	}
-	s.packfileLength = nbytes
-
-	return nbytes, nil
+	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset, s.packfileLength)), nil
-}
-
-func (s *Store) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
-	return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset+int64(offset), int64(length))), nil
-}
-
-func (s *Store) DeletePackfile(ctx context.Context, mac objects.MAC) error {
-	if s.mode&storage.ModeWrite == 0 {
-		return storage.ErrNotWritable
-	}
-	return nil
-}
-
-/* Locks */
-func (s *Store) GetLocks(ctx context.Context) ([]objects.MAC, error) {
-	return []objects.MAC{}, nil
-}
-
-func (s *Store) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
-	if s.mode&storage.ModeWrite == 0 {
-		return 0, storage.ErrNotWritable
-	}
-	return 0, nil
-}
-
-func (s *Store) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
-	return io.NopCloser(bytes.NewBuffer([]byte{})), nil
-}
-
-func (s *Store) DeleteLock(ctx context.Context, lockID objects.MAC) error {
+func (s *Store) Delete(context.Context, storage.StorageResource, objects.MAC) error {
 	if s.mode&storage.ModeWrite == 0 {
 		return storage.ErrNotWritable
 	}
