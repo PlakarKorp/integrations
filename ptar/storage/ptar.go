@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 
@@ -36,7 +37,9 @@ import (
 type Store struct {
 	config     []byte
 	Repository string
-	location   string
+	location   string // What we were given on open, then split up in host and root
+	host       string
+	root       string
 
 	mode storage.Mode
 
@@ -78,8 +81,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return fmt.Errorf("unsupported protocol: %s", s.proto)
 	}
 
-	location := strings.TrimPrefix(s.location, "ptar://")
-	fp, err := os.OpenFile(location, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	s.host = "localhost"
+
+	s.root = strings.TrimPrefix(s.location, "ptar://")
+	fp, err := os.OpenFile(s.root, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
@@ -102,17 +107,25 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	s.mode = storage.ModeRead
 
-	var location string
 	var fp ReadWriteSeekStatReadAtCloser
 	var err error
 
 	switch s.proto {
 	case "ptar":
-		location = strings.TrimPrefix(s.location, "ptar://")
-		fp, err = os.Open(location)
+		s.root = strings.TrimPrefix(s.location, "ptar://")
+		s.host = "hostname"
+		fp, err = os.Open(s.root)
 
 	case "ptar+http", "ptar+https":
-		location = strings.TrimPrefix(s.location, "ptar+")
+		url, err := url.Parse(s.location)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse url endpoint: %w", err)
+		}
+
+		s.host = url.Host
+		s.root = url.Path
+
+		location := strings.TrimPrefix(s.location, "ptar+")
 		fp, err = NewHTTPReader(location)
 
 	default:
@@ -205,7 +218,7 @@ func (s *Store) Close(ctx context.Context) error {
 }
 
 func (s *Store) Origin() string {
-	return s.location
+	return s.host
 }
 
 func (s *Store) Type() string {
@@ -213,7 +226,7 @@ func (s *Store) Type() string {
 }
 
 func (s *Store) Root() string {
-	return s.location
+	return s.root
 }
 
 func (s *Store) Flags() location.Flags {
