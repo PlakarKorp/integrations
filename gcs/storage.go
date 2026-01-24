@@ -10,15 +10,16 @@ import (
 	"strconv"
 	"strings"
 
-	"cloud.google.com/go/storage"
+	gstorage "cloud.google.com/go/storage"
+	"github.com/PlakarKorp/kloset/connectors/storage"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	kstorage "github.com/PlakarKorp/kloset/storage"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
 func init() {
-	kstorage.Register("gs", 0, NewStore)
+	storage.Register("gs", 0, NewStore)
 }
 
 type gcsStore struct {
@@ -26,8 +27,8 @@ type gcsStore struct {
 	path       string
 	opts       []option.ClientOption
 
-	client *storage.Client
-	bucket *storage.BucketHandle
+	client *gstorage.Client
+	bucket *gstorage.BucketHandle
 }
 
 func parse(params map[string]string, proto string) (string, string, []option.ClientOption, error) {
@@ -73,7 +74,7 @@ func parse(params map[string]string, proto string) (string, string, []option.Cli
 	return bucket, path, opts, nil
 }
 
-func NewStore(ctx context.Context, proto string, params map[string]string) (kstorage.Store, error) {
+func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
 	bucket, path, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,11 @@ func NewStore(ctx context.Context, proto string, params map[string]string) (ksto
 }
 
 func (g *gcsStore) connect(ctx context.Context) error {
-	client, err := storage.NewClient(ctx, g.opts...)
+	if g.client != nil {
+		return nil
+	}
+
+	client, err := gstorage.NewClient(ctx, g.opts...)
 	if err != nil {
 		return err
 	}
@@ -99,53 +104,6 @@ func (g *gcsStore) connect(ctx context.Context) error {
 
 func (g *gcsStore) realpath(rel string) string { return path.Join(g.path, rel) }
 
-func (g *gcsStore) put(ctx context.Context, prefix string, mac objects.MAC, rd io.Reader) (int64, error) {
-	name := fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
-	w := g.bucket.Object(g.realpath(name)).NewWriter(ctx)
-
-	len, err := io.Copy(w, rd)
-	if err != nil {
-		w.Close()
-		return 0, fmt.Errorf("failed to write object: %w", err)
-	}
-
-	if err := w.Close(); err != nil {
-		return 0, fmt.Errorf("failed to write object: %w", err)
-	}
-
-	return len, nil
-}
-
-func (g *gcsStore) getall(ctx context.Context, prefix string) (ret []objects.MAC, err error) {
-	prefix = g.realpath(prefix)
-	l := len(prefix) + 4 // /%02x/
-
-	query := &storage.Query{Prefix: prefix}
-	it := g.bucket.Objects(ctx, query)
-	for {
-		obj, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		if len(obj.Name) > l {
-			t, err := hex.DecodeString(obj.Name[l:])
-			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", prefix, err)
-			}
-			if len(t) != 32 {
-				return nil, fmt.Errorf("invalid %s name: %s",
-					prefix, obj.Name)
-			}
-			ret = append(ret, objects.MAC(t))
-		}
-	}
-	return
-}
-
 func (g *gcsStore) Create(ctx context.Context, config []byte) error {
 	if err := g.connect(ctx); err != nil {
 		return err
@@ -153,7 +111,7 @@ func (g *gcsStore) Create(ctx context.Context, config []byte) error {
 
 	obj := g.bucket.Object(g.realpath("CONFIG"))
 	_, err := obj.Attrs(ctx)
-	if errors.Is(err, storage.ErrObjectNotExist) {
+	if errors.Is(err, gstorage.ErrObjectNotExist) {
 		w := obj.NewWriter(ctx)
 		defer w.Close()
 		_, err = w.Write(config)
@@ -183,72 +141,120 @@ func (g *gcsStore) Open(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-func (g *gcsStore) Location(ctx context.Context) (string, error) {
-	return "gcs://" + path.Join(g.bucketName, g.path), nil
+func (g *gcsStore) Ping(ctx context.Context) error {
+	if err := g.connect(ctx); err != nil {
+		return err
+	}
+
+	_, err := g.client.Bucket(g.bucketName).Attrs(ctx)
+	return err
 }
 
-func (g *gcsStore) Mode(ctx context.Context) (kstorage.Mode, error) {
-	return kstorage.ModeRead | kstorage.ModeWrite, nil
+func (g *gcsStore) Origin() string        { return "" }
+func (g *gcsStore) Type() string          { return "gs" }
+func (g *gcsStore) Root() string          { return g.path }
+func (g *gcsStore) Flags() location.Flags { return 0 }
+
+func (g *gcsStore) Mode(ctx context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
 }
 
 func (g *gcsStore) Size(ctx context.Context) (int64, error) { return -1, nil }
 
-func (g *gcsStore) GetStates(ctx context.Context) ([]objects.MAC, error) {
-	return g.getall(ctx, "states")
+func res2prefix(res storage.StorageResource) (string, error) {
+	switch res {
+	case storage.StorageResourceState:
+		return "states", nil
+	case storage.StorageResourcePackfile:
+		return "packfiles", nil
+	case storage.StorageResourceLock:
+		return "locks", nil
+	default:
+		return "", fmt.Errorf("%w on %s", errors.ErrUnsupported, res)
+	}
 }
 
-func (g *gcsStore) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	return g.put(ctx, "states", mac, rd)
+func (g *gcsStore) List(ctx context.Context, res storage.StorageResource) (ret []objects.MAC, err error) {
+	prefix, err := res2prefix(res)
+	if err != nil {
+		return nil, err
+	}
+
+	prefix = g.realpath(prefix)
+	l := len(prefix) + 4 // /%02x/
+
+	query := &gstorage.Query{Prefix: prefix}
+	it := g.bucket.Objects(ctx, query)
+	for {
+		obj, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if len(obj.Name) > l {
+			t, err := hex.DecodeString(obj.Name[l:])
+			if err != nil {
+				return nil, fmt.Errorf("decode %s key: %w", prefix, err)
+			}
+			if len(t) != 32 {
+				return nil, fmt.Errorf("invalid %s name: %s",
+					prefix, obj.Name)
+			}
+			ret = append(ret, objects.MAC(t))
+		}
+	}
+	return
 }
 
-func (g *gcsStore) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	name := fmt.Sprintf("states/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
+func (g *gcsStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	prefix, err := res2prefix(res)
+	if err != nil {
+		return -1, err
+	}
+
+	name := fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
+	w := g.bucket.Object(g.realpath(name)).NewWriter(ctx)
+
+	len, err := io.Copy(w, rd)
+	if err != nil {
+		w.Close()
+		return 0, fmt.Errorf("failed to write %s object: %w", res, err)
+	}
+
+	if err := w.Close(); err != nil {
+		return 0, fmt.Errorf("failed to write %s object: %w", res, err)
+	}
+
+	return len, nil
 }
 
-func (g *gcsStore) DeleteState(ctx context.Context, mac objects.MAC) error {
-	name := fmt.Sprintf("states/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).Delete(ctx)
+func (g *gcsStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, r *storage.Range) (io.ReadCloser, error) {
+	prefix, err := res2prefix(res)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		name = fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
+		obj  = g.bucket.Object(g.realpath(name))
+	)
+
+	if r != nil {
+		return obj.NewRangeReader(ctx, int64(r.Offset), int64(r.Length))
+	}
+	return obj.NewReader(ctx)
 }
 
-func (g *gcsStore) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
-	return g.getall(ctx, "packfiles")
-}
+func (g *gcsStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+	prefix, err := res2prefix(res)
+	if err != nil {
+		return err
+	}
 
-func (g *gcsStore) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	return g.put(ctx, "packfiles", mac, rd)
-}
-
-func (g *gcsStore) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
-}
-
-func (g *gcsStore) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
-	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).NewRangeReader(ctx, int64(offset), int64(length))
-}
-
-func (g *gcsStore) DeletePackfile(ctx context.Context, mac objects.MAC) error {
-	name := fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)
-	return g.bucket.Object(g.realpath(name)).Delete(ctx)
-}
-
-func (g *gcsStore) GetLocks(ctx context.Context) ([]objects.MAC, error) {
-	return g.getall(ctx, "locks")
-}
-
-func (g *gcsStore) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
-	return g.put(ctx, "locks", lockID, rd)
-}
-
-func (g *gcsStore) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
-	name := fmt.Sprintf("locks/%02x/%016x", lockID[0], lockID)
-	return g.bucket.Object(g.realpath(name)).NewReader(ctx)
-}
-
-func (g *gcsStore) DeleteLock(ctx context.Context, lockID objects.MAC) error {
-	name := fmt.Sprintf("locks/%02x/%016x", lockID[0], lockID)
+	name := fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
 	return g.bucket.Object(g.realpath(name)).Delete(ctx)
 }
 

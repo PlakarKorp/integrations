@@ -2,15 +2,14 @@ package gcs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"path"
-	"strings"
 
 	"cloud.google.com/go/storage"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
@@ -25,7 +24,7 @@ type gcsExporter struct {
 	bucket *storage.BucketHandle
 }
 
-func NewExporter(ctx context.Context, _ *exporter.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
 	bucket, path, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -45,28 +44,32 @@ func NewExporter(ctx context.Context, _ *exporter.Options, proto string, params 
 	}, nil
 }
 
-func (g *gcsExporter) realpath(rel string) string { return path.Join(g.path, rel) }
+func (g *gcsExporter) Origin() string        { return "" }
+func (g *gcsExporter) Type() string          { return "gs" }
+func (g *gcsExporter) Root() string          { return g.path }
+func (g *gcsExporter) Flags() location.Flags { return 0 }
 
-func (g *gcsExporter) Root(ctx context.Context) (string, error) { return g.path, nil }
+func (g *gcsExporter) Ping(ctx context.Context) error {
+	_, err := g.client.Bucket(g.bucketName).Attrs(ctx)
+	return err
+}
 
-func (g *gcsExporter) CreateDirectory(ctx context.Context, pathname string) error { return nil }
+func (g *gcsExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
 
-func (g *gcsExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	pathname = g.realpath(strings.TrimLeft(pathname, "/"))
+	for record := range records {
+		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
+			results <- record.Ok()
+			continue
+		}
 
-	w := g.bucket.Object(pathname).NewWriter(ctx)
-	if _, err := io.Copy(w, fp); err != nil {
-		return err
+		w := g.bucket.Object(path.Join(g.path, record.Pathname)).NewWriter(ctx)
+		_, err := io.Copy(w, record.Reader)
+		results <- record.Error(err)
+		w.Close()
 	}
-	return w.Close()
-}
 
-func (g *gcsExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
 	return nil
-}
-
-func (g *gcsExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
 }
 
 func (g *gcsExporter) Close(ctx context.Context) error {
