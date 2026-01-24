@@ -50,24 +50,13 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}, nil
 }
 
-func (s *Store) Origin() string {
-	return "localhost"
-}
+func (s *Store) Origin() string        { return "localhost" }
+func (s *Store) Root() string          { return s.location }
+func (s *Store) Type() string          { return "fs" }
+func (s *Store) Flags() location.Flags { return location.FLAG_LOCALFS }
 
-func (s *Store) Root() string {
-	return s.location
-}
-
-func (s *Store) Type() string {
-	return "fs"
-}
-
-func (s *Store) Mode() storage.Mode {
-	return storage.ModeRead | storage.ModeWrite
-}
-
-func (s *Store) Flags() location.Flags {
-	return location.FLAG_LOCALFS
+func (s *Store) Mode(context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
 }
 
 func (s *Store) Path(args ...string) string {
