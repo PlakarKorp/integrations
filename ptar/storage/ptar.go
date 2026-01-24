@@ -240,8 +240,8 @@ func (s *Store) Flags() location.Flags {
 	}
 }
 
-func (s *Store) Mode() storage.Mode {
-	return s.mode
+func (s *Store) Mode(context.Context) (storage.Mode, error) {
+	return s.mode, nil
 }
 
 func (s *Store) Size(ctx context.Context) (int64, error) {
