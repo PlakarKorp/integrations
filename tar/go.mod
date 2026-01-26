@@ -2,7 +2,7 @@ module github.com/PlakarKorp/integration-tar
 
 go 1.24.0
 
-require github.com/PlakarKorp/kloset v1.0.13-0.20260115142921-70219ff7dcdb
+require github.com/PlakarKorp/kloset v1.1.0-beta.1
 
 require (
 	github.com/cockroachdb/crlib v0.0.0-20250718215705-7ff5051265b9 // indirect
