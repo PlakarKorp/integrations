@@ -1,9 +1,0 @@
-name: ptar
-description: ptar backend
-version: v1.0.5
-connectors:
-- type: storage
-  executable: ptarStorage
-  homepage: https://github.com/PlakarKorp/integration-ptar
-  license: ISC
-  protocols: [ptar]
