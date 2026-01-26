@@ -45,8 +45,6 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan file, recor
 			if !ok {
 				return
 			}
-		case <-ctx.Done():
-			return
 		}
 
 		// fixup the rootdir if it happened to be a file
