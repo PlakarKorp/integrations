@@ -24,9 +24,10 @@ func init() {
 type FTPImporter struct {
 	host     string
 	rootDir  string
-	client   *goftp.Client
 	username string
 	password string
+
+	client *goftp.Client
 }
 
 func NewFTPImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -47,14 +48,14 @@ func NewFTPImporter(appCtx context.Context, opts *connectors.Options, name strin
 	}, nil
 }
 
-func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, root string, filePaths chan<- string, wg *sync.WaitGroup) {
+func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	entries, err := p.client.ReadDir(root)
+	entries, err := client.ReadDir(root)
 	if err != nil {
 		log.Printf("[FTPImporter] Error reading directory %s: %v", root, err)
 		return
@@ -65,18 +66,18 @@ func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, root string, file
 
 		if entry.IsDir() {
 			wg.Add(1)
-			go p.walkAndCollectFiles(ctx, entryPath, filePaths, wg)
+			go p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg)
 		} else {
 			filePaths <- entryPath
 		}
 	}
 }
 
-func (p *FTPImporter) processFiles(filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *FTPImporter) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for filePath := range filePaths {
-		info, err := p.client.Stat(filePath)
+		info, err := client.Stat(filePath)
 		if err != nil {
 			results <- connectors.NewError(filePath, err)
 			continue
@@ -85,19 +86,18 @@ func (p *FTPImporter) processFiles(filePaths <-chan string, results chan<- *conn
 		fileinfo := objects.FileInfoFromStat(info)
 
 		readerFunc := func() (io.ReadCloser, error) {
-			tmpfile, err := os.CreateTemp("", "plakar-ftp-")
-			if err != nil {
-				return nil, err
-			}
+			pr, pw := io.Pipe()
 
-			if err := p.client.Retrieve(filePath, tmpfile); err != nil {
-				tmpfile.Close()
-				os.Remove(tmpfile.Name())
-				return nil, err
-			}
-			tmpfile.Seek(0, 0)
+			go func() {
+				if err := client.Retrieve(filePath, pw); err != nil {
+					_ = pw.CloseWithError(err)
+					return
+				}
+				_ = pw.Close()
+			}()
 
-			return readerCloser{File: tmpfile}, nil
+			// Return the reader side. Closing it will unblock the writer (Retrieve) if the consumer stops early.
+			return pr, nil
 		}
 
 		results <- connectors.NewRecord(filePath, "", fileinfo, nil, readerFunc)
@@ -120,6 +120,7 @@ func (rc readerCloser) Close() error {
 }
 
 func (p *FTPImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
 	client, err := common.ConnectToFTP(p.host, p.username, p.password)
 	if err != nil {
 		return err
@@ -135,7 +136,7 @@ func (p *FTPImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 
 	// Walk directory tree
 	walkerWG.Add(1)
-	go p.walkAndCollectFiles(ctx, p.rootDir, filePaths, &walkerWG)
+	go p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG)
 
 	// Close filePaths only after all walk goroutines are done
 	go func() {
@@ -147,35 +148,20 @@ func (p *FTPImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	numWorkers := 64
 	for range numWorkers {
 		workerWG.Add(1)
-		go p.processFiles(filePaths, records, &workerWG)
+		go p.processFiles(client, filePaths, records, &workerWG)
 	}
 
 	// Close results channel after all workers complete
-	go func() {
-		workerWG.Wait()
-		close(records)
-	}()
+	workerWG.Wait()
 
 	return nil
 }
 
-func (p *FTPImporter) NewReader(pathname string) (io.ReadCloser, error) {
-	tmpfile, err := os.CreateTemp("", "plakar-ftp-")
-	if err != nil {
-		return nil, err
-	}
-
-	if err := p.client.Retrieve(pathname, tmpfile); err != nil {
-		tmpfile.Close()
-		os.Remove(tmpfile.Name())
-		return nil, err
-	}
-
-	tmpfile.Seek(0, 0)
-	return readerCloser{File: tmpfile}, nil
-}
-
 func (p *FTPImporter) Ping(ctx context.Context) error {
+	if p.client != nil {
+		_, err := p.client.Stat(p.Root())
+		return err
+	}
 	return nil
 }
 
