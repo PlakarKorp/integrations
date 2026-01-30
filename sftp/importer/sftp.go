@@ -18,20 +18,39 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
 
 	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
+	"github.com/PlakarKorp/kloset/exclude"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/pkg/sftp"
 )
 
-type SFTPImporter struct {
-	rootDir    string
-	remoteHost string
-	client     *sftp.Client
+func init() {
+	importer.Register("sftp", 0, NewImporter)
 }
 
-func NewSFTPImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+type Importer struct {
+	opts *connectors.Options
+
+	client   *sftp.Client
+	endpoint *url.URL
+
+	rootDir   string
+	realpath  string
+	excludes  *exclude.RuleSet
+	nocrossfs bool
+	devno     uint64
+}
+
+func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	var err error
 
 	target := config["location"]
@@ -40,35 +59,135 @@ func NewSFTPImporter(appCtx context.Context, opts *importer.Options, name string
 	if err != nil {
 		return nil, err
 	}
+	rootDir := parsed.Path
+
+	nocrossfs, _ := strconv.ParseBool(config["dont_traverse_fs"])
+
+	excludes := exclude.NewRuleSet()
+	if err := excludes.AddRulesFromArray(opts.Excludes); err != nil {
+		return nil, fmt.Errorf("failed to setup exclude rules: %w", err)
+	}
 
 	client, err := plakarsftp.Connect(parsed, config)
 	if err != nil {
 		return nil, err
 	}
 
-	return &SFTPImporter{
-		rootDir:    parsed.Path,
-		remoteHost: parsed.Host,
-		client:     client,
-	}, nil
+	imp := &Importer{
+		opts:      opts,
+		endpoint:  parsed,
+		client:    client,
+		nocrossfs: nocrossfs,
+		rootDir:   rootDir,
+		excludes:  excludes,
+	}
+
+	realpath, devno, err := imp.realpathFollow(parsed.Path)
+	if err != nil {
+		return nil, err
+	}
+	imp.realpath = realpath
+	imp.devno = devno
+
+	return imp, nil
 }
 
-func (p *SFTPImporter) Origin(ctx context.Context) (string, error) {
-	return p.remoteHost, nil
+func (imp *Importer) Type() string {
+	return "sftp"
 }
 
-func (p *SFTPImporter) Type(ctx context.Context) (string, error) {
-	return "sftp", nil
+func (imp *Importer) Origin() string {
+	return imp.endpoint.Host
 }
 
-func (p *SFTPImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	return p.walkDir_walker(256)
+func (imp *Importer) Root() string {
+	return imp.rootDir
 }
 
-func (p *SFTPImporter) Close(ctx context.Context) error {
-	return p.client.Close()
+func (imp *Importer) Flags() location.Flags {
+	return 0
 }
 
-func (p *SFTPImporter) Root(ctx context.Context) (string, error) {
-	return p.rootDir, nil
+func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
+	return imp.walkDir_walker(ctx, records, imp.opts.MaxConcurrency)
+}
+
+func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connectors.Record, numWorkers int) error {
+	jobs := make(chan file, numWorkers*4) // Buffered channel to feed paths to workers
+	var wg sync.WaitGroup
+	for range numWorkers {
+		wg.Add(1)
+		go imp.walkDir_worker(ctx, jobs, records, &wg)
+	}
+
+	// Add prefix directories first
+	imp.walkDir_addPrefixDirectories(filepath.Dir(imp.realpath), records)
+	if imp.realpath != imp.Root() {
+		imp.walkDir_addPrefixDirectories(imp.Root(), records)
+	}
+
+	err := SFTPWalk(imp.client, imp.rootDir, func(path string, info os.FileInfo, err error) error {
+		if ctx.Err() != nil {
+			return err
+		}
+
+		if err != nil {
+			records <- connectors.NewError(path, err)
+			return nil
+		}
+
+		if path != "/" {
+			if imp.excludes.IsExcluded(path, info.IsDir()) {
+				return filepath.SkipDir
+			}
+		}
+
+		if info.IsDir() && imp.nocrossfs {
+			same := isSameFs(imp.devno, info)
+			if !same {
+				return filepath.SkipDir
+			}
+		}
+
+		jobs <- file{path: path, info: info}
+		return nil
+	})
+
+	close(jobs)
+	wg.Wait()
+	return err
+}
+
+func (imp *Importer) realpathFollow(path string) (resolved string, dev uint64, err error) {
+	info, err := imp.client.Lstat(path)
+	if err != nil {
+		return
+	}
+
+	if info.Mode()&os.ModeDir != 0 {
+		dev = dirDevice(info)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		realpath, err := os.Readlink(path)
+		if err != nil {
+			return "", 0, err
+		}
+
+		if !filepath.IsAbs(realpath) {
+			realpath = filepath.Join(filepath.Dir(path), realpath)
+		}
+		path = realpath
+	}
+
+	return path, dev, nil
+}
+
+func (p *Importer) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (p *Importer) Close(ctx context.Context) error {
+	return nil
 }
