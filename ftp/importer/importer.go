@@ -18,10 +18,10 @@ import (
 )
 
 func init() {
-	importer.Register("ftp", 0, NewFTPImporter)
+	importer.Register("ftp", 0, NewImporter)
 }
 
-type FTPImporter struct {
+type Importer struct {
 	host     string
 	rootDir  string
 	username string
@@ -30,7 +30,7 @@ type FTPImporter struct {
 	client *goftp.Client
 }
 
-func NewFTPImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	target := config["location"]
 	parsed, err := url.Parse(target)
 	if err != nil {
@@ -40,7 +40,7 @@ func NewFTPImporter(appCtx context.Context, opts *connectors.Options, name strin
 	username := config["username"]
 	password := config["password"]
 
-	return &FTPImporter{
+	return &Importer{
 		host:     parsed.Host,
 		rootDir:  parsed.Path,
 		username: username,
@@ -48,7 +48,7 @@ func NewFTPImporter(appCtx context.Context, opts *connectors.Options, name strin
 	}, nil
 }
 
-func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if err := ctx.Err(); err != nil {
@@ -73,7 +73,7 @@ func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, client *goftp.Cli
 	}
 }
 
-func (p *FTPImporter) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for filePath := range filePaths {
@@ -119,7 +119,7 @@ func (rc readerCloser) Close() error {
 	return err
 }
 
-func (p *FTPImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 	client, err := common.ConnectToFTP(p.host, p.username, p.password)
 	if err != nil {
@@ -157,7 +157,7 @@ func (p *FTPImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	return nil
 }
 
-func (p *FTPImporter) Ping(ctx context.Context) error {
+func (p *Importer) Ping(ctx context.Context) error {
 	if p.client != nil {
 		_, err := p.client.Stat(p.Root())
 		return err
@@ -165,25 +165,25 @@ func (p *FTPImporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *FTPImporter) Close(ctx context.Context) error {
+func (p *Importer) Close(ctx context.Context) error {
 	if p.client != nil {
 		return p.client.Close()
 	}
 	return nil
 }
 
-func (p *FTPImporter) Root() string {
+func (p *Importer) Root() string {
 	return p.rootDir
 }
 
-func (p *FTPImporter) Origin() string {
+func (p *Importer) Origin() string {
 	return p.host
 }
 
-func (p *FTPImporter) Type() string {
+func (p *Importer) Type() string {
 	return "ftp"
 }
 
-func (p *FTPImporter) Flags() location.Flags {
+func (p *Importer) Flags() location.Flags {
 	return 0
 }
