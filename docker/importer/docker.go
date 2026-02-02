@@ -26,19 +26,22 @@ import (
 	"os"
 	"path"
 	"strings"
-	"time"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"github.com/moby/moby/client"
 )
 
+const flags = location.FLAG_STREAM | location.FLAG_NEEDACK
+
 func init() {
-	importer.Register("docker", location.FLAG_STREAM, NewDockerImporter)
+	importer.Register("docker+container", flags, NewImporter)
+	importer.Register("docker+image", flags, NewImporter)
 }
 
-type DockerImporter struct {
+type Importer struct {
 	ctx context.Context
 
 	fp  io.ReadCloser
@@ -48,11 +51,9 @@ type DockerImporter struct {
 
 	location string
 	name     string
-
-	next chan struct{}
 }
 
-func NewDockerImporter(ctx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	imageName := strings.TrimPrefix(config["location"], name+"://")
 
 	var fp io.ReadCloser
@@ -61,34 +62,35 @@ func NewDockerImporter(ctx context.Context, opts *importer.Options, name string,
 		fp = os.Stdin
 	} else {
 		var err error
-		fp, cleanup, err = dockerContainerSaveReader(ctx, imageName)
+
+		switch name {
+		case "docker+container":
+			fp, cleanup, err = dockerContainerSaveReader(ctx, imageName)
+		case "docker+image":
+			fp, cleanup, err = dockerImageSaveReader(ctx, imageName)
+		}
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	t := &DockerImporter{ctx: ctx, fp: fp, location: imageName, name: name, cleanup: cleanup}
-	t.tar = tar.NewReader(t.fp)
-	t.next = make(chan struct{}, 1)
-
+	t := &Importer{ctx: ctx, fp: fp, location: imageName, name: name, cleanup: cleanup}
+	t.tar = tar.NewReader(fp)
 	return t, nil
 }
 
-func (t *DockerImporter) Type(ctx context.Context) (string, error) { return t.name, nil }
-func (t *DockerImporter) Root(ctx context.Context) (string, error) { return "/", nil }
-
-func (p *DockerImporter) Origin(ctx context.Context) (string, error) {
+func (t *Importer) Type() string { return t.name }
+func (t *Importer) Root() string { return "/" }
+func (p *Importer) Origin() string {
 	hostname, err := os.Hostname()
 	if err != nil {
-		return "", err
+		return ""
 	}
-	return hostname, nil
+	return hostname
 }
 
-func (t *DockerImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-	ch := make(chan *importer.ScanResult, 1)
-	go t.scan(ch)
-	return ch, nil
+func (i *Importer) Flags() location.Flags {
+	return flags
 }
 
 func finfo(hdr *tar.Header) objects.FileInfo {
@@ -123,65 +125,45 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 	return f
 }
 
-type entry struct {
-	t  *tar.Reader
-	ch chan<- struct{}
-}
-
-func (e *entry) Read(buf []byte) (int, error) {
-	return e.t.Read(buf)
-}
-
-func (e *entry) Close() error {
-	e.ch <- struct{}{}
-	return nil
-}
-
-func (t *DockerImporter) scan(ch chan<- *importer.ScanResult) {
-	defer close(ch)
-
-	info := objects.NewFileInfo("/", 0, 0700|os.ModeDir, time.Unix(0, 0), 0, 0, 0, 0, 1)
-	ch <- &importer.ScanResult{
-		Record: &importer.ScanRecord{
-			Pathname: "/",
-			FileInfo: info,
-		},
-	}
+func (t *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
 
 	for {
 		hdr, err := t.tar.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				ch <- importer.NewScanError(t.location, err)
+				return err
 			}
-			return
+			return nil
 		}
 
 		name := path.Join("/", hdr.Name)
-		ch <- &importer.ScanResult{
-			Record: &importer.ScanRecord{
-				Pathname: name,
-				Target:   hdr.Linkname,
-				FileInfo: finfo(hdr),
-				Reader:   &entry{t.tar, t.next},
-			},
+		records <- &connectors.Record{
+			Pathname: name,
+			Target:   hdr.Linkname,
+			FileInfo: finfo(hdr),
+			Reader:   io.NopCloser(t.tar),
 		}
 
 		select {
-		case <-t.next:
 		case <-t.ctx.Done():
-			return
+			return t.ctx.Err()
+
+		case <-results:
+			// wait for the ack before continuing
 		}
 	}
+
 }
 
-func (t *DockerImporter) Close(ctx context.Context) (err error) {
-	if t.fp != nil && t.fp != os.Stdin {
-		_ = t.fp.Close()
-	}
+func (t *Importer) Ping(ctx context.Context) error {
+	return nil
+}
 
-	if t.cleanup != nil {
-		t.cleanup()
+func (t *Importer) Close(ctx context.Context) (err error) {
+	t.fp.Close()
+	if t.fp != nil {
+		err = t.fp.Close()
 	}
 
 	return err
