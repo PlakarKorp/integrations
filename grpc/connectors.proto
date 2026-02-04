@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package plakar.connectors;
-option go_package = "github.com/PlakarKorp/integration-grpc/v2;integration_grpc";
+option go_package = "github.com/PlakarKorp/integration-grpc;integration_grpc";
 
 import "google/protobuf/timestamp.proto";
 

@@ -1,9 +1,10 @@
-PROTO_OPTS = paths=source_relative,M${PROTO}.proto=github.com/PlakarKorp/integration-grpc/${PROTO}
+PROTO_OPTS = paths=source_relative,M${PROTO}.proto=github.com/PlakarKorp/integration-grpc/${PKGNAME}
 
-pkg/${PROTO}.pb.go pkg/${PROTO}_grpc.pb.go: ${PROTO}.proto
+${PROTO}.pb.go ${PROTO}_grpc.pb.go: ${PROTO}.proto
 	protoc --proto_path=. \
-		--go_out=./pkg \
+            -I ../ \
+		--go_out=. \
 		--go_opt=${PROTO_OPTS} \
-		--go-grpc_out=./pkg \
+		--go-grpc_out=. \
 		--go-grpc_opt=${PROTO_OPTS} \
 		${PROTO}.proto

@@ -1,23 +1,22 @@
 syntax = "proto3";
 
-package exporter;
+package plakar.exporter;
 
-import "google/protobuf/timestamp.proto";
+import "connectors.proto";
 
 service Exporter {
   rpc Init(InitRequest) returns (InitResponse);
-  rpc Root(RootRequest) returns (RootResponse);
-  rpc CreateDirectory(CreateDirectoryRequest) returns (CreateDirectoryResponse);
-  rpc StoreFile(stream StoreFileRequest) returns (StoreFileResponse);
-  rpc SetPermissions(SetPermissionsRequest) returns (SetPermissionsResponse);
-  rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse);
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Export(stream ExportRequest) returns (stream ExportResponse);
   rpc Close(CloseRequest) returns (CloseResponse);
 }
 
 message Options {
-  int64 maxconcurrency = 1;
-
-  // TODO: stdin/out/err are missing
+  string hostname = 1;
+  string os = 2;
+  string arch = 3;
+  string cwd = 4;
+  int64 maxconcurrency = 5;
 }
 
 message InitRequest {
@@ -27,77 +26,27 @@ message InitRequest {
 }
 
 message InitResponse {
-  string cookie = 1;
+  string origin = 1;
+  string type = 2;
+  string root = 3;
+  uint32 flags = 4;
 }
 
-message RootRequest {
-  string cookie = 1;
-}
+message PingRequest {}
 
-message RootResponse {
-  string root_path = 1;
-}
+message PingResponse {}
 
-message CreateDirectoryRequest {
-  string pathname = 1;
-  string cookie = 2;
-}
-
-message CreateDirectoryResponse {}
-
-message StoreFileRequest {
-  oneof type {
-    Header header = 1;
-    Data data = 2;
+message ExportRequest {
+  oneof packet {
+    plakar.connectors.Record record = 1;
+    bytes chunk = 2;
   }
-  string cookie = 3;
 }
 
-message Header {
-  string pathname = 1;
-  uint64 size = 2;
+message ExportResponse {
+  plakar.connectors.Result result = 1;
 }
 
-message Data {
-  bytes chunk = 1;
-}
-
-message StoreFileResponse {}
-
-message FileInfo {
-  string name = 1;
-  int64 size = 2;
-  uint32 mode = 3;
-  google.protobuf.Timestamp mod_time = 4;
-  uint64 dev = 5;
-  uint64 ino = 6;
-  uint64 uid = 7;
-  uint64 gid = 8;
-  uint32 nlink = 9;
-  string username = 10;
-  string groupname = 11;
-  uint32 flags = 12;
-}
-
-message SetPermissionsRequest {
-  string pathname = 1;
-  FileInfo file_info = 2;
-  string cookie = 3;
-}
-
-message SetPermissionsResponse {}
-
-message CreateLinkRequest {
-  string oldname = 1;
-  string newname = 2;
-  uint32 ltype = 3;
-  string cookie = 4;
-}
-
-message CreateLinkResponse {}
-
-message CloseRequest {
-  string cookie = 1;
-}
+message CloseRequest {}
 
 message CloseResponse {}

@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/PlakarKorp/kloset v1.1.0-beta.1
-	google.golang.org/genproto v0.0.0-20260114163908-3f89685c29c3
+	golang.org/x/sync v0.19.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
 )
