@@ -4,19 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path"
-
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
-
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
+	"golang.org/x/sync/errgroup"
 )
 
 func DebugResponse(resp *http.Response) {
@@ -41,6 +42,7 @@ const tempDir = "/tmp/plakar-notion-restore"
 type NotionExporter struct {
 	token  string
 	rootID string //TODO : change this to a user friendly name (e.g. "My Notion Page" instead of "1234567890abcdef")
+	opts   *connectors.Options
 }
 
 func normalizeUUID(id string) string {
@@ -57,7 +59,7 @@ func normalizeUUID(id string) string {
 	return id[:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
 }
 
-func NewNotionExporter(ctx context.Context, options *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewNotionExporter(ctx context.Context, options *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	token, ok := config["token"]
 	if !ok {
 		return nil, fmt.Errorf("missing token in config")
@@ -71,19 +73,89 @@ func NewNotionExporter(ctx context.Context, options *exporter.Options, name stri
 	return &NotionExporter{
 		token:  token,
 		rootID: rootID, //rootID must be an existing page ID, this is the page where the files will be exported
+		opts:   options,
 	}, nil
 }
 
-func (n *NotionExporter) Root(ctx context.Context) (string, error) {
-	return "", nil
+func (p *NotionExporter) Root() string          { return "" }
+func (p *NotionExporter) Origin() string        { return "notion.so" } // WRONG
+func (p *NotionExporter) Type() string          { return "notion" }
+func (p *NotionExporter) Flags() location.Flags { return 0 }
+
+func (p *NotionExporter) Ping(ctx context.Context) error {
+	return nil
 }
 
 func (n *NotionExporter) CreateDirectory(ctx context.Context, pathname string) error {
 	return os.MkdirAll(path.Join(tempDir, pathname), 0700)
 }
 
-func (n *NotionExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	dest := path.Join(tempDir, pathname)
+func (p *NotionExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+	// Lifted straight from importer-fs, wihtout symlinks and all the bell and
+	// whistles
+	defer close(results)
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.opts.MaxConcurrency)
+
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			ret = ctx.Err()
+			break loop
+
+		case record, ok := <-records:
+			if !ok {
+				break loop
+			}
+
+			if record.Err != nil {
+				results <- record.Ok()
+				continue
+			}
+
+			if record.IsXattr {
+				results <- record.Ok()
+				continue
+			}
+
+			pathname := filepath.Join(tempDir, record.Pathname)
+
+			if record.FileInfo.Lmode.IsDir() {
+				if err := os.Mkdir(pathname, 0700); err != nil {
+					results <- record.Error(err)
+				} else {
+					results <- record.Ok()
+				}
+
+				continue
+			}
+
+			g.Go(func() error {
+				if err := p.storeFile(pathname, record.Reader); err != nil {
+					results <- record.Error(err)
+				} else {
+					results <- record.Ok()
+				}
+				return nil
+			})
+
+		}
+	}
+
+	if err := g.Wait(); err != nil && ret == nil {
+		ret = err
+	}
+
+	err := p.export()
+	if err != nil {
+		return fmt.Errorf("failed to export: %w", err)
+	}
+
+	return ret
+}
+
+func (n *NotionExporter) storeFile(dest string, fp io.Reader) error {
 	f, err := os.Create(dest)
 	defer f.Close()
 
@@ -99,20 +171,7 @@ func (n *NotionExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 	return nil
 }
 
-func (n *NotionExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	return nil
-}
-
-func (n *NotionExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
-}
-
 func (n *NotionExporter) Close(ctx context.Context) error {
-	err := n.export()
-	if err != nil {
-		log.Printf("failed to close exporter %v", err)
-		return fmt.Errorf("failed to export: %w", err)
-	}
 	return os.RemoveAll(tempDir)
 }
 
@@ -184,6 +243,9 @@ func loadJSONFromFile(filePath string) (map[string]any, error) {
 	if err := json.NewDecoder(f).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON from %s: %w", filePath, err)
 	}
+
+	// This is a read only field we can't push it.
+	delete(data, "is_locked")
 	return data, nil
 }
 
@@ -212,13 +274,11 @@ func (n *NotionExporter) createPageWithBlocks(payload map[string]any, children [
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
-	log.Printf("Creating page with data: %s", string(data))
 
 	newPageID, err := n.createPage(data)
 	if err != nil {
 		return fmt.Errorf("failed to create page: %w", err)
 	}
-	log.Printf("Created page with ID: %s", newPageID)
 
 	return n.addAllBlocks(children, newPageID, pathTo)
 }
@@ -232,7 +292,6 @@ func (n *NotionExporter) createDatabaseWithEntries(payload map[string]any, dbPat
 	if err != nil {
 		return fmt.Errorf("failed to create database: %w", err)
 	}
-	log.Printf("Created database with ID: %s", newDatabaseID)
 	return n.addEntries(newDatabaseID, dbPath)
 }
 

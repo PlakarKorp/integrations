@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 )
 
 const notionSearchURL = NotionURL + "/search"
@@ -44,7 +44,7 @@ type PageInfo struct {
 	Title string
 }
 
-func (p *NotionImporter) fetchAllPages(cursor string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) error {
+func (p *NotionImporter) fetchAllPages(cursor string, results chan<- *connectors.Record, wg *sync.WaitGroup) error {
 	bodyMap := map[string]interface{}{
 		"page_size": PageSize,
 	}
@@ -96,12 +96,7 @@ type PageNode struct {
 	ConnectedToRoot bool
 }
 
-// Global maps //TODO change global variables to struct fields
-var nodeMap = make(map[string]*PageNode)           // PageID -> PageNode
-var waitingChildren = make(map[string][]*PageNode) // ParentID -> []*PageNode
-var topLevelPages = make(map[string]string)        // Top-level pages (id -> type)
-
-func (p *NotionImporter) AddPagesToTree(pages []Page, results chan<- *importer.ScanResult, nReader *int) {
+func (p *NotionImporter) AddPagesToTree(pages []Page, results chan<- *connectors.Record, nReader *int) {
 	for _, page := range pages {
 		id := page.ID
 		parentID, ok := page.Parent[page.Parent["type"].(string)].(string)
@@ -110,21 +105,28 @@ func (p *NotionImporter) AddPagesToTree(pages []Page, results chan<- *importer.S
 		}
 
 		// Get or create the node
-		node, exists := nodeMap[id]
+		p.nodeMapMtx.Lock()
+		node, exists := p.nodeMap[id]
 		if !exists {
 			node = &PageNode{Page: page}
-			nodeMap[id] = node
+			p.nodeMap[id] = node
 		} else {
 			node.Page = page
 		}
+		p.nodeMapMtx.Unlock()
 
 		// Determine if it's a root node
 		if parentID == "" {
 			// Top-level page
-			topLevelPages[id] = page.Object // Store id -> type
+			p.topLevelPagesMtx.Lock()
+			p.topLevelPages[id] = page.Object
+			p.topLevelPagesMtx.Unlock()
+
 			p.propagateConnectionToRoot(node, results, nReader)
 		} else {
-			if parent, ok := nodeMap[parentID]; ok {
+			p.nodeMapMtx.RLock()
+			if parent, ok := p.nodeMap[parentID]; ok {
+				p.nodeMapMtx.RUnlock()
 				// Attach to parent
 				node.Parent = parent
 				parent.Children = append(parent.Children, node)
@@ -134,13 +136,17 @@ func (p *NotionImporter) AddPagesToTree(pages []Page, results chan<- *importer.S
 					p.propagateConnectionToRoot(node, results, nReader)
 				}
 			} else {
+				p.nodeMapMtx.RUnlock()
 				// Parent not yet known; defer
-				waitingChildren[parentID] = append(waitingChildren[parentID], node)
+				p.waitingChildrenMtx.Lock()
+				p.waitingChildren[parentID] = append(p.waitingChildren[parentID], node)
+				p.waitingChildrenMtx.Unlock()
 			}
 		}
 
 		// Check if this node has waiting children
-		if children, ok := waitingChildren[id]; ok {
+		p.waitingChildrenMtx.Lock()
+		if children, ok := p.waitingChildren[id]; ok {
 			for _, child := range children {
 				child.Parent = node
 				node.Children = append(node.Children, child)
@@ -150,12 +156,13 @@ func (p *NotionImporter) AddPagesToTree(pages []Page, results chan<- *importer.S
 					p.propagateConnectionToRoot(child, results, nReader)
 				}
 			}
-			delete(waitingChildren, id)
+			delete(p.waitingChildren, id)
 		}
+		p.waitingChildrenMtx.Unlock()
 	}
 }
 
-func (p *NotionImporter) propagateConnectionToRoot(node *PageNode, results chan<- *importer.ScanResult, nReader *int) {
+func (p *NotionImporter) propagateConnectionToRoot(node *PageNode, results chan<- *connectors.Record, nReader *int) {
 	if node.ConnectedToRoot {
 		return
 	}
@@ -163,8 +170,8 @@ func (p *NotionImporter) propagateConnectionToRoot(node *PageNode, results chan<
 
 	if node.Page.Object != "block" {
 		pageName := node.Page.Object + ".json"
-		results <- importer.NewScanRecord(GetPathToRoot(node), "", objects.NewFileInfo(node.Page.ID, 0, os.ModeDir|0700, time.Time{}, 0, 0, 0, 0, 0), nil, nil)
-		results <- importer.NewScanRecord(GetPathToRoot(node)+"/"+pageName, "", objects.NewFileInfo(pageName, 0, 0, time.Time{}, 0, 0, 0, 0, 0), nil, func() (io.ReadCloser, error) {
+		results <- connectors.NewRecord(GetPathToRoot(node), "", objects.FileInfo{Lname: node.Page.ID, Lmode: os.ModeDir | 0700, LmodTime: time.Time{}}, nil, nil)
+		results <- connectors.NewRecord(GetPathToRoot(node)+"/"+pageName, "", objects.FileInfo{Lname: pageName}, nil, func() (io.ReadCloser, error) {
 			return p.NewReader(GetPathToRoot(node) + "/" + pageName)
 		})
 		*nReader++
@@ -189,7 +196,4 @@ func GetPathToRoot(node *PageNode) string {
 }
 
 func ClearNodeTree() {
-	nodeMap = make(map[string]*PageNode)
-	waitingChildren = make(map[string][]*PageNode)
-	topLevelPages = make(map[string]string)
 }
