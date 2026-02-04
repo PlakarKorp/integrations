@@ -56,11 +56,18 @@ func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccess
 	}
 
 	// Initialize minio client object.
-	return minio.New(endpoint, &minio.Options{
+	client, err := minio.New(endpoint, &minio.Options{
 		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure:    useSsl,
 		Transport: transport,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	client.SetAppInfo("plakar", "v1.1.0")
+
+	return client, nil
 }
 
 func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {

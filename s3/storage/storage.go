@@ -160,6 +160,8 @@ func (s *Store) connect() error {
 		return fmt.Errorf("create minio client: %w", err)
 	}
 
+	minioClient.SetAppInfo("plakar", "v1.1.0")
+
 	s.minioClient = minioClient
 	return nil
 }
