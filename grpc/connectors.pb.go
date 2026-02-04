@@ -408,7 +408,7 @@ const file_connectors_proto_rawDesc = "" +
 	"\x15ExtendedAttributeType\x12'\n" +
 	"#EXTENDED_ATTRIBUTE_TYPE_UNSPECIFIED\x10\x00\x12$\n" +
 	" EXTENDED_ATTRIBUTE_TYPE_EXTENDED\x10\x01\x12\x1f\n" +
-	"\x1bEXTENDED_ATTRIBUTE_TYPE_ADS\x10\x02B<Z:github.com/PlakarKorp/integration-grpc/v2;integration_grpcb\x06proto3"
+	"\x1bEXTENDED_ATTRIBUTE_TYPE_ADS\x10\x02B9Z7github.com/PlakarKorp/integration-grpc;integration_grpcb\x06proto3"
 
 var (
 	file_connectors_proto_rawDescOnce sync.Once
