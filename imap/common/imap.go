@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -31,22 +32,37 @@ type ImapSession struct {
 
 func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	location := config["location"]
-	location, _ = strings.CutPrefix(location, "imap://")
+
+	endpoint, err := url.Parse(location)
+	if err != nil {
+		return err
+	}
+
+	location = endpoint.Host
 	ic.Address = location
 
-	v, ok := config["username"]
-	if !ok {
-		return fmt.Errorf("Missing username")
-	}
-	ic.Username = v
+	if endpoint.User != nil {
+		if endpoint.User.Username() != "" {
+			ic.Username = endpoint.User.Username()
+		}
+		if p, ok := endpoint.User.Password(); ok {
+			ic.Password = p
+		}
+	} else {
+		v, ok := config["username"]
+		if !ok {
+			return fmt.Errorf("Missing username")
+		}
+		ic.Username = v
 
-	v, ok = config["password"]
-	if !ok {
-		return fmt.Errorf("Missing password")
+		v, ok = config["password"]
+		if !ok {
+			return fmt.Errorf("Missing password")
+		}
+		ic.Password = v
 	}
-	ic.Password = v
 
-	v, ok = config["tls"]
+	v, ok := config["tls"]
 	if !ok {
 		v = "starttls"
 	}

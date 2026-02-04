@@ -7,7 +7,7 @@ all: build
 
 build:
 	${GO} build -v -o imapImporter${EXT} ./plugin/importer
-	${GO} build -v -o imapExporter${EXT} ./plugin/exporter
+	#${GO} build -v -o imapExporter${EXT} ./plugin/exporter
 
 create:
 	${PLAKAR} pkg create manifest.yaml

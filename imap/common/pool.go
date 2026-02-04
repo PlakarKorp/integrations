@@ -8,6 +8,7 @@ import (
 type PoolSession struct {
 	Session  *ImapSession
 	Selected string
+	Bad      bool
 }
 
 type ConnectionPool struct {
@@ -47,28 +48,29 @@ func (p *ConnectionPool) Close() {
 
 func (p *ConnectionPool) WithSession(ctx context.Context, fn func(*PoolSession) error) error {
 	var ps *PoolSession
-
 	select {
 	case ps = <-p.ch:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	// always return the session to the pool unless it's broken.
 	ok := true
 	defer func() {
 		if ok {
 			p.ch <- ps
-		} else {
-			_ = ps.Session.Logout()
-			// best-effort replace to keep pool size stable.
-			if ns, err := p.connector.Connect(); err == nil {
-				p.ch <- &PoolSession{Session: ns, Selected: ""}
-			}
+			return
+		}
+		_ = ps.Session.Logout()
+		if ns, err := p.connector.Connect(); err == nil {
+			p.ch <- &PoolSession{Session: ns, Selected: ""}
 		}
 	}()
 
-	if err := fn(ps); err != nil {
+	err := fn(ps)
+	if err != nil {
+		// Treat any error as “maybe poisoned”.
+		// (If you want, only poison on net.Error/EOF.)
+		ok = false
 		return err
 	}
 	return nil

@@ -8,8 +8,8 @@ connectors:
   homepage: https://github.com/PlakarKorp/integration-imap
   license: ISC
   protocols: [imap]
-- type: exporter
-  executable: imapExporter
-  homepage: https://github.com/PlakarKorp/integration-imap
-  license: ISC
-  protocols: [imap]
+#- type: exporter
+#  executable: imapExporter
+#  homepage: https://github.com/PlakarKorp/integration-imap
+#  license: ISC
+#  protocols: [imap]
