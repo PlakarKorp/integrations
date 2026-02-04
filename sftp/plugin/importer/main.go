@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	sdk.EntrypointImporter(os.Args, importer.NewSFTPImporter)
+	sdk.EntrypointImporter(os.Args, importer.NewImporter)
 }
