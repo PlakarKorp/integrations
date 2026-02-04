@@ -7,34 +7,55 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"strings"
 	"sync"
 
 	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/importer"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"github.com/secsy/goftp"
 )
 
-type FTPImporter struct {
-	host     string
-	rootDir  string
-	client   *goftp.Client
-	username string
-	password string
+func init() {
+	importer.Register("ftp", 0, NewImporter)
 }
 
-func NewFTPImporter(appCtx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+type Importer struct {
+	host     string
+	rootDir  string
+	username string
+	password string
+
+	client *goftp.Client
+}
+
+func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	target := config["location"]
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
 
-	username := config["username"]
-	password := config["password"]
+	var username string
+	if tmp, ok := config["username"]; ok {
+		username = tmp
+	}
+	var password string
+	if tmp, ok := config["password"]; ok {
+		password = tmp
+	}
 
-	return &FTPImporter{
+	if parsed.User != nil {
+		if parsed.User.Username() != "" {
+			username = parsed.User.Username()
+		}
+		if p, ok := parsed.User.Password(); ok {
+			password = p
+		}
+	}
+
+	return &Importer{
 		host:     parsed.Host,
 		rootDir:  parsed.Path,
 		username: username,
@@ -42,67 +63,14 @@ func NewFTPImporter(appCtx context.Context, opts *importer.Options, name string,
 	}, nil
 }
 
-func (p *FTPImporter) emitParentDirectories(results chan<- *importer.ScanResult) {
-	visited := make(map[string]bool)
-
-	// Always emit root "/"
-	if _, seen := visited["/"]; !seen {
-		if info, err := p.client.Stat("/"); err == nil {
-			fileinfo := objects.FileInfoFromStat(info)
-			results <- importer.NewScanRecord("/", "", fileinfo, nil, nil)
-		} else {
-			// fallback to synthetic dir record
-			fileinfo := objects.FileInfo{}
-			fileinfo.Lname = "/"
-			fileinfo.Lmode = os.ModeDir | 0o755
-			fileinfo.Lsize = -1
-			results <- importer.NewScanRecord("/", "", fileinfo, nil, nil)
-		}
-		visited["/"] = true
-	}
-
-	cleaned := path.Clean(p.rootDir)
-	if cleaned == "/" {
-		return
-	}
-
-	// Emit all ancestors of rootDir, top-down
-	parts := strings.Split(cleaned, "/")
-	currPath := "/"
-
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		currPath = path.Join(currPath, part)
-		if visited[currPath] {
-			continue
-		}
-
-		if info, err := p.client.Stat(currPath); err == nil {
-			fileinfo := objects.FileInfoFromStat(info)
-			results <- importer.NewScanRecord(currPath, "", fileinfo, nil, nil)
-		} else {
-			// fallback to synthetic directory record
-			fileinfo := objects.FileInfo{}
-			fileinfo.Lname = path.Base(currPath)
-			fileinfo.Lmode = os.ModeDir | 0o755
-			fileinfo.Lsize = -1
-			results <- importer.NewScanRecord(currPath, "", fileinfo, nil, nil)
-		}
-
-		visited[currPath] = true
-	}
-}
-
-func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, root string, filePaths chan<- string, wg *sync.WaitGroup) {
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	entries, err := p.client.ReadDir(root)
+	entries, err := client.ReadDir(root)
 	if err != nil {
 		log.Printf("[FTPImporter] Error reading directory %s: %v", root, err)
 		return
@@ -113,42 +81,41 @@ func (p *FTPImporter) walkAndCollectFiles(ctx context.Context, root string, file
 
 		if entry.IsDir() {
 			wg.Add(1)
-			go p.walkAndCollectFiles(ctx, entryPath, filePaths, wg)
+			go p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg)
 		} else {
 			filePaths <- entryPath
 		}
 	}
 }
 
-func (p *FTPImporter) processFiles(filePaths <-chan string, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
+func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for filePath := range filePaths {
-		info, err := p.client.Stat(filePath)
+		info, err := client.Stat(filePath)
 		if err != nil {
-			results <- importer.NewScanError(filePath, err)
+			results <- connectors.NewError(filePath, err)
 			continue
 		}
 
 		fileinfo := objects.FileInfoFromStat(info)
 
 		readerFunc := func() (io.ReadCloser, error) {
-			tmpfile, err := os.CreateTemp("", "plakar-ftp-")
-			if err != nil {
-				return nil, err
-			}
+			pr, pw := io.Pipe()
 
-			if err := p.client.Retrieve(filePath, tmpfile); err != nil {
-				tmpfile.Close()
-				os.Remove(tmpfile.Name())
-				return nil, err
-			}
-			tmpfile.Seek(0, 0)
+			go func() {
+				if err := client.Retrieve(filePath, pw); err != nil {
+					_ = pw.CloseWithError(err)
+					return
+				}
+				_ = pw.Close()
+			}()
 
-			return readerCloser{File: tmpfile}, nil
+			// Return the reader side. Closing it will unblock the writer (Retrieve) if the consumer stops early.
+			return pr, nil
 		}
 
-		results <- importer.NewScanRecord(filePath, "", fileinfo, nil, readerFunc)
+		results <- connectors.NewRecord(filePath, "", fileinfo, nil, readerFunc)
 	}
 }
 
@@ -167,14 +134,14 @@ func (rc readerCloser) Close() error {
 	return err
 }
 
-func (p *FTPImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
+func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
 	client, err := common.ConnectToFTP(p.host, p.username, p.password)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	p.client = client
 
-	results := make(chan *importer.ScanResult, 1000)
 	filePaths := make(chan string, 1000)
 
 	var (
@@ -182,12 +149,9 @@ func (p *FTPImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, er
 		walkerWG sync.WaitGroup
 	)
 
-	// Emit all parent directories before file traversal begins
-	p.emitParentDirectories(results)
-
 	// Walk directory tree
 	walkerWG.Add(1)
-	go p.walkAndCollectFiles(ctx, p.rootDir, filePaths, &walkerWG)
+	go p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG)
 
 	// Close filePaths only after all walk goroutines are done
 	go func() {
@@ -199,49 +163,42 @@ func (p *FTPImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, er
 	numWorkers := 64
 	for range numWorkers {
 		workerWG.Add(1)
-		go p.processFiles(filePaths, results, &workerWG)
+		go p.processFiles(client, filePaths, records, &workerWG)
 	}
 
 	// Close results channel after all workers complete
-	go func() {
-		workerWG.Wait()
-		close(results)
-	}()
+	workerWG.Wait()
 
-	return results, nil
+	return nil
 }
 
-func (p *FTPImporter) NewReader(pathname string) (io.ReadCloser, error) {
-	tmpfile, err := os.CreateTemp("", "plakar-ftp-")
-	if err != nil {
-		return nil, err
+func (p *Importer) Ping(ctx context.Context) error {
+	if p.client != nil {
+		_, err := p.client.Stat(p.Root())
+		return err
 	}
-
-	if err := p.client.Retrieve(pathname, tmpfile); err != nil {
-		tmpfile.Close()
-		os.Remove(tmpfile.Name())
-		return nil, err
-	}
-
-	tmpfile.Seek(0, 0)
-	return readerCloser{File: tmpfile}, nil
+	return nil
 }
 
-func (p *FTPImporter) Close(ctx context.Context) error {
+func (p *Importer) Close(ctx context.Context) error {
 	if p.client != nil {
 		return p.client.Close()
 	}
 	return nil
 }
 
-func (p *FTPImporter) Root(ctx context.Context) (string, error) {
-	return p.rootDir, nil
+func (p *Importer) Root() string {
+	return p.rootDir
 }
 
-func (p *FTPImporter) Origin(ctx context.Context) (string, error) {
-	return p.host, nil
+func (p *Importer) Origin() string {
+	return p.host
 }
 
-func (p *FTPImporter) Type(ctx context.Context) (string, error) {
-	return "ftp", nil
+func (p *Importer) Type() string {
+	return "ftp"
+}
+
+func (p *Importer) Flags() location.Flags {
+	return 0
 }

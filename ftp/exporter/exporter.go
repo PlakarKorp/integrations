@@ -19,24 +19,35 @@ package exporter
 import (
 	"context"
 	"errors"
-	"io"
+	"fmt"
+	"math/rand/v2"
 	"net/url"
-	"path"
-	"strings"
+	"os"
+	"path/filepath"
 
 	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"github.com/secsy/goftp"
+	"golang.org/x/sync/errgroup"
 )
 
-type FTPExporter struct {
-	host    string
-	rootDir string
-	client  *goftp.Client
+func init() {
+	exporter.Register("ftp", 0, NewExporter)
 }
 
-func NewFTPExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+type Exporter struct {
+	opts *connectors.Options
+
+	host     string
+	rootDir  string
+	client   *goftp.Client
+	endpoint *url.URL
+}
+
+func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	target := config["location"]
 
 	parsed, err := url.Parse(target)
@@ -48,10 +59,18 @@ func NewFTPExporter(ctx context.Context, opts *exporter.Options, name string, co
 	if tmp, ok := config["username"]; ok {
 		username = tmp
 	}
-
 	var password string
 	if tmp, ok := config["password"]; ok {
 		password = tmp
+	}
+
+	if parsed.User != nil {
+		if parsed.User.Username() != "" {
+			username = parsed.User.Username()
+		}
+		if p, ok := parsed.User.Password(); ok {
+			password = p
+		}
 	}
 
 	client, err := common.ConnectToFTP(parsed.Host, username, password)
@@ -59,69 +78,139 @@ func NewFTPExporter(ctx context.Context, opts *exporter.Options, name string, co
 		return nil, err
 	}
 
-	return &FTPExporter{
-		host:    parsed.Host,
-		rootDir: parsed.Path,
-		client:  client,
+	return &Exporter{
+		opts:     opts,
+		endpoint: parsed,
+		client:   client,
 	}, nil
 }
 
-func (p *FTPExporter) Root(ctx context.Context) (string, error) {
-	return p.rootDir, nil
+func (p *Exporter) Root() string {
+	if p.endpoint.Path == "" {
+		return "/"
+	}
+	return p.endpoint.Path
+}
+func (p *Exporter) Origin() string        { return p.endpoint.Host }
+func (p *Exporter) Type() string          { return "ftp" }
+func (p *Exporter) Flags() location.Flags { return 0 }
+
+func (p *Exporter) Ping(ctx context.Context) error {
+	return nil
 }
 
-func (p *FTPExporter) CreateDirectory(ctx context.Context, pathname string) error {
-	if pathname == "/" || pathname == "." {
-		return nil
-	}
+func (p *Exporter) Close(ctx context.Context) error {
+	return nil
+}
 
-	pathname = strings.TrimSuffix(path.Clean(pathname), "/")
-	parts := strings.Split(pathname, "/")
+type dirPerm struct {
+	Pathname string
+	Fileinfo objects.FileInfo
+}
 
-	// start from absolute or relative root
-	currPath := ""
-	if strings.HasPrefix(pathname, "/") {
-		currPath = "/"
-	}
+func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+	defer close(results)
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.opts.MaxConcurrency)
 
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		currPath = path.Join(currPath, part)
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			ret = ctx.Err()
+			break loop
 
-		_, err := p.client.Mkdir(currPath)
-		if err != nil {
-			// 550 = already exists OR cannot create
-			if strings.Contains(err.Error(), "550") ||
-				strings.Contains(err.Error(), "exists") ||
-				strings.Contains(err.Error(), "File exists") ||
-				strings.Contains(err.Error(), "File exists") {
+		case record, ok := <-records:
+			if !ok {
+				break loop
+			}
+
+			if record.Err != nil {
+				results <- record.Ok()
 				continue
 			}
-			return err
+
+			if record.IsXattr {
+				results <- record.Ok()
+				continue
+			}
+
+			pathname := filepath.Join(p.Root(), record.Pathname)
+			if record.FileInfo.Lmode.IsDir() {
+				if pathname == p.Root() {
+					results <- record.Ok()
+				} else {
+					if _, err := p.client.Mkdir(pathname); err != nil {
+						results <- record.Error(err)
+					} else {
+						results <- record.Ok()
+					}
+				}
+				continue
+			}
+
+			g.Go(func() error {
+				var err error
+				if record.FileInfo.Lmode&os.ModeSymlink != 0 {
+					err = p.symlink(record, pathname)
+				} else if record.FileInfo.Lmode.IsRegular() {
+					err = p.file(record, pathname)
+				}
+
+				if err != nil {
+					results <- record.Error(err)
+				} else {
+					results <- record.Ok()
+				}
+				return nil
+			})
+
 		}
 	}
 
-	return nil
+	if err := g.Wait(); err != nil && ret == nil {
+		ret = err
+	}
+
+	/*
+		for i := len(dirPerms) - 1; i >= 0; i-- {
+			if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
+				return err
+			}
+		}
+	*/
+
+	return ret
 }
 
-func (p *FTPExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	return p.client.Store(pathname, fp)
-}
-
-func (p *FTPExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	// can't chown/chmod on FTP
-	return nil
-}
-
-func (p *FTPExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
+func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	return errors.ErrUnsupported
 }
 
-func (p *FTPExporter) Close(ctx context.Context) error {
-	if p.client != nil {
-		return p.client.Close()
+func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
+	return errors.ErrUnsupported
+}
+
+func (p *Exporter) file(record *connectors.Record, pathname string) error {
+	if record.FileInfo.Lnlink > 1 {
+		return p.hardlink(record, pathname)
+	}
+	return p.writeAtomic(record, pathname)
+}
+
+func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+
+	err := p.client.Store(tmpName, record.Reader)
+	if err != nil {
+		return err
+	}
+	if err := p.client.Rename(tmpName, pathname); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+	return errors.ErrUnsupported
 }

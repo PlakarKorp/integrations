@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, exporter.NewFTPExporter)
+	sdk.EntrypointExporter(os.Args, exporter.NewExporter)
 }
