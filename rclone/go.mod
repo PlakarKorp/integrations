@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.0.6-0.20260126085214-e96d6b2f007a
-	github.com/PlakarKorp/kloset v1.1.0-beta.1.0.20260131115717-b322ff770754
+	github.com/PlakarKorp/kloset v1.1.0-beta.1
 	github.com/rclone/rclone v1.70.2
 	golang.org/x/sync v0.19.0
 )

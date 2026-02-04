@@ -80,8 +80,8 @@ github.com/PlakarKorp/go-kloset-sdk v1.0.6-0.20260126085214-e96d6b2f007a h1:mUca
 github.com/PlakarKorp/go-kloset-sdk v1.0.6-0.20260126085214-e96d6b2f007a/go.mod h1:nnBxbiLJ3+zyBG+F4FYrMRFRYmTYxu8mDrpFcL8wDIU=
 github.com/PlakarKorp/integration-grpc/v2 v2.0.0-20260126160414-cddadf0e8bf5 h1:vZyocZnrKEbH9NOSgZrMa3qST3n6D1RjLGavpvoxjM8=
 github.com/PlakarKorp/integration-grpc/v2 v2.0.0-20260126160414-cddadf0e8bf5/go.mod h1:0+ln2FMfhJH1gY4fdDj41z/CCjvGhVZFVGlJsGkUD64=
-github.com/PlakarKorp/kloset v1.1.0-beta.1.0.20260131115717-b322ff770754 h1:89SKxvJMDWgTAImcZJiVaDiCHEWvE7HsH+Y6inFTbFc=
-github.com/PlakarKorp/kloset v1.1.0-beta.1.0.20260131115717-b322ff770754/go.mod h1:qm4dhS+wLPBzu/r+cPuhyyyeCJNz6m0AZSK/3lkZjGY=
+github.com/PlakarKorp/kloset v1.1.0-beta.1 h1:U0y5BGTP0YtofAVq+WhZGJYoaksAmu2AM20+e6b5hpg=
+github.com/PlakarKorp/kloset v1.1.0-beta.1/go.mod h1:qm4dhS+wLPBzu/r+cPuhyyyeCJNz6m0AZSK/3lkZjGY=
 github.com/ProtonMail/bcrypt v0.0.0-20210511135022-227b4adcab57/go.mod h1:HecWFHognK8GfRDGnFQbW/LiV7A3MX3gZVs45vk5h8I=
 github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf h1:yc9daCCYUefEs69zUkSzubzjBbL+cmOXgnmt9Fyd9ug=
 github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf/go.mod h1:o0ESU9p83twszAU8LBeJKFAAMX14tISa0yk4Oo5TOqo=
