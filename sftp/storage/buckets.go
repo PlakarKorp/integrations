@@ -23,6 +23,7 @@ import (
 	"path"
 	"sync"
 
+	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/reading"
 	"github.com/pkg/sftp"
@@ -108,20 +109,17 @@ func (buckets *Buckets) Path(mac objects.MAC) string {
 		fmt.Sprintf("%064x", mac))
 }
 
-func (buckets *Buckets) Get(mac objects.MAC) (io.ReadCloser, error) {
+func (buckets *Buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	fp, err := buckets.client.Open(buckets.Path(mac))
 	if err != nil {
 		return nil, err
 	}
-	return fp, nil
-}
 
-func (buckets *Buckets) GetBlob(mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
-	fp, err := buckets.client.Open(buckets.Path(mac))
-	if err != nil {
-		return nil, err
+	if rg == nil {
+		return fp, nil
 	}
-	return reading.NewSectionReadCloser(fp, int64(offset), int64(length)), nil
+
+	return reading.NewSectionReadCloser(fp, int64(rg.Offset), int64(rg.Length)), nil
 }
 
 func (buckets *Buckets) Remove(mac objects.MAC) error {

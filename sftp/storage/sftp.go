@@ -29,11 +29,15 @@ import (
 	"strings"
 
 	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
+	"github.com/PlakarKorp/kloset/connectors/storage"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
-	"github.com/PlakarKorp/kloset/storage"
 	"github.com/pkg/sftp"
 )
+
+func init() {
+	storage.Register("sftp", 0, NewStore)
+}
 
 type Store struct {
 	packfiles Buckets
@@ -59,6 +63,84 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		config:   storeConfig,
 		endpoint: parsed,
 	}, nil
+}
+
+func (s *Store) Flags() location.Flags {
+	return 0
+}
+
+func (s *Store) Type() string {
+	return "sftp"
+}
+
+func (s *Store) Origin() string {
+	return s.endpoint.Host
+}
+
+func (s *Store) Root() string {
+	return s.endpoint.Path
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.packfiles.List()
+	case storage.StorageResourceState:
+		return s.states.List()
+	case storage.StorageResourceLock:
+		return s.getLocks(ctx)
+	default:
+		return nil, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.packfiles.Get(mac, rg)
+	case storage.StorageResourceState:
+		if rg != nil {
+			return nil, errors.ErrUnsupported
+		}
+		return s.states.Get(mac, nil)
+	case storage.StorageResourceLock:
+		if rg != nil {
+			return nil, errors.ErrUnsupported
+		}
+		return s.getLock(ctx, mac)
+	default:
+		return nil, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.packfiles.Put(mac, rd)
+	case storage.StorageResourceState:
+		return s.states.Put(mac, rd)
+	case storage.StorageResourceLock:
+		return WriteToFileAtomicTempDir(s.client, path.Join(s.Path("locks"), hex.EncodeToString(mac[:])), rd, s.Path(""))
+	default:
+		return -1, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.packfiles.Remove(mac)
+	case storage.StorageResourceState:
+		return s.states.Remove(mac)
+	case storage.StorageResourceLock:
+		return s.client.Remove(path.Join(s.Path("locks"), hex.EncodeToString(mac[:])))
+	default:
+		return errors.ErrUnsupported
+	}
 }
 
 func (s *Store) Location(ctx context.Context) (string, error) {
@@ -150,33 +232,6 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Store) GetPackfiles(ctx context.Context) ([]objects.MAC, error) {
-	return s.packfiles.List()
-}
-
-func (s *Store) GetPackfile(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	fp, err := s.packfiles.Get(mac)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			err = repository.ErrPackfileNotFound
-		}
-		return nil, err
-	}
-
-	return fp, nil
-}
-
-func (s *Store) GetPackfileBlob(ctx context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
-	res, err := s.packfiles.GetBlob(mac, offset, length)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			err = repository.ErrPackfileNotFound
-		}
-		return nil, err
-	}
-	return res, nil
-}
-
 func (s *Store) Mode(ctx context.Context) (storage.Mode, error) {
 	return storage.ModeRead | storage.ModeWrite, nil
 }
@@ -185,37 +240,12 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) DeletePackfile(ctx context.Context, mac objects.MAC) error {
-	return s.packfiles.Remove(mac)
-}
-
-func (s *Store) PutPackfile(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	return s.packfiles.Put(mac, rd)
-}
-
 func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-/* Indexes */
-func (s *Store) GetStates(ctx context.Context) ([]objects.MAC, error) {
-	return s.states.List()
-}
-
-func (s *Store) PutState(ctx context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
-	return s.states.Put(mac, rd)
-}
-
-func (s *Store) GetState(ctx context.Context, mac objects.MAC) (io.ReadCloser, error) {
-	return s.states.Get(mac)
-}
-
-func (s *Store) DeleteState(ctx context.Context, mac objects.MAC) error {
-	return s.states.Remove(mac)
-}
-
 /* Locks */
-func (s *Store) GetLocks(ctx context.Context) (ret []objects.MAC, err error) {
+func (s *Store) getLocks(ctx context.Context) (ret []objects.MAC, err error) {
 	entries, err := s.client.ReadDir(s.Path("locks"))
 	if err != nil {
 		return
@@ -235,19 +265,11 @@ func (s *Store) GetLocks(ctx context.Context) (ret []objects.MAC, err error) {
 	return
 }
 
-func (s *Store) PutLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
-	return WriteToFileAtomicTempDir(s.client, path.Join(s.Path("locks"), hex.EncodeToString(lockID[:])), rd, s.Path(""))
-}
-
-func (s *Store) GetLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
+func (s *Store) getLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
 	fp, err := s.client.Open(path.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
 	}
 
 	return fp, nil
-}
-
-func (s *Store) DeleteLock(ctx context.Context, lockID objects.MAC) error {
-	return s.client.Remove(path.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 }

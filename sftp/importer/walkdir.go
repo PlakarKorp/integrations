@@ -17,14 +17,15 @@
 package importer
 
 import (
+	"context"
 	"io"
 	"os"
 	"path"
-	"strings"
+	"path/filepath"
 	"sync"
 
+	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"github.com/pkg/sftp"
 )
 
@@ -34,108 +35,72 @@ type file struct {
 }
 
 // Worker pool to handle file scanning in parallel
-func (p *SFTPImporter) walkDir_worker(jobs <-chan file, results chan<- *importer.ScanResult, wg *sync.WaitGroup) {
+func (imp *Importer) walkDir_worker(ctx context.Context, jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for file := range jobs {
-		fileinfo := objects.FileInfoFromStat(file.info)
+	for {
+		var (
+			p  file
+			ok bool
+		)
+
+		select {
+		case p, ok = <-jobs:
+			if !ok {
+				return
+			}
+		}
+
+		// fixup the rootdir if it happened to be a file
+		if !p.info.IsDir() && p.path == imp.Root() {
+			imp.rootDir = filepath.Dir(imp.Root())
+		}
+
+		fileinfo := objects.FileInfoFromStat(p.info)
+		//fileinfo.Lusername, fileinfo.Lgroupname = imp.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
 
 		var originFile string
 		var err error
-		if fileinfo.Mode()&os.ModeSymlink != 0 {
-			originFile, err = p.client.ReadLink(file.path)
+		if p.info.Mode()&os.ModeSymlink != 0 {
+			originFile, err = imp.client.ReadLink(p.path)
 			if err != nil {
-				results <- importer.NewScanError(file.path, err)
+				records <- connectors.NewError(p.path, err)
 				continue
 			}
 		}
-		results <- importer.NewScanRecord(file.path, originFile, fileinfo, []string{},
-			func() (io.ReadCloser, error) { return p.client.Open(file.path) })
+
+		entrypath := p.path
+
+		records <- connectors.NewRecord(entrypath, originFile, fileinfo, []string{},
+			func() (io.ReadCloser, error) {
+				return imp.client.Open(p.path)
+			})
 	}
 }
 
-func (p *SFTPImporter) walkDir_addPrefixDirectories(jobs chan<- file, results chan<- *importer.ScanResult) {
-	// Clean the directory and split the path into components
-	directory := path.Clean(p.rootDir)
-	atoms := strings.Split(directory, string(os.PathSeparator))
+func (imp *Importer) walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record) {
+	for {
+		var finfo objects.FileInfo
 
-	for i := range len(atoms) - 1 {
-		path := path.Join(atoms[0 : i+1]...)
-
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-
-		info, err := p.client.Stat(path)
+		sb, err := imp.client.Lstat(root)
 		if err != nil {
-			results <- importer.NewScanError(path, err)
-			continue
+			records <- connectors.NewError(root, err)
+			finfo = objects.FileInfo{
+				Lname: filepath.Base(root),
+				Lmode: os.ModeDir | 0755,
+			}
+		} else {
+			finfo = objects.FileInfoFromStat(sb)
 		}
 
-		jobs <- file{path: path, info: info}
-	}
-}
+		records <- connectors.NewRecord(root, "", finfo, nil, nil)
 
-func (p *SFTPImporter) walkDir_walker(numWorkers int) (<-chan *importer.ScanResult, error) {
-	results := make(chan *importer.ScanResult, 1000) // Larger buffer for results
-	jobs := make(chan file, 1000)                    // Buffered channel to feed paths to workers
-	var wg sync.WaitGroup
-
-	rootInfo, err := p.client.Lstat(p.rootDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Launch worker pool
-	for w := 1; w <= numWorkers; w++ {
-		wg.Add(1)
-		go p.walkDir_worker(jobs, results, &wg)
-	}
-
-	// Start walking the directory and sending file paths to workers
-	go func() {
-		defer close(jobs)
-
-		if rootInfo.Mode()&os.ModeSymlink != 0 {
-			originFile, err := p.client.ReadLink(p.rootDir)
-			if err != nil {
-				results <- importer.NewScanError(p.rootDir, err)
-				return
-			}
-
-			if !path.IsAbs(originFile) {
-				originFile = path.Join(path.Dir(p.rootDir), originFile)
-			}
-
-			results <- importer.NewScanRecord(p.rootDir, originFile,
-				objects.FileInfoFromStat(rootInfo), nil, nil)
-
-			p.rootDir = originFile
+		newroot := filepath.Dir(root)
+		if newroot == root { // base case for "/" or "C:\"
+			break
 		}
-
-		// Add prefix directories first
-		p.walkDir_addPrefixDirectories(jobs, results)
-
-		err = SFTPWalk(p.client, p.rootDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				results <- importer.NewScanError(path, err)
-				return nil
-			}
-			jobs <- file{path: path, info: info}
-			return nil
-		})
-		if err != nil {
-			results <- importer.NewScanError(p.rootDir, err)
-		}
-	}()
-
-	// Close the results channel when all workers are done
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	return results, nil
+		root = newroot
+	}
 }
 
 func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
