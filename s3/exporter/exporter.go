@@ -18,15 +18,15 @@ package exporter
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -34,6 +34,9 @@ import (
 type S3Exporter struct {
 	minioClient *minio.Client
 	rootDir     string
+	host        string
+	bucket      string
+	restoreDir  string
 }
 
 func init() {
@@ -60,7 +63,7 @@ func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccess
 	})
 }
 
-func NewS3Exporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	target := config["location"]
 	var accessKey string
 	if tmp, ok := config["access_key"]; !ok {
@@ -99,46 +102,64 @@ func NewS3Exporter(ctx context.Context, opts *exporter.Options, name string, con
 		return nil, err
 	}
 
+	var (
+		atoms      = strings.Split(parsed.RequestURI()[1:], "/")
+		bucket     = atoms[0]
+		restoreDir = path.Clean("/" + strings.Join(atoms[1:], "/"))
+	)
+
 	conn, err := connect(parsed, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
 
-	err = conn.MakeBucket(ctx, strings.TrimPrefix(parsed.Path, "/"), minio.MakeBucketOptions{})
+	err = conn.MakeBucket(ctx, bucket, minio.MakeBucketOptions{})
 	if err != nil {
 		if minio.ToErrorResponse(err).Code != "BucketAlreadyOwnedByYou" {
-			return nil, err
+			return nil, fmt.Errorf("failed to create bucket %s: %w", bucket, err)
 		}
 	}
 
 	return &S3Exporter{
 		rootDir:     parsed.Path,
 		minioClient: conn,
+		host:        parsed.Host,
+		bucket:      bucket,
+		restoreDir:  restoreDir,
 	}, nil
 }
 
-func (p *S3Exporter) Root(ctx context.Context) (string, error) {
-	return p.rootDir, nil
-}
+func (p *S3Exporter) Root() string          { return p.restoreDir }
+func (p *S3Exporter) Origin() string        { return p.host + "/" + p.bucket }
+func (p *S3Exporter) Type() string          { return "s3" }
+func (p *S3Exporter) Flags() location.Flags { return 0 }
 
-func (p *S3Exporter) CreateDirectory(ctx context.Context, pathname string) error {
+func (p *S3Exporter) Ping(ctx context.Context) error {
+	ok, err := p.minioClient.BucketExists(ctx, p.bucket)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("bucket does not exist")
+	}
 	return nil
 }
 
-func (p *S3Exporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	_, err := p.minioClient.PutObject(ctx,
-		strings.TrimPrefix(p.rootDir, "/"),
-		strings.TrimPrefix(pathname, p.rootDir+"/"),
-		fp, size, minio.PutObjectOptions{})
-	return err
-}
+func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
 
-func (p *S3Exporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
+	for record := range records {
+		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
+			results <- record.Ok()
+			continue
+		}
+
+		_, err := p.minioClient.PutObject(ctx, p.bucket, path.Join(p.restoreDir, record.Pathname),
+			record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{})
+		results <- record.Error(err)
+	}
+
 	return nil
-}
-
-func (p *S3Exporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
 }
 
 func (p *S3Exporter) Close(ctx context.Context) error {
