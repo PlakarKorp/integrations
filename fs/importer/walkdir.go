@@ -19,10 +19,12 @@ package importer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -54,7 +56,12 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan file, recor
 
 		extendedAttributes, err := xattr.LList(p.path)
 		if err != nil {
-			records <- connectors.NewError(p.path, err)
+			errString := err.Error()
+			_, after, found := strings.Cut(errString, "xattr.list "+p.path+": ")
+			if found {
+				errString = after
+			}
+			records <- connectors.NewError(p.path, fmt.Errorf("%s", errString))
 			continue
 		}
 
