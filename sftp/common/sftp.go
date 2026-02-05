@@ -127,6 +127,11 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		}
 	}
 
+	// add the private key to the agent if necessary
+	if err := setupPrivateKey(params); err != nil {
+		return "", fmt.Errorf("failed to set private key: %w", err)
+	}
+
 	// start master
 	{
 		args, err := commonArgs()
@@ -179,11 +184,6 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	host := endpoint.Hostname()
 	if host == "" {
 		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
-	}
-
-	// add the private key to the agent if necessary
-	if err := setupPrivateKey(params); err != nil {
-		return nil, fmt.Errorf("failed to set private key: %w", err)
 	}
 
 	// ensure the master exists (idempotent) and get the control socket path.
