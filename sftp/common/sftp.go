@@ -67,10 +67,19 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	// This one must be after the host, tell the ssh command to load the sftp subsystem
 	args = append(args, "-s", "sftp")
 
+	// add the private key to the agent if necessary
+	if err := setupPrivateKey(params); err != nil {
+		return nil, fmt.Errorf("failed to set private key: %w", err)
+	}
+
 	cmd := exec.Command("ssh", args...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
+	}
+
+	if sshAuthSock := params["ssh_auth_sock"]; sshAuthSock != "" {
+		cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
 	}
 
 	var sshErr error
@@ -428,6 +437,40 @@ func getPort(addr net.Addr) string {
 		return "22"
 	}
 	return port
+}
+
+func setupPrivateKey(params map[string]string) error {
+	key := params["ssh_private_key"]
+	if key == "" {
+		return nil
+	}
+
+	ttl := params["ssh_private_key_ttl"]
+	if ttl == "" {
+		ttl = "5s"
+	}
+
+	cmd := exec.Command("ssh-add", "-t", ttl, "-")
+	if sshAuthSock := params["ssh_auth_sock"]; sshAuthSock != "" {
+		cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer stdin.Close()
+		io.WriteString(stdin, key+"\n")
+	}()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to add key: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
 }
 
 // Wraps stdin/stdout of ProxyCommand as a net.Conn
