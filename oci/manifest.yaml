@@ -1,5 +1,5 @@
 name: oci
-display_name: OCI
+display_name: OCI registry
 description: Integration providing storage capabilities on OCI registries
 version: v1.1.0-beta.1
 connectors:
