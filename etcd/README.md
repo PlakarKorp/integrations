@@ -33,3 +33,12 @@ Like the previous but using HTTPS and authentication:
 Finally, passing a list of nodes to connect to:
 
 	$ plakar backup -o endpoints=http://node1:2379,http://node2:2379 etcd://
+
+
+## Recovering
+
+etcd doesn't provide a way to restore using the APIs: the way of doing
+so is to restore the snapshot taken by plakar on the disk and then use
+etcdutl to provision a new etcd data directory.
+
+Please refer to upstream documentation: <https://etcd.io/docs/latest/op-guide/recovery/>.
