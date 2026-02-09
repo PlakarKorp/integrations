@@ -25,7 +25,6 @@ Backup etcd by connecting to a node over http without authentication:
 
 	$ plakar backup etcd://node1:2379
 
-
 Like the previous but using HTTPS and authentication:
 
 	$ plakar backup -o username=chunky.ptarson -o password=secure! etcd+https://node1:2379
