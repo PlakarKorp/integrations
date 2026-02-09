@@ -1,0 +1,17 @@
+name: k8s
+display_name: k8s
+description: backup and restore kubernetes resources
+homepage: https://github.com/PlakarKorp/integration-k8s
+license: ISC
+api_version: v2.0.0
+connectors:
+- type: importer
+  executable: k8s-importer
+  homepage: https://github.com/PlakarKorp/integration-k8s
+  license: ISC
+  protocols: [k8s]
+- type: exporter
+  executable: k8s-exporter
+  homepage: https://github.com/PlakarKorp/integration-k8s
+  license: ISC
+  protocols: [k8s]
