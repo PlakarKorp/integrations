@@ -34,6 +34,11 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 		location = location[len("etcd+"):]
 	}
 
+	// extract the "hostname" from location, needed for Origin(),
+	// i.e. metadata.
+	origin := location[len(proto)+3:] // +3 for ://
+	origin, _, _ = strings.Cut(origin, "/")
+
 	endpoints := []string{location}
 	if es, ok := config["endpoints"]; ok {
 		endpoints = strings.Split(es, ",")
@@ -51,7 +56,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 	return &etcd{
 		client: client,
 		maint:  clientv3.NewMaintenance(client),
-		origin: strings.Join(endpoints, ","),
+		origin: origin,
 	}, nil
 }
 
