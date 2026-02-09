@@ -213,7 +213,6 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 			obj = &unstructured.Unstructured{Object: map[string]any{}}
 			dec = yamlv3.NewDecoder(record.Reader)
 			err = dec.Decode(&obj.Object)
-			ns  = obj.GetNamespace()
 		)
 		if err != nil {
 			return err
@@ -235,7 +234,7 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 		client := k.dclient.Resource(gvr)
 
 		var ri dynamic.ResourceInterface = client
-		if ns != "" {
+		if ns := obj.GetNamespace(); ns != "" {
 			ri = client.Namespace(ns)
 		}
 
