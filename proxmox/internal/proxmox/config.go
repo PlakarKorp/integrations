@@ -50,7 +50,6 @@ type Config struct {
 	BackupMode        string
 	Node              string
 	Cleanup           bool
-	RestoreForce      bool
 	RestoreVMID       *int
 }
 
@@ -147,12 +146,6 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Cleanup = cleanup
-
-	restoreForce, err := parseBool(config, "restore_force", false)
-	if err != nil {
-		return nil, err
-	}
-	cfg.RestoreForce = restoreForce
 
 	return cfg, nil
 }
