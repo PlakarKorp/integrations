@@ -95,7 +95,7 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 			if err := validateMetadata(archiveName, meta); err != nil {
 				results <- record.Error(err)
 				if pending, ok := pendingDumps[archiveName]; ok {
-					results <- pending.record.Error(err)
+					results <- resultFromRecord(pending.record, err)
 					if p.cfg.Cleanup {
 						_ = p.client.Remove(ctx, pending.dumpPath)
 					}
@@ -110,11 +110,7 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 				if pendingErr == nil && p.cfg.Cleanup {
 					pendingErr = p.client.Remove(ctx, pending.dumpPath)
 				}
-				if pendingErr != nil {
-					results <- pending.record.Error(pendingErr)
-				} else {
-					results <- pending.record.Ok()
-				}
+				results <- resultFromRecord(pending.record, pendingErr)
 				delete(pendingDumps, archiveName)
 				delete(metadataByArchive, archiveName)
 			}
@@ -134,7 +130,10 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 			continue
 		}
 
-		record.Close()
+		if err := closeRecord(record); err != nil {
+			results <- resultFromRecord(record, err)
+			continue
+		}
 
 		meta, ok := metadataByArchive[base]
 		if !ok {
@@ -143,24 +142,24 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 		}
 
 		if err := p.restoreDump(ctx, dumpPath, base, meta); err != nil {
-			results <- record.Error(err)
+			results <- resultFromRecord(record, err)
 			continue
 		}
 		delete(metadataByArchive, base)
 
 		if p.cfg.Cleanup {
 			if err := p.client.Remove(ctx, dumpPath); err != nil {
-				results <- record.Error(err)
+				results <- resultFromRecord(record, err)
 				continue
 			}
 		}
 
-		results <- record.Ok()
+		results <- resultFromRecord(record, nil)
 	}
 
 	for archiveName, pending := range pendingDumps {
 		err := fmt.Errorf("missing metadata for archive: %s", archiveName)
-		results <- pending.record.Error(err)
+		results <- resultFromRecord(pending.record, err)
 		if p.cfg.Cleanup {
 			_ = p.client.Remove(ctx, pending.dumpPath)
 		}
@@ -192,6 +191,10 @@ func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, filename st
 		return err
 	}
 
+	if err := p.stopVM(ctx, vmType, vmid); err != nil {
+		return err
+	}
+
 	vmidStr := strconv.Itoa(vmid)
 	var cmd string
 	var args []string
@@ -199,16 +202,10 @@ func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, filename st
 	switch vmType {
 	case "qemu":
 		cmd = "qmrestore"
-		args = []string{dumpPath, vmidStr}
-		if p.cfg.RestoreForce {
-			args = append(args, "--force")
-		}
+		args = []string{dumpPath, vmidStr, "--force"}
 	case "lxc":
 		cmd = "pct"
-		args = []string{"restore", vmidStr, dumpPath}
-		if p.cfg.RestoreForce {
-			args = append(args, "--force")
-		}
+		args = []string{"restore", vmidStr, dumpPath, "--force"}
 	default:
 		return fmt.Errorf("unsupported backup type: %s", vmType)
 	}
@@ -221,9 +218,66 @@ func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, filename st
 	return nil
 }
 
+func (p *ProxmoxExporter) stopVM(ctx context.Context, vmType string, vmid int) error {
+	vmidStr := strconv.Itoa(vmid)
+	var cmd string
+
+	switch vmType {
+	case "qemu":
+		cmd = "qm"
+	case "lxc":
+		cmd = "pct"
+	default:
+		return fmt.Errorf("unsupported backup type: %s", vmType)
+	}
+
+	stdout, stderr, err := p.client.Run(ctx, cmd, "stop", vmidStr)
+	if err != nil {
+		output := strings.TrimSpace(stderr)
+		if output == "" {
+			output = strings.TrimSpace(stdout)
+		}
+		if isIgnorableStopError(output) {
+			return nil
+		}
+		return fmt.Errorf("stop failed for %s %d: %w: %s", vmType, vmid, err, output)
+	}
+
+	return nil
+}
+
+func isIgnorableStopError(output string) bool {
+	if output == "" {
+		return false
+	}
+	normalized := strings.ToLower(output)
+	return strings.Contains(normalized, "not running") ||
+		strings.Contains(normalized, "already stopped") ||
+		strings.Contains(normalized, "does not exist") ||
+		strings.Contains(normalized, "no such vm") ||
+		strings.Contains(normalized, "no such container") ||
+		strings.Contains(normalized, "configuration file")
+}
+
 type pendingDump struct {
 	record   *connectors.Record
 	dumpPath string
+}
+
+func closeRecord(record *connectors.Record) error {
+	if record.Reader == nil {
+		return nil
+	}
+	err := record.Close()
+	record.Reader = nil
+	return err
+}
+
+func resultFromRecord(record *connectors.Record, err error) *connectors.Result {
+	return &connectors.Result{
+		Record: *record,
+		Err:    err,
+	}
 }
 
 func validateMetadata(archiveName string, meta proxmox.DumpMetadata) error {
