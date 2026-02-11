@@ -75,7 +75,7 @@ $ plakar destination add myProxmoxHypervisorRemote proxmox://10.0.0.10 mode=remo
 $ plakar destination add myProxmoxHypervisorRemote proxmox://10.0.0.10 mode=remote conn_username=root conn_identity_file=/path/to/something/pmx_id conn_method=identity restore_force
 
 # Restore backup to destination
-$ plakar at /tmp/example restore -to @myProxmoxHypervisorRst <snapid>
+$ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>
 ``` 
 
 ## Proxmox tools / commands used
