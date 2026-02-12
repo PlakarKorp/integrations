@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.0.6-0.20260126085214-e96d6b2f007a
-	github.com/PlakarKorp/kloset v1.1.0-beta.1
+	github.com/PlakarKorp/kloset v1.1.0-beta.2
 	github.com/rclone/rclone v1.70.2
 	golang.org/x/sync v0.19.0
 )
@@ -83,7 +83,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/geoffgarside/ber v1.2.0 // indirect
 	github.com/getsentry/sentry-go v0.35.1 // indirect
 	github.com/go-chi/chi/v5 v5.2.2 // indirect
@@ -135,10 +135,10 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20250317134145-8bc96cf8fc35 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.33 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/ncw/swift/v2 v2.0.4 // indirect
 	github.com/nickball/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
@@ -159,6 +159,7 @@ require (
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/putdotio/go-putio/putio v0.0.0-20200123120452-16d982cac2b8 // indirect
 	github.com/relvacode/iso8601 v1.6.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rfjakob/eme v1.1.2 // indirect
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
 	github.com/samber/lo v1.50.0 // indirect
@@ -192,7 +193,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
+	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
@@ -208,6 +209,10 @@ require (
 	gopkg.in/validator.v2 v2.0.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	modernc.org/libc v1.67.6 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.44.3 // indirect
 	moul.io/http2curl/v2 v2.3.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 	storj.io/common v0.0.0-20250605163628-70ca83b6228e // indirect
