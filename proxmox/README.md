@@ -103,6 +103,6 @@ Restore (exporter) commands:
 - `pct restore <vmid> <dump_dir>/<archive> --force` (LXC)
 - `rm -f -- <dump_dir>/<archive>` (when `cleanup=true`)
 
-## Technical / code overview 
+## Technical / code overview 
 
 For a detailed technical / vision walkthrough, see [HOW IT WORKS](./HOW-IT-WORKS.md).

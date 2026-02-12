@@ -97,6 +97,6 @@ Security (TODO ?) note: the SSH implementation currently disables host key verif
 - Backup streaming does not create a dump file on disk, so `cleanup` has no effect during backups.
 - Restore always stages a dump into `dump_dir`. When `cleanup=true`, the staged file is deleted after restore (or after a failure).
 
-## Misc. 
+## Misc. 
 
 Dump restore need to stop the VM, which is managed in the exporter, however the restart of the VM is not implemented. Do plaker need to manage that ? 
