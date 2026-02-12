@@ -17,10 +17,8 @@
 package importer
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"path"
 	"strconv"
 	"strings"
@@ -112,7 +110,7 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 		modTime := time.Now()
 		fileInfo := objects.FileInfo{
 			Lname:    archiveName,
-			Lsize:    0,
+			Lsize:    *sizePtr,
 			Lmode:    0600,
 			LmodTime: modTime,
 			Ldev:     1,
@@ -125,37 +123,6 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			Reader:   reader,
 		}
 		records <- record
-
-		if results != nil {
-			ack, ok := <-results
-			if ok && ack.Err != nil {
-				return ack.Err
-			}
-		}
-
-		meta := proxmox.NewDumpMetadata(p.cfg, vmid, archiveName, nil)
-		if sizePtr != nil {
-			meta.ArchiveSize = *sizePtr
-		}
-		meta.CreatedAt = modTime
-		payload, err := proxmox.EncodeDumpMetadata(meta)
-		if err != nil {
-			return err
-		}
-
-		metaPath := "/" + proxmox.MetadataFilename(archiveName)
-		metaInfo := objects.FileInfo{
-			Lname:    path.Base(metaPath),
-			Lsize:    int64(len(payload)),
-			Lmode:    0644,
-			LmodTime: modTime,
-			Ldev:     1,
-		}
-
-		metaRecord := connectors.NewRecord(metaPath, "", metaInfo, nil, func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(payload)), nil
-		})
-		records <- metaRecord
 
 		if results != nil {
 			ack, ok := <-results
