@@ -45,7 +45,9 @@ type selection struct {
 }
 
 func init() {
-	importer.Register("proxmox", 0, NewProxmoxImporter)
+	if err := importer.Register("proxmox", 0, NewProxmoxImporter); err != nil {
+		panic(err)
+	}
 }
 
 func NewProxmoxImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
