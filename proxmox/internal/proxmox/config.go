@@ -51,7 +51,6 @@ type Config struct {
 	BackupMode        string
 	Node              string
 	Cleanup           bool
-	RestoreVMID       *int
 }
 
 func ParseConfig(config map[string]string) (*Config, error) {
@@ -132,17 +131,6 @@ func ParseConfig(config map[string]string) (*Config, error) {
 	cfg.BackupMode = strings.TrimSpace(config["backup_mode"])
 	if cfg.BackupMode == "" {
 		cfg.BackupMode = "snapshot"
-	}
-
-	if vmidStr, ok := config["vmid"]; ok {
-		vmidStr = strings.TrimSpace(vmidStr)
-		if vmidStr != "" {
-			vmid, err := strconv.Atoi(vmidStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid vmid: %s", vmidStr)
-			}
-			cfg.RestoreVMID = &vmid
-		}
 	}
 
 	cfg.Node = strings.TrimSpace(config["node"])
