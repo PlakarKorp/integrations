@@ -24,6 +24,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -98,29 +99,31 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			return err
 		}
 
-		archivePath, err := p.client.BackupVM(ctx, vmid)
-		if err != nil {
-			return err
-		}
-
-		fi, err := p.client.Stat(ctx, archivePath)
+		archivePath, reader, sizePtr, err := p.client.BackupVMStream(ctx, vmid)
 		if err != nil {
 			return err
 		}
 
 		archiveName := path.Base(archivePath)
+		if archiveName == "" {
+			return fmt.Errorf("empty archive name for vmid %d", vmid)
+		}
 		pathname := "/" + archiveName
+		modTime := time.Now()
 		fileInfo := objects.FileInfo{
 			Lname:    archiveName,
-			Lsize:    fi.Size(),
-			Lmode:    fi.Mode(),
-			LmodTime: fi.ModTime(),
+			Lsize:    0,
+			Lmode:    0600,
+			LmodTime: modTime,
 			Ldev:     1,
 		}
 
-		record := connectors.NewRecord(pathname, "", fileInfo, nil, func() (io.ReadCloser, error) {
-			return p.client.Open(ctx, archivePath)
-		})
+		record := &connectors.Record{
+			Pathname: pathname,
+			Target:   "",
+			FileInfo: fileInfo,
+			Reader:   reader,
+		}
 		records <- record
 
 		if results != nil {
@@ -130,7 +133,11 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			}
 		}
 
-		meta := proxmox.NewDumpMetadata(p.cfg, vmid, archiveName, fi)
+		meta := proxmox.NewDumpMetadata(p.cfg, vmid, archiveName, nil)
+		if sizePtr != nil {
+			meta.ArchiveSize = *sizePtr
+		}
+		meta.CreatedAt = modTime
 		payload, err := proxmox.EncodeDumpMetadata(meta)
 		if err != nil {
 			return err
@@ -141,7 +148,7 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			Lname:    path.Base(metaPath),
 			Lsize:    int64(len(payload)),
 			Lmode:    0644,
-			LmodTime: fi.ModTime(),
+			LmodTime: modTime,
 			Ldev:     1,
 		}
 
@@ -157,7 +164,7 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			}
 		}
 
-		if p.cfg.Cleanup {
+		if p.cfg.Cleanup && archivePath != "" && path.IsAbs(archivePath) {
 			if err := p.client.Remove(ctx, archivePath); err != nil {
 				return err
 			}

@@ -79,10 +79,8 @@ $ plakar destination add myProxmoxHypervisorRemote proxmox://10.0.0.10 mode=remo
 # Restore backup to destination
 $ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>
 
-# Restore one VM from a backup containing multiple dumps 
-plakar destination set myProxmoxHypervisorRemote vmid=101
-plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>
-plakar destination unset myProxmoxHypervisorRemote vmid
+# Restore one VM from a multi-VM snapshot by selecting a single dump
+$ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>:/vzdump-qemu-101-2026_02_10-02_00_00.vma.zst
 ``` 
 
 ## Proxmox tools / commands used
@@ -104,3 +102,7 @@ Restore (exporter) commands:
 - `qmrestore <dump_dir>/<archive> <vmid> --force` (QEMU)
 - `pct restore <vmid> <dump_dir>/<archive> --force` (LXC)
 - `rm -f -- <dump_dir>/<archive>` (when `cleanup=true`)
+
+## Technical / code overview 
+
+For a detailed technical / vision walkthrough, see [HOW IT WORKS](./HOW-IT-WORKS.md).
