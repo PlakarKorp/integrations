@@ -23,6 +23,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -67,10 +68,6 @@ func (p *ProxmoxExporter) Ping(ctx context.Context) error {
 func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
-	filterVMID := p.cfg.RestoreVMID
-	metadataByArchive := make(map[string]proxmox.DumpMetadata)
-	pendingDumps := make(map[string]pendingDump)
-
 	for record := range records {
 		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
 			results <- record.Ok()
@@ -78,54 +75,17 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 		}
 
 		base := path.Base(record.Pathname)
-		if archiveName, ok := proxmox.ParseMetadataFilename(base); ok {
-			if filterVMID != nil {
-				if _, vmid, err := proxmox.ParseDumpFilename(archiveName); err == nil && vmid != *filterVMID {
-					results <- record.Ok()
-					continue
-				}
-			}
-			meta, err := proxmox.DecodeDumpMetadata(record.Reader)
-			if err != nil {
+		vmType, vmid, err := proxmox.ParseDumpFilename(base)
+		if err != nil {
+			if strings.HasPrefix(base, "vzdump-") {
 				results <- record.Error(err)
 				continue
-			}
-			if filterVMID != nil && meta.VMID != *filterVMID {
-				results <- record.Ok()
-				continue
-			}
-			if err := validateMetadata(archiveName, meta); err != nil {
-				results <- record.Error(err)
-				if pending, ok := pendingDumps[archiveName]; ok {
-					results <- resultFromRecord(pending.record, err)
-					if p.cfg.Cleanup {
-						_ = p.client.Remove(ctx, pending.dumpPath)
-					}
-					delete(pendingDumps, archiveName)
-				}
-				continue
-			}
-			meta.ArchiveName = archiveName
-			metadataByArchive[archiveName] = meta
-			if pending, ok := pendingDumps[archiveName]; ok {
-				pendingErr := p.restoreDump(ctx, pending.dumpPath, archiveName, meta)
-				if pendingErr == nil && p.cfg.Cleanup {
-					pendingErr = p.client.Remove(ctx, pending.dumpPath)
-				}
-				results <- resultFromRecord(pending.record, pendingErr)
-				delete(pendingDumps, archiveName)
-				delete(metadataByArchive, archiveName)
 			}
 			results <- record.Ok()
 			continue
 		}
-		if filterVMID != nil {
-			if _, vmid, err := proxmox.ParseDumpFilename(base); err == nil && vmid != *filterVMID {
-				results <- record.Ok()
-				continue
-			}
-		}
-		dumpPath := path.Join(p.cfg.DumpDir, base)
+		dumpName := proxmox.BuildRestoreDumpFilename(base, vmType, vmid, time.Now())
+		dumpPath := path.Join(p.cfg.DumpDir, dumpName)
 
 		if err := p.writeDump(ctx, dumpPath, record.Reader); err != nil {
 			results <- record.Error(err)
@@ -137,17 +97,10 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 			continue
 		}
 
-		meta, ok := metadataByArchive[base]
-		if !ok {
-			pendingDumps[base] = pendingDump{record: record, dumpPath: dumpPath}
-			continue
-		}
-
-		if err := p.restoreDump(ctx, dumpPath, base, meta); err != nil {
+		if err := p.restoreDump(ctx, dumpPath, vmType, vmid); err != nil {
 			results <- resultFromRecord(record, err)
 			continue
 		}
-		delete(metadataByArchive, base)
 
 		if p.cfg.Cleanup {
 			if err := p.client.Remove(ctx, dumpPath); err != nil {
@@ -157,14 +110,6 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 		}
 
 		results <- resultFromRecord(record, nil)
-	}
-
-	for archiveName, pending := range pendingDumps {
-		err := fmt.Errorf("missing metadata for archive: %s", archiveName)
-		results <- resultFromRecord(pending.record, err)
-		if p.cfg.Cleanup {
-			_ = p.client.Remove(ctx, pending.dumpPath)
-		}
 	}
 
 	return nil
@@ -187,12 +132,7 @@ func (p *ProxmoxExporter) writeDump(ctx context.Context, dumpPath string, reader
 	return writer.Close()
 }
 
-func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, filename string, meta proxmox.DumpMetadata) error {
-	vmType, vmid, err := resolveRestoreTarget(filename, meta)
-	if err != nil {
-		return err
-	}
-
+func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, vmType string, vmid int) error {
 	if err := p.stopVM(ctx, vmType, vmid); err != nil {
 		return err
 	}
@@ -261,11 +201,6 @@ func isIgnorableStopError(output string) bool {
 		strings.Contains(normalized, "configuration file")
 }
 
-type pendingDump struct {
-	record   *connectors.Record
-	dumpPath string
-}
-
 func closeRecord(record *connectors.Record) error {
 	if record.Reader == nil {
 		return nil
@@ -280,24 +215,4 @@ func resultFromRecord(record *connectors.Record, err error) *connectors.Result {
 		Record: *record,
 		Err:    err,
 	}
-}
-
-func validateMetadata(archiveName string, meta proxmox.DumpMetadata) error {
-	if meta.ArchiveName != "" && meta.ArchiveName != archiveName {
-		return fmt.Errorf("metadata archive mismatch: %s", meta.ArchiveName)
-	}
-	if meta.VMID <= 0 {
-		return fmt.Errorf("metadata missing vmid for archive: %s", archiveName)
-	}
-	if meta.VMType != "qemu" && meta.VMType != "lxc" {
-		return fmt.Errorf("metadata missing vm_type for archive: %s", archiveName)
-	}
-	return nil
-}
-
-func resolveRestoreTarget(filename string, meta proxmox.DumpMetadata) (string, int, error) {
-	if err := validateMetadata(filename, meta); err != nil {
-		return "", 0, err
-	}
-	return meta.VMType, meta.VMID, nil
 }
