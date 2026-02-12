@@ -34,8 +34,9 @@ The configuration parameters are as follows:
     - `snapshot` : Use a snapshot mode without stopping or suspending VM / CT
     - `suspend` : VM or CT will be suspended during the backup
     - `stop` : Proxmox will stop the VM / CT in order to perform the backup
+- `dump_dir` (optional): Directory used by Proxmox to store dump archives for restore uploads (defaults to `/var/lib/vz/dump`). Backup streams do not write dump files to this directory.
 - `node` (optional): Proxmox node to target for restore/upload operations (required if your cluster has multiple nodes)
-- `cleanup` (optional): When `true`, delete the vzdump file from Proxmox storage after Plakar has read it or after restore (defaults to `false`)
+- `cleanup` (optional): When `true`, delete the vzdump file from Proxmox storage after restore (defaults to `false`). Backup streams do not create a dump file to remove.
 
 Restores always stop the target VM/CT first and use force-restore to overwrite an existing VM/CT with the same ID.
 
@@ -89,16 +90,12 @@ Backup (importer) commands:
 - `pvesh get /version --output-format json`
 - `pvesh get /cluster/resources --type vm --output-format json` (when `all`)
 - `pvesh get /pools/<pool> --output-format json` (when `pool=...`)
-- `vzdump <vmid> --dumpdir /var/lib/vz/dump --mode <snapshot|suspend|stop> --compress <0|1|lzo|gzip|zstd> [--node <node>]`
-- `ls -1 -- /var/lib/vz/dump` (fallback to locate the archive)
-- `stat -c "%s %Y" -- /var/lib/vz/dump/<archive>` (fallback)
-- `cat -- /var/lib/vz/dump/<archive>` (stream archive to Plakar)
-- `rm -f -- /var/lib/vz/dump/<archive>` (when `cleanup=true`)
+- `vzdump <vmid> --stdout --mode <snapshot|suspend|stop> --compress <0|1|lzo|gzip|zstd> [--node <node>]` (stream archive to Plakar)
 
 Restore (exporter) commands:
-- `cat > /var/lib/vz/dump/<archive>` (write archive to Proxmox storage)
+- `cat > <dump_dir>/<archive>` (write archive to Proxmox storage)
 - `qm stop <vmid>` (QEMU)
 - `pct stop <vmid>` (LXC)
-- `qmrestore /var/lib/vz/dump/<archive> <vmid> --force` (QEMU)
-- `pct restore <vmid> /var/lib/vz/dump/<archive> --force` (LXC)
-- `rm -f -- /var/lib/vz/dump/<archive>` (when `cleanup=true`)
+- `qmrestore <dump_dir>/<archive> <vmid> --force` (QEMU)
+- `pct restore <vmid> <dump_dir>/<archive> --force` (LXC)
+- `rm -f -- <dump_dir>/<archive>` (when `cleanup=true`)
