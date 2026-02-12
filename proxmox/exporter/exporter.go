@@ -36,7 +36,9 @@ type ProxmoxExporter struct {
 }
 
 func init() {
-	exporter.Register("proxmox", 0, NewProxmoxExporter)
+	if err := exporter.Register("proxmox", 0, NewProxmoxExporter); err != nil {
+		panic(err)
+	}
 }
 
 func NewProxmoxExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
