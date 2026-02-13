@@ -90,6 +90,11 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 		return nil, fmt.Errorf("bad location: slashes in namespace: %s", params["location"])
 	}
 
+	snapClass := params["volume_snapshot_class_name"]
+	if snapClass == "" {
+		return nil, fmt.Errorf("missing volume_snapshot_class_name option")
+	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -122,8 +127,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 
 		portForward: true,
 
-		//volumeSnapshotClassName: params["volume_snapshot_class_name"],
-		volumeSnapshotClassName: "my-snapclass",
+		volumeSnapshotClassName: snapClass,
 	}, nil
 }
 
