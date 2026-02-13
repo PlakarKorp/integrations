@@ -3,10 +3,11 @@ module github.com/PlakarKorp/integration-k8s
 go 1.25.5
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1
+	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260213124244-86554ea13bd5
 	github.com/PlakarKorp/integration-fs v1.1.0-beta.4.0.20260212134143-315cda0424d2
 	github.com/PlakarKorp/integration-grpc v1.1.0-beta.3
 	github.com/PlakarKorp/kloset v1.1.0-beta.2
+	github.com/google/uuid v1.6.0
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
 	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/sync v0.19.0
@@ -31,7 +32,6 @@ require (
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

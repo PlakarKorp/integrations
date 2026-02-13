@@ -6,8 +6,8 @@ github.com/NickBall/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 h1:5BIUS5
 github.com/NickBall/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5/go.mod h1:w5D10RxC0NmPYxmQ438CC1S07zaC1zpvuNW7s5sUk2Q=
 github.com/PlakarKorp/go-cdc-chunkers v1.0.3 h1:6ozBFcNMHvGe6IsbPcAZUUEAExCgcNx3aa8xiCA6+Qw=
 github.com/PlakarKorp/go-cdc-chunkers v1.0.3/go.mod h1:y7ag92JABKPBDoSOPwedssQ5NIOgjRm4Mu6yTBpmUMY=
-github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1 h1:gPetIUfg///RiaML7CRINCcdXo55NHvaQIbpIoIBWGk=
-github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1/go.mod h1:ni69BgWur3+rHb7cOg/8JOKEMFh8J7tEPxTTSUhGNjE=
+github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260213124244-86554ea13bd5 h1:ZcQLPdEdy2kgP3cb70QNuMCQyVi9Iso57aPVZscyPPA=
+github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260213124244-86554ea13bd5/go.mod h1:ni69BgWur3+rHb7cOg/8JOKEMFh8J7tEPxTTSUhGNjE=
 github.com/PlakarKorp/integration-fs v1.1.0-beta.4.0.20260212134143-315cda0424d2 h1:Ib4b6yact/SyK7lBqjwrwQpAS1mFILBAhUZ0qbVEJG8=
 github.com/PlakarKorp/integration-fs v1.1.0-beta.4.0.20260212134143-315cda0424d2/go.mod h1:xrm7jKpbKsNeNwGgLnuuwrCfFF+LkY3GD9LKUcmOVs0=
 github.com/PlakarKorp/integration-grpc v1.1.0-beta.3 h1:u0n6Uyz7wqHOMoMYbfBLrcSrfAGqzcNQtcgkgYfU5TQ=
