@@ -1,7 +1,8 @@
 # kubernetes integration
 
 This integration allows [plakar][plakar] to backup and restore
-[kubernetes][kubernetes] resources.
+[kubernetes][kubernetes] resources and PersistentVolumes backed by CSI
+drivers.
 
 [plakar]:     https://plakar.io/
 [kubernetes]: https://kubernetes.io/
@@ -9,8 +10,8 @@ This integration allows [plakar][plakar] to backup and restore
 
 ## Configuration
 
-None.
-
+- `volume_snapshot_class_name`: required for PVC backups.  It's the volume snapshot class to use.
+- `kubelet_image`: optional, used only for PVC backups.  Defaults to a recent version of the kubelet image.
 
 ## Examples
 
@@ -22,6 +23,10 @@ Run a proxy to access the kubernetes cluster:
 Backup all the resources applied to a kubernetes cluster:
 
 	$ plakar backup k8s://localhost:8001
+
+Same as before but only for the resources in the `foo` namespace:
+
+	$ plakar backup k8s://localhost:8001/foo
 
 Restore all the `StatefulSet`s in the `foo` namespace:
 
