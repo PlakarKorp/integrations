@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"path"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	yamlv3 "go.yaml.in/yaml/v3"
 	"golang.org/x/sync/errgroup"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,13 +32,19 @@ import (
 )
 
 type k8s struct {
-	clientset *kubernetes.Clientset
-	dclient   *dynamic.DynamicClient
-	discover  *discovery.DiscoveryClient
-	opts      *connectors.Options
+	config     *rest.Config
+	clientset  *kubernetes.Clientset
+	dclient    *dynamic.DynamicClient
+	discover   *discovery.DiscoveryClient
+	snapClient *versioned.Clientset
+	opts       *connectors.Options
 
 	host string
 	root string
+
+	portForward bool
+
+	volumeSnapshotClassName string
 }
 
 func init() {
@@ -95,20 +103,32 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 		return nil, err
 	}
 
+	snapClient, err := versioned.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &k8s{
-		clientset: clientset,
-		dclient:   dclient,
-		discover:  discover,
-		opts:      opts,
-		host:      host,
-		root:      root,
+		config:     config,
+		clientset:  clientset,
+		dclient:    dclient,
+		discover:   discover,
+		snapClient: snapClient,
+		opts:       opts,
+		host:       host,
+		root:       root,
+
+		portForward: true,
+
+		//volumeSnapshotClassName: params["volume_snapshot_class_name"],
+		volumeSnapshotClassName: "my-snapclass",
 	}, nil
 }
 
 func (k *k8s) Type() string          { return "k8s" }
 func (k *k8s) Origin() string        { return k.host }
 func (k *k8s) Root() string          { return "/" + k.root }
-func (k *k8s) Flags() location.Flags { return 0 }
+func (k *k8s) Flags() location.Flags { return location.FLAG_STREAM }
 
 func (k *k8s) Ping(ctx context.Context) error {
 	ns := k.clientset.CoreV1().Namespaces()
@@ -156,6 +176,14 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 				}
 
 				for _, item := range list.Items {
+					if strings.ToLower(item.GetKind()) != "persistentvolumeclaim" {
+						continue
+					}
+
+					if item.GetLabels()["plakar.io/generated-resource"] == "true" {
+						continue
+					}
+
 					byte, err := yaml.Marshal(item.Object)
 					if err != nil {
 						return err
@@ -193,6 +221,14 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 						func() (io.ReadCloser, error) {
 							return io.NopCloser(bytes.NewReader(byte)), nil
 						})
+
+					if gvk.Kind == "PersistentVolumeClaim" {
+						wg.Go(func() error {
+							err := k.backupPvc(ctx, ns, item.GetName())
+							log.Println("backupPvc failed with", err)
+							return nil
+						})
+					}
 				}
 
 				return nil
