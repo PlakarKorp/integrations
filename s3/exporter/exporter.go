@@ -29,9 +29,11 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"golang.org/x/sync/errgroup"
 )
 
 type S3Exporter struct {
+	opts        *connectors.Options
 	minioClient *minio.Client
 	rootDir     string
 	host        string
@@ -128,6 +130,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	return &S3Exporter{
+		opts:        opts,
 		rootDir:     parsed.Path,
 		minioClient: conn,
 		host:        parsed.Host,
@@ -155,18 +158,24 @@ func (p *S3Exporter) Ping(ctx context.Context) error {
 func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.opts.MaxConcurrency)
+
 	for record := range records {
 		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
 			results <- record.Ok()
 			continue
 		}
 
-		_, err := p.minioClient.PutObject(ctx, p.bucket, path.Join(p.restoreDir, record.Pathname),
-			record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{})
-		results <- record.Error(err)
+		g.Go(func() error {
+			_, err := p.minioClient.PutObject(ctx, p.bucket, path.Join(p.restoreDir, record.Pathname),
+				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{})
+			results <- record.Error(err)
+			return nil
+		})
 	}
 
-	return nil
+	return g.Wait()
 }
 
 func (p *S3Exporter) Close(ctx context.Context) error {
