@@ -110,6 +110,7 @@ loop:
 					if !os.IsExist(err) {
 						results <- record.Error(err)
 					} else {
+						_ = os.Chmod(pathname, 0700)
 						results <- record.Ok()
 					}
 				} else {
