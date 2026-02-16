@@ -380,7 +380,8 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 			readyChan = make(chan struct{}, 1)
 		)
 
-		pf, err := portforward.New(dialer, []string{":8080"}, stopChan, readyChan, io.Discard, io.Discard)
+		p := fmt.Sprintf(":%d", svc.Spec.Ports[0].Port)
+		pf, err := portforward.New(dialer, []string{p}, stopChan, readyChan, io.Discard, io.Discard)
 		if err != nil {
 			close(stopChan)
 			return "", nil, err
@@ -398,7 +399,8 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 		return fmt.Sprintf("localhost:%d", ports[0].Local), stopChan, nil
 	}
 
-	return fmt.Sprintf("%s.%s.svc.cluster.local:8080", svc.Name, svc.Namespace), nil, nil
+	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace,
+		svc.Spec.Ports[0].Port), nil, nil
 }
 
 func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
