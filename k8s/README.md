@@ -35,3 +35,21 @@ Restore all the `StatefulSet`s in the `foo` namespace:
 Backup the PVC `my-pvc` in the `storage` namespace:
 
 	$ plakar backup -o volume_snapshot_class_name=my-snapclass k8s+pvc://localhost:8001/storage/my-pvc
+
+Restore inside a new, pristine, PersistentVolumeClaim:
+
+	$ kubectl create -f -
+	apiVersion: v1
+	kind: PersistentVolumeClaim
+	metadata:
+	  name: pristine
+	  namespace: storage
+	spec:
+	  resources:
+		requests:
+		 storage: 1Gi
+	  accessModes:
+	   - ReadWriteOnce
+	$ plakar restore -o volume_snapshot_class_name=my-snapclass k8s+pvc://localhost:8001/storage/pristine
+
+of course it's possible to restore the data inside an already existing PVC as well.
