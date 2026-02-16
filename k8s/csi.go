@@ -360,8 +360,7 @@ func (k *k8s) consume(ctx context.Context, dest, podpath string, Records chan<- 
 	}
 }
 
-func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	var url string
+func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) (string, chan struct{}, error) {
 	if k.portForward {
 		u := k.clientset.CoreV1().RESTClient().Post().
 			Resource("pods").
@@ -371,7 +370,7 @@ func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Servic
 
 		transport, upgrader, err := spdy.RoundTripperFor(k.config)
 		if err != nil {
-			return err
+			return "", nil, err
 		}
 
 		dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", u)
@@ -381,11 +380,10 @@ func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Servic
 			readyChan = make(chan struct{}, 1)
 		)
 
-		defer close(stopChan)
-
 		pf, err := portforward.New(dialer, []string{":8080"}, stopChan, readyChan, io.Discard, io.Discard)
 		if err != nil {
-			return err
+			close(stopChan)
+			return "", nil, err
 		}
 
 		go pf.ForwardPorts()
@@ -393,12 +391,23 @@ func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Servic
 		<-readyChan
 		ports, err := pf.GetPorts()
 		if err != nil {
-			return err
+			close(stopChan)
+			return "", nil, err
 		}
 
-		url = fmt.Sprintf("localhost:%d", ports[0].Local)
-	} else {
-		url = fmt.Sprintf("%s.%s.svc.cluster.local:8080", svc.Name, svc.Namespace)
+		return fmt.Sprintf("localhost:%d", ports[0].Local), stopChan, nil
+	}
+
+	return fmt.Sprintf("%s.%s.svc.cluster.local:8080", svc.Name, svc.Namespace), nil, nil
+}
+
+func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, pod, svc)
+	if err != nil {
+		return err
+	}
+	if stop != nil {
+		defer close(stop)
 	}
 
 	return k.consume(ctx, url, "/data", records, results)
