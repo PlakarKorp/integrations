@@ -40,10 +40,10 @@ type k8s struct {
 
 func init() {
 	importer.Register("k8s", 0, NewImporter)
-	importer.Register("k8s+pvc", 0, NewImporter)
+	importer.Register("k8s+csi", 0, NewImporter)
 
 	exporter.Register("k8s", 0, NewExporter)
-	exporter.Register("k8s+pvc", 0, NewExporter)
+	exporter.Register("k8s+csi", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
@@ -80,7 +80,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 	var namespace, pvcName, snapClass string
 
 	switch proto {
-	case "k8s+pvc":
+	case "k8s+csi":
 		var found bool
 
 		namespace, pvcName, found = strings.Cut(strings.Trim(u.Path, "/"), "/")
@@ -152,14 +152,14 @@ func (k *k8s) Type() string   { return k.proto }
 func (k *k8s) Origin() string { return k.host }
 
 func (k *k8s) Root() string {
-	if k.proto == "k8s+pvc" {
+	if k.proto == "k8s+csi" {
 		return "/"
 	}
 	return "/" + k.namespace
 }
 
 func (k *k8s) Flags() location.Flags {
-	if k.proto == "k8s+pvc" {
+	if k.proto == "k8s+csi" {
 		return location.FLAG_STREAM | location.FLAG_NEEDACK
 	}
 	return 0
@@ -177,7 +177,7 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 	switch k.proto {
 	case "k8s":
 		return k.walkResources(ctx, records)
-	case "k8s+pvc":
+	case "k8s+csi":
 		return k.backupPvc(ctx, k.namespace, k.pvcName, records, results)
 	default:
 		return errors.ErrUnsupported
@@ -189,7 +189,7 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 	case "k8s":
 		defer close(results)
 		return k.apply(ctx, records, results)
-	case "k8s+pvc":
+	case "k8s+csi":
 		// no need to close results here, it's passed to
 		// exporter.Export which will take care of it.
 		return k.restorePvc(ctx, k.namespace, k.pvcName, records, results)
