@@ -47,14 +47,14 @@ func init() {
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
-	return New(ctx, opts, name, params)
+	return New(ctx, opts, name, params, false)
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
-	return New(ctx, opts, name, params)
+	return New(ctx, opts, name, params, true)
 }
 
-func New(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (*k8s, error) {
+func New(ctx context.Context, opts *connectors.Options, proto string, params map[string]string, export bool) (*k8s, error) {
 	var host string
 
 	u, err := url.Parse(params["location"])
@@ -90,7 +90,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		}
 
 		snapClass = params["volume_snapshot_class"]
-		if snapClass == "" {
+		if snapClass == "" && !export {
 			return nil, fmt.Errorf("missing volume_snapshot_class option")
 		}
 

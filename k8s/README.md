@@ -50,6 +50,6 @@ Restore inside a new, pristine, PersistentVolumeClaim:
 		 storage: 1Gi
 	  accessModes:
 	   - ReadWriteOnce
-	$ plakar restore -o volume_snapshot_class=my-snapclass k8s+pvc://localhost:8001/storage/pristine
+	$ plakar restore k8s+pvc://localhost:8001/storage/pristine
 
 of course it's possible to restore the data inside an already existing PVC as well.
