@@ -56,6 +56,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, par
 
 func New(ctx context.Context, opts *connectors.Options, proto string, params map[string]string, export bool) (*k8s, error) {
 	var host string
+	var portForward bool
 
 	u, err := url.Parse(params["location"])
 	if err != nil {
@@ -68,8 +69,8 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 			Host: u.Host,
 		}
 		host = u.Host
+		portForward = true
 	} else {
-		var err error
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			return nil, fmt.Errorf("%w (not running in a kubernetes cluster?)", err)
@@ -141,7 +142,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		namespace:  namespace,
 		pvcName:    pvcName,
 
-		portForward: true,
+		portForward: portForward,
 
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
