@@ -26,6 +26,8 @@ import (
 )
 
 const DumpFilenameVersion = 1
+const QEMUConfigSidecarSuffix = "_qemu.conf"
+const LXCConfigSidecarSuffix = "_lxc.conf"
 
 var dumpNameRegex = regexp.MustCompile(`^vzdump(?:-v(\d+))?-(qemu|lxc)-(\d+)-`)
 
@@ -70,6 +72,26 @@ func BuildDumpFilename(_ *Config, vmType string, vmid int, timestamp, baseExt, c
 func BuildRestoreDumpFilename(originalName, vmType string, vmid int, now time.Time) string {
 	suffix := canonicalArchiveSuffix(originalName, vmType)
 	return fmt.Sprintf("vzdump-%s-%d-%s%s", vmType, vmid, now.Format("2006_01_02-15_04_05"), suffix)
+}
+
+func BuildQEMUConfigSidecarFilename(archiveName string) string {
+	return archiveName + QEMUConfigSidecarSuffix
+}
+
+func BuildLXCConfigSidecarFilename(archiveName string) string {
+	return archiveName + LXCConfigSidecarSuffix
+}
+
+func IsQEMUConfigSidecarFilename(name string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(name)), QEMUConfigSidecarSuffix)
+}
+
+func IsLXCConfigSidecarFilename(name string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(name)), LXCConfigSidecarSuffix)
+}
+
+func IsConfigSidecarFilename(name string) bool {
+	return IsQEMUConfigSidecarFilename(name) || IsLXCConfigSidecarFilename(name)
 }
 
 func canonicalArchiveSuffix(originalName, vmType string) string {
