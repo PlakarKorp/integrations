@@ -67,9 +67,8 @@
    - restore dump,
    - restore the previous state.
 6. If VM/CT does not exist:
-   - require matching sidecar config,
-   - recreate config in `/etc/pve/qemu-server/` or `/etc/pve/lxc/`,
-   - restore dump,
+   - restore dump directly,
+   - optionally extract storage hint from matching sidecar config,
    - start VM/CT.
 7. `cleanup` option: remove the temporary dump from `dump_dir`.
 
