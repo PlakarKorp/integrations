@@ -121,15 +121,29 @@ func (c *Client) BackupVMStream(ctx context.Context, vmid int) (string, io.ReadC
 }
 
 func (c *Client) ReadQEMUConfig(ctx context.Context, vmid int) ([]byte, error) {
-	return c.readVMConfig(ctx, qemuConfigDir, "qemu", vmid)
+	return c.readVMConfig(ctx, "qemu", vmid)
 }
 
 func (c *Client) ReadLXCConfig(ctx context.Context, vmid int) ([]byte, error) {
-	return c.readVMConfig(ctx, lxcConfigDir, "lxc", vmid)
+	return c.readVMConfig(ctx, "lxc", vmid)
 }
 
-func (c *Client) readVMConfig(ctx context.Context, configDir, vmType string, vmid int) ([]byte, error) {
-	configPath := path.Join(configDir, fmt.Sprintf("%d.conf", vmid))
+func VMConfigPath(vmType string, vmid int) (string, error) {
+	switch vmType {
+	case "qemu":
+		return path.Join(qemuConfigDir, fmt.Sprintf("%d.conf", vmid)), nil
+	case "lxc":
+		return path.Join(lxcConfigDir, fmt.Sprintf("%d.conf", vmid)), nil
+	default:
+		return "", fmt.Errorf("unsupported VM type for config path: %s", vmType)
+	}
+}
+
+func (c *Client) readVMConfig(ctx context.Context, vmType string, vmid int) ([]byte, error) {
+	configPath, err := VMConfigPath(vmType, vmid)
+	if err != nil {
+		return nil, err
+	}
 
 	reader, err := c.Open(ctx, configPath)
 	if err != nil {
