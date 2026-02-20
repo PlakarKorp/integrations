@@ -165,51 +165,19 @@ type backupRecord struct {
 }
 
 func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, vmid int) (*backupRecord, error) {
-	if p.cfg.Mode == proxmox.ModeLocal {
-		archivePath, err := p.client.BackupVM(ctx, vmid)
-		if err != nil {
-			return nil, err
-		}
-
-		fileInfo, err := p.client.Stat(ctx, archivePath)
-		if err != nil {
-			return nil, err
-		}
-
-		reader, err := p.client.Open(ctx, archivePath)
-		if err != nil {
-			return nil, err
-		}
-
-		archiveName := path.Base(archivePath)
-		if isInvalidArchiveName(archiveName) {
-			return nil, fmt.Errorf("invalid archive name for vmid %d: %q", vmid, archiveName)
-		}
-
-		return &backupRecord{
-			archivePath: archivePath,
-			record: &connectors.Record{
-				Pathname: buildBackupSnapshotPath(vmType, vmid, archiveName),
-				FileInfo: objects.FileInfo{
-					Lname:    archiveName,
-					Lsize:    fileInfo.Size(),
-					Lmode:    0600,
-					LmodTime: fileInfo.ModTime(),
-					Ldev:     1,
-				},
-				Reader: reader,
-			},
-		}, nil
-	}
-
-	archivePath, reader, sizePtr, err := p.client.BackupVMStream(ctx, vmid)
+	archivePath, err := p.client.BackupVM(ctx, vmid)
 	if err != nil {
 		return nil, err
 	}
 
-	size := int64(0)
-	if sizePtr != nil {
-		size = *sizePtr
+	fileInfo, err := p.client.Stat(ctx, archivePath)
+	if err != nil {
+		return nil, err
+	}
+
+	reader, err := p.client.Open(ctx, archivePath)
+	if err != nil {
+		return nil, err
 	}
 
 	archiveName := path.Base(archivePath)
@@ -224,9 +192,9 @@ func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, 
 			Pathname: buildBackupSnapshotPath(vmType, vmid, archiveName),
 			FileInfo: objects.FileInfo{
 				Lname:    archiveName,
-				Lsize:    size,
+				Lsize:    fileInfo.Size(),
 				Lmode:    0600,
-				LmodTime: time.Now(),
+				LmodTime: fileInfo.ModTime(),
 				Ldev:     1,
 			},
 			Reader: reader,
