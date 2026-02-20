@@ -53,7 +53,8 @@
 8. For QEMU and LXC, also export VM config files as sidecars:
    - QEMU: `/etc/pve/qemu-server/<vmid>.conf` as `/backup/qemu/<vmid>/<dump>_qemu.conf`
    - LXC: `/etc/pve/lxc/<vmid>.conf` as `/backup/lxc/<vmid>/<dump>_lxc.conf`
-9. `cleanup` option: if a dump was written to disk (local mode), it is removed.
+9. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>/<dump>_pool.conf` (content is the pool name).
+10. `cleanup` option: if a dump was written to disk (local mode), it is removed.
 
 ## Restore Flow (Exporter)
 
@@ -69,6 +70,7 @@
 6. If VM/CT does not exist:
    - restore dump directly,
    - optionally extract storage hint from matching sidecar config,
+   - optionally apply pool via `--pool` when matching pool sidecar exists and pool still exists on target,
    - start VM/CT.
 7. `cleanup` option: remove the temporary dump from `dump_dir`.
 
@@ -80,6 +82,7 @@ Each backed-up VM/CT produces a dump object under `/backup/<type>/<vmid>/`:
 For VM configs, sidecar files are also added:
 - `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_qemu.conf`
 - `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_lxc.conf`
+- `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_pool.conf`
 
 ## Snapshot Example
 
