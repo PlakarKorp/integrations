@@ -40,7 +40,7 @@ The configuration parameters are as follows:
 
 During restore, the exporter checks whether the target VM/CT exists.
 If it exists, it preserves the previous power state (running/stopped), restores, then returns to that state.
-If it does not exist, restore is done directly from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. The restored VM/CT is then started.
+If it does not exist, restore is done directly from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. When a matching pool sidecar (`_pool.conf`) is available, the exporter checks that the pool still exists and then passes `--pool <pool>`. The restored VM/CT is then started.
 
 ## Backup selection options
 
@@ -103,10 +103,11 @@ Backup (importer) commands:
 Restore (exporter) commands:
 - `cat > <dump_dir>/<archive>` (write archive to Proxmox storage)
 - `qm status <vmid>` / `pct status <vmid>` (check existence and running state)
+- `pvesh get /pools/<pool> --output-format json` (only when a `_pool.conf` sidecar is present)
 - `qm stop <vmid>` (QEMU)
 - `pct stop <vmid>` (LXC)
-- `qmrestore <dump_dir>/<archive> <vmid> --force [--storage <storage>]` (QEMU)
-- `pct restore <vmid> <dump_dir>/<archive> --force [--storage <storage>]` (LXC)
+- `qmrestore <dump_dir>/<archive> <vmid> --force [--storage <storage>] [--pool <pool>]` (QEMU)
+- `pct restore <vmid> <dump_dir>/<archive> --force [--storage <storage>] [--pool <pool>]` (LXC)
 - `qm start <vmid>` / `pct start <vmid>` (restore previous state or start newly created VM/CT)
 - `rm -f -- <dump_dir>/<archive>` (when `cleanup=true`)
 
