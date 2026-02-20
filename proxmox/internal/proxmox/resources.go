@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,7 @@ type vmResource struct {
 	VMID int    `json:"vmid"`
 	Type string `json:"type"`
 	Node string `json:"node"`
+	Pool string `json:"pool,omitempty"`
 }
 
 type poolResponse struct {
@@ -63,6 +65,53 @@ func (c *Client) VMType(ctx context.Context, vmid int) (string, error) {
 	}
 
 	return "", fmt.Errorf("unable to determine VM type for vmid %d", vmid)
+}
+
+func (c *Client) VMPool(ctx context.Context, vmid int) (string, error) {
+	resources, err := c.listResources(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	for _, res := range resources {
+		if res.VMID != vmid {
+			continue
+		}
+		if c.cfg.Node != "" && res.Node != c.cfg.Node {
+			continue
+		}
+		if res.Type == "qemu" || res.Type == "lxc" {
+			return strings.TrimSpace(res.Pool), nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to determine VM pool for vmid %d", vmid)
+}
+
+func (c *Client) PoolExists(ctx context.Context, pool string) (bool, error) {
+	pool = strings.TrimSpace(pool)
+	if pool == "" {
+		return false, nil
+	}
+
+	_, err := c.runPvesh(ctx, "pvesh get pool failed", "get", "/pools/"+pool, "--output-format", "json")
+	if err != nil {
+		if isMissingPoolError(err.Error()) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func isMissingPoolError(output string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(output))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "does not exist") ||
+		strings.Contains(normalized, "not found") ||
+		strings.Contains(normalized, "no such")
 }
 
 func (c *Client) ListPoolVMIDs(ctx context.Context, pool string) ([]int, error) {
