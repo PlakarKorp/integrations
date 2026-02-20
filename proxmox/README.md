@@ -34,9 +34,9 @@ The configuration parameters are as follows:
     - `snapshot` : Use a snapshot mode without stopping or suspending VM / CT
     - `suspend` : VM or CT will be suspended during the backup
     - `stop` : Proxmox will stop the VM / CT in order to perform the backup
-- `dump_dir` (optional): Directory used by Proxmox to store dump archives (defaults to `/var/lib/vz/dump`). It is used for restore uploads and for backup generation in `mode=local`.
+- `dump_dir` (optional): Directory used by Proxmox to store dump archives (defaults to `/var/lib/vz/dump`). It is used for restore uploads and for backup generation in both modes.
 - `node` (optional): Proxmox node to target for restore/upload operations (required if your cluster has multiple nodes)
-- `cleanup` (optional): When `true`, delete temporary vzdump files from Proxmox storage after restore and after local backups (defaults to `false`).
+- `cleanup` (optional): When `true`, delete temporary vzdump files from Proxmox storage after restore and after backups (defaults to `true`).
 
 During restore, the exporter checks whether the target VM/CT exists.
 If it exists, it preserves the previous power state (running/stopped), restores, then returns to that state.
@@ -67,7 +67,7 @@ $ plakar source add myProxmoxHypervisorRemote proxmox+backup://10.0.0.10 mode=re
 $ plakar at /tmp/example backup -o vmid=101 @myProxmoxHypervisorSrc
 $ plakar at /tmp/example backup -o pool=prod @myProxmoxHypervisorSrc
 $ plakar at /tmp/example backup -o all @myProxmoxHypervisorSrc 
-$ plakar at /tmp/example backup -o vmid=101 -o cleanup=true @myProxmoxHypervisorSrc 
+$ plakar at /tmp/example backup -o vmid=101 -o cleanup=false @myProxmoxHypervisorSrc 
 
 # Configure a Proxmox local destination
 $ plakar destination add myProxmoxHypervisorLocal proxmox+backup://10.0.0.10 mode=local
@@ -95,8 +95,7 @@ Backup (importer) commands:
 - `pvesh get /version --output-format json`
 - `pvesh get /cluster/resources --type vm --output-format json` (when `all`)
 - `pvesh get /pools/<pool> --output-format json` (when `pool=...`)
-- `vzdump <vmid> --dumpdir <dump_dir> --mode <snapshot|suspend|stop> --compress <0|1|lzo|gzip|zstd> [--node <node>]` (when `mode=local`)
-- `vzdump <vmid> --stdout --mode <snapshot|suspend|stop> --compress <0|1|lzo|gzip|zstd> [--node <node>]` (when `mode=remote`)
+- `vzdump <vmid> --dumpdir <dump_dir> --mode <snapshot|suspend|stop> --compress <0|1|lzo|gzip|zstd> [--node <node>]` (when `mode=local` and `mode=remote`)
 - `cat -- /etc/pve/qemu-server/<vmid>.conf` (for QEMU sidecar config file)
 - `cat -- /etc/pve/lxc/<vmid>.conf` (for LXC sidecar config file)
 

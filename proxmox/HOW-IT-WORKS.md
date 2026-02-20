@@ -8,7 +8,7 @@
 
 ## Architecture Overview
 
-- Importer (backup): uses `vzdump` to produce a dump, then sends it to Plakar (streamed in remote mode, file-based in local mode).
+- Importer (backup): uses `vzdump` to produce a dump file in `dump_dir`, then sends it to Plakar (local read in `mode=local`, SSH read in `mode=remote`).
 - Exporter (restore): recreates a temporary dump in `dump_dir`, correlates optional sidecar configs, then applies a state-aware restore workflow.
 - `internal/proxmox`: shared layer (config, client, local/ssh runner, name parsing, etc.).
 - Local/remote runner: same business logic, executed locally on the hypervisor or over SSH.
@@ -31,7 +31,7 @@
 ## Technical Choices (Proxmox Constraints)
 
 - **Proxmox CLI**: `vzdump`, `qmrestore`, `pct`, and `pvesh` are the supported, stable tools on Proxmox nodes, available locally and via SSH. (There is also a dedicated chapter on why there is no API version / usage)
-- **Backup transport mode**: in `mode=remote`, `vzdump --stdout` avoids writing a dump on remote storage. In `mode=local`, `vzdump` writes to `dump_dir` and the importer reads the resulting file.
+- **Backup transport mode**: in both `mode=local` and `mode=remote`, `vzdump` writes to `dump_dir`. The importer then reads the dump file (remote reads happen over SSH).
 - **Restore requires a local file**: Proxmox has no "streaming restore". `qmrestore` and `pct restore` require a local file, so the exporter must write the dump into `dump_dir` before restoring.
 - **Proxmox-compatible dump naming**: dump files follow the Proxmox naming scheme so `qmrestore` / `pct restore` can always detect archive type/compression.
 - **Targeted restore from multi-VM backups**: Use `plakar restore <snapid>:<path>` to select a single dump file. No destination config mutation is required.
@@ -45,16 +45,13 @@
 3. Retrieve the list via `pvesh`:
    `pvesh get /cluster/resources --type vm` or `pvesh get /pools/<pool>`.
 4. For each VM/CT, detect the type (`qemu` or `lxc`) via Proxmox inventory.
-5. For each VM/CT:
-   - in `mode=local`: run `vzdump` to generate a dump file in `dump_dir`, then read that file.
-   - in `mode=remote`: run `vzdump --stdout`.
-6. In remote mode, detect compression by reading the first bytes (gzip, zstd, lzo signatures) to generate a proper filename.
-7. Send the dump to Plakar under `/backup/<type>/<vmid>/` using filename `vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]`.
-8. For QEMU and LXC, also export VM config files as sidecars:
+5. For each VM/CT, run `vzdump` to generate a dump file in `dump_dir`.
+6. Read the dump file and send it to Plakar under `/backup/<type>/<vmid>/`.
+7. For QEMU and LXC, also export VM config files as sidecars:
    - QEMU: `/etc/pve/qemu-server/<vmid>.conf` as `/backup/qemu/<vmid>/<dump>_qemu.conf`
    - LXC: `/etc/pve/lxc/<vmid>.conf` as `/backup/lxc/<vmid>/<dump>_lxc.conf`
-9. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>/<dump>_pool.conf` (content is the pool name).
-10. `cleanup` option: if a dump was written to disk (local mode), it is removed.
+8. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>/<dump>_pool.conf` (content is the pool name).
+9. `cleanup` option: generated dump file is removed from `dump_dir` after transfer (enabled by default).
 
 ## Restore Flow (Exporter)
 
@@ -98,14 +95,6 @@ Example for a QEMU VM with `vmid=101` compressed with zstd:
 
 During restore, the exporter also stages files with a canonical Proxmox name in `dump_dir`, even when the snapshot entry came from an older custom naming scheme.
 
-## Why We Do Not Use the Proxmox API
-
-The Proxmox API does not provide the capabilities needed for this integration:
-- It does not allow streaming backup data directly (no equivalent of `vzdump --stdout`) which would lead to data duplication during backup.
-- It does not offer a reliable route to retrieve a dump file after it has been generated which would require ssh / file transfer in any case.
-
-Using the CLI (`vzdump`, `qmrestore`, `pct`, `pvesh`) is the only practical way to stream backups and to control the full backup/restore workflow, both locally and over SSH.
-
 ## Remote Mode and SSH Notes
 
 Remote mode exists to avoid installing extra binaries on the hypervisor and to centralize multiple Proxmox backups from a single "backup relay".
@@ -114,8 +103,8 @@ Security (TODO ?) note: the SSH implementation currently disables host key verif
 
 ## Cleanup Behavior
 
-- Backup in `mode=remote` is streamed and does not create a dump file on disk.
-- Backup in `mode=local` writes a dump in `dump_dir`, and `cleanup=true` removes it after transfer.
+- Backup in both modes writes a dump in `dump_dir` before transfer.
+- `cleanup` defaults to `true` and removes generated dumps from `dump_dir` after backup transfer.
 - Restore always stages a dump into `dump_dir`. When `cleanup=true`, the staged file is deleted after restore (or after a failure).
 
 ## Misc.
