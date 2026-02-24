@@ -46,11 +46,11 @@
    `pvesh get /cluster/resources --type vm` or `pvesh get /pools/<pool>`.
 4. For each VM/CT, detect the type (`qemu` or `lxc`) via Proxmox inventory.
 5. For each VM/CT, run `vzdump` to generate a dump file in `dump_dir`.
-6. Read the dump file and send it to Plakar under `/backup/<type>/<vmid>/`.
+6. Read the dump file and send it to Plakar under `/backup/<type>/<vmid>_<vmname>/` (VM name is sanitized for path safety).
 7. For QEMU and LXC, also export VM config files as sidecars:
-   - QEMU: `/etc/pve/qemu-server/<vmid>.conf` as `/backup/qemu/<vmid>/<dump>_qemu.conf`
-   - LXC: `/etc/pve/lxc/<vmid>.conf` as `/backup/lxc/<vmid>/<dump>_lxc.conf`
-8. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>/<dump>_pool.conf` (content is the pool name).
+   - QEMU: `/etc/pve/qemu-server/<vmid>.conf` as `/backup/qemu/<vmid>_<vmname>/<dump>_qemu.conf`
+   - LXC: `/etc/pve/lxc/<vmid>.conf` as `/backup/lxc/<vmid>_<vmname>/<dump>_lxc.conf`
+8. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>_<vmname>/<dump>_pool.conf` (content is the pool name).
 9. `cleanup` option: generated dump file is removed from `dump_dir` after transfer (enabled by default).
 
 ## Restore Flow (Exporter)
@@ -60,33 +60,31 @@
 3. For each dump file, parse the restore target from the filename (type + vmid), then write the dump into `dump_dir`.
 4. Check target existence and runtime state using `qm/pct status`.
 5. If VM/CT exists:
-   - remember running/stopped state,
-   - stop it,
-   - restore dump,
-   - restore the previous state.
+   - if running: refuse restore (manual stop required),
+   - if stopped: restore dump in place.
 6. If VM/CT does not exist:
    - restore dump directly,
    - optionally extract storage hint from matching sidecar config,
-   - optionally apply pool via `--pool` when matching pool sidecar exists and pool still exists on target,
-   - start VM/CT.
-7. `cleanup` option: remove the temporary dump from `dump_dir`.
+   - optionally apply pool via `--pool` when matching pool sidecar exists and pool still exists on target.
+7. If destination option `start_on_restore=true`, start VM/CT after a successful restore.
+8. `cleanup` option: remove the temporary dump from `dump_dir`.
 
 ## Snapshot File Structure
 
-Each backed-up VM/CT produces a dump object under `/backup/<type>/<vmid>/`:
-- `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]`
+Each backed-up VM/CT produces a dump object under `/backup/<type>/<vmid>_<vmname>/`:
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]`
 
 For VM configs, sidecar files are also added:
-- `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_qemu.conf`
-- `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_lxc.conf`
-- `/backup/<type>/<vmid>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_pool.conf`
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_qemu.conf`
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_lxc.conf`
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_pool.conf`
 
 ## Snapshot Example
 
-Example for a QEMU VM with `vmid=101` compressed with zstd:
+Example for a QEMU VM with `vmid=101` named `myvm` compressed with zstd:
 
 ```text
-/backup/qemu/101/vzdump-qemu-101-2026_02_10-02_00_00.vma.zst
+/backup/qemu/101_myvm/vzdump-qemu-101-2026_02_10-02_00_00.vma.zst
 ```
 
 ## Why We Use Canonical Proxmox Names
@@ -109,4 +107,4 @@ Security (TODO ?) note: the SSH implementation currently disables host key verif
 
 ## Misc.
 
-Restore state handling is implemented in the exporter: existing VM/CT state is preserved, and newly recreated VM/CTs are started after restore.
+Restore state handling is implemented in the exporter: running VM/CTs are rejected, stopped or missing VM/CTs can be restored, and post-restore start is controlled by `start_on_restore`.
