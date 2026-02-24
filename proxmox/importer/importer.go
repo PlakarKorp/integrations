@@ -107,7 +107,12 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 			return err
 		}
 
-		backupRecord, err := p.buildBackupRecord(ctx, vmType, vmid)
+		vmName, err := p.client.VMName(ctx, vmid)
+		if err != nil {
+			return err
+		}
+
+		backupRecord, err := p.buildBackupRecord(ctx, vmType, vmid, vmName)
 		if err != nil {
 			return err
 		}
@@ -124,10 +129,10 @@ func (p *ProxmoxImporter) Import(ctx context.Context, records chan<- *connectors
 		}
 
 		if vmType == "qemu" || vmType == "lxc" {
-			if err := p.emitVMConfigRecord(ctx, records, vmType, vmid, archiveName); err != nil {
+			if err := p.emitVMConfigRecord(ctx, records, vmType, vmid, vmName, archiveName); err != nil {
 				return err
 			}
-			if err := p.emitVMPoolRecord(ctx, records, vmType, vmid, archiveName); err != nil {
+			if err := p.emitVMPoolRecord(ctx, records, vmType, vmid, vmName, archiveName); err != nil {
 				return err
 			}
 		}
@@ -164,7 +169,7 @@ type backupRecord struct {
 	record      *connectors.Record
 }
 
-func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, vmid int) (*backupRecord, error) {
+func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, vmid int, vmName string) (*backupRecord, error) {
 	archivePath, err := p.client.BackupVM(ctx, vmid)
 	if err != nil {
 		return nil, err
@@ -189,7 +194,7 @@ func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, 
 	return &backupRecord{
 		archivePath: archivePath,
 		record: &connectors.Record{
-			Pathname: buildBackupSnapshotPath(vmType, vmid, archiveName),
+			Pathname: buildBackupSnapshotPath(vmType, vmid, vmName, archiveName),
 			FileInfo: objects.FileInfo{
 				Lname:    archiveName,
 				Lsize:    fileInfo.Size(),
@@ -202,7 +207,7 @@ func (p *ProxmoxImporter) buildBackupRecord(ctx context.Context, vmType string, 
 	}, nil
 }
 
-func (p *ProxmoxImporter) emitVMConfigRecord(ctx context.Context, records chan<- *connectors.Record, vmType string, vmid int, archiveName string) error {
+func (p *ProxmoxImporter) emitVMConfigRecord(ctx context.Context, records chan<- *connectors.Record, vmType string, vmid int, vmName, archiveName string) error {
 	var (
 		configData []byte
 		configName string
@@ -224,7 +229,7 @@ func (p *ProxmoxImporter) emitVMConfigRecord(ctx context.Context, records chan<-
 	}
 
 	record := &connectors.Record{
-		Pathname: buildBackupSnapshotPath(vmType, vmid, configName),
+		Pathname: buildBackupSnapshotPath(vmType, vmid, vmName, configName),
 		FileInfo: objects.FileInfo{
 			Lname:    configName,
 			Lsize:    int64(len(configData)),
@@ -238,7 +243,7 @@ func (p *ProxmoxImporter) emitVMConfigRecord(ctx context.Context, records chan<-
 	return p.emitRecord(ctx, records, record)
 }
 
-func (p *ProxmoxImporter) emitVMPoolRecord(ctx context.Context, records chan<- *connectors.Record, vmType string, vmid int, archiveName string) error {
+func (p *ProxmoxImporter) emitVMPoolRecord(ctx context.Context, records chan<- *connectors.Record, vmType string, vmid int, vmName, archiveName string) error {
 	poolName, err := p.client.VMPool(ctx, vmid)
 	if err != nil {
 		return err
@@ -252,7 +257,7 @@ func (p *ProxmoxImporter) emitVMPoolRecord(ctx context.Context, records chan<- *
 	poolData := []byte(poolName)
 
 	record := &connectors.Record{
-		Pathname: buildBackupSnapshotPath(vmType, vmid, poolSidecarName),
+		Pathname: buildBackupSnapshotPath(vmType, vmid, vmName, poolSidecarName),
 		FileInfo: objects.FileInfo{
 			Lname:    poolSidecarName,
 			Lsize:    int64(len(poolData)),
@@ -280,8 +285,47 @@ func isInvalidArchiveName(name string) bool {
 	return name == "" || name == "." || name == "/"
 }
 
-func buildBackupSnapshotPath(vmType string, vmid int, filename string) string {
-	return path.Join(backupSnapshotRoot, vmType, strconv.Itoa(vmid), filename)
+func buildBackupSnapshotPath(vmType string, vmid int, vmName, filename string) string {
+	return path.Join(backupSnapshotRoot, vmType, buildBackupSnapshotDir(vmid, vmName), filename)
+}
+
+func buildBackupSnapshotDir(vmid int, vmName string) string {
+	name := sanitizeSnapshotDirComponent(vmName)
+	if name == "" {
+		name = "unnamed"
+	}
+	return fmt.Sprintf("%d_%s", vmid, name)
+}
+
+func sanitizeSnapshotDirComponent(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(len(value))
+
+	lastUnderscore := false
+	for _, r := range value {
+		allowed := (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' || r == '.'
+
+		if allowed {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+
+	return strings.Trim(b.String(), "._-")
 }
 
 func parseSelection(config map[string]string) (selection, error) {
