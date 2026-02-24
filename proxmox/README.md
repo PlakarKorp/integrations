@@ -37,10 +37,13 @@ The configuration parameters are as follows:
 - `dump_dir` (optional): Directory used by Proxmox to store dump archives (defaults to `/var/lib/vz/dump`). It is used for restore uploads and for backup generation in both modes.
 - `node` (optional): Proxmox node to target for restore/upload operations (required if your cluster has multiple nodes)
 - `cleanup` (optional): When `true`, delete temporary vzdump files from Proxmox storage after restore and after backups (defaults to `true`).
+- `start_on_restore` (optional): When `true`, start the restored VM/CT after a successful restore (defaults to `false`).
 
 During restore, the exporter checks whether the target VM/CT exists.
-If it exists, it preserves the previous power state (running/stopped), restores, then returns to that state.
-If it does not exist, restore is done directly from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. When a matching pool sidecar (`_pool.conf`) is available, the exporter checks that the pool still exists and then passes `--pool <pool>`. The restored VM/CT is then started.
+If it exists and is running, restore is refused (the VM/CT must be stopped first).
+If it exists and is stopped, restore is performed in place.
+If it does not exist, restore is done directly from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. When a matching pool sidecar (`_pool.conf`) is available, the exporter checks that the pool still exists and then passes `--pool <pool>`.
+After a successful restore, the VM/CT is started only when `start_on_restore=true`.
 
 ## Backup selection options
 
@@ -82,7 +85,7 @@ $ plakar destination add myProxmoxHypervisorRemote proxmox+backup://10.0.0.10 mo
 $ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>
 
 # Restore one VM from a multi-VM snapshot by selecting its backup directory
-$ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>:/backup/qemu/101
+$ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>:/backup/qemu/101_myvm
 ``` 
 
 ## Proxmox tools / commands used
@@ -103,11 +106,9 @@ Restore (exporter) commands:
 - `cat > <dump_dir>/<archive>` (write archive to Proxmox storage)
 - `qm status <vmid>` / `pct status <vmid>` (check existence and running state)
 - `pvesh get /pools/<pool> --output-format json` (only when a `_pool.conf` sidecar is present)
-- `qm stop <vmid>` (QEMU)
-- `pct stop <vmid>` (LXC)
 - `qmrestore <dump_dir>/<archive> <vmid> --force [--storage <storage>] [--pool <pool>]` (QEMU)
 - `pct restore <vmid> <dump_dir>/<archive> --force [--storage <storage>] [--pool <pool>]` (LXC)
-- `qm start <vmid>` / `pct start <vmid>` (restore previous state or start newly created VM/CT)
+- `qm start <vmid>` / `pct start <vmid>` (only when `start_on_restore=true`)
 - `rm -f -- <dump_dir>/<archive>` (when `cleanup=true`)
 
 ## Technical / code overview 
