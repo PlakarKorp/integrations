@@ -39,11 +39,14 @@ The configuration parameters are as follows:
 - `cleanup` (optional): When `true`, delete temporary vzdump files from Proxmox storage after restore and after backups (defaults to `true`).
 - `start_on_restore` (optional): When `true`, start the restored VM/CT after a successful restore (defaults to `false`).
 
-During restore, the exporter checks whether the target VM/CT exists.
-If it exists and is running, restore is refused (the VM/CT must be stopped first).
-If it exists and is stopped, restore is performed in place.
-If it does not exist, restore is done directly from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. When a matching pool sidecar (`_pool.conf`) is available, the exporter checks that the pool still exists and then passes `--pool <pool>`.
-After a successful restore, the VM/CT is started only when `start_on_restore=true`.
+## Restore Behavior
+
+During restore, the exporter checks whether the target VM/CT exists and its runtime state:
+
+- **If it exists and is running**: restore is refused (the VM/CT must be stopped first).
+- **If it exists and is stopped**: restore is performed in place.
+- **If it does not exist**: restore is performed from the dump. When a matching sidecar config file (`_qemu.conf` or `_lxc.conf`) is available, it may be used as a storage hint for restore. When a matching pool sidecar (`_pool.conf`) is available, the exporter checks that the pool still exists and then passes `--pool <pool>`.
+- **After a successful restore**: the VM/CT is started only when `start_on_restore=true`.
 
 ## Backup selection options
 
@@ -80,6 +83,9 @@ $ plakar destination add myProxmoxHypervisorRemote proxmox+backup://10.0.0.10 mo
 
 # Configure a Proxmox remote destination (with identity auth)
 $ plakar destination add myProxmoxHypervisorRemote proxmox+backup://10.0.0.10 mode=remote conn_username=root conn_identity_file=/path/to/something/pmx_id conn_method=identity
+
+# Configure a Proxmox destination and start VM/CT automatically after restore
+$ plakar destination add myProxmoxHypervisorRemoteAutoStart proxmox+backup://10.0.0.10 mode=remote conn_username=root conn_identity_file=/path/to/something/pmx_id conn_method=identity start_on_restore=true
 
 # Restore backup to destination
 $ plakar at /tmp/example restore -to @myProxmoxHypervisorRemote <snapid>
