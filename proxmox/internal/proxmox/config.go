@@ -51,6 +51,7 @@ type Config struct {
 	BackupMode        string
 	Node              string
 	Cleanup           bool
+	StartOnRestore    bool
 }
 
 func ParseConfig(config map[string]string) (*Config, error) {
@@ -140,6 +141,12 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Cleanup = cleanup
+
+	startOnRestore, err := parseBool(config, "start_on_restore", false)
+	if err != nil {
+		return nil, err
+	}
+	cfg.StartOnRestore = startOnRestore
 
 	return cfg, nil
 }
