@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -28,8 +29,6 @@ type testStore struct {
 	locks     sync.Map
 }
 
-const FILE = "/home/tracepanic/Documents/notes.md"
-
 func init() {
 	importer.Register("test", location.FLAG_LOCALFS, NewImporter)
 	exporter.Register("test", location.FLAG_LOCALFS, NewExporter)
@@ -48,7 +47,7 @@ func NewStore(ctx context.Context, proto string, config map[string]string) (stor
 	return &testStore{}, nil
 }
 
-func (f *testConnector) Root() string   { return "/home/tracepanic/Documents" }
+func (f *testConnector) Root() string   { return "/" }
 func (f *testConnector) Origin() string { return "localhost" }
 func (f *testConnector) Type() string   { return "test" }
 
@@ -63,22 +62,24 @@ func (f *testConnector) Ping(ctx context.Context) error {
 func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	info, err := os.Stat(FILE)
-	if err != nil {
-		return err
-	}
+	for i := range 5 {
+		var (
+			base     = fmt.Sprintf("file-%d", i)
+			fullpath = fmt.Sprintf("/path/to/%s", base)
+			content  = fmt.Sprintf("content of the file %d\n", i)
+		)
 
-	fi := objects.FileInfo{
-		Lname:    filepath.Base(FILE),
-		Lsize:    info.Size(),
-		Lmode:    info.Mode(),
-		LmodTime: info.ModTime(),
-		Ldev:     1,
-	}
+		fi := objects.FileInfo{
+			Lname:    base,
+			Lsize:    int64(len(content)),
+			Lmode:    0x644,
+			LmodTime: time.Now(),
+		}
 
-	records <- connectors.NewRecord(FILE, "", fi, nil, func() (io.ReadCloser, error) {
-		return os.Open(FILE)
-	})
+		records <- connectors.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(content)), nil
+		})
+	}
 
 	return nil
 }
