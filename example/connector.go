@@ -47,13 +47,10 @@ func NewStore(ctx context.Context, proto string, config map[string]string) (stor
 	return &testStore{}, nil
 }
 
-func (f *testConnector) Root() string   { return "/" }
-func (f *testConnector) Origin() string { return "localhost" }
-func (f *testConnector) Type() string   { return "test" }
-
-func (f *testConnector) Flags() location.Flags {
-	return location.FLAG_LOCALFS
-}
+func (f *testConnector) Root() string          { return "/" }
+func (f *testConnector) Origin() string        { return "localhost" }
+func (f *testConnector) Type() string          { return "test" }
+func (f *testConnector) Flags() location.Flags { return 0 }
 
 func (f *testConnector) Ping(ctx context.Context) error {
 	return nil
