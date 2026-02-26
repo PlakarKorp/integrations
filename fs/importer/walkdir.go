@@ -18,7 +18,6 @@ package importer
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -33,27 +32,10 @@ import (
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for {
-		var (
-			p  file
-			ok bool
-		)
-
-		select {
-		case p, ok = <-jobs:
-			if !ok {
-				return
-			}
-		}
-
-		// fixup the rootdir if it happened to be a file
-		if !p.info.IsDir() && p.path == f.rootDir {
-			f.rootDir = filepath.Dir(f.rootDir)
-		}
-
+	for p := range jobs {
 		extendedAttributes, err := xattr.LList(p.path)
 		if err != nil {
 			errString := err.Error()
