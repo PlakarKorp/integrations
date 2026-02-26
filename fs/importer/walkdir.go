@@ -36,19 +36,24 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 	defer wg.Done()
 
 	for p := range jobs {
-		extendedAttributes, err := xattr.LList(p.path)
-		if err != nil {
-			errString := err.Error()
-			_, after, found := strings.Cut(errString, "xattr.list "+p.path+": ")
-			if found {
-				errString = after
-			}
-			records <- connectors.NewError(p.path, fmt.Errorf("%s", errString))
+		var extendedAttributes []string
+		var err error
 
-			// continue handling the file if getxattr
-			// failed.  some sythetic filesystems (fuse)
-			// might return a failure for xattrs and we
-			// don't want to skip the actual data.
+		if !f.noxattr {
+			extendedAttributes, err = xattr.LList(p.path)
+			if err != nil {
+				errString := err.Error()
+				_, after, found := strings.Cut(errString, "xattr.list "+p.path+": ")
+				if found {
+					errString = after
+				}
+				records <- connectors.NewError(p.path, fmt.Errorf("%s", errString))
+
+				// continue handling the file if getxattr
+				// failed.  some sythetic filesystems (fuse)
+				// might return a failure for xattrs and we
+				// don't want to skip the actual data.
+			}
 		}
 
 		fileinfo := objects.FileInfoFromStat(p.info)

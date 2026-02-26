@@ -45,6 +45,7 @@ type FSImporter struct {
 	gidToName map[uint64]string
 	mu        sync.RWMutex
 
+	noxattr   bool
 	nocrossfs bool
 	devno     uint64
 }
@@ -88,6 +89,7 @@ func NewFSImporter(appCtx context.Context, opts *connectors.Options, name string
 		excludes:   excludes,
 		uidToName:  make(map[uint64]string),
 		gidToName:  make(map[uint64]string),
+		noxattr:    opts.NoXattr,
 		nocrossfs:  nocrossfs,
 		devno:      devno,
 	}, nil
