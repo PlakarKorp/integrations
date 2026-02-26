@@ -239,7 +239,7 @@ func (s *Store) getLocks(ctx context.Context) ([]objects.MAC, error) {
 
 		lockID, err := hex.DecodeString(lock.Name())
 		if err != nil {
-			return nil, err
+			continue
 		}
 
 		if len(lockID) != 32 {
