@@ -52,6 +52,12 @@ func NewExporter(ctx context.Context, client grpc.ClientConnInterface, opts *con
 	res, err := exporter.client.Init(ctx, &InitRequest{
 		Options: &Options{
 			Maxconcurrency: int64(opts.MaxConcurrency),
+			Hostname:       opts.Hostname,
+			Os:             opts.OperatingSystem,
+			Arch:           opts.Architecture,
+			Cwd:            opts.CWD,
+			Excludes:       opts.Excludes,
+			Noxattr:        opts.NoXattr,
 		},
 		Proto:  proto,
 		Config: config,
