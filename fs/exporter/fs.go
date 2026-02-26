@@ -107,7 +107,12 @@ loop:
 
 			if record.FileInfo.Lmode.IsDir() {
 				if err := os.Mkdir(pathname, 0700); err != nil {
-					results <- record.Error(err)
+					if !os.IsExist(err) {
+						results <- record.Error(err)
+					} else {
+						_ = os.Chmod(pathname, 0700)
+						results <- record.Ok()
+					}
 				} else {
 					results <- record.Ok()
 				}
