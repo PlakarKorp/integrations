@@ -1,4 +1,4 @@
-module github.com/tracepanic/plakar-integration
+module github.com/PlakarKorp/integration-example
 
 go 1.25.7
 
