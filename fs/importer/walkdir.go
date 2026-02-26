@@ -62,7 +62,11 @@ func (f *FSImporter) walkDir_worker(ctx context.Context, jobs <-chan file, recor
 				errString = after
 			}
 			records <- connectors.NewError(p.path, fmt.Errorf("%s", errString))
-			continue
+
+			// continue handling the file if getxattr
+			// failed.  some sythetic filesystems (fuse)
+			// might return a failure for xattrs and we
+			// don't want to skip the actual data.
 		}
 
 		fileinfo := objects.FileInfoFromStat(p.info)
