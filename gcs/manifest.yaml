@@ -4,14 +4,26 @@ description: Integration providing storage, import and export capabilities to an
 homepage: https://github.com/PlakarKorp/integration-gcs
 license: ISC
 api_version: v1.0.0
-version: v1.0.7
+version: v1.0.9
+tier: official
+contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: gcs-importer
   protocols: [gs]
+  class: object-storage
+  subclass: gcs
+  validator: ./importer/schema.json
 - type: exporter
   executable: gcs-exporter
   protocols: [gs]
+  class: object-storage
+  subclass: gcs
+  validator: ./exporter/schema.json
 - type: storage
   executable: gcs-storage
   protocols: [gs]
+  class: object-storage
+  subclass: gcs
+  validator: ./storage/schema.json
+

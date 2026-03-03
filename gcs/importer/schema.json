@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar GCS Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GCS location URI: gs://<bucket>/<optional-prefix>"
+    },
+    "credentials_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to a Google Cloud service account JSON file"
+    },
+    "credentials_json": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Service account JSON content"
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Override Google Cloud Storage API endpoint (useful for emulators)"
+    },
+    "no_auth": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable authentication (useful for emulators/testing)"
+    }
+  },
+  "allOf": [
+    {
+      "not": {
+        "allOf": [
+          { "required": ["credentials_file"] },
+          { "required": ["credentials_json"] }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "no_auth": { "const": true } }, "required": ["no_auth"] },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["credentials_file"] },
+            { "required": ["credentials_json"] }
+          ]
+        }
+      }
+    }
+  ]
+}
