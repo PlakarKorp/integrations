@@ -168,7 +168,8 @@ func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 		}
 
 		g.Go(func() error {
-			_, err := p.minioClient.PutObject(ctx, p.bucket, path.Join(p.restoreDir, record.Pathname),
+			objname := strings.TrimLeft(path.Join(p.restoreDir, record.Pathname), "/")
+			_, err := p.minioClient.PutObject(ctx, p.bucket, objname,
 				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{})
 			results <- record.Error(err)
 			return nil
