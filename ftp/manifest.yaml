@@ -1,15 +1,21 @@
 name: ftp
 display_name: FTP
 description: Integration providing import and export capabilities for FTP servers.
-version: v1.0.6
+version: v1.0.8
+tier: official
+contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: ftpImporter
   homepage: https://github.com/PlakarKorp/integration-ftp
   license: ISC
   protocols: [ftp]
+  validator: ./importer/schema.json
+  class: compute
 - type: exporter
   executable: ftpExporter
   homepage: https://github.com/PlakarKorp/integration-ftp
   license: ISC
   protocols: [ftp]
+  validator: ./exporter/schema.json
+  class: compute

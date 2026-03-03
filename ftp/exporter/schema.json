@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Plakar FTP Exporter Connector Config",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["location"],
+    "properties": {
+      "location": {
+        "type": "string",
+        "minLength": 1,
+	"description": "FTP location URI: ftp://[<user>[:<password>]@]<host>[/<path>]",
+        "pattern": "^ftp://[^/]+(/.*)?$"
+      },
+      "username": {
+        "type": "string",
+        "minLength": 1,
+        "description": "FTP username"
+      },
+      "password": {
+        "type": "string",
+        "minLength": 1,
+        "description": "FTP password"
+      }
+    }
+  }
