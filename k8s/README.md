@@ -50,6 +50,6 @@ Restore inside a new, pristine, PersistentVolumeClaim:
 		 storage: 1Gi
 	  accessModes:
 	   - ReadWriteOnce
-	$ plakar restore k8s+csi://localhost:8001/storage/pristine
+	$ plakar restore -to k8s+csi://localhost:8001/storage/pristine abcdef:
 
 of course it's possible to restore the data inside an already existing PVC as well.
