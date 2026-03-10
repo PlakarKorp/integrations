@@ -19,13 +19,14 @@ func init() {
 type gcsExporter struct {
 	bucketName string
 	path       string
+	endp       string
 
 	client *storage.Client
 	bucket *storage.BucketHandle
 }
 
 func NewExporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
-	bucket, path, opts, err := parse(params, proto)
+	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -38,13 +39,20 @@ func NewExporter(ctx context.Context, _ *connectors.Options, proto string, param
 	return &gcsExporter{
 		bucketName: bucket,
 		path:       path,
+		endp:       endp,
 
 		client: client,
 		bucket: client.Bucket(bucket),
 	}, nil
 }
 
-func (g *gcsExporter) Origin() string        { return "" }
+func (g *gcsExporter) Origin() string {
+	if g.endp != "" {
+		return g.endp + "/" + g.bucketName
+	}
+	return g.bucketName + ".storage.googleapis.com"
+}
+
 func (g *gcsExporter) Type() string          { return "gs" }
 func (g *gcsExporter) Root() string          { return g.path }
 func (g *gcsExporter) Flags() location.Flags { return 0 }

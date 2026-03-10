@@ -23,13 +23,14 @@ type gcsImporter struct {
 	bucketName string
 	path       string
 	base       string
+	endp       string
 
 	client *storage.Client
 	bucket *storage.BucketHandle
 }
 
 func NewImporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
-	bucket, path, opts, err := parse(params, proto)
+	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -42,13 +43,20 @@ func NewImporter(ctx context.Context, _ *connectors.Options, proto string, param
 	return &gcsImporter{
 		bucketName: bucket,
 		path:       path,
+		endp:       endp,
 		base:       "/" + path,
 		client:     client,
 		bucket:     client.Bucket(bucket),
 	}, nil
 }
 
-func (g *gcsImporter) Origin() string        { return g.bucketName }
+func (g *gcsImporter) Origin() string {
+	if g.endp != "" {
+		return g.endp + "/" + g.bucketName
+	}
+	return g.bucketName + ".storage.googleapis.com"
+}
+
 func (g *gcsImporter) Type() string          { return "gs" }
 func (g *gcsImporter) Root() string          { return g.base }
 func (g *gcsImporter) Flags() location.Flags { return 0 }

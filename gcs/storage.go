@@ -25,17 +25,19 @@ func init() {
 type gcsStore struct {
 	bucketName string
 	path       string
+	endp       string
 	opts       []option.ClientOption
 
 	client *gstorage.Client
 	bucket *gstorage.BucketHandle
 }
 
-func parse(params map[string]string, proto string) (string, string, []option.ClientOption, error) {
+func parse(params map[string]string, proto string) (string, string, string, []option.ClientOption, error) {
 	var (
 		opts   []option.ClientOption
 		bucket string
 		path   string
+		endp   string
 	)
 
 	for k, v := range params {
@@ -48,12 +50,13 @@ func parse(params map[string]string, proto string) (string, string, []option.Cli
 
 		case "endpoint":
 			opts = append(opts, option.WithEndpoint(v))
+			endp = v
 
 		case "no_auth":
 			noauth, err := strconv.ParseBool(v)
 			if err != nil {
 				err = fmt.Errorf("unknown value for no_auth %q: %w", v, err)
-				return "", "", nil, err
+				return "", "", "", nil, err
 			}
 			if noauth {
 				opts = append(opts, option.WithoutAuthentication())
@@ -64,18 +67,18 @@ func parse(params map[string]string, proto string) (string, string, []option.Cli
 			path = strings.Trim(path, "/")
 
 		default:
-			return "", "", nil, fmt.Errorf("unknown option: %s", k)
+			return "", "", "", nil, fmt.Errorf("unknown option: %s", k)
 		}
 	}
 
 	// telemetry should be opt-in?
 	opts = append(opts, option.WithTelemetryDisabled())
 
-	return bucket, path, opts, nil
+	return bucket, path, endp, opts, nil
 }
 
 func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
-	bucket, path, opts, err := parse(params, proto)
+	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +86,7 @@ func NewStore(ctx context.Context, proto string, params map[string]string) (stor
 	return &gcsStore{
 		bucketName: bucket,
 		path:       path,
+		endp:       endp,
 		opts:       opts,
 	}, nil
 }
@@ -150,7 +154,13 @@ func (g *gcsStore) Ping(ctx context.Context) error {
 	return err
 }
 
-func (g *gcsStore) Origin() string        { return "" }
+func (g *gcsStore) Origin() string {
+	if g.endp != "" {
+		return g.endp + "/" + g.bucketName
+	}
+	return g.bucketName + ".storage.googleapis.com"
+}
+
 func (g *gcsStore) Type() string          { return "gs" }
 func (g *gcsStore) Root() string          { return g.path }
 func (g *gcsStore) Flags() location.Flags { return 0 }
