@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar S3 Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "access_key",
+    "secret_access_key"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 location URI: s3://<endpoint>/<bucket>/<optional-prefix>",
+      "pattern": "^s3://[^/]+/[^/]+(/.*)?$"
+    },
+    "access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 access key"
+    },
+    "secret_access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 secret access key"
+    },
+    "use_tls": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable TLS when talking to the S3 endpoint"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    }
+  }
+}
