@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar S3 Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "access_key",
+    "secret_access_key"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 location URI: s3://<endpoint>/<bucket>/<optional-prefix>",
+      "pattern": "^s3://[^/]+/[^/]+(/.*)?$"
+    },
+    "access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 access key"
+    },
+    "secret_access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 secret access key"
+    },
+    "use_tls": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable TLS when talking to the S3 endpoint"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "storage_class": {
+      "type": "string",
+      "default": "STANDARD",
+      "description": "S3 storage class used for uploaded objects",
+      "enum": [
+        "STANDARD",
+        "REDUCED_REDUNDANCY",
+        "STANDARD_IA",
+        "ONEZONE_IA",
+        "INTELLIGENT_TIERING",
+        "GLACIER",
+        "GLACIER_IR",
+        "DEEP_ARCHIVE"
+      ]
+    }
+  }
+}
