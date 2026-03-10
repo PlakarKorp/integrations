@@ -255,7 +255,7 @@ func (s *Store) getLocks(ctx context.Context) (ret []objects.MAC, err error) {
 		var t []byte
 		t, err = hex.DecodeString(entries[i].Name())
 		if err != nil {
-			return
+			continue
 		}
 		if len(t) != 32 {
 			continue
