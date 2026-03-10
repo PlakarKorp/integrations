@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar SFTP Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SFTP location URI: sftp://[<user>@]<host>[:<port>][/path]",
+      "pattern": "^sftp://[^/]+(/.*)?$"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SFTP username (cannot be used if location already includes user@host)"
+    },
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to SSH private key file (passed to ssh -i)"
+    },
+    "insecure_ignore_host_key": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable host key verification (ssh StrictHostKeyChecking=no) (dangerous; use only for testing)"
+    },
+    "ssh_auth_sock": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to SSH agent socket (exported as SSH_AUTH_SOCK for ssh/ssh-add)"
+    },
+    "ssh_private_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH private key material (PEM/OpenSSH) to load into ssh-agent via ssh-add -"
+    },
+    "ssh_private_key_ttl": {
+      "type": "string",
+      "default": "5s",
+      "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h)"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "pattern": "^sftp://[^/@]+@"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "username"
+          ]
+        }
+      }
+    }
+  ]
+}

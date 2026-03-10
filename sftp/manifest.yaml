@@ -1,20 +1,29 @@
 name: sftp
 display_name: SFTP
 description: Integration providing storage, import and export capabilities to and from SFTP servers.
-version: v1.0.8
+api_version: v1.1.0
+tier: official
+contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: sftpImporter
   homepage: https://github.com/PlakarKorp/integration-sftp
   license: ISC
   protocols: [sftp]
+  class: compute
+  validator: ./importer/schema.json
 - type: exporter
   executable: sftpExporter
   homepage: https://github.com/PlakarKorp/integration-sftp
   license: ISC
   protocols: [sftp]
+  class: compute
+  validator: ./exporter/schema.json
 - type: storage
   executable: sftpStorage
   homepage: https://github.com/PlakarKorp/integration-sftp
   license: ISC
   protocols: [sftp]
+  class: compute
+  validator: ./storage/schema.json
+
