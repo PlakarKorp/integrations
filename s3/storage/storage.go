@@ -39,16 +39,10 @@ import (
 )
 
 type Store struct {
-	minioClient *minio.Client
-	host        string
-	bucket      string
-	prefixDir   string
-
-	useSsl          bool
-	insecure        bool
-	accessKey       string
-	secretAccessKey string
-
+	minioClient  *minio.Client
+	host         string
+	bucket       string
+	prefixDir    string
 	storageClass string
 
 	bufPool sync.Pool
@@ -111,15 +105,30 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		prefixDir += "/"
 	}
 
+	transport, err := minio.DefaultTransport(useSsl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create default transport: %w", err)
+	}
+
+	if insecure {
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	// Initialize minio client object.
+	client, err := minio.New(u.Host, &minio.Options{
+		Creds:     credentials.NewStaticV4(accessKey, secretAccessKey, ""),
+		Secure:    useSsl,
+		Transport: transport,
+	})
+
+	client.SetAppInfo("plakar", "v1.1.0")
+
 	return &Store{
-		host:            u.Host,
-		bucket:          bucket,
-		prefixDir:       prefixDir,
-		accessKey:       accessKey,
-		secretAccessKey: secretAccessKey,
-		useSsl:          useSsl,
-		insecure:        insecure,
-		storageClass:    storageClass,
+		minioClient:  client,
+		host:         u.Host,
+		bucket:       bucket,
+		prefixDir:    prefixDir,
+		storageClass: storageClass,
 
 		bufPool: sync.Pool{
 			New: func() any {
@@ -141,40 +150,7 @@ func (s *Store) realpath(path string) string {
 	return s.prefixDir + path
 }
 
-func (s *Store) connect() error {
-	useSSL := s.useSsl
-	insecure := s.insecure
-
-	transport, err := minio.DefaultTransport(useSSL)
-	if err != nil {
-		return err
-	}
-
-	if insecure {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(s.host, &minio.Options{
-		Creds:     credentials.NewStaticV4(s.accessKey, s.secretAccessKey, ""),
-		Secure:    useSSL,
-		Transport: transport,
-	})
-	if err != nil {
-		return fmt.Errorf("create minio client: %w", err)
-	}
-
-	minioClient.SetAppInfo("plakar", "v1.1.0")
-
-	s.minioClient = minioClient
-	return nil
-}
-
 func (s *Store) Create(ctx context.Context, config []byte) error {
-	if err := s.connect(); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-
 	exists, err := s.minioClient.BucketExists(ctx, s.bucket)
 	if err != nil {
 		return fmt.Errorf("check if bucket exists: %w", err)
@@ -214,10 +190,6 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	if err := s.connect(); err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
-	}
-
 	exists, err := s.minioClient.BucketExists(ctx, s.bucket)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if bucket exists: %w", err)
