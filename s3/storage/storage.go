@@ -202,12 +202,12 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error getting object: %w", err)
 	}
+	defer object.Close()
 
 	data, err := io.ReadAll(object)
 	if err != nil {
 		return nil, fmt.Errorf("error reading object: %w", err)
 	}
-	object.Close()
 
 	return data, nil
 }
