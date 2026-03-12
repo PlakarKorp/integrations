@@ -60,14 +60,19 @@
 3. For each dump file, parse the restore target from the filename (type + vmid), then write the dump into `dump_dir`.
 4. Check target existence and runtime state using `qm/pct status`.
 5. If VM/CT exists:
-   - if running: refuse restore (manual stop required),
+   - if running: restore is refused unless `-o force_vm_restore=true`, in which case the VM/CT is stopped first.
    - if stopped: restore dump in place.
-6. If VM/CT does not exist:
-   - restore dump directly,
-   - optionally extract storage hint from matching sidecar config,
-   - optionally apply pool via `--pool` when matching pool sidecar exists and pool still exists on target.
-7. If destination option `start_on_restore=true`, start VM/CT after a successful restore.
-8. `cleanup` option: remove the temporary dump from `dump_dir`.
+6. If VM/CT does not exist, restore dump directly.
+7. Restore options from `plakar restore -o` are applied:
+   - `start_on_restore=true|false` (`false` by default): start VM/CT after successful restore.
+   - `force_vm_restore=true|false` (`false` by default): if VM/CT is running, stop it before restore; if VM/CT exists, it is restored in place (overwrite).
+   - `storage=<name>`: force restore storage,
+   - `pool=<name>`: force restore pool (validated on target),
+   - `newid=<id>`: restore to another VMID.
+8. Storage/pool precedence:
+   - user-specified `storage` and `pool` override sidecar-derived hints when present.
+   - if target VMID does not exist and no override is set, storage and pool are read from matching sidecars when available.
+9. `cleanup` option: remove the temporary dump from `dump_dir`.
 
 ## Snapshot File Structure
 
@@ -107,4 +112,4 @@ Security (TODO ?) note: the SSH implementation currently disables host key verif
 
 ## Misc.
 
-Restore state handling is implemented in the exporter: running VM/CTs are rejected, stopped or missing VM/CTs can be restored, and post-restore start is controlled by `start_on_restore`.
+Restore state handling is implemented in the exporter: running VM/CTs are rejected by default, running VM/CTs can be stopped and restored (overwriting) when `-o force_vm_restore=true`, and post-restore start is controlled by `-o start_on_restore=true`.
