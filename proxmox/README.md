@@ -38,7 +38,7 @@ The configuration parameters are as follows:
 - `node` (optional): Proxmox node to target for restore/upload operations (required if your cluster has multiple nodes)
 - `cleanup` (optional): When `true`, delete temporary vzdump files from Proxmox storage after restore and after backups (defaults to `true`).
 
-## Restore Behavior
+## Restore behavior and options
 
 During restore, the exporter checks whether the target VM/CT exists and its runtime state:
 
@@ -66,6 +66,24 @@ You should set exactly one of the following:
 - `vmid=<id>`: backup a single VM/CT
 - `pool=<name>`: backup all VMs/CTs in a pool
 - `all` or `all=true`: backup everything
+
+## Backup File Structure
+
+Each backed-up VM/CT produces a dump object under `/backup/<type>/<vmid>_<vmname>/`:
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]`
+
+For VM configs, sidecar files are also added:
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_qemu.conf`
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_lxc.conf`
+- `/backup/<type>/<vmid>_<vmname>/vzdump-<type>-<vmid>-<timestamp>.<ext>[.gz|.zst|.lzo]_pool.conf`
+
+## Backup Example
+
+Example for a QEMU VM with `vmid=101` named `myvm` compressed with zstd:
+
+```text
+/backup/qemu/101_myvm/vzdump-qemu-101-2026_02_10-02_00_00.vma.zst
+```
 
 ## Examples
 
@@ -133,4 +151,44 @@ Restore (exporter) commands:
 
 ## Technical / code overview 
 
-For a detailed technical / vision walkthrough, see [HOW IT WORKS](./HOW-IT-WORKS.md).
+### Backup Flow (Importer)
+
+1. Read config and validate options (local/remote mode, SSH auth, compression, backup mode, node, etc.).
+2. Resolve VM/CT selection: `vmid`, `pool`, or `all`.
+3. Retrieve the list via `pvesh`:
+   `pvesh get /cluster/resources --type vm` or `pvesh get /pools/<pool>`.
+4. For each VM/CT, detect the type (`qemu` or `lxc`) via Proxmox inventory.
+5. For each VM/CT, run `vzdump` to generate a dump file in `dump_dir`.
+6. Read the dump file and send it to Plakar under `/backup/<type>/<vmid>_<vmname>/` (VM name is sanitized for path safety).
+7. For QEMU and LXC, also export VM config files as sidecars:
+   - QEMU: `/etc/pve/qemu-server/<vmid>.conf` as `/backup/qemu/<vmid>_<vmname>/<dump>_qemu.conf`
+   - LXC: `/etc/pve/lxc/<vmid>.conf` as `/backup/lxc/<vmid>_<vmname>/<dump>_lxc.conf`
+8. If VM/CT belongs to a pool, export pool membership as `/backup/<type>/<vmid>_<vmname>/<dump>_pool.conf` (content is the pool name).
+9. `cleanup` option: generated dump file is removed from `dump_dir` after transfer (enabled by default).
+
+### Restore Flow (Exporter)
+
+1. Read snapshot files (dumps and optional sidecars).
+2. Collect sidecar configs (`_qemu.conf`, `_lxc.conf`) and map them to their dump names.
+3. For each dump file, parse the restore target from the filename (type + vmid), then write the dump into `dump_dir`.
+4. Check target existence and runtime state using `qm/pct status`.
+5. If VM/CT exists:
+   - if running: restore is refused unless `-o force_vm_restore=true`, in which case the VM/CT is stopped first.
+   - if stopped: restore dump in place.
+6. If VM/CT does not exist, restore dump directly.
+7. Restore options from `plakar restore -o` are applied:
+   - `start_on_restore=true|false` (`false` by default): start VM/CT after successful restore.
+   - `force_vm_restore=true|false` (`false` by default): if VM/CT is running, stop it before restore; if VM/CT exists, it is restored in place (overwrite).
+   - `storage=<name>`: force restore storage,
+   - `pool=<name>`: force restore pool (validated on target),
+   - `newid=<id>`: restore to another VMID.
+8. Storage/pool precedence:
+   - user-specified `storage` and `pool` override sidecar-derived hints when present.
+   - if target VMID does not exist and no override is set, storage and pool are read from matching sidecars when available.
+9. `cleanup` option: remove the temporary dump from `dump_dir`.
+
+### Remote Mode and SSH Notes
+
+Remote mode exists to avoid installing extra binaries on the hypervisor and to centralize multiple Proxmox backups from a single "backup relay".
+
+Security (TODO ?) note: the SSH implementation currently disables host key verification (`InsecureIgnoreHostKey`). This keeps setup simple but trades away strict host identity checks. If you require stricter security, add host key verification before using remote mode in production.
