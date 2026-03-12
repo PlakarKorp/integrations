@@ -179,7 +179,9 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	}
 
 	putObjectOptions := s.putObjectOptions
-	putObjectOptions.StorageClass = "STANDARD"
+	if s.mode()&storage.ModeWrite == 0 {
+		putObjectOptions.StorageClass = "STANDARD"
+	}
 
 	_, err = s.minioClient.PutObject(ctx, s.bucket, s.realpath("CONFIG"), bytes.NewReader(config), int64(len(config)), putObjectOptions)
 	if err != nil {
@@ -307,7 +309,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		return info.Size, nil
 	case storage.StorageResourceLock:
 		putObjectOptions := s.putObjectOptions
-		putObjectOptions.StorageClass = "STANDARD"
+		if s.mode()&storage.ModeWrite == 0 {
+			putObjectOptions.StorageClass = "STANDARD"
+		}
 
 		info, err := s.minioClient.PutObject(ctx, s.bucket, s.realpath(fmt.Sprintf("locks/%016x", mac)), rd, -1, putObjectOptions)
 		if err != nil {
