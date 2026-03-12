@@ -49,6 +49,11 @@
         "GLACIER_IR",
         "DEEP_ARCHIVE"
       ]
+    },
+    "virtual_host": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hostname in location includes the bucket name as well."
     }
   }
 }

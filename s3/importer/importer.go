@@ -46,9 +46,7 @@ func init() {
 	importer.Register("s3", 0, NewS3Importer)
 }
 
-func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
-	endpoint := location.Host
-
+func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
 	transport, err := minio.DefaultTransport(useSsl)
 	if err != nil {
 		return nil, err
@@ -107,30 +105,44 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		insecure = tmp
 	}
 
+	virtualHost := false
+	if value, ok := config["virtual_host"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid virtual_host value")
+		}
+		virtualHost = tmp
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := connect(parsed, useSsl, insecure, accessKey, secretAccessKey)
+	var bucket, scanDir, host string
+	if virtualHost {
+		bucket, host, _ = strings.Cut(parsed.Host, ".")
+		scanDir = strings.TrimPrefix(parsed.Path, "/")
+	} else {
+		bucket, scanDir, _ = strings.Cut(parsed.RequestURI()[1:], "/")
+		host = parsed.Host
+	}
+
+	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
-
-	atoms := strings.Split(parsed.RequestURI()[1:], "/")
-	bucket := atoms[0]
-	scanDir := path.Clean("/" + strings.Join(atoms[1:], "/"))
 
 	return &S3Importer{
 		bucket:      bucket,
 		scanDir:     scanDir,
 		minioClient: conn,
-		host:        parsed.Host,
+		host:        host,
 	}, nil
 }
 
 func (p *S3Importer) Root() string          { return p.scanDir }
-func (p *S3Importer) Origin() string        { return p.host + "/" + p.bucket }
+func (p *S3Importer) Origin() string        { return path.Join(p.host, p.bucket) }
 func (p *S3Importer) Type() string          { return "s3" }
 func (p *S3Importer) Flags() location.Flags { return 0 }
 

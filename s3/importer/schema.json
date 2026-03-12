@@ -34,6 +34,11 @@
       "type": "boolean",
       "default": false,
       "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "virtual_host": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hostname in location includes the bucket name as well."
     }
   }
 }

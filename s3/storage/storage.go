@@ -95,12 +95,29 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		}
 	}
 
+	virtualHost := false
+	if value, ok := storeConfig["virtual_host"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid virtual_host value")
+		}
+		virtualHost = tmp
+	}
+
 	u, err := url.Parse(storeConfig["location"])
 	if err != nil {
 		return nil, fmt.Errorf("parse location: %w", err)
 	}
 
-	bucket, prefixDir, _ := strings.Cut(u.RequestURI()[1:], "/")
+	var bucket, prefixDir, host string
+	if virtualHost {
+		bucket, host, _ = strings.Cut(u.Host, ".")
+		prefixDir = strings.TrimPrefix(u.Path, "/")
+	} else {
+		bucket, prefixDir, _ = strings.Cut(u.RequestURI()[1:], "/")
+		host = u.Host
+	}
+
 	if prefixDir != "" && !strings.HasSuffix(prefixDir, "/") {
 		prefixDir += "/"
 	}
@@ -115,7 +132,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	// Initialize minio client object.
-	client, err := minio.New(u.Host, &minio.Options{
+	client, err := minio.New(host, &minio.Options{
 		Creds:     credentials.NewStaticV4(accessKey, secretAccessKey, ""),
 		Secure:    useSsl,
 		Transport: transport,
@@ -125,7 +142,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 	return &Store{
 		minioClient:  client,
-		host:         u.Host,
+		host:         host,
 		bucket:       bucket,
 		prefixDir:    prefixDir,
 		storageClass: storageClass,

@@ -25,6 +25,7 @@ The configuration parameters are as follows:
 - `use_tls` (optional): Whether to use TLS for secure connections (defaults to `true`)
 - `tls_insecure_no_verify` (optional): If set to `true`, disables certificate verification (defaults to `false`)
 - `secret_access_key` (required): AWS secret access key
+- `virtual_host` (optional): whether the host name includes the bucket name (defaults to `false`)
 
 For S3-compatible storage providers, you may also need to specify:
 - `storage_class`: The storage class to use (e.g., `STANDARD`, `GLACIER`)
@@ -49,4 +50,4 @@ $ plakar store add myS3store s3://s3.us-east-1.amazonaws.com/mystore access_key=
 
 # Create the store
 $ plakar at @myS3store create
-``` 
+```

@@ -45,9 +45,7 @@ func init() {
 	exporter.Register("s3", 0, NewS3Exporter)
 }
 
-func connect(location *url.URL, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
-	endpoint := location.Host
-
+func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
 	transport, err := minio.DefaultTransport(useSsl)
 	if err != nil {
 		return nil, err
@@ -106,18 +104,30 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		insecure = tmp
 	}
 
+	virtualHost := false
+	if value, ok := config["virtual_host"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid virtual_host value")
+		}
+		virtualHost = tmp
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		atoms      = strings.Split(parsed.RequestURI()[1:], "/")
-		bucket     = atoms[0]
-		restoreDir = path.Clean("/" + strings.Join(atoms[1:], "/"))
-	)
+	var bucket, restoreDir, host string
+	if virtualHost {
+		bucket, host, _ = strings.Cut(parsed.Host, ".")
+		restoreDir = strings.TrimPrefix(parsed.Path, "/")
+	} else {
+		bucket, restoreDir, _ = strings.Cut(parsed.RequestURI()[1:], "/")
+		host = parsed.Host
+	}
 
-	conn, err := connect(parsed, useSsl, insecure, accessKey, secretAccessKey)
+	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
@@ -131,9 +141,9 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 
 	return &S3Exporter{
 		opts:        opts,
-		rootDir:     parsed.Path,
+		rootDir:     restoreDir,
 		minioClient: conn,
-		host:        parsed.Host,
+		host:        host,
 		bucket:      bucket,
 		restoreDir:  restoreDir,
 	}, nil
