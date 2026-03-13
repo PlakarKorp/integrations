@@ -3,16 +3,23 @@ display_name: Proxmox
 description: Integration providing import and export capabilities for Proxmox.
 homepage: https://github.com/gillesdubois/plakar-integration-proxmox
 license: ISC
-api_version: v1.0.0
-version: v1.0.0
+api_version: v1.1.0
+tier: third-party
+contact: mailto:gilles.dubois@factorfx.com
 connectors:
 - type: importer
   executable: proxmoxImporter
   homepage: https://github.com/gillesdubois/plakar-integration-proxmox
   license: ISC
   protocols: [proxmox+backup]
+  validator: ./importer/schema.json
+  class: hypervisor
+  subclass: proxmox
 - type: exporter
   executable: proxmoxExporter
   homepage: https://github.com/gillesdubois/plakar-integration-proxmox
   license: ISC
   protocols: [proxmox+backup]
+  validator: ./exporter/schema.json
+  class: hypervisor
+  subclass: proxmox

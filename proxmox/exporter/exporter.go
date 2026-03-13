@@ -33,8 +33,9 @@ import (
 )
 
 type ProxmoxExporter struct {
-	cfg    *proxmox.Config
-	client *proxmox.Client
+	cfg         *proxmox.Config
+	client      *proxmox.Client
+	restoreOpts restoreOptions
 }
 
 type vmConfigSidecar struct {
@@ -56,8 +57,11 @@ type vmRuntimeState struct {
 }
 
 type restoreOptions struct {
-	storage string
-	pool    string
+	startOnRestore bool
+	forceVMRestore bool
+	newID          int
+	storage        string
+	pool           string
 }
 
 const protocolName = "proxmox+backup"
@@ -74,12 +78,21 @@ func NewProxmoxExporter(ctx context.Context, opts *connectors.Options, name stri
 		return nil, err
 	}
 
+	restoreOpts, err := parseRestoreOptions(config)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := proxmox.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ProxmoxExporter{cfg: cfg, client: client}, nil
+	return &ProxmoxExporter{
+		cfg:         cfg,
+		client:      client,
+		restoreOpts: restoreOpts,
+	}, nil
 }
 
 func (p *ProxmoxExporter) Origin() string        { return p.cfg.Origin() }
@@ -172,7 +185,12 @@ func (p *ProxmoxExporter) Export(ctx context.Context, records <-chan *connectors
 			if poolErr != nil {
 				err = poolErr
 			} else {
-				err = p.restoreDump(ctx, pending.dumpPath, pending.vmType, pending.vmid, configData, poolName)
+				targetVMID := pending.vmid
+				if p.restoreOpts.newID != 0 {
+					targetVMID = p.restoreOpts.newID
+				}
+
+				err = p.restoreDump(ctx, pending.dumpPath, pending.vmType, targetVMID, configData, poolName)
 			}
 		}
 
@@ -263,19 +281,50 @@ func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, vmType stri
 	}
 
 	if state.exists && state.running {
-		return fmt.Errorf("refusing restore for %s %d: VM/CT is running (stop it first)", vmType, vmid)
+		if !p.restoreOpts.forceVMRestore {
+			return fmt.Errorf("refusing restore for %s %d: VM/CT is running (stop it first or user force_vm_restore)", vmType, vmid)
+		}
+		if err := p.stopVM(ctx, vmType, vmid); err != nil {
+			return err
+		}
+		state, err = p.vmState(ctx, vmType, vmid)
+		if err != nil {
+			return err
+		}
+		if state.running {
+			return fmt.Errorf("refusing restore for %s %d: VM/CT is still running after stop request", vmType, vmid)
+		}
 	}
 
-	opts := restoreOptions{}
+	opts, err := p.resolveRestoreOptions(ctx, vmType, state.exists, configData, poolName)
+	if err != nil {
+		return err
+	}
 
-	if !state.exists {
-		if storage := parseStorageFromConfig(vmType, configData); storage != "" {
-			opts.storage = storage
+	if err := p.runRestoreDump(ctx, dumpPath, vmType, vmid, opts); err != nil {
+		return err
+	}
+
+	if p.restoreOpts.startOnRestore {
+		if err := p.startVM(ctx, vmType, vmid); err != nil {
+			return err
 		}
-		if poolName != "" {
+	}
+
+	return nil
+}
+
+func (p *ProxmoxExporter) resolveRestoreOptions(ctx context.Context, vmType string, targetExists bool, configData []byte, poolName string) (restoreOptions, error) {
+	opts := p.restoreOpts
+
+	if !targetExists {
+		if opts.storage == "" {
+			opts.storage = parseStorageFromConfig(vmType, configData)
+		}
+		if opts.pool == "" && poolName != "" {
 			exists, err := p.client.PoolExists(ctx, poolName)
 			if err != nil {
-				return err
+				return restoreOptions{}, err
 			}
 			if exists {
 				opts.pool = poolName
@@ -283,17 +332,17 @@ func (p *ProxmoxExporter) restoreDump(ctx context.Context, dumpPath, vmType stri
 		}
 	}
 
-	if err := p.runRestoreDump(ctx, dumpPath, vmType, vmid, opts); err != nil {
-		return err
-	}
-
-	if p.cfg.StartOnRestore {
-		if err := p.startVM(ctx, vmType, vmid); err != nil {
-			return err
+	if opts.pool != "" {
+		exists, err := p.client.PoolExists(ctx, opts.pool)
+		if err != nil {
+			return restoreOptions{}, err
+		}
+		if !exists {
+			return restoreOptions{}, fmt.Errorf("restore pool does not exist: %s", opts.pool)
 		}
 	}
 
-	return nil
+	return opts, nil
 }
 
 func (p *ProxmoxExporter) runRestoreDump(ctx context.Context, dumpPath, vmType string, vmid int, opts restoreOptions) error {
@@ -371,6 +420,44 @@ func (p *ProxmoxExporter) startVM(ctx context.Context, vmType string, vmid int) 
 	return nil
 }
 
+func (p *ProxmoxExporter) stopVM(ctx context.Context, vmType string, vmid int) error {
+	cmd, err := vmCommand(vmType)
+	if err != nil {
+		return err
+	}
+
+	vmidStr := strconv.Itoa(vmid)
+	stdout, stderr, err := p.client.Run(ctx, cmd, "stop", vmidStr)
+	if err != nil {
+		output := preferredOutput(stdout, stderr)
+		if isIgnorableStopError(output) {
+			return nil
+		}
+		return fmt.Errorf("stop failed for %s %d: %w: %s", vmType, vmid, err, output)
+	}
+
+	return p.waitUntilVMStopped(ctx, vmType, vmid)
+}
+
+func (p *ProxmoxExporter) waitUntilVMStopped(ctx context.Context, vmType string, vmid int) error {
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout while waiting for %s %d to stop", vmType, vmid)
+		}
+
+		state, err := p.vmState(ctx, vmType, vmid)
+		if err != nil {
+			return err
+		}
+		if !state.running {
+			return nil
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func vmCommand(vmType string) (string, error) {
 	switch vmType {
 	case "qemu":
@@ -385,6 +472,63 @@ func vmCommand(vmType string) (string, error) {
 func isIgnorableStartError(output string) bool {
 	normalized := strings.ToLower(output)
 	return strings.Contains(normalized, "already running")
+}
+
+func isIgnorableStopError(output string) bool {
+	normalized := strings.ToLower(output)
+	return strings.Contains(normalized, "already stopped") ||
+		strings.Contains(normalized, "already down") ||
+		strings.Contains(normalized, "does not exist") ||
+		strings.Contains(normalized, "no such vm") ||
+		strings.Contains(normalized, "no such container")
+}
+
+func parseBoolOption(value string) (bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("invalid boolean value: %s", value)
+	}
+	return parsed, nil
+}
+
+func parseRestoreOptions(config map[string]string) (restoreOptions, error) {
+	var opts restoreOptions
+
+	startOnRestore, err := parseBoolOption(config["start_on_restore"])
+	if err != nil {
+		return restoreOptions{}, err
+	}
+	opts.startOnRestore = startOnRestore
+
+	forceVMRestore, err := parseBoolOption(config["force_vm_restore"])
+	if err != nil {
+		return restoreOptions{}, err
+	}
+	opts.forceVMRestore = forceVMRestore
+
+	opts.storage = strings.TrimSpace(config["storage"])
+	opts.pool = strings.TrimSpace(config["pool"])
+
+	newIDRaw, hasNewID := config["newid"]
+	if hasNewID {
+		newIDRaw = strings.TrimSpace(newIDRaw)
+		if newIDRaw != "" {
+			newID, err := strconv.Atoi(newIDRaw)
+			if err != nil {
+				return restoreOptions{}, fmt.Errorf("invalid newid value: %s", newIDRaw)
+			}
+			if newID <= 0 {
+				return restoreOptions{}, fmt.Errorf("newid must be a positive integer: %s", newIDRaw)
+			}
+			opts.newID = newID
+		}
+	}
+
+	return opts, nil
 }
 
 func isMissingVMError(output string) bool {
