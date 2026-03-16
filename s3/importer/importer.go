@@ -52,7 +52,7 @@ func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKe
 		return nil, err
 	}
 
-	if insecure {
+	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
@@ -180,7 +180,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		fi := objects.FileInfo{
 			Lname:    path.Base("/" + object.Key),
 			Lsize:    object.Size,
-			Lmode:    0700,
+			Lmode:    0o700,
 			LmodTime: object.LastModified,
 			Ldev:     1,
 		}

@@ -51,7 +51,9 @@ func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKe
 		return nil, err
 	}
 
-	if insecure {
+	if useSsl && insecure {
+		// NOTE: Minio will only initialize the TLSClientConfig pointer if useSsl
+		// is true when creating a [minio.DefaultTransport]
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 

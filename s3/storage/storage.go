@@ -127,7 +127,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("failed to create default transport: %w", err)
 	}
 
-	if insecure {
+	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
@@ -297,7 +297,6 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		}
 	}
 	return ret, nil
-
 }
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
