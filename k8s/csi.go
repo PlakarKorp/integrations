@@ -153,11 +153,11 @@ func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) err
 		Delete(ctx, pvc.Name, metav1.DeleteOptions{})
 }
 
-func (k *k8s) fsServer(ctx context.Context, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*corev1.Pod, error) {
+func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*corev1.Pod, error) {
 	args = append(args, "-p", "8080")
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "plakar-backup-",
+			GenerateName: "plakar-" + op + "-",
 			Namespace:    ns,
 			Labels: map[string]string{
 				"plakar.io/generated-resource": "true",
@@ -468,7 +468,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	}
 	defer k.delpvc(ctx, pvc)
 
-	pod, err := k.fsServer(ctx, ns, pvc, true)
+	pod, err := k.fsServer(ctx, "backup", ns, pvc, true)
 	if err != nil {
 		return fmt.Errorf("failed to create the pod: %w", err)
 	}
@@ -489,7 +489,7 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
 	}
 
-	pod, err := k.fsServer(ctx, ns, pvc, false, "-export")
+	pod, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
 	if err != nil {
 		return fmt.Errorf("failed to run the pod: %w", err)
 	}
