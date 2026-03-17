@@ -160,17 +160,17 @@ func (p *S3Importer) Ping(ctx context.Context) error {
 func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	// racy, but ListObjects doesn't seem to signal failure
-	// accessing the APIs.
-	if err := p.Ping(ctx); err != nil {
-		return err
-	}
-
 	listopts := minio.ListObjectsOptions{
 		Prefix:    strings.TrimPrefix(p.scanDir, "/"),
 		Recursive: true,
 	}
+	var err error
 	for object := range p.minioClient.ListObjects(ctx, p.bucket, listopts) {
+		if object.Err != nil {
+			err = object.Err
+			continue // per documentation, we have to drain the channel
+		}
+
 		// Some backend actually return _folders_, which they
 		// shouldn't so just skip over those.
 		if strings.HasSuffix(object.Key, "/") {
@@ -190,7 +190,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		})
 	}
 
-	return nil
+	return err
 }
 
 func (p *S3Importer) Close(ctx context.Context) error {
