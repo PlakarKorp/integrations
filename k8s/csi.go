@@ -112,7 +112,7 @@ func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) error {
 		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
 }
 
-func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapshot) (*corev1.PersistentVolumeClaim, error) {
+func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapshot, orig *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error) {
 	apiGroup := "snapshot.storage.k8s.io"
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -131,11 +131,7 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 			AccessModes: []corev1.PersistentVolumeAccessMode{
 				corev1.ReadWriteOnce,
 			},
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{
-					"storage": resource.MustParse("1Gi"),
-				},
-			},
+			Resources: orig.Spec.Resources,
 		},
 	}
 
@@ -456,13 +452,18 @@ func (k *k8s) podRestore(ctx context.Context, pod *corev1.Pod, svc *corev1.Servi
 }
 
 func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	orig, err := k.getpvc(ctx, ns, name)
+	if err != nil {
+		return fmt.Errorf("failed to get pvc %s/%s: %w", ns, name, err)
+	}
+
 	snap, err := k.gensnap(ctx, ns, name)
 	if err != nil {
 		return fmt.Errorf("failed to generate the snapshot: %w", err)
 	}
 	defer k.delsnap(ctx, snap)
 
-	pvc, err := k.pvcFromSnap(ctx, ns, snap)
+	pvc, err := k.pvcFromSnap(ctx, ns, snap, orig)
 	if err != nil {
 		return fmt.Errorf("failed to generate the pvc from the snap: %w", err)
 	}
