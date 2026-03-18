@@ -17,6 +17,7 @@
 package importer
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -32,6 +33,11 @@ type file struct {
 	path string
 	info os.FileInfo
 }
+
+var (
+	SkipDir = errors.New("skip this directory")
+	SkipAll = errors.New("skip everything and stop the walk")
+)
 
 // Worker pool to handle file scanning in parallel
 func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
@@ -90,32 +96,43 @@ func (imp *Importer) walkDir_addPrefixDirectories(root string, records chan<- *c
 	}
 }
 
-func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
-	info, err := client.Lstat(remotePath)
-	if err != nil {
-		// If we can't stat the file, call walkFn with the error.
-		return walkFn(remotePath, nil, err)
-	}
-	// Call the walk function for the current file/directory.
-	if err := walkFn(remotePath, info, nil); err != nil {
+func walkdir(client *sftp.Client, info os.FileInfo, p string, walkFn func(string, os.FileInfo, error) error) error {
+	if err := walkFn(p, info, nil); err != nil {
 		return err
 	}
 
-	// If it's not a directory, nothing more to do.
 	if !info.IsDir() {
 		return nil
 	}
-	// List the directory contents.
-	entries, err := client.ReadDir(remotePath)
+
+	entries, err := client.ReadDir(p)
 	if err != nil {
-		return walkFn(remotePath, info, err)
+		return walkFn(p, nil, err)
 	}
-	// Recursively walk each entry.
+
 	for _, entry := range entries {
-		newPath := path.Join(remotePath, entry.Name()) // Use "path" since remote paths are POSIX style.
-		if err := SFTPWalk(client, newPath, walkFn); err != nil {
+		newPath := path.Join(p, entry.Name())
+		if err := walkdir(client, entry, newPath, walkFn); err != nil {
+			if err == SkipDir {
+				continue
+			}
 			return err
 		}
 	}
 	return nil
+}
+
+func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
+	info, err := client.Lstat(remotePath)
+	if err != nil {
+		err = walkFn(remotePath, nil, err)
+		goto done
+	}
+
+	err = walkdir(client, info, remotePath, walkFn)
+done:
+	if err == SkipDir || err == SkipAll {
+		err = nil
+	}
+	return err
 }

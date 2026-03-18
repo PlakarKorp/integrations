@@ -139,14 +139,14 @@ func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connect
 
 		if path != "/" {
 			if imp.excludes.IsExcluded(path, info.IsDir()) {
-				return filepath.SkipDir
+				return SkipDir
 			}
 		}
 
 		if info.IsDir() && imp.nocrossfs {
 			same := isSameFs(imp.devno, info)
 			if !same {
-				return filepath.SkipDir
+				return SkipDir
 			}
 		}
 
