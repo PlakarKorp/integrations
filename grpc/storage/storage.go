@@ -53,6 +53,8 @@ func unwrap(err error) error {
 	switch status.Code() {
 	case codes.Canceled:
 		return context.Canceled
+	case codes.Unavailable:
+		return fmt.Errorf("I/O error communicating with the integration (%s)", status.Message())
 	default:
 		return fmt.Errorf("%s", status.Message())
 	}
