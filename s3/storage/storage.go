@@ -113,9 +113,16 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if virtualHost {
 		bucket, host, _ = strings.Cut(u.Host, ".")
 		prefixDir = strings.TrimPrefix(u.Path, "/")
+		if host == "" {
+			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
+		}
 	} else {
 		bucket, prefixDir, _ = strings.Cut(u.RequestURI()[1:], "/")
 		host = u.Host
+	}
+
+	if bucket == "" || host == "" {
+		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if prefixDir != "" && !strings.HasSuffix(prefixDir, "/") {

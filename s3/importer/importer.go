@@ -123,9 +123,16 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if virtualHost {
 		bucket, host, _ = strings.Cut(parsed.Host, ".")
 		scanDir = strings.TrimPrefix(parsed.Path, "/")
+		if host == "" {
+			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
+		}
 	} else {
 		bucket, scanDir, _ = strings.Cut(parsed.RequestURI()[1:], "/")
 		host = parsed.Host
+	}
+
+	if bucket == "" || host == "" {
+		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
 	}
 
 	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
