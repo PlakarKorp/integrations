@@ -125,9 +125,11 @@ func (g *Exporter) transmitRecords(stream grpc.BidiStreamingClient[ExportRequest
 				}
 			}
 			if errors.Is(err, io.EOF) {
+				record.Reader.Close()
 				break
 			}
 			if err != nil {
+				record.Reader.Close()
 				return err
 			}
 		}
