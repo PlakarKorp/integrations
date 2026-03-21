@@ -107,7 +107,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 	kubeletImage := params["kubelet_image"]
 	if kubeletImage == "" {
-		kubeletImage = "ghcr.io/plakarkorp/kubelet:214800c1-202603172323"
+		kubeletImage = "ghcr.io/plakarkorp/kubelet:20d96bc6-202603211558"
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
