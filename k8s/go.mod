@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260213124244-86554ea13bd5
 	github.com/PlakarKorp/integration-fs v1.1.0-beta.5
-	github.com/PlakarKorp/integration-grpc v1.1.0-beta.3
+	github.com/PlakarKorp/integration-grpc v1.1.0-beta.3.0.20260320084755-2b9ac853c9a9
 	github.com/PlakarKorp/kloset v1.1.0-beta.6
 	github.com/google/uuid v1.6.0
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
