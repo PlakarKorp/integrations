@@ -121,6 +121,7 @@ func (g *Exporter) transmitRecords(stream grpc.BidiStreamingClient[ExportRequest
 			n, err := record.Reader.Read(buf)
 			if n != 0 {
 				if err := sendData(buf[:n]); err != nil {
+					record.Reader.Close()
 					return err
 				}
 			}
