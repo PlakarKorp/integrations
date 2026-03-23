@@ -41,6 +41,7 @@ type k8s struct {
 func init() {
 	importer.Register("k8s", 0, NewImporter)
 	importer.Register("k8s+csi", 0, NewImporter)
+	importer.Register("k8s+pvc", 0, NewImporter)
 
 	exporter.Register("k8s", 0, NewExporter)
 	exporter.Register("k8s+csi", 0, NewExporter)
@@ -81,6 +82,11 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 	var namespace, pvcName, snapClass string
 
 	switch proto {
+	case "k8s+pvc":
+		if export {
+			return nil, fmt.Errorf("k8s+pvc is only supported for importer")
+		}
+		fallthrough
 	case "k8s+csi":
 		var found bool
 
@@ -91,7 +97,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		}
 
 		snapClass = params["volume_snapshot_class"]
-		if snapClass == "" && !export {
+		if proto == "k8s+csi" && snapClass == "" && !export {
 			return nil, fmt.Errorf("missing volume_snapshot_class option")
 		}
 
@@ -178,7 +184,7 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 	switch k.proto {
 	case "k8s":
 		return k.walkResources(ctx, records)
-	case "k8s+csi":
+	case "k8s+pvc", "k8s+csi":
 		return k.backupPvc(ctx, k.namespace, k.pvcName, records, results)
 	default:
 		return errors.ErrUnsupported

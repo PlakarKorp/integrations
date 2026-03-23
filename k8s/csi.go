@@ -451,22 +451,40 @@ func (k *k8s) podRestore(ctx context.Context, pod *corev1.Pod, svc *corev1.Servi
 }
 
 func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	orig, err := k.getpvc(ctx, ns, name)
-	if err != nil {
-		return fmt.Errorf("failed to get pvc %s/%s: %w", ns, name, err)
-	}
+	var (
+		pvc *corev1.PersistentVolumeClaim
+		err error
+	)
 
-	snap, err := k.gensnap(ctx, ns, name)
-	if err != nil {
-		return fmt.Errorf("failed to generate the snapshot: %w", err)
-	}
-	defer k.delsnap(ctx, snap)
+	switch k.proto {
+	case "k8s+csi":
+		orig, err := k.getpvc(ctx, ns, name)
+		if err != nil {
+			return fmt.Errorf("failed to get pvc %s/%s: %w", ns, name, err)
+		}
 
-	pvc, err := k.pvcFromSnap(ctx, ns, snap, orig)
-	if err != nil {
-		return fmt.Errorf("failed to generate the pvc from the snap: %w", err)
+		snap, err := k.gensnap(ctx, ns, name)
+		if err != nil {
+			return fmt.Errorf("failed to generate the snapshot: %w", err)
+		}
+		defer k.delsnap(ctx, snap)
+
+		pvc, err = k.pvcFromSnap(ctx, ns, snap, orig)
+		if err != nil {
+			return fmt.Errorf("failed to generate the pvc from the snap: %w", err)
+		}
+		defer k.delpvc(ctx, pvc)
+
+	case "k8s+pvc":
+		pvc, err = k.getpvc(ctx, ns, name)
+		if err != nil {
+			return fmt.Errorf("failed to get PVC %s/%s: %w",
+				ns, name, err)
+		}
+
+	default:
+		return fmt.Errorf("unexpected protocol %q", k.proto)
 	}
-	defer k.delpvc(ctx, pvc)
 
 	pod, err := k.fsServer(ctx, "backup", ns, pvc, true)
 	if err != nil {

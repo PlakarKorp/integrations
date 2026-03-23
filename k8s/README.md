@@ -1,8 +1,8 @@
 # kubernetes integration
 
 This integration allows [plakar][plakar] to backup and restore
-[kubernetes][kubernetes] resources and PersistentVolumes backed by CSI
-drivers.
+[kubernetes][kubernetes] resources and PersistentVolumes, both via the
+CSI driver snapshot feature (preferred) and without.
 
 [plakar]:     https://plakar.io/
 [kubernetes]: https://kubernetes.io/
@@ -10,7 +10,7 @@ drivers.
 
 ## Configuration
 
-- `volume_snapshot_class`: required for PVC backups.  It's the volume snapshot class to use.
+- `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 - `kubelet_image`: optional, used only for PVC backups.  Defaults to a recent version of the kubelet image.
 
 ## Examples
