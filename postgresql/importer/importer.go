@@ -15,6 +15,8 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+
+	"github.com/PlakarKorp/integration-postgresql/common"
 )
 
 func init() {
@@ -86,8 +88,12 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if v, ok := config["pg_dumpall"]; ok && v != "" {
 		imp.pgDumpAll = v
 	}
-	if v, ok := config["compress"]; ok && v == "true" {
-		imp.compress = true
+	if v, ok := config["compress"]; ok && v != "" {
+		b, err := common.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("compress: %w", err)
+		}
+		imp.compress = b
 	}
 
 	return imp, nil
