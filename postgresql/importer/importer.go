@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"strconv"
+
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-
-	"github.com/PlakarKorp/integration-postgresql/common"
 )
 
 func init() {
@@ -89,7 +89,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		imp.pgDumpAll = v
 	}
 	if v, ok := config["compress"]; ok && v != "" {
-		b, err := common.ParseBool(v)
+		b, err := strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("compress: %w", err)
 		}
