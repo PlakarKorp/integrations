@@ -21,20 +21,25 @@ func init() {
 }
 
 type Exporter struct {
-	host        string
-	port        string
-	username    string
-	password    string
-	database    string // target database for pg_restore (single-db restores)
-	noOwner     bool   // pass --no-owner to pg_restore
-	exitOnError bool   // pass -e to pg_restore (default: true)
+	host              string
+	port              string
+	username          string
+	password          string
+	database          string // target database for pg_restore (single-db restores)
+	noOwner           bool   // pass --no-owner to pg_restore
+	exitOnError       bool   // pass -e to pg_restore / ON_ERROR_STOP to psql (default: true)
+	singleTransaction bool   // pass -1 to pg_restore
+	pgRestoreBin      string // path to pg_restore binary
+	psqlBin           string // path to psql binary
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	exp := &Exporter{
-		host:        "localhost",
-		port:        "5432",
-		exitOnError: true,
+		host:         "localhost",
+		port:         "5432",
+		exitOnError:  true,
+		pgRestoreBin: "pg_restore",
+		psqlBin:      "psql",
 	}
 
 	if loc, ok := config["location"]; ok && loc != "" {
@@ -91,6 +96,19 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		}
 		exp.exitOnError = b
 	}
+	if v, ok := config["single_transaction"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("single_transaction: %w", err)
+		}
+		exp.singleTransaction = b
+	}
+	if v, ok := config["pg_restore"]; ok && v != "" {
+		exp.pgRestoreBin = v
+	}
+	if v, ok := config["psql"]; ok && v != "" {
+		exp.psqlBin = v
+	}
 	return exp, nil
 }
 
@@ -119,7 +137,7 @@ func (p *Exporter) Ping(ctx context.Context) error {
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = nil // never read from stdin; -w prevents password prompts
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -207,11 +225,14 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	if p.noOwner {
 		args = append(args, "--no-owner")
 	}
+	if p.singleTransaction {
+		args = append(args, "-1")
+	}
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
 
-	cmd := exec.CommandContext(ctx, "pg_restore", args...)
+	cmd := exec.CommandContext(ctx, p.pgRestoreBin, args...)
 	cmd.Stdin = r
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -236,7 +257,7 @@ func (p *Exporter) ensureDatabase(ctx context.Context, dbname string) error {
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = strings.NewReader(query)
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -258,7 +279,7 @@ func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
 		args = append(args, "-U", p.username)
 	}
 
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = r
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {

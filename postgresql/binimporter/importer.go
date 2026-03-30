@@ -128,9 +128,15 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 		hdr, err := tr.Next()
 		if err != nil {
 			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
+			waitErr := cmd.Wait()
 			if !errors.Is(err, io.EOF) {
+				if s := strings.TrimSpace(stderr.String()); s != "" {
+					return fmt.Errorf("reading backup stream: %w: %s", err, s)
+				}
 				return fmt.Errorf("reading backup stream: %w", err)
+			}
+			if waitErr != nil {
+				return fmt.Errorf("pg_basebackup: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
 			}
 			return nil
 		}

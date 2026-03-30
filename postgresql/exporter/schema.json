@@ -44,9 +44,18 @@
       "description": "When true (the default), passes -e to pg_restore so it exits on the first error. Set to false to continue restoring after errors."
     },
     "single_transaction": {
+      "type": "boolean",
+      "description": "When true, passes -1 (--single-transaction) to pg_restore so the entire restore runs inside a single transaction. Any error causes a full rollback, preventing a partially-restored database."
+    },
+    "pg_restore": {
       "type": "string",
-      "enum": ["true", "false"],
-      "description": "When set to true, passes -1 (--single-transaction) to pg_restore so the entire restore runs inside a single transaction. Any error causes a full rollback, preventing a partially-restored database."
+      "minLength": 1,
+      "description": "Path to the pg_restore binary (default: pg_restore, resolved via $PATH)."
+    },
+    "psql": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the psql binary (default: psql, resolved via $PATH)."
     }
   }
 }
