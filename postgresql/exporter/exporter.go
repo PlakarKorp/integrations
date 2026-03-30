@@ -175,12 +175,11 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 // The dump is streamed directly from r into pg_restore's stdin.
 func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) error {
 	targetDB := p.database
-	if targetDB != "" {
-		if err := p.ensureDatabase(ctx, targetDB); err != nil {
-			return err
-		}
-	} else {
+	if targetDB == "" {
 		targetDB = strings.TrimSuffix(filepath.Base(pathname), ".dump")
+	}
+	if err := p.ensureDatabase(ctx, targetDB); err != nil {
+		return err
 	}
 
 	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", targetDB}
@@ -198,17 +197,25 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 }
 
 // ensureDatabase creates dbname if it does not already exist.
+// It uses \gexec so the query either executes CREATE DATABASE (when the
+// database is absent) or returns no rows and does nothing — no error
+// in either case.
 func (p *Exporter) ensureDatabase(ctx context.Context, dbname string) error {
-	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", "postgres",
-		"-c", fmt.Sprintf(`CREATE DATABASE "%s"`, dbname)}
+	// Escape the identifier and the literal separately.
+	ident := strings.ReplaceAll(dbname, `"`, `""`)
+	lit := strings.ReplaceAll(dbname, `'`, `''`)
+	query := fmt.Sprintf(
+		`SELECT 'CREATE DATABASE "%s"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '%s')\gexec`,
+		ident, lit,
+	)
+	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", "postgres", "--no-psqlrc"}
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
 	cmd := exec.CommandContext(ctx, "psql", args...)
-	cmd.Stdin = nil
+	cmd.Stdin = strings.NewReader(query)
 	cmd.Env = p.pgEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil && !strings.Contains(string(out), "already exists") {
+	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("create database %q: %w: %s", dbname, err, strings.TrimSpace(string(out)))
 	}
 	return nil
