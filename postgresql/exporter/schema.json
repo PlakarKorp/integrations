@@ -39,6 +39,10 @@
       "type": "boolean",
       "description": "When true, passes -C to pg_restore so the target database is created from the archive metadata. The database parameter (or postgres) is used only as the initial connection database. Defaults to false."
     },
+    "restore_globals": {
+      "type": "boolean",
+      "description": "When true, feeds globals.sql (roles and tablespaces) to psql before restoring the database dump. Only relevant for single-database backups; ignored for pg_dumpall restores which already include globals. Defaults to false."
+    },
     "no_owner": {
       "type": "boolean",
       "description": "When true, passes --no-owner to pg_restore so that ALTER OWNER commands are skipped. Useful when the roles from the source server do not exist on the target server."

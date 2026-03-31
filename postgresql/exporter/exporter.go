@@ -21,18 +21,19 @@ func init() {
 }
 
 type Exporter struct {
-	host         string
-	port         string
-	username     string
-	password     string
-	database     string // target database; if empty, inferred from dump filename
-	noOwner      bool   // pass --no-owner to pg_restore
-	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
-	createDB     bool   // pass -C to pg_restore: create the database from archive metadata
-	schemaOnly   bool   // pass -s to pg_restore
-	dataOnly     bool   // pass -a to pg_restore
-	pgRestoreBin string
-	psqlBin      string
+	host           string
+	port           string
+	username       string
+	password       string
+	database       string // target database; if empty, inferred from dump filename
+	noOwner        bool   // pass --no-owner to pg_restore
+	exitOnError    bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	createDB       bool   // pass -C to pg_restore: create the database from archive metadata
+	schemaOnly     bool   // pass -s to pg_restore
+	dataOnly       bool   // pass -a to pg_restore
+	restoreGlobals bool   // feed globals.sql to psql before restoring the database
+	pgRestoreBin   string
+	psqlBin        string
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -103,6 +104,13 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 			return nil, fmt.Errorf("create_db: %w", err)
 		}
 		exp.createDB = b
+	}
+	if v, ok := config["restore_globals"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("restore_globals: %w", err)
+		}
+		exp.restoreGlobals = b
 	}
 	if v, ok := config["schema_only"]; ok && v != "" {
 		b, err := strconv.ParseBool(v)
@@ -211,6 +219,12 @@ loop:
 func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
+	}
+	if record.Pathname == "globals.sql" {
+		if p.restoreGlobals {
+			return p.psqlRestore(ctx, record.Reader)
+		}
+		return nil
 	}
 	if strings.HasSuffix(record.Pathname, ".sql") {
 		return p.psqlRestore(ctx, record.Reader)
