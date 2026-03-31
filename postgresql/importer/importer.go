@@ -225,4 +225,4 @@ func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.host }
 func (p *Importer) Type() string                    { return "postgresql" }
-func (p *Importer) Flags() location.Flags           { return location.FLAG_STREAM | location.FLAG_NEEDACK }
+func (p *Importer) Flags() location.Flags           { return 0 }

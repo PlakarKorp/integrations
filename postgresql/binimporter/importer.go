@@ -210,4 +210,10 @@ func (p *BinImporter) Close(ctx context.Context) error { return nil }
 func (p *BinImporter) Root() string                    { return "/" }
 func (p *BinImporter) Origin() string                  { return p.host }
 func (p *BinImporter) Type() string                    { return "postgres+bin" }
-func (p *BinImporter) Flags() location.Flags           { return location.FLAG_STREAM | location.FLAG_NEEDACK }
+
+func (p *BinImporter) Flags() location.Flags {
+	// FLAG_STREAM: the tar stream is non-seekable and must be read sequentially.
+	// FLAG_NEEDACK: each entry must be fully consumed before tr.Next() can advance;
+	//               the ack signals that the caller is done with the current entry.
+	return location.FLAG_STREAM | location.FLAG_NEEDACK
+}
