@@ -24,14 +24,16 @@ func init() {
 }
 
 type Importer struct {
-	host      string
-	port      string
-	username  string
-	password  string
-	database  string // empty means back up all databases via pg_dumpall
-	compress  bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
-	pgDump    string
-	pgDumpAll string
+	host       string
+	port       string
+	username   string
+	password   string
+	database   string // empty means back up all databases via pg_dumpall
+	compress   bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
+	schemaOnly bool   // pass -s: dump schema only
+	dataOnly   bool   // pass -a: dump data only
+	pgDump     string
+	pgDumpAll  string
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -95,6 +97,23 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		}
 		imp.compress = b
 	}
+	if v, ok := config["schema_only"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("schema_only: %w", err)
+		}
+		imp.schemaOnly = b
+	}
+	if v, ok := config["data_only"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("data_only: %w", err)
+		}
+		imp.dataOnly = b
+	}
+	if imp.schemaOnly && imp.dataOnly {
+		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+	}
 
 	return imp, nil
 }
@@ -122,6 +141,11 @@ func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.
 	if !p.compress {
 		args = append(args, "-Z0")
 	}
+	if p.schemaOnly {
+		args = append(args, "-s")
+	} else if p.dataOnly {
+		args = append(args, "-a")
+	}
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
@@ -133,6 +157,11 @@ func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.
 // dumpAll runs pg_dumpall and emits one record named /all.sql.
 func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Record) error {
 	args := []string{"-h", p.host, "-p", p.port, "-w"}
+	if p.schemaOnly {
+		args = append(args, "-s")
+	} else if p.dataOnly {
+		args = append(args, "-a")
+	}
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}

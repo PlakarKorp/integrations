@@ -35,6 +35,14 @@
       "minLength": 1,
       "description": "Name of the database to back up using pg_dump. If omitted, all databases are backed up using pg_dumpall. Overrides the database in the location URI."
     },
+    "schema_only": {
+      "type": "boolean",
+      "description": "When true, passes -s to pg_dump/pg_dumpall to dump only schema (no data). Mutually exclusive with data_only."
+    },
+    "data_only": {
+      "type": "boolean",
+      "description": "When true, passes -a to pg_dump/pg_dumpall to dump only data (no schema). Mutually exclusive with schema_only."
+    },
     "pg_dump": {
       "type": "string",
       "minLength": 1,

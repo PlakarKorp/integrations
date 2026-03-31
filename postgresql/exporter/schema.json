@@ -43,6 +43,14 @@
       "type": "boolean",
       "description": "When true, passes -e to pg_restore and ON_ERROR_STOP=1 to psql so restore stops on the first error. Defaults to false, matching pg_restore/psql behaviour."
     },
+    "schema_only": {
+      "type": "boolean",
+      "description": "When true, passes -s to pg_restore to restore only schema (no data). Mutually exclusive with data_only. Not applicable to pg_dumpall restores."
+    },
+    "data_only": {
+      "type": "boolean",
+      "description": "When true, passes -a to pg_restore to restore only data (no schema). Mutually exclusive with schema_only. Not applicable to pg_dumpall restores."
+    },
     "pg_restore": {
       "type": "string",
       "minLength": 1,

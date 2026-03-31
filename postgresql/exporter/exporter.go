@@ -28,6 +28,8 @@ type Exporter struct {
 	database     string // target database; if empty, inferred from dump filename
 	noOwner      bool   // pass --no-owner to pg_restore
 	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	schemaOnly   bool   // pass -s to pg_restore
+	dataOnly     bool   // pass -a to pg_restore
 	pgRestoreBin string
 	psqlBin      string
 }
@@ -93,6 +95,23 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 			return nil, fmt.Errorf("exit_on_error: %w", err)
 		}
 		exp.exitOnError = b
+	}
+	if v, ok := config["schema_only"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("schema_only: %w", err)
+		}
+		exp.schemaOnly = b
+	}
+	if v, ok := config["data_only"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("data_only: %w", err)
+		}
+		exp.dataOnly = b
+	}
+	if exp.schemaOnly && exp.dataOnly {
+		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
 	}
 	if v, ok := config["pg_restore"]; ok && v != "" {
 		exp.pgRestoreBin = v
@@ -205,6 +224,11 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	}
 	if p.noOwner {
 		args = append(args, "--no-owner")
+	}
+	if p.schemaOnly {
+		args = append(args, "-s")
+	} else if p.dataOnly {
+		args = append(args, "-a")
 	}
 	if p.username != "" {
 		args = append(args, "-U", p.username)

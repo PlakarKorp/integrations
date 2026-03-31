@@ -67,6 +67,8 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `database` | — | Database to back up. If omitted, all databases are backed up via `pg_dumpall`. Overrides the URI path. |
 | `compress` | `false` | Enable `pg_dump` compression. By default dumps are stored uncompressed so that Plakar's own compression is not degraded. |
+| `schema_only` | `false` | Dump only the schema (no data). Mutually exclusive with `data_only`. |
+| `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_dump` | `pg_dump` | Path to the `pg_dump` binary. |
 | `pg_dumpall` | `pg_dumpall` | Path to the `pg_dumpall` binary. |
 
@@ -81,6 +83,8 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `database` | — | Target database for restore. The database is created if it does not exist. If omitted, the name is inferred from the dump filename (e.g. `myapp.dump` → `myapp`). |
 | `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. Useful when roles from the source server do not exist on the target. |
+| `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
+| `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |
 | `exit_on_error` | `false` | Stop on the first restore error. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
 
 ### Examples
