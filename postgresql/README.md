@@ -81,7 +81,7 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `database` | — | Target database for restore. The database is created if it does not exist. If omitted, the name is inferred from the dump filename (e.g. `myapp.dump` → `myapp`). |
 | `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. Useful when roles from the source server do not exist on the target. |
-| `exit_on_error` | `true` | Stop on the first restore error. Set to `false` to continue past errors. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
+| `exit_on_error` | `false` | Stop on the first restore error. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
 
 ### Examples
 

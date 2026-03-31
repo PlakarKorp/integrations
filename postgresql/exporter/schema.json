@@ -41,7 +41,7 @@
     },
     "exit_on_error": {
       "type": "boolean",
-      "description": "When true (the default), passes -e to pg_restore so it exits on the first error. Set to false to continue restoring after errors."
+      "description": "When true, passes -e to pg_restore and ON_ERROR_STOP=1 to psql so restore stops on the first error. Defaults to false, matching pg_restore/psql behaviour."
     },
     "pg_restore": {
       "type": "string",

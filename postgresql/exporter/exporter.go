@@ -27,7 +27,7 @@ type Exporter struct {
 	password     string
 	database     string // target database; if empty, inferred from dump filename
 	noOwner      bool   // pass --no-owner to pg_restore
-	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql (default: true)
+	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
 	pgRestoreBin string
 	psqlBin      string
 }
@@ -36,7 +36,6 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	exp := &Exporter{
 		host:         "localhost",
 		port:         "5432",
-		exitOnError:  true,
 		pgRestoreBin: "pg_restore",
 		psqlBin:      "psql",
 	}
