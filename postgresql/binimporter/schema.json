@@ -34,6 +34,11 @@
       "type": "string",
       "minLength": 1,
       "description": "Path to the pg_basebackup binary (default: pg_basebackup, resolved via $PATH)."
+    },
+    "psql": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the psql binary (default: psql, resolved via $PATH)."
     }
   }
 }

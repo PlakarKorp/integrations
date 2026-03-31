@@ -30,6 +30,7 @@ type BinImporter struct {
 	username     string
 	password     string
 	pgBaseBackup string
+	psqlBin      string
 }
 
 func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -37,6 +38,7 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 		host:         "localhost",
 		port:         "5432",
 		pgBaseBackup: "pg_basebackup",
+		psqlBin:      "psql",
 	}
 
 	if loc, ok := config["location"]; ok && loc != "" {
@@ -77,6 +79,9 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 	}
 	if v, ok := config["pg_basebackup"]; ok && v != "" {
 		imp.pgBaseBackup = v
+	}
+	if v, ok := config["psql"]; ok && v != "" {
+		imp.psqlBin = v
 	}
 
 	return imp, nil
@@ -197,7 +202,7 @@ func (p *BinImporter) Ping(ctx context.Context) error {
 	if p.username != "" {
 		args = append(args, "-U", p.username)
 	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = nil
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
