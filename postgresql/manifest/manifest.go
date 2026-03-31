@@ -67,7 +67,8 @@ func ServerVersion(ctx context.Context, psqlBin, host, port, connectDB, username
 // EmitManifest serialises m as /manifest.json and sends it on records.
 func EmitManifest(ctx context.Context, records chan<- *connectors.Record, m *Manifest) error {
 	m.Version = 1
-	m.CreatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	m.CreatedAt = now
 
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -77,7 +78,7 @@ func EmitManifest(ctx context.Context, records chan<- *connectors.Record, m *Man
 		Lname:    "manifest.json",
 		Lsize:    int64(len(data)),
 		Lmode:    0444,
-		LmodTime: time.Now().UTC(),
+		LmodTime: now,
 	}
 	readerFunc := func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(data)), nil
