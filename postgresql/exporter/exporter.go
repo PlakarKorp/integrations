@@ -209,6 +209,9 @@ loop:
 }
 
 func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
+	if record.Pathname == "/manifest.json" {
+		return nil
+	}
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
