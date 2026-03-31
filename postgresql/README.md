@@ -211,3 +211,51 @@ docker run --rm -v "$PWD/pgdata:/var/lib/postgresql/data" postgres:17
 plakar restore -to sftp://user@host/var/lib/postgresql/data <snapid>
 # then on the remote host: pg_ctl -D /var/lib/postgresql/data start
 ```
+
+---
+
+## Development
+
+### Building
+
+```bash
+make build
+```
+
+### Installing into Plakar
+
+```bash
+make reinstall                            # build, package, uninstall old, install
+make reinstall PLAKAR=~/dev/plakar/plakar # use a development build of Plakar
+make reinstall VERSION=v1.2.0            # override the package version
+```
+
+`reinstall` is the usual iteration loop: it removes the previously installed
+package (if any), rebuilds the binaries, creates a fresh `.ptar`, and installs
+it.  The individual steps are also available as separate targets:
+
+| Target | Description |
+|---|---|
+| `make build` | Compile the three plugin binaries |
+| `make package` | Build then create the `.ptar` package |
+| `make install` | Package then install into Plakar |
+| `make uninstall` | Remove the installed `postgresql` package |
+| `make reinstall` | `uninstall` + `install` in one step |
+
+### Testing restores with a local database
+
+`make testdb` starts a throw-away PostgreSQL container on port 9999 and
+prints the commands needed to restore a snapshot to it:
+
+```bash
+make testdb
+```
+
+The container runs in the foreground.  In a second terminal, use the printed
+commands to configure the destination and trigger a restore:
+
+```bash
+plakar destination rm mydb
+plakar destination add mydb postgres://postgres@localhost:9999 password=postgres
+plakar restore -to @mydb <snapid>
+```
