@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -21,10 +20,7 @@ func init() {
 }
 
 type Exporter struct {
-	host           string
-	port           string
-	username       string
-	password       string
+	conn           pgconn.ConnConfig
 	database       string // target database; if empty, inferred from dump filename
 	noOwner        bool   // pass --no-owner to pg_restore
 	exitOnError    bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
@@ -37,50 +33,18 @@ type Exporter struct {
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	exp := &Exporter{
-		host:         "localhost",
-		port:         "5432",
+		conn:         conn,
+		database:     dbPath,
 		pgRestoreBin: "pg_restore",
 		psqlBin:      "psql",
 	}
 
-	if loc, ok := config["location"]; ok && loc != "" {
-		u, err := url.Parse(loc)
-		if err != nil {
-			return nil, fmt.Errorf("invalid location: %w", err)
-		}
-		if u.Hostname() != "" {
-			exp.host = u.Hostname()
-		}
-		if u.Port() != "" {
-			exp.port = u.Port()
-		}
-		if u.User != nil {
-			if u.User.Username() != "" {
-				exp.username = u.User.Username()
-			}
-			if p, ok := u.User.Password(); ok {
-				exp.password = p
-			}
-		}
-		if u.Path != "" && u.Path != "/" {
-			exp.database = strings.TrimPrefix(u.Path, "/")
-		}
-	}
-
-	// Standalone fields override URI components.
-	if h, ok := config["host"]; ok && h != "" {
-		exp.host = h
-	}
-	if p, ok := config["port"]; ok && p != "" {
-		exp.port = p
-	}
-	if u, ok := config["username"]; ok && u != "" {
-		exp.username = u
-	}
-	if p, ok := config["password"]; ok && p != "" {
-		exp.password = p
-	}
 	if db, ok := config["database"]; ok && db != "" {
 		exp.database = db
 	}
@@ -138,35 +102,13 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	return exp, nil
 }
 
-func (p *Exporter) pgEnv() []string {
-	env := os.Environ()
-	if p.password != "" {
-		env = append(env, "PGPASSWORD="+p.password)
-	}
-	return env
-}
-
 func (p *Exporter) Root() string          { return "/" }
-func (p *Exporter) Origin() string        { return p.host }
+func (p *Exporter) Origin() string        { return p.conn.Host }
 func (p *Exporter) Type() string          { return "postgresql" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
 func (p *Exporter) Ping(ctx context.Context) error {
-	connectDB := p.database
-	if connectDB == "" {
-		connectDB = "postgres"
-	}
-	args := []string{"-h", p.host, "-p", p.port, "-d", connectDB, "-w", "-c", "SELECT 1", "-q", "--no-psqlrc"}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ping: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return p.conn.Ping(ctx, p.psqlBin, p.database)
 }
 
 func (p *Exporter) Close(ctx context.Context) error {
@@ -220,7 +162,7 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
-	if record.Pathname == "globals.sql" {
+	if record.Pathname == "/globals.sql" {
 		if p.restoreGlobals {
 			return p.psqlRestore(ctx, record.Reader)
 		}
@@ -244,13 +186,13 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 		if connectDB == "" {
 			connectDB = "postgres"
 		}
-		args = []string{"-h", p.host, "-p", p.port, "-w", "-C", "-d", connectDB}
+		args = []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w", "-C", "-d", connectDB}
 	} else {
 		targetDB := p.database
 		if targetDB == "" {
 			targetDB = strings.TrimSuffix(filepath.Base(pathname), ".dump")
 		}
-		args = []string{"-h", p.host, "-p", p.port, "-w", "-d", targetDB}
+		args = []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w", "-d", targetDB}
 	}
 	if p.exitOnError {
 		args = append(args, "-e")
@@ -263,13 +205,13 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	} else if p.dataOnly {
 		args = append(args, "-a")
 	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 
 	cmd := exec.CommandContext(ctx, p.pgRestoreBin, args...)
 	cmd.Stdin = r
-	cmd.Env = p.pgEnv()
+	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("pg_restore: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -279,17 +221,17 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 // psqlRestore feeds a pg_dumpall plain-SQL dump to psql, connecting to the
 // "postgres" maintenance database so the script can recreate other databases.
 func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
-	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", "postgres"}
+	args := []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w", "-d", "postgres"}
 	if p.exitOnError {
 		args = append(args, "-v", "ON_ERROR_STOP=1")
 	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 
 	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = r
-	cmd.Env = p.pgEnv()
+	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("psql: %w: %s", err, strings.TrimSpace(string(out)))
 	}

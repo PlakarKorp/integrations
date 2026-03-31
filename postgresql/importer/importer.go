@@ -5,14 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integration-postgresql/manifest"
+	"github.com/PlakarKorp/integration-postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -24,10 +23,7 @@ func init() {
 }
 
 type Importer struct {
-	host       string
-	port       string
-	username   string
-	password   string
+	conn       pgconn.ConnConfig
 	database   string // empty means back up all databases via pg_dumpall
 	compress   bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
 	schemaOnly bool   // pass -s: dump schema only
@@ -37,50 +33,18 @@ type Importer struct {
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	imp := &Importer{
-		host:      "localhost",
-		port:      "5432",
+		conn:      conn,
+		database:  dbPath,
 		pgDump:    "pg_dump",
 		pgDumpAll: "pg_dumpall",
 	}
 
-	if loc, ok := config["location"]; ok && loc != "" {
-		u, err := url.Parse(loc)
-		if err != nil {
-			return nil, fmt.Errorf("invalid location: %w", err)
-		}
-		if u.Hostname() != "" {
-			imp.host = u.Hostname()
-		}
-		if u.Port() != "" {
-			imp.port = u.Port()
-		}
-		if u.User != nil {
-			if u.User.Username() != "" {
-				imp.username = u.User.Username()
-			}
-			if p, ok := u.User.Password(); ok {
-				imp.password = p
-			}
-		}
-		if u.Path != "" && u.Path != "/" {
-			imp.database = strings.TrimPrefix(u.Path, "/")
-		}
-	}
-
-	// Standalone fields override URI components.
-	if h, ok := config["host"]; ok && h != "" {
-		imp.host = h
-	}
-	if p, ok := config["port"]; ok && p != "" {
-		imp.port = p
-	}
-	if u, ok := config["username"]; ok && u != "" {
-		imp.username = u
-	}
-	if p, ok := config["password"]; ok && p != "" {
-		imp.password = p
-	}
 	if db, ok := config["database"]; ok && db != "" {
 		imp.database = db
 	}
@@ -118,27 +82,19 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return imp, nil
 }
 
-func (p *Importer) pgEnv() []string {
-	env := os.Environ()
-	if p.password != "" {
-		env = append(env, "PGPASSWORD="+p.password)
-	}
-	return env
-}
-
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
 	connectDB := p.database
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	sv, svNum, err := manifest.ServerVersion(ctx, "psql", p.host, p.port, connectDB, p.username, p.pgEnv())
+	sv, svNum, err := manifest.ServerVersion(ctx, "psql", p.conn.Host, p.conn.Port, connectDB, p.conn.Username, p.conn.Env())
 	if err != nil {
 		return err
 	}
 	return manifest.EmitManifest(ctx, records, &manifest.Manifest{
 		Connector:        "postgresql",
-		Host:             p.host,
-		Port:             p.port,
+		Host:             p.conn.Host,
+		Port:             p.conn.Port,
 		ServerVersion:    sv,
 		ServerVersionNum: svNum,
 		Database:         p.database,
@@ -172,16 +128,16 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 // dumpGlobals runs pg_dumpall --globals-only and emits one record named /globals.sql.
 // It captures roles and tablespaces that pg_dump does not include.
 func (p *Importer) dumpGlobals(ctx context.Context, records chan<- *connectors.Record) error {
-	args := []string{"-h", p.host, "-p", p.port, "-w", "--globals-only"}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	args := []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w", "--globals-only"}
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 	return p.emitRecord(ctx, records, p.pgDumpAll, args, "/globals.sql")
 }
 
 // dumpDatabase runs pg_dump -Fc and emits one record named /<dbname>.dump.
 func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.Record, dbname string) error {
-	args := []string{"-h", p.host, "-p", p.port, "-w", "-Fc"}
+	args := []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w", "-Fc"}
 	if !p.compress {
 		args = append(args, "-Z0")
 	}
@@ -190,8 +146,8 @@ func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.
 	} else if p.dataOnly {
 		args = append(args, "-a")
 	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 	args = append(args, dbname)
 
@@ -200,14 +156,14 @@ func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.
 
 // dumpAll runs pg_dumpall and emits one record named /all.sql.
 func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Record) error {
-	args := []string{"-h", p.host, "-p", p.port, "-w"}
+	args := []string{"-h", p.conn.Host, "-p", p.conn.Port, "-w"}
 	if p.schemaOnly {
 		args = append(args, "-s")
 	} else if p.dataOnly {
 		args = append(args, "-a")
 	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 
 	return p.emitRecord(ctx, records, p.pgDumpAll, args, "/all.sql")
@@ -218,7 +174,7 @@ func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Recor
 func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Record, bin string, args []string, recordPath string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
+	cmd.Env = p.conn.Env()
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -277,26 +233,12 @@ func (r *cmdReader) Close() error {
 }
 
 func (p *Importer) Ping(ctx context.Context) error {
-	connectDB := p.database
-	if connectDB == "" {
-		connectDB = "postgres"
-	}
-	args := []string{"-h", p.host, "-p", p.port, "-d", connectDB, "-w", "-c", "SELECT 1", "-q", "--no-psqlrc"}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
-	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ping: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return p.conn.Ping(ctx, "psql", p.database)
 }
 
 func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
-func (p *Importer) Origin() string                  { return p.host }
+func (p *Importer) Origin() string                  { return p.conn.Host }
 func (p *Importer) Type() string                    { return "postgresql" }
 
 // Flags returns FLAG_STREAM to signal that Import produces a single streaming

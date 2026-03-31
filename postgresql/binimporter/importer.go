@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
-	"os"
 	"os/exec"
 	"path"
 	"strings"
 
 	"github.com/PlakarKorp/integration-postgresql/manifest"
+	"github.com/PlakarKorp/integration-postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -26,58 +25,26 @@ func init() {
 }
 
 type BinImporter struct {
-	host         string
-	port         string
-	username     string
-	password     string
+	conn         pgconn.ConnConfig
 	pgBaseBackup string
 	psqlBin      string
 }
 
 func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	if dbPath != "" {
+		return nil, fmt.Errorf("postgres+bin: subpath %q is not allowed (pg_basebackup backs up the entire cluster)", dbPath)
+	}
+
 	imp := &BinImporter{
-		host:         "localhost",
-		port:         "5432",
+		conn:         conn,
 		pgBaseBackup: "pg_basebackup",
 		psqlBin:      "psql",
 	}
 
-	if loc, ok := config["location"]; ok && loc != "" {
-		u, err := url.Parse(loc)
-		if err != nil {
-			return nil, fmt.Errorf("invalid location: %w", err)
-		}
-		if u.Hostname() != "" {
-			imp.host = u.Hostname()
-		}
-		if u.Port() != "" {
-			imp.port = u.Port()
-		}
-		if u.Path != "" && u.Path != "/" {
-			return nil, fmt.Errorf("postgres+bin: subpath %q is not allowed (pg_basebackup backs up the entire cluster)", u.Path)
-		}
-		if u.User != nil {
-			if u.User.Username() != "" {
-				imp.username = u.User.Username()
-			}
-			if p, ok := u.User.Password(); ok {
-				imp.password = p
-			}
-		}
-	}
-
-	if h, ok := config["host"]; ok && h != "" {
-		imp.host = h
-	}
-	if p, ok := config["port"]; ok && p != "" {
-		imp.port = p
-	}
-	if u, ok := config["username"]; ok && u != "" {
-		imp.username = u
-	}
-	if p, ok := config["password"]; ok && p != "" {
-		imp.password = p
-	}
 	if v, ok := config["pg_basebackup"]; ok && v != "" {
 		imp.pgBaseBackup = v
 	}
@@ -88,23 +55,15 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 	return imp, nil
 }
 
-func (p *BinImporter) pgEnv() []string {
-	env := os.Environ()
-	if p.password != "" {
-		env = append(env, "PGPASSWORD="+p.password)
-	}
-	return env
-}
-
 func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connectors.Record) error {
-	sv, svNum, err := manifest.ServerVersion(ctx, p.psqlBin, p.host, p.port, "postgres", p.username, p.pgEnv())
+	sv, svNum, err := manifest.ServerVersion(ctx, p.psqlBin, p.conn.Host, p.conn.Port, "postgres", p.conn.Username, p.conn.Env())
 	if err != nil {
 		return err
 	}
 	return manifest.EmitManifest(ctx, records, &manifest.Manifest{
 		Connector:        "postgresql+bin",
-		Host:             p.host,
-		Port:             p.port,
+		Host:             p.conn.Host,
+		Port:             p.conn.Port,
 		ServerVersion:    sv,
 		ServerVersionNum: svNum,
 		DumpFormat:       "basebackup",
@@ -125,16 +84,16 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	<-results // wait for the manifest ack
 
 	args := []string{
-		"-h", p.host, "-p", p.port, "-w",
+		"-h", p.conn.Host, "-p", p.conn.Port, "-w",
 		"-D", "-", "-F", "tar", "-X", "fetch",
 	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
+	if p.conn.Username != "" {
+		args = append(args, "-U", p.conn.Username)
 	}
 
 	cmd := exec.CommandContext(ctx, p.pgBaseBackup, args...)
 	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
+	cmd.Env = p.conn.Env()
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -220,22 +179,12 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 
 // Ping verifies that the PostgreSQL server is reachable.
 func (p *BinImporter) Ping(ctx context.Context) error {
-	args := []string{"-h", p.host, "-p", p.port, "-d", "postgres", "-w", "-c", "SELECT 1", "-q", "--no-psqlrc"}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ping: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return p.conn.Ping(ctx, p.psqlBin, "")
 }
 
 func (p *BinImporter) Close(ctx context.Context) error { return nil }
 func (p *BinImporter) Root() string                    { return "/" }
-func (p *BinImporter) Origin() string                  { return p.host }
+func (p *BinImporter) Origin() string                  { return p.conn.Host }
 func (p *BinImporter) Type() string                    { return "postgres+bin" }
 
 func (p *BinImporter) Flags() location.Flags {
