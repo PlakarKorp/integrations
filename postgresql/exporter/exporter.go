@@ -28,6 +28,7 @@ type Exporter struct {
 	database     string // target database; if empty, inferred from dump filename
 	noOwner      bool   // pass --no-owner to pg_restore
 	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	createDB     bool   // pass -C to pg_restore: create the database from archive metadata
 	schemaOnly   bool   // pass -s to pg_restore
 	dataOnly     bool   // pass -a to pg_restore
 	pgRestoreBin string
@@ -95,6 +96,13 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 			return nil, fmt.Errorf("exit_on_error: %w", err)
 		}
 		exp.exitOnError = b
+	}
+	if v, ok := config["create_db"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("create_db: %w", err)
+		}
+		exp.createDB = b
 	}
 	if v, ok := config["schema_only"]; ok && v != "" {
 		b, err := strconv.ParseBool(v)
@@ -208,17 +216,24 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 }
 
 // pgRestore restores a pg_dump custom-format dump via pg_restore.
-// The target database is created if it does not exist.
+// With create_db: -C creates the database from the archive metadata and
+// -d is used only for the initial maintenance-database connection.
+// Without create_db: the target database must already exist.
 func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) error {
-	targetDB := p.database
-	if targetDB == "" {
-		targetDB = strings.TrimSuffix(filepath.Base(pathname), ".dump")
+	var args []string
+	if p.createDB {
+		connectDB := p.database
+		if connectDB == "" {
+			connectDB = "postgres"
+		}
+		args = []string{"-h", p.host, "-p", p.port, "-w", "-C", "-d", connectDB}
+	} else {
+		targetDB := p.database
+		if targetDB == "" {
+			targetDB = strings.TrimSuffix(filepath.Base(pathname), ".dump")
+		}
+		args = []string{"-h", p.host, "-p", p.port, "-w", "-d", targetDB}
 	}
-	if err := p.ensureDatabase(ctx, targetDB); err != nil {
-		return err
-	}
-
-	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", targetDB}
 	if p.exitOnError {
 		args = append(args, "-e")
 	}
@@ -239,29 +254,6 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("pg_restore: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// ensureDatabase creates dbname if it does not already exist.
-// The SELECT ... \gexec idiom executes CREATE DATABASE only when the row is
-// returned (i.e. the database is absent), so no error is raised if it exists.
-func (p *Exporter) ensureDatabase(ctx context.Context, dbname string) error {
-	ident := strings.ReplaceAll(dbname, `"`, `""`)
-	lit := strings.ReplaceAll(dbname, `'`, `''`)
-	query := fmt.Sprintf(
-		`SELECT 'CREATE DATABASE "%s"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '%s')\gexec`,
-		ident, lit,
-	)
-	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", "postgres", "--no-psqlrc"}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
-	cmd.Stdin = strings.NewReader(query)
-	cmd.Env = p.pgEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("create database %q: %w: %s", dbname, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
