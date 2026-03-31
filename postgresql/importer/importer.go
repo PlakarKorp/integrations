@@ -285,4 +285,11 @@ func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.host }
 func (p *Importer) Type() string                    { return "postgresql" }
-func (p *Importer) Flags() location.Flags           { return 0 }
+
+// Flags returns FLAG_STREAM to signal that Import produces a single streaming
+// pass. Without it, the framework calls Import twice — once to enumerate
+// records and once to read their contents — which would cause the manifest
+// and the dump to be emitted twice.
+func (p *Importer) Flags() location.Flags {
+	return location.FLAG_STREAM
+}
