@@ -81,7 +81,8 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `port` | `5432` | Server port. Overrides the URI port. |
 | `username` | — | PostgreSQL username. Overrides the URI user. |
 | `password` | — | PostgreSQL password. Overrides the URI password. |
-| `database` | — | Target database for restore. The database is created if it does not exist. If omitted, the name is inferred from the dump filename (e.g. `myapp.dump` → `myapp`). |
+| `database` | — | Controls the `-d` argument passed to `pg_restore` or `psql` (see `create_db` below). If omitted, the name is inferred from the dump filename (e.g. `myapp.dump` → `myapp`). |
+| `create_db` | `false` | When `false` (default), `-d` names the **target database**, which must already exist. When `true`, passes `-C` to `pg_restore`: the database is created from the metadata embedded in the archive, and `-d` names only the **initial connection database** (defaults to `postgres` if unset). Use `true` for a fresh restore onto a server that does not yet have the target database. |
 | `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. Useful when roles from the source server do not exist on the target. |
 | `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
 | `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |
