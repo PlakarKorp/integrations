@@ -122,6 +122,8 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 		return err
 	}
 
+	<-results // wait for the manifest ack
+
 	args := []string{
 		"-h", p.host, "-p", p.port, "-w",
 		"-D", "-", "-F", "tar", "-X", "fetch",
