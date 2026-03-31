@@ -19,16 +19,20 @@ The importer connects to a running PostgreSQL server and produces a logical
 dump — a portable, version-independent representation of the data.
 
 - **Single database** (`database` parameter or `/dbname` in the URI):
-  runs `pg_dump -Fc` (custom binary format) and stores **one record**
-  named `/<dbname>.dump` in the snapshot.
+  runs `pg_dump -Fc` (custom binary format) and stores **two records**
+  in the snapshot:
+  - `/globals.sql` — a `pg_dumpall --globals-only` dump containing the
+    roles and tablespaces of the whole cluster.
+  - `/<dbname>.dump` — the database itself in pg_dump custom format.
 
 - **All databases** (no `database` parameter):
   runs `pg_dumpall` (plain SQL format) and stores **one record**
-  named `/all.sql` in the snapshot.  This includes global objects such
-  as roles and tablespaces that `pg_dump` does not capture.
+  named `/all.sql` in the snapshot.  This already includes global objects
+  such as roles and tablespaces.
 
-Restore dispatches on the file extension: `.dump` files are fed to
-`pg_restore`; `.sql` files are fed to `psql`.
+Restore dispatches on file name and extension: `.dump` files are fed to
+`pg_restore`; `globals.sql` is fed to `psql` only when `restore_globals`
+is enabled; `all.sql` is always fed to `psql`.
 
 ### Pros and cons
 
@@ -65,7 +69,7 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `port` | `5432` | Server port. Overrides the URI port. |
 | `username` | — | PostgreSQL username. Overrides the URI user. |
 | `password` | — | PostgreSQL password. Overrides the URI password. |
-| `database` | — | Database to back up. If omitted, all databases are backed up via `pg_dumpall`. Overrides the URI path. |
+| `database` | — | Database to back up. If omitted, all databases are backed up via `pg_dumpall`. Overrides the URI path. When set, a globals dump (`/globals.sql`) is also produced automatically. |
 | `compress` | `false` | Enable `pg_dump` compression. By default dumps are stored uncompressed so that Plakar's own compression is not degraded. |
 | `schema_only` | `false` | Dump only the schema (no data). Mutually exclusive with `data_only`. |
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
@@ -83,6 +87,7 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `database` | — | Controls the `-d` argument passed to `pg_restore` or `psql` (see `create_db` below). If omitted, the name is inferred from the dump filename (e.g. `myapp.dump` → `myapp`). |
 | `create_db` | `false` | When `false` (default), `-d` names the **target database**, which must already exist. When `true`, passes `-C` to `pg_restore`: the database is created from the metadata embedded in the archive, and `-d` names only the **initial connection database** (defaults to `postgres` if unset). Use `true` for a fresh restore onto a server that does not yet have the target database. |
+| `restore_globals` | `false` | When `true`, feeds `/globals.sql` to `psql` before restoring the database dump, recreating roles and tablespaces on the target server. Useful when restoring to a different server where the source roles do not exist and `no_owner` is not sufficient — for example, when the database uses row-level security, relies on specific role memberships, or references tablespaces that must exist before the data is loaded. Not needed for `pg_dumpall` restores (`all.sql`), which already contain global objects. |
 | `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. Useful when roles from the source server do not exist on the target. |
 | `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
 | `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |
