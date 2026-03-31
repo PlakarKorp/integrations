@@ -21,15 +21,15 @@ func init() {
 }
 
 type Exporter struct {
-	host              string
-	port              string
-	username          string
-	password          string
-	database          string // target database for pg_restore (single-db restores)
+	host         string
+	port         string
+	username     string
+	password     string
+	database     string // target database; if empty, inferred from dump filename
 	noOwner      bool   // pass --no-owner to pg_restore
-	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP to psql (default: true)
-	pgRestoreBin string // path to pg_restore binary
-	psqlBin           string // path to psql binary
+	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql (default: true)
+	pgRestoreBin string
+	psqlBin      string
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -104,8 +104,6 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	return exp, nil
 }
 
-// pgEnv returns the process environment augmented with PGPASSWORD so that
-// pg_restore / psql can authenticate without an interactive prompt.
 func (p *Exporter) pgEnv() []string {
 	env := os.Environ()
 	if p.password != "" {
@@ -119,7 +117,6 @@ func (p *Exporter) Origin() string        { return p.host }
 func (p *Exporter) Type() string          { return "postgresql" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
-// Ping runs "SELECT 1" against the server to verify connectivity.
 func (p *Exporter) Ping(ctx context.Context) error {
 	connectDB := p.database
 	if connectDB == "" {
@@ -130,7 +127,7 @@ func (p *Exporter) Ping(ctx context.Context) error {
 		args = append(args, "-U", p.username)
 	}
 	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
-	cmd.Stdin = nil // never read from stdin; -w prevents password prompts
+	cmd.Stdin = nil
 	cmd.Env = p.pgEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ping: %w: %s", err, strings.TrimSpace(string(out)))
@@ -142,11 +139,9 @@ func (p *Exporter) Close(ctx context.Context) error {
 	return nil
 }
 
-// Export iterates over the records channel and restores each dump record into
-// the configured PostgreSQL server.  Records ending in ".dump" are restored
-// via pg_restore (custom format); records ending in ".sql" are fed to psql
-// (plain-SQL format produced by pg_dumpall).  Directory and xattr records are
-// acknowledged without action.
+// Export restores each record to the configured PostgreSQL server.
+// Records ending in ".dump" are restored via pg_restore (pg_dump custom format).
+// Records ending in ".sql" are fed to psql (pg_dumpall plain-SQL format).
 func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
@@ -187,8 +182,6 @@ loop:
 	return nil
 }
 
-// restore dispatches a record's reader directly to the appropriate restore
-// tool based on the record's file extension.
 func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
@@ -196,11 +189,8 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 	return p.psqlRestore(ctx, record.Reader)
 }
 
-// pgRestore restores a custom-format dump produced by pg_dump -Fc.
-// If a target database is configured, it is created when it does not exist
-// yet and the dump is restored into it.  Otherwise the database name is
-// inferred from the dump filename (e.g. "/mydb.dump" → "mydb").
-// The dump is streamed directly from r into pg_restore's stdin.
+// pgRestore restores a pg_dump custom-format dump via pg_restore.
+// The target database is created if it does not exist.
 func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) error {
 	targetDB := p.database
 	if targetDB == "" {
@@ -231,11 +221,9 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 }
 
 // ensureDatabase creates dbname if it does not already exist.
-// It uses \gexec so the query either executes CREATE DATABASE (when the
-// database is absent) or returns no rows and does nothing — no error
-// in either case.
+// The SELECT ... \gexec idiom executes CREATE DATABASE only when the row is
+// returned (i.e. the database is absent), so no error is raised if it exists.
 func (p *Exporter) ensureDatabase(ctx context.Context, dbname string) error {
-	// Escape the identifier and the literal separately.
 	ident := strings.ReplaceAll(dbname, `"`, `""`)
 	lit := strings.ReplaceAll(dbname, `'`, `''`)
 	query := fmt.Sprintf(
@@ -255,10 +243,8 @@ func (p *Exporter) ensureDatabase(ctx context.Context, dbname string) error {
 	return nil
 }
 
-// psqlRestore feeds a plain-SQL dump (produced by pg_dumpall) to psql,
-// connecting to the "postgres" maintenance database so that the script can
-// CREATE and configure other databases freely.
-// The dump is streamed directly from r into psql's stdin.
+// psqlRestore feeds a pg_dumpall plain-SQL dump to psql, connecting to the
+// "postgres" maintenance database so the script can recreate other databases.
 func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
 	args := []string{"-h", p.host, "-p", p.port, "-w", "-d", "postgres"}
 	if p.exitOnError {

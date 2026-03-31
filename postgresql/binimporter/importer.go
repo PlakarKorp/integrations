@@ -91,10 +91,9 @@ func (p *BinImporter) pgEnv() []string {
 }
 
 // Import runs pg_basebackup in tar-to-stdout mode and emits one record per
-// regular file found in the tar stream.  Because a tar archive is sequential,
-// each entry's content must be fully consumed before the next header can be
-// read: a goroutine copies the entry into an io.Pipe and the outer loop waits
-// on a done channel before calling tr.Next().
+// tar entry.  The results channel is used to pace reading: the loop waits for
+// an ack after each record so the caller fully consumes the entry before
+// tr.Next() advances the stream.
 func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
@@ -160,7 +159,6 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	}
 }
 
-// Copied from integration-tar
 func finfo(hdr *tar.Header) objects.FileInfo {
 	f := objects.FileInfo{
 		Lname:      path.Base(hdr.Name),

@@ -29,9 +29,9 @@ type Importer struct {
 	username  string
 	password  string
 	database  string // empty means back up all databases via pg_dumpall
-	compress  bool   // enable pg_dump compression (default: false)
-	pgDump    string // path to pg_dump binary (default: "pg_dump")
-	pgDumpAll string // path to pg_dumpall binary (default: "pg_dumpall")
+	compress  bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
+	pgDump    string
+	pgDumpAll string
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -99,9 +99,6 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return imp, nil
 }
 
-// pgEnv returns the process environment augmented with PGPASSWORD when a
-// password is configured, so pg_dump / pg_dumpall can authenticate without
-// an interactive prompt.
 func (p *Importer) pgEnv() []string {
 	env := os.Environ()
 	if p.password != "" {
@@ -110,8 +107,6 @@ func (p *Importer) pgEnv() []string {
 	return env
 }
 
-// Import backs up either a single database (pg_dump) or all databases
-// (pg_dumpall), depending on whether the database field is set.
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
@@ -121,9 +116,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	return p.dumpAll(ctx, records)
 }
 
-// dumpDatabase runs pg_dump for a single database in custom format and emits
-// one record named /<dbname>.dump whose content is streamed directly from
-// pg_dump's stdout.
+// dumpDatabase runs pg_dump -Fc and emits one record named /<dbname>.dump.
 func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.Record, dbname string) error {
 	args := []string{"-h", p.host, "-p", p.port, "-w", "-Fc"}
 	if !p.compress {
@@ -137,8 +130,7 @@ func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.
 	return p.emitRecord(ctx, records, p.pgDump, args, "/"+dbname+".dump")
 }
 
-// dumpAll runs pg_dumpall and emits one record named /all.sql whose content
-// is streamed directly from pg_dumpall's stdout.
+// dumpAll runs pg_dumpall and emits one record named /all.sql.
 func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Record) error {
 	args := []string{"-h", p.host, "-p", p.port, "-w"}
 	if p.username != "" {
@@ -148,9 +140,8 @@ func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Recor
 	return p.emitRecord(ctx, records, p.pgDumpAll, args, "/all.sql")
 }
 
-// emitRecord starts the given command, wires its stdout to a cmdReader and
-// sends a Record on the records channel.  The record size is reported as 0
-// because the final dump size is not known before the stream is consumed.
+// emitRecord starts bin with args and sends a streaming Record on records.
+// The record size is 0 because the dump size is not known until the stream is consumed.
 func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Record, bin string, args []string, recordPath string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = nil
@@ -189,8 +180,8 @@ func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Re
 	return nil
 }
 
-// cmdReader reads from a running command's stdout pipe and waits for the
-// command to exit when closed, surfacing any non-zero exit status.
+// cmdReader wraps a command's stdout pipe and surfaces a non-zero exit status
+// as an error when the stream reaches EOF.
 type cmdReader struct {
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
@@ -212,7 +203,6 @@ func (r *cmdReader) Close() error {
 	return nil
 }
 
-// Ping runs "SELECT 1" against the server to verify connectivity.
 func (p *Importer) Ping(ctx context.Context) error {
 	connectDB := p.database
 	if connectDB == "" {
