@@ -26,10 +26,9 @@ type Exporter struct {
 	username          string
 	password          string
 	database          string // target database for pg_restore (single-db restores)
-	noOwner           bool   // pass --no-owner to pg_restore
-	exitOnError       bool   // pass -e to pg_restore / ON_ERROR_STOP to psql (default: true)
-	singleTransaction bool   // pass -1 to pg_restore
-	pgRestoreBin      string // path to pg_restore binary
+	noOwner      bool   // pass --no-owner to pg_restore
+	exitOnError  bool   // pass -e to pg_restore / ON_ERROR_STOP to psql (default: true)
+	pgRestoreBin string // path to pg_restore binary
 	psqlBin           string // path to psql binary
 }
 
@@ -95,13 +94,6 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 			return nil, fmt.Errorf("exit_on_error: %w", err)
 		}
 		exp.exitOnError = b
-	}
-	if v, ok := config["single_transaction"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("single_transaction: %w", err)
-		}
-		exp.singleTransaction = b
 	}
 	if v, ok := config["pg_restore"]; ok && v != "" {
 		exp.pgRestoreBin = v
@@ -224,9 +216,6 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	}
 	if p.noOwner {
 		args = append(args, "--no-owner")
-	}
-	if p.singleTransaction {
-		args = append(args, "-1")
 	}
 	if p.username != "" {
 		args = append(args, "-U", p.username)
