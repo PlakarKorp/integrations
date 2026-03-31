@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/PlakarKorp/integration-postgresql/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -98,78 +96,19 @@ func (p *BinImporter) pgEnv() []string {
 	return env
 }
 
-type manifest struct {
-	Version          int       `json:"version"`
-	CreatedAt        time.Time `json:"created_at"`
-	Connector        string    `json:"connector"`
-	Host             string    `json:"host"`
-	Port             string    `json:"port"`
-	ServerVersion    string    `json:"server_version"`
-	ServerVersionNum int       `json:"server_version_num"`
-	DumpFormat       string    `json:"dump_format"`
-}
-
-func (p *BinImporter) serverVersion(ctx context.Context) (string, int, error) {
-	args := []string{
-		"-h", p.host, "-p", p.port, "-d", "postgres", "-w",
-		"-t", "-A", "-F", "|", "--no-psqlrc",
-		"-c", "SELECT current_setting('server_version'), current_setting('server_version_num')",
-	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		return "", 0, fmt.Errorf("querying server version: %w", err)
-	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 2)
-	if len(parts) != 2 {
-		return "", 0, fmt.Errorf("unexpected server version output: %q", string(out))
-	}
-	versionNum, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", 0, fmt.Errorf("parsing server_version_num %q: %w", parts[1], err)
-	}
-	return parts[0], versionNum, nil
-}
-
 func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connectors.Record) error {
-	sv, svNum, err := p.serverVersion(ctx)
+	sv, svNum, err := common.ServerVersion(ctx, p.psqlBin, p.host, p.port, "postgres", p.username, p.pgEnv())
 	if err != nil {
 		return err
 	}
-	m := manifest{
-		Version:          1,
-		CreatedAt:        time.Now().UTC(),
+	return common.EmitManifest(ctx, records, &common.Manifest{
 		Connector:        "postgresql+bin",
 		Host:             p.host,
 		Port:             p.port,
 		ServerVersion:    sv,
 		ServerVersionNum: svNum,
 		DumpFormat:       "basebackup",
-	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return fmt.Errorf("manifest: %w", err)
-	}
-	fileinfo := objects.FileInfo{
-		Lname:    "manifest.json",
-		Lsize:    int64(len(data)),
-		Lmode:    0444,
-		LmodTime: time.Now().UTC(),
-	}
-	readerFunc := func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(data)), nil
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case records <- connectors.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
-	}
-	return nil
+	})
 }
 
 // Import runs pg_basebackup in tar-to-stdout mode and emits one record per

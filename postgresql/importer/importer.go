@@ -3,7 +3,6 @@ package importer
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-postgresql/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -126,64 +126,16 @@ func (p *Importer) pgEnv() []string {
 	return env
 }
 
-type manifestOptions struct {
-	SchemaOnly bool `json:"schema_only"`
-	DataOnly   bool `json:"data_only"`
-	Compress   bool `json:"compress"`
-}
-
-type manifest struct {
-	Version          int             `json:"version"`
-	CreatedAt        time.Time       `json:"created_at"`
-	Connector        string          `json:"connector"`
-	Host             string          `json:"host"`
-	Port             string          `json:"port"`
-	ServerVersion    string          `json:"server_version"`
-	ServerVersionNum int             `json:"server_version_num"`
-	Database         string          `json:"database,omitempty"`
-	DumpFormat       string          `json:"dump_format"`
-	Options          manifestOptions `json:"options"`
-}
-
-func (p *Importer) serverVersion(ctx context.Context) (string, int, error) {
+func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
 	connectDB := p.database
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	args := []string{
-		"-h", p.host, "-p", p.port, "-d", connectDB, "-w",
-		"-t", "-A", "-F", "|", "--no-psqlrc",
-		"-c", "SELECT current_setting('server_version'), current_setting('server_version_num')",
-	}
-	if p.username != "" {
-		args = append(args, "-U", p.username)
-	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
-	cmd.Stdin = nil
-	cmd.Env = p.pgEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		return "", 0, fmt.Errorf("querying server version: %w", err)
-	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 2)
-	if len(parts) != 2 {
-		return "", 0, fmt.Errorf("unexpected server version output: %q", string(out))
-	}
-	versionNum, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", 0, fmt.Errorf("parsing server_version_num %q: %w", parts[1], err)
-	}
-	return parts[0], versionNum, nil
-}
-
-func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
-	sv, svNum, err := p.serverVersion(ctx)
+	sv, svNum, err := common.ServerVersion(ctx, "psql", p.host, p.port, connectDB, p.username, p.pgEnv())
 	if err != nil {
 		return err
 	}
-	m := manifest{
-		Version:          1,
-		CreatedAt:        time.Now().UTC(),
+	return common.EmitManifest(ctx, records, &common.Manifest{
 		Connector:        "postgresql",
 		Host:             p.host,
 		Port:             p.port,
@@ -191,31 +143,12 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 		ServerVersionNum: svNum,
 		Database:         p.database,
 		DumpFormat:       dumpFormat,
-		Options: manifestOptions{
+		Options: &common.ManifestOptions{
 			SchemaOnly: p.schemaOnly,
 			DataOnly:   p.dataOnly,
 			Compress:   p.compress,
 		},
-	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return fmt.Errorf("manifest: %w", err)
-	}
-	fileinfo := objects.FileInfo{
-		Lname:    "manifest.json",
-		Lsize:    int64(len(data)),
-		Lmode:    0444,
-		LmodTime: time.Now().UTC(),
-	}
-	readerFunc := func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(data)), nil
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case records <- connectors.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
-	}
-	return nil
+	})
 }
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
