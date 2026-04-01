@@ -8,7 +8,7 @@
       "type": "string",
       "minLength": 1,
       "description": "Connection URI: postgres+bin://[user[:password]@]host[:port]",
-      "pattern": "^postgres\\+bin://.*$"
+      "pattern": "^postgres\\+bin://"
     },
     "host": {
       "type": "string",

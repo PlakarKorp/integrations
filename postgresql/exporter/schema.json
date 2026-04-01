@@ -7,8 +7,8 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "PostgreSQL connection URI: postgresql://[user[:password]@]host[:port][/database]. If a database path is included, it is used as the target for pg_restore when restoring single-database dumps.",
-      "pattern": "^postgresql://.*$"
+      "description": "PostgreSQL connection URI: postgres://[user[:password]@]host[:port][/database]. If a database path is included, it is used as the target for pg_restore when restoring single-database dumps.",
+      "pattern": "^postgres://.*$"
     },
     "host": {
       "type": "string",

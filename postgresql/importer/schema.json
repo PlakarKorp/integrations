@@ -7,8 +7,8 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "PostgreSQL connection URI: postgresql://[user[:password]@]host[:port][/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up.",
-      "pattern": "^postgresql://.*$"
+      "description": "PostgreSQL connection URI: postgres://[user[:password]@]host[:port][/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up.",
+      "pattern": "^postgres://.*$"
     },
     "host": {
       "type": "string",
