@@ -75,6 +75,7 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_dump` | `pg_dump` | Path to the `pg_dump` binary. |
 | `pg_dumpall` | `pg_dumpall` | Path to the `pg_dumpall` binary. |
+| `psql` | `psql` | Path to the `psql` binary. Used for connectivity checks and server version queries. |
 
 ### Exporter options (`postgres://`)
 

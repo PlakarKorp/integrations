@@ -53,6 +53,11 @@
       "minLength": 1,
       "description": "Path to the pg_dumpall binary (default: pg_dumpall, resolved via $PATH). Also used for the globals-only dump when backing up a single database."
     },
+    "psql": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the psql binary (default: psql, resolved via $PATH). Used for connectivity checks and querying the server version."
+    },
     "compress": {
       "type": "boolean",
       "description": "Enable pg_dump compression (default: false). By default dumps are uncompressed so that Plakar's own compression is not degraded."

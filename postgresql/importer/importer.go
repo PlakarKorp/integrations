@@ -31,6 +31,7 @@ type Importer struct {
 	dataOnly   bool   // pass -a: dump data only
 	pgDump     string
 	pgDumpAll  string
+	psqlBin    string
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -44,6 +45,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		database:  dbPath,
 		pgDump:    "pg_dump",
 		pgDumpAll: "pg_dumpall",
+		psqlBin:   "psql",
 	}
 
 	if db, ok := config["database"]; ok && db != "" {
@@ -54,6 +56,9 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}
 	if v, ok := config["pg_dumpall"]; ok && v != "" {
 		imp.pgDumpAll = v
+	}
+	if v, ok := config["psql"]; ok && v != "" {
+		imp.psqlBin = v
 	}
 	if v, ok := config["compress"]; ok && v != "" {
 		b, err := strconv.ParseBool(v)
@@ -88,7 +93,7 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	sv, svNum, err := manifest.ServerVersion(ctx, "psql", p.conn, connectDB)
+	sv, svNum, err := manifest.ServerVersion(ctx, p.psqlBin, p.conn, connectDB)
 	if err != nil {
 		return err
 	}
@@ -225,7 +230,7 @@ func (r *cmdReader) Close() error {
 }
 
 func (p *Importer) Ping(ctx context.Context) error {
-	return p.conn.Ping(ctx, "psql", p.database)
+	return p.conn.Ping(ctx, p.psqlBin, p.database)
 }
 
 func (p *Importer) Close(ctx context.Context) error { return nil }
