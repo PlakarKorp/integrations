@@ -268,4 +268,25 @@ plakar restore -to @mydb <snapid>
 
 ---
 
+## Open questions
+
+### Compression default
+
+`pg_dump` compression is currently **disabled by default** (`compress=false`)
+so that Plakar's own compression and deduplication can operate on
+uncompressed data.  Pre-compressing the dump would produce an
+incompressible stream, defeating both Plakar's compression ratio and
+its ability to deduplicate chunks across snapshots.
+
+However, the trade-off is not clear-cut.  Depending on the size of the
+database, the network bandwidth between the backup host and the
+PostgreSQL server, and the Plakar store backend in use, it may be more
+efficient to let `pg_dump` compress the stream and simply store it
+opaquely.  More benchmarks across a variety of workloads are needed
+before settling on a final default.
+
+This is something to revisit after more testing.
+
+---
+
 > This integration was mostly vibe-coded with [Claude](https://claude.ai) but has been manually tested and reviewed throughout.
