@@ -39,6 +39,26 @@
       "type": "string",
       "minLength": 1,
       "description": "Path to the psql binary (default: psql, resolved via $PATH)."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+      "description": "SSL mode for the connection, passed via PGSSLMODE (default: prefer)."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
+    },
+    "ssl_root_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
     }
   }
 }

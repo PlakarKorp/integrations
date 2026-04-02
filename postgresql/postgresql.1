@@ -125,6 +125,30 @@ Path to the
 .Xr psql 1
 binary (default:
 .Li psql ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
 .Ss Destination options
 .Bl -tag -width "restore_globals"
@@ -229,6 +253,30 @@ Path to the
 .Xr psql 1
 binary (default:
 .Li psql ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
 .Sh PHYSICAL BACKUP
 .Ss How it works
@@ -294,6 +342,30 @@ Path to the
 .Xr pg_basebackup 1
 binary (default:
 .Li pg_basebackup ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
 .Sh EXAMPLES
 Back up a single database:

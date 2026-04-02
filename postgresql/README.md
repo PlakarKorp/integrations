@@ -76,6 +76,10 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `pg_dump` | `pg_dump` | Path to the `pg_dump` binary. |
 | `pg_dumpall` | `pg_dumpall` | Path to the `pg_dumpall` binary. |
 | `psql` | `psql` | Path to the `psql` binary. Used for connectivity checks and server version queries. |
+| `ssl_mode` | — | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Exporter options (`postgres://`)
 
@@ -93,6 +97,10 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
 | `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |
 | `exit_on_error` | `false` | Stop on the first restore error. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
+| `ssl_mode` | — | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Examples
 
@@ -178,6 +186,10 @@ The PostgreSQL server must have:
 | `username` | — | PostgreSQL replication username. Overrides the URI user. |
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `pg_basebackup` | `pg_basebackup` | Path to the `pg_basebackup` binary. |
+| `ssl_mode` | — | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Restoring a physical backup
 
