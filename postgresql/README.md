@@ -50,94 +50,6 @@ is enabled; `all.sql` is always fed to `psql`.
 - Restore time scales with data volume — large databases take longer than
   a binary restore.
 
-### Manifest
-
-Every logical backup snapshot contains a `/manifest.json` record (schema
-version 2) with metadata collected at backup time.  It is written before
-the dump starts, so it reflects the cluster state at the moment the backup
-was initiated.
-
-**Top-level fields**
-
-| Field | Description |
-|---|---|
-| `version` | Manifest schema version (currently `2`) |
-| `created_at` | Timestamp when the backup started (UTC) |
-| `connector` | Always `"postgresql"` |
-| `host` / `port` | Server coordinates |
-| `server_version` / `server_version_num` | PostgreSQL version string and numeric form |
-| `pg_dump_version` | Version string reported by `pg_dump --version` |
-| `cluster_system_identifier` | Unique cluster ID from `pg_control_system()` — correlates with physical/WAL backups |
-| `in_recovery` | `true` when the backup was taken from a hot-standby replica |
-| `database` | Target database name, or empty for a full-cluster backup |
-| `dump_format` | `"custom"` (single database) or `"sql"` (full cluster) |
-| `options` | `schema_only`, `data_only`, `compress` flags used |
-
-**`cluster_config`** — key server GUCs:
-
-| Field | Description |
-|---|---|
-| `data_directory` | PostgreSQL data directory |
-| `timezone` | Server time zone |
-| `max_connections` | Maximum client connections |
-| `wal_level` | WAL level (`minimal`, `replica`, `logical`) |
-| `server_encoding` | Server character encoding |
-| `data_checksums` | Whether page-level checksums are enabled |
-| `block_size` | Relation block size in bytes |
-| `wal_block_size` | WAL block size in bytes |
-| `shared_preload_libraries` | Libraries loaded at server start (e.g. `pg_partman`, `timescaledb`) |
-| `lc_collate` / `lc_ctype` | Cluster-level locale settings |
-| `archive_mode` | WAL archiving mode |
-| `archive_command` | WAL archive command |
-
-**`roles`** — all PostgreSQL roles with: `superuser`, `replication`,
-`can_login`, `create_db`, `create_role`, `inherit`, `bypass_rls`,
-`connection_limit`, `valid_until`, and `member_of` (list of parent roles).
-
-**`tablespaces`** — all tablespaces with name, owner, filesystem location,
-size in bytes, and storage options.
-
-**`databases`** — one entry per database with: name, owner, encoding,
-collation (`collate`, `ctype`), size in bytes, `default_tablespace`,
-`connection_limit`, installed extensions (name + version + schema), schemas
-(name + owner), and `relations`.
-
-**`relations`** — one entry per relation (ordinary table, partitioned table,
-foreign table, view, materialized view, sequence):
-
-| Field | Description |
-|---|---|
-| `schema` / `name` / `owner` | Relation identity |
-| `persistence` | `p`=permanent, `u`=unlogged, `t`=temp |
-| `kind` | `r`=table, `p`=partitioned, `f`=foreign, `v`=view, `m`=matview, `S`=sequence |
-| `tablespace` | Tablespace name (empty = default) |
-| `row_estimate` | `reltuples` estimate (instant, may be stale before first ANALYZE) |
-| `live_row_estimate` | `n_live_tup` from autovacuum stats |
-| `total_size_bytes` | Heap + indexes + TOAST |
-| `table_size_bytes` | Heap only |
-| `index_size_bytes` | Indexes only |
-| `toast_size_bytes` | TOAST table |
-| `column_count` | Number of user-visible columns |
-| `has_primary_key` / `has_triggers` | Quick flags |
-| `rls_enabled` / `rls_forced` | Row-level security state |
-| `is_partition` / `partition_parent` / `partition_strategy` | Partitioning metadata |
-| `storage_options` | `reloptions` (fill factor, autovacuum overrides, …) |
-| `last_vacuum` / `last_analyze` | Timestamps from `pg_stat_user_tables` |
-| `columns` | Per-column: position, name, type, nullable, default |
-| `constraints` | Per-constraint: name, type code, column names |
-| `indexes` | Per-index: name, method, definition, is_unique, is_primary, is_valid, is_partial, constraint_name, size |
-
-> Row counts are estimates, not exact values.  Exact counts would require a
-> full sequential scan of every table, making the manifest collection as
-> slow as a `SELECT count(*)` across the entire cluster.  Use `row_estimate`
-> or `live_row_estimate` for a quick size sanity-check; run `ANALYZE` first
-> if precision matters.
-
-Metadata collection is best-effort: if a query fails (e.g. the backup user
-lacks `pg_monitor` for `cluster_system_identifier`, or cannot connect to a
-particular database), the affected field is omitted and the backup continues
-normally.
-
 ### Prerequisites
 
 The following PostgreSQL client tools must be in `$PATH` on the machine
@@ -234,12 +146,6 @@ consistent recovery.
 No subpath can be specified in the URI: `pg_basebackup` always backs up
 the entire cluster.
 
-A `/manifest.json` record is written to the snapshot before the backup
-stream begins.  It contains the same cluster-level metadata as a logical
-backup (cluster config, roles, tablespaces, and a basic database list),
-but no per-database relation detail (schemas, tables, columns, indexes),
-since the physical backup already captures every database at the file level.
-
 ### Pros and cons
 
 **Pros**
@@ -324,6 +230,49 @@ docker run --rm -v "$PWD/pgdata:/var/lib/postgresql/data" postgres:17
 plakar restore -to sftp://user@host/var/lib/postgresql/data <snapid>
 # then on the remote host: pg_ctl -D /var/lib/postgresql/data start
 ```
+
+---
+
+## Manifest
+
+Every snapshot written by this integration contains a `/manifest.json` record
+(schema version 2) that is written **before** the backup data begins.  It
+captures the cluster state at the moment the backup was initiated.
+
+Top-level fields include the server version, host, port, `pg_dump_version`
+(logical backups only), `cluster_system_identifier` (unique cluster ID from
+`pg_control_system()`), `in_recovery` (true when the backup was taken from a
+hot standby), target database, dump format, and backup options.
+
+| Field | Description |
+|---|---|
+| `cluster_config` | Key server GUCs: `data_directory`, `timezone`, `max_connections`, `wal_level`, `server_encoding`, `data_checksums`, `block_size`, `wal_block_size`, `shared_preload_libraries`, `lc_collate`, `lc_ctype`, `archive_mode`, `archive_command`. |
+| `roles` | All PostgreSQL roles with `superuser`, `replication`, `can_login`, `create_db`, `create_role`, `inherit`, `bypass_rls`, `connection_limit`, `valid_until`, and `member_of` (list of parent roles). |
+| `tablespaces` | All tablespaces with name, owner, filesystem location, size in bytes, and storage options. |
+| `databases` | One entry per database: name, owner, encoding, collation, size, `default_tablespace`, `connection_limit`, installed extensions (name, version, schema), schemas (name, owner), and a `relations` array. |
+
+The `relations` array covers ordinary tables, partitioned tables, foreign
+tables, views, materialized views, and sequences.  Each entry includes:
+schema, name, owner, persistence, kind, tablespace, row estimates
+(`row_estimate` from `reltuples`, `live_row_estimate` from autovacuum), size
+breakdown (`total_size_bytes` / `table_size_bytes` / `index_size_bytes` /
+`toast_size_bytes`), column count, primary-key and trigger flags, row-level
+security flags, partitioning metadata (`is_partition`, `partition_parent`,
+`partition_strategy`), storage options (reloptions), last vacuum and analyze
+timestamps, `columns` (position, name, type, nullable, default), `constraints`
+(name, type code, column names), and `indexes` (name, method, definition,
+`is_unique`, `is_primary`, `is_valid`, `is_partial`, `constraint_name`, size).
+
+Row counts are estimates from `reltuples` (`pg_class`) and `n_live_tup`
+(`pg_stat_user_tables`), not exact values.
+
+**Note:** physical backups (`postgres+bin://`) include cluster-level metadata
+(config, roles, tablespaces, and a basic database list) but **not**
+per-database relation detail (schemas, tables, columns, indexes), since the
+physical backup already captures every database at the file level.
+
+Metadata collection is best-effort: if a query fails the affected field is
+omitted and the backup continues normally.
 
 ---
 
