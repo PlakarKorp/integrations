@@ -220,6 +220,28 @@ func splitArray(s string) []string {
 
 // --- Public query functions ---
 
+// CollectClusterMetadata populates the cluster-level fields of m
+// (ClusterSystemIdentifier, InRecovery, ClusterConfig, Roles, Tablespaces,
+// and a basic Databases list) by connecting to connectDB.  Individual query
+// failures are silently ignored so that partial metadata never aborts a
+// backup.
+func CollectClusterMetadata(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string, m *Manifest) {
+	m.ClusterSystemIdentifier = QueryClusterSystemID(ctx, psqlBin, conn, connectDB)
+	m.InRecovery = QueryInRecovery(ctx, psqlBin, conn, connectDB)
+	if cfg, err := QueryClusterConfig(ctx, psqlBin, conn, connectDB); err == nil {
+		m.ClusterConfig = &cfg
+	}
+	if roles, err := QueryRoles(ctx, psqlBin, conn, connectDB); err == nil {
+		m.Roles = roles
+	}
+	if tss, err := QueryTablespaces(ctx, psqlBin, conn, connectDB); err == nil {
+		m.Tablespaces = tss
+	}
+	if dbs, err := QueryDatabases(ctx, psqlBin, conn, connectDB); err == nil {
+		m.Databases = dbs
+	}
+}
+
 // PgDumpVersion returns the version string reported by pg_dump --version,
 // e.g. "pg_dump (PostgreSQL) 16.2".  Returns an empty string on error.
 func PgDumpVersion(pgDumpBin string) string {
