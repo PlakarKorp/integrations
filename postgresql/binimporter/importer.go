@@ -60,14 +60,35 @@ func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connecto
 	if err != nil {
 		return err
 	}
-	return manifest.EmitManifest(ctx, records, &manifest.Manifest{
+
+	m := &manifest.Manifest{
 		Connector:        "postgresql+bin",
 		Host:             p.conn.Host,
 		Port:             p.conn.Port,
 		ServerVersion:    sv,
 		ServerVersionNum: svNum,
 		DumpFormat:       "basebackup",
-	})
+	}
+
+	// Collect cluster-level metadata.  Failures are non-fatal.
+	m.ClusterSystemIdentifier = manifest.QueryClusterSystemID(ctx, p.psqlBin, p.conn, "postgres")
+	m.InRecovery = manifest.QueryInRecovery(ctx, p.psqlBin, p.conn, "postgres")
+	if cfg, err := manifest.QueryClusterConfig(ctx, p.psqlBin, p.conn, "postgres"); err == nil {
+		m.ClusterConfig = &cfg
+	}
+	if roles, err := manifest.QueryRoles(ctx, p.psqlBin, p.conn, "postgres"); err == nil {
+		m.Roles = roles
+	}
+	if tss, err := manifest.QueryTablespaces(ctx, p.psqlBin, p.conn, "postgres"); err == nil {
+		m.Tablespaces = tss
+	}
+	// Include the basic database list (no per-database detail: the physical
+	// backup already captures every database at the file level).
+	if dbs, err := manifest.QueryDatabases(ctx, p.psqlBin, p.conn, "postgres"); err == nil {
+		m.Databases = dbs
+	}
+
+	return manifest.EmitManifest(ctx, records, m)
 }
 
 // Import runs pg_basebackup in tar-to-stdout mode and emits one record per

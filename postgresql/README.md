@@ -234,6 +234,12 @@ consistent recovery.
 No subpath can be specified in the URI: `pg_basebackup` always backs up
 the entire cluster.
 
+A `/manifest.json` record is written to the snapshot before the backup
+stream begins.  It contains the same cluster-level metadata as a logical
+backup (cluster config, roles, tablespaces, and a basic database list),
+but no per-database relation detail (schemas, tables, columns, indexes),
+since the physical backup already captures every database at the file level.
+
 ### Pros and cons
 
 **Pros**
