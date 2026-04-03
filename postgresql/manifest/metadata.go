@@ -165,8 +165,13 @@ func queryRows(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, dbna
 	cmd := exec.CommandContext(ctx, psqlBin, args...)
 	cmd.Stdin = nil
 	cmd.Env = conn.Env()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if s := strings.TrimSpace(stderr.String()); s != "" {
+			return nil, fmt.Errorf("%w: %s", err, s)
+		}
 		return nil, err
 	}
 	var rows [][]string
