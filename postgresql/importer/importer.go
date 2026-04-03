@@ -125,6 +125,10 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 // canReadPgAuthid checks whether the connected user can read pg_authid.
 // Superusers can; RDS and other restricted environments cannot.
 // The result is used to decide whether to pass --no-role-passwords to pg_dumpall.
+//
+// Only a "permission denied for … pg_authid" failure returns false.  Any other
+// failure (bad credentials, DNS error, server down) returns true so that
+// pg_dumpall runs without --no-role-passwords and surfaces the real error itself.
 func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
 	connectDB := p.database
 	if connectDB == "" {
@@ -138,7 +142,12 @@ func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
 	cmd.Stdin = nil
 	cmd.Env = p.conn.Env()
-	return cmd.Run() == nil
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return true
+	}
+	s := string(out)
+	return !(strings.Contains(s, "permission denied") && strings.Contains(s, "pg_authid"))
 }
 
 // noRolePasswordsArgs returns --no-role-passwords appended to args when the
