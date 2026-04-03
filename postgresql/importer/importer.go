@@ -136,6 +136,7 @@ func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
 		"-c", "SELECT 1 FROM pg_authid LIMIT 1",
 	)
 	cmd := exec.CommandContext(ctx, p.psqlBin, args...)
+	cmd.Stdin = nil
 	cmd.Env = p.conn.Env()
 	return cmd.Run() == nil
 }
