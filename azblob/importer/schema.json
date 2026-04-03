@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Azure Blob Importer Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Azure Blob location URI: azblob://<container>/<optional-prefix>",
+      "pattern": "^azblob://[^/]+(/.*)?$"
+    },
+    "connection_string": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Azure Blob Storage connection string"
+    },
+    "account_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Azure Storage account name"
+    },
+    "account_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Azure Storage account key"
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Azure Blob service endpoint, for example https://<account>.blob.core.windows.net or an Azurite endpoint"
+    },
+    "no_auth": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable authentication, useful for public blobs or specific emulator/test setups"
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "location",
+        "connection_string"
+      ]
+    },
+    {
+      "required": [
+        "location",
+        "account_name",
+        "account_key"
+      ]
+    },
+    {
+      "required": [
+        "location",
+        "endpoint",
+        "no_auth"
+      ],
+      "properties": {
+        "no_auth": {
+          "const": true
+        }
+      }
+    }
+  ]
+}

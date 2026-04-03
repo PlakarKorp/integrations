@@ -1,0 +1,28 @@
+name: azblob
+display_name: Azure Blob Storage
+description: Integration providing storage, import and export capabilities to and from/to containers hosted on Azure Blob Storage.
+homepage: https://github.com/PlakarKorp/integration-azblob
+license: ISC
+api_version: v1.1.0
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+- type: importer
+  executable: azblob-importer
+  protocols: [azblob]
+  class: object-storage
+  subclass: azblob
+  validator: ./importer/schema.json
+- type: exporter
+  executable: azblob-exporter
+  protocols: [azblob]
+  class: object-storage
+  subclass: azblob
+  validator: ./exporter/schema.json
+- type: storage
+  executable: azblob-storage
+  protocols: [azblob]
+  class: object-storage
+  subclass: azblob
+  validator: ./storage/schema.json
+
