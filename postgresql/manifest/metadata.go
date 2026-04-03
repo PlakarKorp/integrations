@@ -347,7 +347,8 @@ func queryRoles(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, con
 	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
 		`SELECT rolname, rolsuper, rolreplication, rolcanlogin, rolcreatedb, `+
 			`rolcreaterole, rolinherit, rolbypassrls, rolconnlimit, `+
-			`COALESCE(EXTRACT(EPOCH FROM rolvaliduntil)::bigint, -1) `+
+			`CASE WHEN rolvaliduntil IS NULL OR rolvaliduntil = 'infinity'::timestamptz `+
+			`THEN -1 ELSE EXTRACT(EPOCH FROM rolvaliduntil)::bigint END `+
 			`FROM pg_roles ORDER BY rolname`)
 	if err != nil {
 		return nil, fmt.Errorf("query roles: %w", err)
