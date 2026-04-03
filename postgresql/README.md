@@ -60,6 +60,13 @@ running Plakar (typically provided by the `postgresql-client` package):
 - `pg_restore` — single-database restore
 - `psql` — full-server restore and connectivity checks
 
+The backup user should be a **superuser** so that `pg_dumpall` can include
+role passwords from `pg_authid`.  On managed services such as Amazon RDS the
+administrative user (e.g. `postgres`) is a *restricted* superuser that cannot
+read `pg_authid`.  In that case the importer automatically falls back to
+`--no-role-passwords` and logs a warning — the dump is otherwise complete, but
+restored roles will have no password set.
+
 ### Importer options (`postgres://`)
 
 | Parameter | Default | Description |
@@ -76,6 +83,10 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `pg_dump` | `pg_dump` | Path to the `pg_dump` binary. |
 | `pg_dumpall` | `pg_dumpall` | Path to the `pg_dumpall` binary. |
 | `psql` | `psql` | Path to the `psql` binary. Used for connectivity checks and server version queries. |
+| `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Exporter options (`postgres://`)
 
@@ -93,6 +104,10 @@ running Plakar (typically provided by the `postgresql-client` package):
 | `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
 | `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |
 | `exit_on_error` | `false` | Stop on the first restore error. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
+| `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Examples
 
@@ -178,6 +193,10 @@ The PostgreSQL server must have:
 | `username` | — | PostgreSQL replication username. Overrides the URI user. |
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `pg_basebackup` | `pg_basebackup` | Path to the `pg_basebackup` binary. |
+| `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
 ### Restoring a physical backup
 
@@ -218,6 +237,47 @@ docker run --rm -v "$PWD/pgdata:/var/lib/postgresql/data" postgres:17
 plakar restore -to sftp://user@host/var/lib/postgresql/data <snapid>
 # then on the remote host: pg_ctl -D /var/lib/postgresql/data start
 ```
+
+---
+
+## Manifest
+
+Every snapshot written by this integration contains a `/manifest.json` record
+(schema version 2) that is written **before** the backup data begins.  It
+captures the cluster state at the moment the backup was initiated.
+
+Top-level fields include the server version, host, port, `pg_dump_version`
+(logical backups only), `cluster_system_identifier` (unique cluster ID from
+`pg_control_system()`), `in_recovery` (true when the backup was taken from a
+hot standby), target database, dump format, and backup options.
+
+| Field | Description |
+|---|---|
+| `cluster_config` | Key server GUCs: `data_directory`, `timezone`, `max_connections`, `wal_level`, `server_encoding`, `data_checksums`, `block_size`, `wal_block_size`, `shared_preload_libraries`, `lc_collate`, `lc_ctype`, `archive_mode`, `archive_command_set` (boolean — the command itself is not stored to avoid leaking credentials). |
+| `roles` | All PostgreSQL roles with `superuser`, `replication`, `can_login`, `create_db`, `create_role`, `inherit`, `bypass_rls`, `connection_limit`, `valid_until`, and `member_of` (list of parent roles). |
+| `tablespaces` | All tablespaces with name, owner, filesystem location, and storage options. |
+| `databases` | One entry per database: name, owner, encoding, collation, `default_tablespace`, `connection_limit`, installed extensions (name, version, schema), schemas (name, owner), and a `relations` array. |
+
+The `relations` array covers ordinary tables, partitioned tables, foreign
+tables, views, materialized views, and sequences.  Each entry includes:
+schema, name, owner, persistence, kind, tablespace, row estimates
+(`row_estimate` from `reltuples`, `live_row_estimate` from autovacuum),
+column count, primary-key and trigger flags, row-level security flags,
+partitioning metadata (`is_partition`, `partition_parent`,
+`partition_strategy`), storage options (reloptions), last vacuum and analyze
+timestamps, `columns` (position, name, type, nullable, default), `constraints`
+(name, type code, column names), and `indexes` (name, method, definition,
+`is_unique`, `is_primary`, `is_valid`, `is_partial`, `constraint_name`).
+
+Row counts are estimates from `reltuples` (`pg_class`) and `n_live_tup`
+(`pg_stat_user_tables`), not exact values.
+
+Both `postgres://` and `postgres+bin://` produce the full manifest including
+per-database relation detail.  The manifest also records `pg_dump_version`
+(logical backups) or `pg_basebackup_version` (physical backups).
+
+Metadata collection is best-effort: if a query fails the affected field is
+omitted and the backup continues normally.
 
 ---
 

@@ -29,7 +29,7 @@ When a
 .Ar database
 is specified the source connector runs
 .Xr pg_dump 1
-.Fl Fc
+.Fl F Ns Li c
 to produce a custom-format dump
 .Pq Li <dbname>.dump
 and
@@ -68,6 +68,19 @@ Restoring single-database dumps.
 .It psql
 Restoring full-server dumps and connectivity checks.
 .El
+.Pp
+The backup user should be a superuser so that
+.Xr pg_dumpall 1
+can read
+.Li pg_authid
+and include role passwords.
+On managed services such as Amazon RDS the administrative user is a
+restricted superuser that cannot read
+.Li pg_authid .
+The importer detects this automatically and falls back to
+.Fl -no-role-passwords ,
+and logs a warning.
+The dump is otherwise complete, but restored roles will have no password set.
 .Ss Source options
 .Bl -tag -width "schema_only"
 .It Ar location
@@ -125,6 +138,30 @@ Path to the
 .Xr psql 1
 binary (default:
 .Li psql ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
 .Ss Destination options
 .Bl -tag -width "restore_globals"
@@ -229,7 +266,123 @@ Path to the
 .Xr psql 1
 binary (default:
 .Li psql ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
+.Sh MANIFEST
+Every snapshot produced by this integration contains a
+.Pa /manifest.json
+record (schema version 2) written before the backup data begins.
+It captures the cluster state at the moment the backup was initiated.
+.Pp
+Top-level fields include the server version, host, port,
+.Li pg_dump_version
+.Pq logical backups ,
+.Li pg_basebackup_version
+.Pq physical backups ,
+.Li cluster_system_identifier
+.Pq unique cluster ID from pg_control_system() ,
+.Li in_recovery
+.Pq true when backup was taken from a hot standby ,
+target database, dump format, and backup options.
+.Bl -tag -width "cluster_config"
+.It Li cluster_config
+Key server GUCs:
+.Li data_directory ,
+.Li timezone ,
+.Li max_connections ,
+.Li wal_level ,
+.Li server_encoding ,
+.Li data_checksums ,
+.Li block_size ,
+.Li wal_block_size ,
+.Li shared_preload_libraries ,
+.Li lc_collate ,
+.Li lc_ctype ,
+.Li archive_mode ,
+.Li archive_command_set
+.Pq boolean; the command itself is not stored to avoid leaking credentials .
+.It Li roles
+All PostgreSQL roles with:
+.Li superuser ,
+.Li replication ,
+.Li can_login ,
+.Li create_db ,
+.Li create_role ,
+.Li inherit ,
+.Li bypass_rls ,
+.Li connection_limit ,
+.Li valid_until ,
+and
+.Li member_of
+.Pq list of parent roles .
+.It Li tablespaces
+All tablespaces with name, owner, filesystem location, and storage options.
+.It Li databases
+One entry per database: name, owner, encoding, collation,
+.Li default_tablespace ,
+.Li connection_limit ,
+installed extensions
+.Pq name, version, schema ,
+schemas
+.Pq name, owner ,
+and a
+.Li relations
+array.
+.It Li relations
+One entry per relation (ordinary table, partitioned table, foreign table,
+view, materialized view, sequence).
+Each entry carries: schema, name, owner, persistence, kind, tablespace,
+row estimates
+.Pq Li row_estimate No from Li reltuples No and Li live_row_estimate No from autovacuum ,
+column count, primary-key and trigger flags, row-level security flags,
+partitioning metadata
+.Pq Li is_partition No / Li partition_parent No / Li partition_strategy ,
+storage options
+.Pq reloptions ,
+last vacuum and analyze timestamps,
+.Li columns
+.Pq position, name, type, nullable, default ,
+.Li constraints
+.Pq name, type code, column names ,
+and
+.Li indexes
+.Pq name, method, definition, is_unique, is_primary, is_valid, is_partial, constraint_name .
+.El
+.Pp
+Row counts are estimates from
+.Li reltuples
+.Pq pg_class
+and
+.Li n_live_tup
+.Pq pg_stat_user_tables ,
+not exact values.
+Exact counts would require a full sequential scan of every table.
+.Pp
+Metadata collection is best-effort: if a query fails the affected field is
+omitted and the backup continues normally.
 .Sh PHYSICAL BACKUP
 .Ss How it works
 The source connector runs
@@ -244,6 +397,18 @@ in the snapshot.
 No subpath may be specified in the URI:
 .Xr pg_basebackup 1
 always backs up the entire cluster.
+.Pp
+A
+.Pa /manifest.json
+record is written to the snapshot before the backup stream begins.
+It contains the same full metadata as a logical backup: cluster config,
+roles, tablespaces, database list, and per-database relation detail
+.Pq schemas, tables, columns, indexes .
+The
+.Li pg_basebackup_version
+field records the version of
+.Xr pg_basebackup 1
+used.
 .Pp
 There is no dedicated destination connector.
 The snapshot contains plain files and can be restored with any
@@ -294,6 +459,30 @@ Path to the
 .Xr pg_basebackup 1
 binary (default:
 .Li pg_basebackup ) .
+.It Ar ssl_mode
+SSL mode for the connection (default:
+.Li prefer ) .
+Accepted values:
+.Li disable ,
+.Li allow ,
+.Li prefer ,
+.Li require ,
+.Li verify-ca ,
+.Li verify-full .
+Passed via
+.Ev PGSSLMODE .
+.It Ar ssl_cert
+Path to the client SSL certificate file (PEM format).
+Passed via
+.Ev PGSSLCERT .
+.It Ar ssl_key
+Path to the client SSL private key file (PEM format).
+Passed via
+.Ev PGSSLKEY .
+.It Ar ssl_root_cert
+Path to the root CA certificate used to verify the server (PEM format).
+Passed via
+.Ev PGSSLROOTCERT .
 .El
 .Sh EXAMPLES
 Back up a single database:

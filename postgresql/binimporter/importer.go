@@ -56,18 +56,11 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 }
 
 func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connectors.Record) error {
-	sv, svNum, err := manifest.ServerVersion(ctx, p.psqlBin, p.conn, "postgres")
-	if err != nil {
-		return err
-	}
-	return manifest.EmitManifest(ctx, records, &manifest.Manifest{
-		Connector:        "postgresql+bin",
-		Host:             p.conn.Host,
-		Port:             p.conn.Port,
-		ServerVersion:    sv,
-		ServerVersionNum: svNum,
-		DumpFormat:       "basebackup",
-	})
+	return manifest.EmitPhysicalManifest(ctx, manifest.PhysicalConfig{
+		PSQLBin:         p.psqlBin,
+		PgBaseBackupBin: p.pgBaseBackup,
+		Conn:            p.conn,
+	}, records)
 }
 
 // Import runs pg_basebackup in tar-to-stdout mode and emits one record per

@@ -15,6 +15,11 @@ type ConnConfig struct {
 	Port     string
 	Username string
 	Password string
+
+	SSLMode     string // disable, allow, prefer, require, verify-ca, verify-full
+	SSLCert     string // path to client certificate file (PEM)
+	SSLKey      string // path to client private key file (PEM)
+	SSLRootCert string // path to root CA certificate file (PEM)
 }
 
 // ParseConnConfig parses host, port, username, and password from the "location"
@@ -65,6 +70,23 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 	if p, ok := config["password"]; ok && p != "" {
 		c.Password = p
 	}
+	if v, ok := config["ssl_mode"]; ok && v != "" {
+		switch v {
+		case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+			c.SSLMode = v
+		default:
+			return ConnConfig{}, "", fmt.Errorf("ssl_mode: invalid value %q (accepted: disable, allow, prefer, require, verify-ca, verify-full)", v)
+		}
+	}
+	if v, ok := config["ssl_cert"]; ok && v != "" {
+		c.SSLCert = v
+	}
+	if v, ok := config["ssl_key"]; ok && v != "" {
+		c.SSLKey = v
+	}
+	if v, ok := config["ssl_root_cert"]; ok && v != "" {
+		c.SSLRootCert = v
+	}
 
 	return c, dbPath, nil
 }
@@ -79,12 +101,24 @@ func (c ConnConfig) Args() []string {
 	return args
 }
 
-// Env returns the current process environment with PGPASSWORD injected when
-// a password is configured.
+// Env returns the current process environment with PostgreSQL authentication
+// and TLS variables injected when configured.
 func (c ConnConfig) Env() []string {
 	env := os.Environ()
 	if c.Password != "" {
 		env = append(env, "PGPASSWORD="+c.Password)
+	}
+	if c.SSLMode != "" {
+		env = append(env, "PGSSLMODE="+c.SSLMode)
+	}
+	if c.SSLCert != "" {
+		env = append(env, "PGSSLCERT="+c.SSLCert)
+	}
+	if c.SSLKey != "" {
+		env = append(env, "PGSSLKEY="+c.SSLKey)
+	}
+	if c.SSLRootCert != "" {
+		env = append(env, "PGSSLROOTCERT="+c.SSLRootCert)
 	}
 	return env
 }
