@@ -71,7 +71,12 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 		c.Password = p
 	}
 	if v, ok := config["ssl_mode"]; ok && v != "" {
-		c.SSLMode = v
+		switch v {
+		case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+			c.SSLMode = v
+		default:
+			return ConnConfig{}, "", fmt.Errorf("ssl_mode: invalid value %q (accepted: disable, allow, prefer, require, verify-ca, verify-full)", v)
+		}
 	}
 	if v, ok := config["ssl_cert"]; ok && v != "" {
 		c.SSLCert = v
