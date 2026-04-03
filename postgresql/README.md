@@ -255,20 +255,19 @@ hot standby), target database, dump format, and backup options.
 |---|---|
 | `cluster_config` | Key server GUCs: `data_directory`, `timezone`, `max_connections`, `wal_level`, `server_encoding`, `data_checksums`, `block_size`, `wal_block_size`, `shared_preload_libraries`, `lc_collate`, `lc_ctype`, `archive_mode`, `archive_command_set` (boolean — the command itself is not stored to avoid leaking credentials). |
 | `roles` | All PostgreSQL roles with `superuser`, `replication`, `can_login`, `create_db`, `create_role`, `inherit`, `bypass_rls`, `connection_limit`, `valid_until`, and `member_of` (list of parent roles). |
-| `tablespaces` | All tablespaces with name, owner, filesystem location, size in bytes, and storage options. |
-| `databases` | One entry per database: name, owner, encoding, collation, size, `default_tablespace`, `connection_limit`, installed extensions (name, version, schema), schemas (name, owner), and a `relations` array. |
+| `tablespaces` | All tablespaces with name, owner, filesystem location, and storage options. |
+| `databases` | One entry per database: name, owner, encoding, collation, `default_tablespace`, `connection_limit`, installed extensions (name, version, schema), schemas (name, owner), and a `relations` array. |
 
 The `relations` array covers ordinary tables, partitioned tables, foreign
 tables, views, materialized views, and sequences.  Each entry includes:
 schema, name, owner, persistence, kind, tablespace, row estimates
-(`row_estimate` from `reltuples`, `live_row_estimate` from autovacuum), size
-breakdown (`total_size_bytes` / `table_size_bytes` / `index_size_bytes` /
-`toast_size_bytes`), column count, primary-key and trigger flags, row-level
-security flags, partitioning metadata (`is_partition`, `partition_parent`,
+(`row_estimate` from `reltuples`, `live_row_estimate` from autovacuum),
+column count, primary-key and trigger flags, row-level security flags,
+partitioning metadata (`is_partition`, `partition_parent`,
 `partition_strategy`), storage options (reloptions), last vacuum and analyze
 timestamps, `columns` (position, name, type, nullable, default), `constraints`
 (name, type code, column names), and `indexes` (name, method, definition,
-`is_unique`, `is_primary`, `is_valid`, `is_partial`, `constraint_name`, size).
+`is_unique`, `is_primary`, `is_valid`, `is_partial`, `constraint_name`).
 
 Row counts are estimates from `reltuples` (`pg_class`) and `n_live_tup`
 (`pg_stat_user_tables`), not exact values.

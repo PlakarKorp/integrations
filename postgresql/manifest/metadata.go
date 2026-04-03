@@ -56,11 +56,10 @@ type Role struct {
 
 // Tablespace describes a PostgreSQL tablespace.
 type Tablespace struct {
-	Name      string   `json:"name"`
-	Owner     string   `json:"owner"`
-	Location  string   `json:"location"`
-	SizeBytes int64    `json:"size_bytes"`
-	Options   []string `json:"options,omitempty"` // e.g. seq_page_cost=1.1
+	Name     string   `json:"name"`
+	Owner    string   `json:"owner"`
+	Location string   `json:"location"`
+	Options  []string `json:"options,omitempty"` // e.g. seq_page_cost=1.1
 }
 
 // Extension describes an installed PostgreSQL extension.
@@ -105,7 +104,6 @@ type IndexInfo struct {
 	IsValid        bool   `json:"is_valid"`
 	IsPartial      bool   `json:"is_partial"` // has a WHERE predicate
 	ConstraintName string `json:"constraint_name,omitempty"`
-	SizeBytes      int64  `json:"size_bytes"`
 }
 
 // RelationInfo describes any pg_class relation: ordinary table, partitioned
@@ -119,12 +117,8 @@ type RelationInfo struct {
 	Persistence       string           `json:"persistence"`          // p=permanent, u=unlogged, t=temp
 	Kind              string           `json:"kind"`                  // see above
 	Tablespace        string           `json:"tablespace,omitempty"`
-	RowEstimate       int64            `json:"row_estimate"`          // reltuples (fast, may be stale)
-	LiveRowEstimate   int64            `json:"live_row_estimate"`     // n_live_tup from autovacuum
-	TotalSizeBytes    int64            `json:"total_size_bytes"`      // heap + indexes + toast
-	TableSizeBytes    int64            `json:"table_size_bytes"`      // heap only
-	IndexSizeBytes    int64            `json:"index_size_bytes"`
-	ToastSizeBytes    int64            `json:"toast_size_bytes"`
+	RowEstimate       int64            `json:"row_estimate"`      // reltuples (fast, may be stale)
+	LiveRowEstimate   int64            `json:"live_row_estimate"` // n_live_tup from autovacuum
 	ColumnCount       int              `json:"column_count"`
 	HasPrimaryKey     bool             `json:"has_primary_key"`
 	HasTriggers       bool             `json:"has_triggers"`
@@ -150,7 +144,6 @@ type DatabaseInfo struct {
 	CType             string         `json:"ctype"`
 	AllowConn         bool           `json:"allow_conn"`
 	IsTemplate        bool           `json:"is_template"`
-	SizeBytes         int64          `json:"size_bytes"`
 	DefaultTablespace string         `json:"default_tablespace,omitempty"`
 	ConnectionLimit   int            `json:"connection_limit"` // -1 = no limit
 	Extensions        []Extension    `json:"extensions,omitempty"`
@@ -403,7 +396,6 @@ func queryTablespaces(ctx context.Context, psqlBin string, conn pgconn.ConnConfi
 	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
 		`SELECT spcname, pg_get_userbyid(spcowner), `+
 			`pg_tablespace_location(oid), `+
-			`COALESCE(pg_tablespace_size(oid), 0), `+
 			`COALESCE(array_to_string(spcoptions, chr(2)), '') `+
 			`FROM pg_tablespace ORDER BY spcname`)
 	if err != nil {
@@ -411,15 +403,14 @@ func queryTablespaces(ctx context.Context, psqlBin string, conn pgconn.ConnConfi
 	}
 	var tss []Tablespace
 	for _, r := range rows {
-		if len(r) < 5 {
+		if len(r) < 4 {
 			continue
 		}
 		tss = append(tss, Tablespace{
-			Name:      r[0],
-			Owner:     r[1],
-			Location:  r[2],
-			SizeBytes: parseInt64(r[3]),
-			Options:   splitArray(r[4]),
+			Name:     r[0],
+			Owner:    r[1],
+			Location: r[2],
+			Options:  splitArray(r[3]),
 		})
 	}
 	return tss, nil
@@ -432,7 +423,6 @@ func queryDatabases(ctx context.Context, psqlBin string, conn pgconn.ConnConfig,
 	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
 		`SELECT d.datname, pg_get_userbyid(d.datdba), pg_encoding_to_char(d.encoding), `+
 			`d.datcollate, d.datctype, d.datallowconn, d.datistemplate, `+
-			`COALESCE(pg_database_size(d.datname), 0), `+
 			`d.datconnlimit, `+
 			`COALESCE(ts.spcname, 'pg_default') `+
 			`FROM pg_database d `+
@@ -443,7 +433,7 @@ func queryDatabases(ctx context.Context, psqlBin string, conn pgconn.ConnConfig,
 	}
 	var dbs []DatabaseInfo
 	for _, r := range rows {
-		if len(r) < 10 {
+		if len(r) < 9 {
 			continue
 		}
 		dbs = append(dbs, DatabaseInfo{
@@ -454,9 +444,8 @@ func queryDatabases(ctx context.Context, psqlBin string, conn pgconn.ConnConfig,
 			CType:             r[4],
 			AllowConn:         parseBool(r[5]),
 			IsTemplate:        parseBool(r[6]),
-			SizeBytes:         parseInt64(r[7]),
-			ConnectionLimit:   parseInt(r[8]),
-			DefaultTablespace: r[9],
+			ConnectionLimit:   parseInt(r[7]),
+			DefaultTablespace: r[8],
 		})
 	}
 	return dbs, nil
@@ -524,10 +513,6 @@ SELECT
   c.relkind,
   GREATEST(c.reltuples::bigint, 0),
   COALESCE(s.n_live_tup, 0),
-  COALESCE(pg_total_relation_size(c.oid), 0),
-  COALESCE(pg_relation_size(c.oid), 0),
-  COALESCE(pg_indexes_size(c.oid), 0),
-  CASE WHEN c.reltoastrelid <> 0 THEN COALESCE(pg_total_relation_size(c.reltoastrelid), 0) ELSE 0 END,
   EXISTS(SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'p'),
   c.relhastriggers,
   c.relrowsecurity,
@@ -567,7 +552,7 @@ ORDER BY n.nspname, c.relname`)
 
 	relIdx := make(map[string]int) // "schema.name" → position in db.Relations
 	for _, r := range relRows {
-		if len(r) < 22 {
+		if len(r) < 18 {
 			continue
 		}
 		rel := RelationInfo{
@@ -578,21 +563,17 @@ ORDER BY n.nspname, c.relname`)
 			Kind:              r[4],
 			RowEstimate:       parseInt64(r[5]),
 			LiveRowEstimate:   parseInt64(r[6]),
-			TotalSizeBytes:    parseInt64(r[7]),
-			TableSizeBytes:    parseInt64(r[8]),
-			IndexSizeBytes:    parseInt64(r[9]),
-			ToastSizeBytes:    parseInt64(r[10]),
-			HasPrimaryKey:     parseBool(r[11]),
-			HasTriggers:       parseBool(r[12]),
-			RLSEnabled:        parseBool(r[13]),
-			RLSForced:         parseBool(r[14]),
-			IsPartition:       parseBool(r[15]),
-			StorageOptions:    splitArray(r[16]),
-			PartitionParent:   r[17],
-			PartitionStrategy: r[18],
-			Tablespace:        r[19],
-			LastVacuum:        parseEpoch(r[20]),
-			LastAnalyze:       parseEpoch(r[21]),
+			HasPrimaryKey:     parseBool(r[7]),
+			HasTriggers:       parseBool(r[8]),
+			RLSEnabled:        parseBool(r[9]),
+			RLSForced:         parseBool(r[10]),
+			IsPartition:       parseBool(r[11]),
+			StorageOptions:    splitArray(r[12]),
+			PartitionParent:   r[13],
+			PartitionStrategy: r[14],
+			Tablespace:        r[15],
+			LastVacuum:        parseEpoch(r[16]),
+			LastAnalyze:       parseEpoch(r[17]),
 		}
 		relIdx[r[0]+"."+r[1]] = len(db.Relations)
 		db.Relations = append(db.Relations, rel)
@@ -696,8 +677,7 @@ SELECT
   i.indisprimary,
   i.indisvalid,
   i.indpred IS NOT NULL,
-  COALESCE((SELECT con.conname FROM pg_constraint con WHERE con.conindid = c.oid LIMIT 1), ''),
-  COALESCE(pg_relation_size(c.oid), 0)
+  COALESCE((SELECT con.conname FROM pg_constraint con WHERE con.conindid = c.oid LIMIT 1), '')
 FROM pg_indexes ix
 JOIN pg_class c ON c.relname = ix.indexname
 JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = ix.schemaname
@@ -710,7 +690,7 @@ ORDER BY ix.schemaname, ix.tablename, ix.indexname`)
 		return fmt.Errorf("query indexes for %s: %w", db.Name, err)
 	}
 	for _, r := range idxRows {
-		if len(r) < 11 {
+		if len(r) < 10 {
 			continue
 		}
 		idx, ok := relIdx[r[0]+"."+r[1]]
@@ -726,7 +706,6 @@ ORDER BY ix.schemaname, ix.tablename, ix.indexname`)
 			IsValid:        parseBool(r[7]),
 			IsPartial:      parseBool(r[8]),
 			ConstraintName: r[9],
-			SizeBytes:      parseInt64(r[10]),
 		})
 	}
 

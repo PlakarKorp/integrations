@@ -339,10 +339,9 @@ and
 .Li member_of
 .Pq list of parent roles .
 .It Li tablespaces
-All tablespaces with name, owner, filesystem location, size in bytes,
-and storage options.
+All tablespaces with name, owner, filesystem location, and storage options.
 .It Li databases
-One entry per database: name, owner, encoding, collation, size,
+One entry per database: name, owner, encoding, collation,
 .Li default_tablespace ,
 .Li connection_limit ,
 installed extensions
@@ -358,8 +357,6 @@ view, materialized view, sequence).
 Each entry carries: schema, name, owner, persistence, kind, tablespace,
 row estimates
 .Pq Li row_estimate No from Li reltuples No and Li live_row_estimate No from autovacuum ,
-size breakdown
-.Pq Li total_size_bytes No / Li table_size_bytes No / Li index_size_bytes No / Li toast_size_bytes ,
 column count, primary-key and trigger flags, row-level security flags,
 partitioning metadata
 .Pq Li is_partition No / Li partition_parent No / Li partition_strategy ,
@@ -372,7 +369,7 @@ last vacuum and analyze timestamps,
 .Pq name, type code, column names ,
 and
 .Li indexes
-.Pq name, method, definition, is_unique, is_primary, is_valid, is_partial, constraint_name, size .
+.Pq name, method, definition, is_unique, is_primary, is_valid, is_partial, constraint_name .
 .El
 .Pp
 Row counts are estimates from
