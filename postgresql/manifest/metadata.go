@@ -559,6 +559,7 @@ LEFT JOIN pg_tablespace ts ON ts.oid = c.reltablespace
 WHERE c.relkind IN ('r','p','f','m','v','S')
   AND n.nspname NOT IN ('pg_catalog','information_schema')
   AND n.nspname NOT LIKE 'pg_toast%'
+  AND n.nspname NOT LIKE 'pg_temp%'
 ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		return fmt.Errorf("query relations for %s: %w", db.Name, err)
@@ -616,6 +617,7 @@ WHERE a.attnum > 0
   AND c.relkind IN ('r','p','f','m','v','S')
   AND n.nspname NOT IN ('pg_catalog','information_schema')
   AND n.nspname NOT LIKE 'pg_toast%'
+  AND n.nspname NOT LIKE 'pg_temp%'
 ORDER BY n.nspname, c.relname, a.attnum`)
 	if err != nil {
 		return fmt.Errorf("query columns for %s: %w", db.Name, err)
@@ -661,6 +663,7 @@ JOIN pg_class c ON c.oid = con.conrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname NOT IN ('pg_catalog','information_schema')
   AND n.nspname NOT LIKE 'pg_toast%'
+  AND n.nspname NOT LIKE 'pg_temp%'
   AND con.contype IN ('p','u','f','c','x')
 ORDER BY n.nspname, c.relname, con.conname`)
 	if err != nil {
@@ -701,6 +704,7 @@ JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = ix.schemaname
 JOIN pg_index i ON i.indexrelid = c.oid
 JOIN pg_am am ON am.oid = c.relam
 WHERE ix.schemaname NOT IN ('pg_catalog','information_schema')
+  AND ix.schemaname NOT LIKE 'pg_temp%'
 ORDER BY ix.schemaname, ix.tablename, ix.indexname`)
 	if err != nil {
 		return fmt.Errorf("query indexes for %s: %w", db.Name, err)
