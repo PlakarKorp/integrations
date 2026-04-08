@@ -16,13 +16,13 @@ import (
 func TestPhysicalBackup(t *testing.T) {
 	ctx := context.Background()
 
-	netName := testhelpers.NewNetwork(ctx, t)
+	net := testhelpers.NewNetwork(ctx, t)
 
 	// Step 1 — start a PostgreSQL container with replication enabled.
-	testhelpers.StartPostgresContainer(ctx, t, netName)
+	testhelpers.StartPostgresContainer(ctx, t, net)
 
 	// Step 2 — start the plakar container on the same network.
-	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, netName)
+	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net)
 
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")

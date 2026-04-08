@@ -26,14 +26,14 @@ func repoRoot() string {
 // networkName is an optional Docker network to attach the container to; pass
 // an empty string when no extra network is needed.
 // The container is automatically terminated when the test ends.
-func StartPlakarContainer(ctx context.Context, t *testing.T, networkName string) testcontainers.Container {
+func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
 	t.Helper()
 	root := repoRoot()
 	sha := plakarSHA
 
 	var networks []string
-	if networkName != "" {
-		networks = []string{networkName}
+	if net != nil {
+		networks = []string{net.Name}
 	}
 
 	req := testcontainers.ContainerRequest{

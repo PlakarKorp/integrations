@@ -16,10 +16,10 @@ import (
 func TestLogicalBackup(t *testing.T) {
 	ctx := context.Background()
 
-	netName := testhelpers.NewNetwork(ctx, t)
+	net := testhelpers.NewNetwork(ctx, t)
 
 	// Step 1 — start a PostgreSQL container on the network.
-	pgContainer := testhelpers.StartPostgresContainer(ctx, t, netName)
+	pgContainer := testhelpers.StartPostgresContainer(ctx, t, net)
 
 	// Seed the database with a simple table.
 	seedSQL := `CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL);
@@ -27,7 +27,7 @@ INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');`
 	testhelpers.ExecOK(ctx, t, pgContainer, "psql", "-U", "postgres", "-d", "testdb", "-c", seedSQL)
 
 	// Step 2 — start the plakar container on the same network (plugin installed by helper).
-	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, netName)
+	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net)
 
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")

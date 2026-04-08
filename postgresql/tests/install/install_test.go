@@ -11,7 +11,7 @@ import (
 // source and installed into a running plakar instance.
 func TestInstallPlugin(t *testing.T) {
 	ctx := context.Background()
-	container := testhelpers.StartPlakarContainer(ctx, t, "")
+	container := testhelpers.StartPlakarContainer(ctx, t, nil)
 
 	t.Log("=== plakar pkg list ===")
 	testhelpers.ExecOK(ctx, t, container, "plakar", "pkg", "list")

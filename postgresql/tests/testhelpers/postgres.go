@@ -16,7 +16,7 @@ import (
 // (pg_basebackup) backups work against the same container.
 //
 // The container is automatically terminated when the test ends.
-func StartPostgresContainer(ctx context.Context, t *testing.T, networkName string) testcontainers.Container {
+func StartPostgresContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
@@ -28,8 +28,8 @@ func StartPostgresContainer(ctx context.Context, t *testing.T, networkName strin
 			"POSTGRES_PASSWORD": "secret",
 			"POSTGRES_DB":       "testdb",
 		},
-		Networks:       []string{networkName},
-		NetworkAliases: map[string][]string{networkName: {"postgres"}},
+		Networks:       []string{net.Name},
+		NetworkAliases: map[string][]string{net.Name: {"postgres"}},
 		WaitingFor:     wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
