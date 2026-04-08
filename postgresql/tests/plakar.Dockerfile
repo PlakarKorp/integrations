@@ -7,9 +7,12 @@
 #   docker build --build-arg PLAKAR_SHA=abc1234 -t plakar-test -f tests/plakar.Dockerfile .
 ARG PLAKAR_SHA=main
 
-FROM golang:1.24-bookworm
+FROM golang:1.25
+
 ARG PLAKAR_SHA
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends postgresql-client && \
     rm -rf /var/lib/apt/lists/*
+
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
