@@ -13,6 +13,7 @@ import (
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // PlakarSHA is the plakar commit installed in the test image.
@@ -109,5 +110,32 @@ plakar pkg create ./manifest.yaml v0.0.1
 plakar pkg add "./${PTAR}"`
 
 	ExecOK(ctx, t, container, "sh", "-c", installScript)
+	return container
+}
+
+// StartPostgresContainer starts a postgres:17 container attached to networkName
+// with a default database named "testdb" (password "secret").
+// The container is automatically terminated when the test ends.
+func StartPostgresContainer(ctx context.Context, t *testing.T, networkName string) testcontainers.Container {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image: "postgres:17",
+		Env: map[string]string{
+			"POSTGRES_PASSWORD": "secret",
+			"POSTGRES_DB":       "testdb",
+		},
+		Networks:       []string{networkName},
+		NetworkAliases: map[string][]string{networkName: {"postgres"}},
+		WaitingFor:     wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+	}
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("start postgres container: %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
 	return container
 }

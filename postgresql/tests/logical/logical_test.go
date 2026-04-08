@@ -7,9 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
 )
@@ -31,24 +29,7 @@ func TestLogicalBackup(t *testing.T) {
 	t.Cleanup(func() { _ = net.Remove(ctx) })
 
 	// Step 1 — start a PostgreSQL container on the network.
-	pgReq := testcontainers.ContainerRequest{
-		Image: "postgres:17",
-		Env: map[string]string{
-			"POSTGRES_PASSWORD": "secret",
-			"POSTGRES_DB":       "testdb",
-		},
-		Networks:       []string{net.Name},
-		NetworkAliases: map[string][]string{net.Name: {"postgres"}},
-		WaitingFor:     wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-	}
-	pgContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: pgReq,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres container: %v", err)
-	}
-	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
+	pgContainer := testhelpers.StartPostgresContainer(ctx, t, net.Name)
 
 	// Seed the database with a simple table.
 	seedSQL := `CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL);
