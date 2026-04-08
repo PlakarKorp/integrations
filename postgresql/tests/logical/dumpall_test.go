@@ -44,13 +44,13 @@ INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');`
 	if len(snapshots) == 0 {
 		t.Fatal("no snapshots found after backup")
 	}
-	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id)
-	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id, "/manifest.json")
+	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID)
+	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID, "/manifest.json")
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
 	restoreContainer := testhelpers.StartPostgresContainer(ctx, t, net, "postgres-restore")
 	testhelpers.ExecOK(ctx, t, plakarContainer,
-		"plakar", "at", "/var/backups", "restore", "-to", "postgres://postgres:secret@postgres-restore", snapshots[0].Id)
+		"plakar", "at", "/var/backups", "restore", "-to", "postgres://postgres:secret@postgres-restore", snapshots[0].ID)
 
 	// Step 7 — verify the data was restored correctly.
 	out := testhelpers.ExecCapture(ctx, t, restoreContainer,

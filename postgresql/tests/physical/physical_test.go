@@ -37,6 +37,6 @@ func TestPhysicalBackup(t *testing.T) {
 	if len(snapshots) == 0 {
 		t.Fatal("no snapshots found after backup")
 	}
-	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id)
-	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id, "/manifest.json")
+	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID)
+	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID, "/manifest.json")
 }

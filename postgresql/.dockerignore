@@ -1,0 +1,5 @@
+.git
+postgresqlImporter
+postgresqlExporter
+postgresqlBinImporter
+*.ptar

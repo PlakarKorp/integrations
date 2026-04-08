@@ -10,7 +10,7 @@ import (
 
 // Snapshot represents a single entry returned by `plakar at <store> ls`.
 type Snapshot struct {
-	Id string
+	ID string
 }
 
 // ListSnapshots runs `plakar at <store> ls`, logs the output, and returns the
@@ -31,7 +31,7 @@ func ListSnapshots(ctx context.Context, t *testing.T, container testcontainers.C
 		if len(fields) < 2 {
 			t.Fatalf("unexpected ls output line: %q", line)
 		}
-		snapshots = append(snapshots, Snapshot{Id: fields[1]})
+		snapshots = append(snapshots, Snapshot{ID: fields[1]})
 	}
 	return snapshots
 }
