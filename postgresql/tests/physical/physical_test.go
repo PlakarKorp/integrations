@@ -2,7 +2,6 @@ package physical
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
@@ -33,27 +32,8 @@ func TestPhysicalBackup(t *testing.T) {
 		"postgres+bin://postgres:secret@postgres",
 	)
 
-	// Step 5 — list snapshots and extract the snapshot ID.
-	lsOut := testhelpers.ExecCapture(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "ls")
-	t.Log("=== plakar snapshots ===")
-	t.Log(lsOut)
-
-	lines := strings.Split(lsOut, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
-		t.Fatal("no snapshots found after backup")
-	}
-	fields := strings.Fields(lines[0])
-	if len(fields) < 2 {
-		t.Fatalf("unexpected snapshots output: %q", lines[0])
-	}
-	snapshotID := fields[1]
-	t.Logf("snapshot ID: %s", snapshotID)
-
-	// Step 6 — list the snapshot contents.
-	t.Log("=== plakar ls snapshot ===")
-	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "ls", snapshotID)
-
-	// Step 7 — display the manifest.
-	t.Log("=== /manifest.json ===")
-	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "cat", snapshotID+":/manifest.json")
+	// Step 5 — inspect the snapshot.
+	snapshotID := testhelpers.FirstSnapshotID(ctx, t, plakarContainer, "/var/backups")
+	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshotID)
+	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshotID, "/manifest.json")
 }
