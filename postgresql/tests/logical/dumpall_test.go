@@ -49,8 +49,8 @@ INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');`
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
 	restoreContainer := testhelpers.StartPostgresContainer(ctx, t, net, "postgres-restore")
-	testhelpers.Restore(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id,
-		"postgres://postgres:secret@postgres-restore")
+	testhelpers.ExecOK(ctx, t, plakarContainer,
+		"plakar", "at", "/var/backups", "restore", "-to", "postgres://postgres:secret@postgres-restore", snapshots[0].Id)
 
 	// Step 7 — verify the data was restored correctly.
 	out := testhelpers.ExecCapture(ctx, t, restoreContainer,
