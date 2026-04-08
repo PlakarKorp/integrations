@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/testcontainers/testcontainers-go/network"
-
 	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
 )
 
@@ -18,16 +16,10 @@ import (
 func TestLogicalBackup(t *testing.T) {
 	ctx := context.Background()
 
-	// Create an isolated Docker network so the plakar container can reach the
-	// postgres container by hostname.
-	net, err := network.New(ctx)
-	if err != nil {
-		t.Fatalf("create network: %v", err)
-	}
-	t.Cleanup(func() { _ = net.Remove(ctx) })
+	netName := testhelpers.NewNetwork(ctx, t)
 
 	// Step 1 — start a PostgreSQL container on the network.
-	pgContainer := testhelpers.StartPostgresContainer(ctx, t, net.Name)
+	pgContainer := testhelpers.StartPostgresContainer(ctx, t, netName)
 
 	// Seed the database with a simple table.
 	seedSQL := `CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL);
@@ -35,7 +27,7 @@ INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');`
 	testhelpers.ExecOK(ctx, t, pgContainer, "psql", "-U", "postgres", "-d", "testdb", "-c", seedSQL)
 
 	// Step 2 — start the plakar container on the same network (plugin installed by helper).
-	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, []string{net.Name})
+	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, netName)
 
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")
