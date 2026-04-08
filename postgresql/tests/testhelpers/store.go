@@ -8,25 +8,32 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 )
 
-// FirstSnapshotID runs `plakar at <store> ls`, logs the output, and returns
-// the ID of the first snapshot.  The test fails if no snapshots are found.
-func FirstSnapshotID(ctx context.Context, t *testing.T, container testcontainers.Container, store string) string {
+// Snapshot represents a single entry returned by `plakar at <store> ls`.
+type Snapshot struct {
+	Id string
+}
+
+// ListSnapshots runs `plakar at <store> ls`, logs the output, and returns the
+// list of snapshots found in the store.
+func ListSnapshots(ctx context.Context, t *testing.T, container testcontainers.Container, store string) []Snapshot {
 	t.Helper()
 	out := ExecCapture(ctx, t, container, "plakar", "at", store, "ls")
 	t.Log("=== plakar ls ===")
 	t.Log(out)
 
-	lines := strings.Split(out, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
-		t.Fatal("no snapshots found")
+	var snapshots []Snapshot
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			t.Fatalf("unexpected ls output line: %q", line)
+		}
+		snapshots = append(snapshots, Snapshot{Id: fields[1]})
 	}
-	fields := strings.Fields(lines[0])
-	if len(fields) < 2 {
-		t.Fatalf("unexpected ls output: %q", lines[0])
-	}
-	id := fields[1]
-	t.Logf("snapshot ID: %s", id)
-	return id
+	return snapshots
 }
 
 // LsSnapshot runs `plakar at <store> ls <snapshotID>` and logs the output.

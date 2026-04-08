@@ -33,7 +33,10 @@ func TestPhysicalBackup(t *testing.T) {
 	)
 
 	// Step 5 — inspect the snapshot.
-	snapshotID := testhelpers.FirstSnapshotID(ctx, t, plakarContainer, "/var/backups")
-	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshotID)
-	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshotID, "/manifest.json")
+	snapshots := testhelpers.ListSnapshots(ctx, t, plakarContainer, "/var/backups")
+	if len(snapshots) == 0 {
+		t.Fatal("no snapshots found after backup")
+	}
+	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id)
+	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].Id, "/manifest.json")
 }
