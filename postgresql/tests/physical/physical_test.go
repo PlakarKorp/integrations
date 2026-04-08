@@ -18,7 +18,7 @@ func TestPhysicalBackup(t *testing.T) {
 	net := testhelpers.NewNetwork(ctx, t)
 
 	// Step 1 — start a PostgreSQL container with replication enabled.
-	testhelpers.StartPostgresContainer(ctx, t, net)
+	testhelpers.StartPostgresContainer(ctx, t, net, "postgres")
 
 	// Step 2 — start the plakar container on the same network.
 	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net)

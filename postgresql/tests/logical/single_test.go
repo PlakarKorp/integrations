@@ -18,7 +18,7 @@ func TestLogicalBackup(t *testing.T) {
 	net := testhelpers.NewNetwork(ctx, t)
 
 	// Step 1 — start a PostgreSQL container on the network.
-	pgContainer := testhelpers.StartPostgresContainer(ctx, t, net)
+	pgContainer := testhelpers.StartPostgresContainer(ctx, t, net, "postgres")
 
 	// Seed the database with a simple table.
 	seedSQL := `CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL);

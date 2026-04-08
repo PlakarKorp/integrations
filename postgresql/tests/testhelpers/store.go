@@ -49,3 +49,9 @@ func CatFile(ctx context.Context, t *testing.T, container testcontainers.Contain
 	t.Logf("=== %s ===", path)
 	ExecOK(ctx, t, container, "plakar", "at", store, "cat", snapshotID+":"+path)
 }
+
+// Restore runs `plakar at <store> restore -to <destination> <snapshotID>`.
+func Restore(ctx context.Context, t *testing.T, container testcontainers.Container, store, snapshotID, destination string) {
+	t.Helper()
+	ExecOK(ctx, t, container, "plakar", "at", store, "restore", "-to", destination, snapshotID)
+}

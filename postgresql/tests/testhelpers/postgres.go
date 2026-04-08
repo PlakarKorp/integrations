@@ -8,15 +8,15 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// StartPostgresContainer starts a postgres:17 container attached to networkName
-// with a default database named "testdb" (password "secret").
+// StartPostgresContainer starts a postgres:17 container attached to net with
+// the given network alias, a default database named "testdb" (password "secret").
 //
 // The server is configured with wal_level=replica and a pg_hba.conf rule that
 // allows replication connections from any host, so both logical and physical
 // (pg_basebackup) backups work against the same container.
 //
 // The container is automatically terminated when the test ends.
-func StartPostgresContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
+func StartPostgresContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork, alias string) testcontainers.Container {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
@@ -29,7 +29,7 @@ func StartPostgresContainer(ctx context.Context, t *testing.T, net *testcontaine
 			"POSTGRES_DB":       "testdb",
 		},
 		Networks:       []string{net.Name},
-		NetworkAliases: map[string][]string{net.Name: {"postgres"}},
+		NetworkAliases: map[string][]string{net.Name: {alias}},
 		WaitingFor:     wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
