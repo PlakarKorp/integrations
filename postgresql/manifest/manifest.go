@@ -3,11 +3,11 @@ package manifest
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +46,6 @@ type Manifest struct {
 // LogicalConfig holds the parameters needed to build and emit a logical
 // (pg_dump / pg_dumpall) backup manifest.
 type LogicalConfig struct {
-	PSQLBin    string
 	PgDumpBin  string
 	Conn       pgconn.ConnConfig
 	Database   string // empty = full-cluster backup
@@ -63,7 +62,14 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	sv, svNum, err := serverVersion(ctx, cfg.PSQLBin, cfg.Conn, connectDB)
+
+	db, err := cfg.Conn.Open(connectDB)
+	if err != nil {
+		return fmt.Errorf("connect to %s: %w", connectDB, err)
+	}
+	defer db.Close()
+
+	sv, svNum, err := serverVersion(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -84,13 +90,13 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 	}
 
 	m.PgDumpVersion = pgDumpVersion(cfg.PgDumpBin)
-	collectClusterMetadata(ctx, cfg.PSQLBin, cfg.Conn, connectDB, m)
+	collectClusterMetadata(ctx, db, m)
 
 	if cfg.Database != "" {
 		// Single-database backup: only detail the target database.
 		for i := range m.Databases {
 			if m.Databases[i].Name == cfg.Database {
-				_ = queryDatabaseDetail(ctx, cfg.PSQLBin, cfg.Conn, &m.Databases[i])
+				_ = queryDatabaseDetail(ctx, cfg.Conn, &m.Databases[i])
 				m.Databases = []DatabaseInfo{m.Databases[i]}
 				break
 			}
@@ -99,7 +105,7 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 		// Full-cluster backup: detail every connectable non-template database.
 		for i := range m.Databases {
 			if m.Databases[i].AllowConn && !m.Databases[i].IsTemplate {
-				_ = queryDatabaseDetail(ctx, cfg.PSQLBin, cfg.Conn, &m.Databases[i])
+				_ = queryDatabaseDetail(ctx, cfg.Conn, &m.Databases[i])
 			}
 		}
 	}
@@ -110,7 +116,6 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 // PhysicalConfig holds the parameters needed to build and emit a physical
 // (pg_basebackup) backup manifest.
 type PhysicalConfig struct {
-	PSQLBin         string
 	PgBaseBackupBin string
 	Conn            pgconn.ConnConfig
 }
@@ -120,7 +125,13 @@ type PhysicalConfig struct {
 // backup captures all databases at the file level, so relation detail is still
 // useful for inventory purposes).
 func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<- *connectors.Record) error {
-	sv, svNum, err := serverVersion(ctx, cfg.PSQLBin, cfg.Conn, "postgres")
+	db, err := cfg.Conn.Open("postgres")
+	if err != nil {
+		return fmt.Errorf("connect to postgres: %w", err)
+	}
+	defer db.Close()
+
+	sv, svNum, err := serverVersion(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -135,11 +146,11 @@ func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<
 	}
 
 	m.PgBaseBackupVersion = pgBaseBackupVersion(cfg.PgBaseBackupBin)
-	collectClusterMetadata(ctx, cfg.PSQLBin, cfg.Conn, "postgres", m)
+	collectClusterMetadata(ctx, db, m)
 
 	for i := range m.Databases {
 		if m.Databases[i].AllowConn && !m.Databases[i].IsTemplate {
-			_ = queryDatabaseDetail(ctx, cfg.PSQLBin, cfg.Conn, &m.Databases[i])
+			_ = queryDatabaseDetail(ctx, cfg.Conn, &m.Databases[i])
 		}
 	}
 
@@ -147,30 +158,17 @@ func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<
 }
 
 // serverVersion queries the PostgreSQL server for its version string and
-// numeric version. psqlBin is the path to the psql binary; connectDB is
-// the database used for the connection.
-func serverVersion(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) (string, int, error) {
-	args := append(conn.Args(),
-		"-d", connectDB,
-		"-t", "-A", "-F", "|", "--no-psqlrc",
-		"-c", "SELECT current_setting('server_version'), current_setting('server_version_num')",
-	)
-	cmd := exec.CommandContext(ctx, psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = conn.Env()
-	out, err := cmd.Output()
+// numeric version using a live *sql.DB connection.
+func serverVersion(ctx context.Context, db *sql.DB) (string, int, error) {
+	var sv string
+	var svNum int
+	err := db.QueryRowContext(ctx,
+		`SELECT current_setting('server_version'), current_setting('server_version_num')::int`,
+	).Scan(&sv, &svNum)
 	if err != nil {
 		return "", 0, fmt.Errorf("querying server version: %w", err)
 	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 2)
-	if len(parts) != 2 {
-		return "", 0, fmt.Errorf("unexpected server version output: %q", string(out))
-	}
-	versionNum, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", 0, fmt.Errorf("parsing server_version_num %q: %w", parts[1], err)
-	}
-	return parts[0], versionNum, nil
+	return sv, svNum, nil
 }
 
 // emitManifest serialises m as /manifest.json and sends it on records.
@@ -198,4 +196,25 @@ func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Man
 	case records <- connectors.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
 	}
 	return nil
+}
+
+// pgDumpVersion returns the version string reported by pg_dump --version,
+// e.g. "pg_dump (PostgreSQL) 16.2".  Returns an empty string on error.
+func pgDumpVersion(pgDumpBin string) string {
+	out, err := exec.Command(pgDumpBin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// pgBaseBackupVersion returns the version string reported by
+// pg_basebackup --version, e.g. "pg_basebackup (PostgreSQL) 16.2".
+// Returns an empty string on error.
+func pgBaseBackupVersion(pgBaseBackupBin string) string {
+	out, err := exec.Command(pgBaseBackupBin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

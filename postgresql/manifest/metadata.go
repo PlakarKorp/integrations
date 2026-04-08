@@ -2,22 +2,17 @@ package manifest
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integration-postgresql/pgconn"
 )
 
-// fieldSep is the column delimiter in psql unaligned output.  SOH (0x01)
-// never appears in PostgreSQL identifiers, settings, or SQL text.
-const fieldSep = "\x01"
-
 // arraySep delimits elements within a single field that holds a PostgreSQL
 // array value (reloptions, spcoptions, constraint column lists, …).
-// STX (0x02) is equally safe for the same reason.
+// STX (0x02) is equally safe for identifiers, settings, or SQL text.
 const arraySep = "\x02"
 
 // --- Types ---
@@ -153,60 +148,6 @@ type DatabaseInfo struct {
 
 // --- Helpers ---
 
-func queryRows(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, dbname, query string) ([][]string, error) {
-	args := append(conn.Args(), "-d", dbname, "-t", "-A", "-F", fieldSep, "--no-psqlrc", "-c", query)
-	cmd := exec.CommandContext(ctx, psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = conn.Env()
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			return nil, fmt.Errorf("%w: %s", err, s)
-		}
-		return nil, err
-	}
-	var rows [][]string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		rows = append(rows, strings.Split(line, fieldSep))
-	}
-	return rows, nil
-}
-
-func parseBool(s string) bool {
-	s = strings.TrimSpace(strings.ToLower(s))
-	return s == "t" || s == "true" || s == "1" || s == "on" || s == "yes"
-}
-
-func parseInt(s string) int {
-	v, _ := strconv.Atoi(strings.TrimSpace(s))
-	return v
-}
-
-func parseInt64(s string) int64 {
-	v, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	return v
-}
-
-// parseEpoch converts a Unix-epoch string (EXTRACT(EPOCH …)::bigint) into a
-// *time.Time.  Returns nil for empty, "-1", or non-positive values.
-func parseEpoch(s string) *time.Time {
-	s = strings.TrimSpace(s)
-	if s == "" || s == "-1" {
-		return nil
-	}
-	sec := parseInt64(s)
-	if sec <= 0 {
-		return nil
-	}
-	t := time.Unix(sec, 0).UTC()
-	return &t
-}
-
 // splitArray splits a chr(2)-delimited string into a slice.
 // Returns nil for empty input so JSON omitempty works correctly.
 func splitArray(s string) []string {
@@ -216,77 +157,71 @@ func splitArray(s string) []string {
 	return strings.Split(s, arraySep)
 }
 
+// epochToTime converts a Unix-epoch int64 into a *time.Time.
+// Returns nil for -1 or non-positive values (used for COALESCE(…, -1) results).
+func epochToTime(sec int64) *time.Time {
+	if sec <= 0 {
+		return nil
+	}
+	t := time.Unix(sec, 0).UTC()
+	return &t
+}
+
 // collectClusterMetadata populates the cluster-level fields of m
 // (ClusterSystemIdentifier, InRecovery, ClusterConfig, Roles, Tablespaces,
-// and a basic Databases list) by connecting to connectDB.  Individual query
-// failures are silently ignored so that partial metadata never aborts a
-// backup.
-func collectClusterMetadata(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string, m *Manifest) {
-	m.ClusterSystemIdentifier = queryClusterSystemID(ctx, psqlBin, conn, connectDB)
-	m.InRecovery = queryInRecovery(ctx, psqlBin, conn, connectDB)
-	if cfg, err := queryClusterConfig(ctx, psqlBin, conn, connectDB); err == nil {
+// and a basic Databases list) by using db.  Individual query failures are
+// silently ignored so that partial metadata never aborts a backup.
+func collectClusterMetadata(ctx context.Context, db *sql.DB, m *Manifest) {
+	m.ClusterSystemIdentifier = queryClusterSystemID(ctx, db)
+	m.InRecovery = queryInRecovery(ctx, db)
+	if cfg, err := queryClusterConfig(ctx, db); err == nil {
 		m.ClusterConfig = &cfg
 	}
-	if roles, err := queryRoles(ctx, psqlBin, conn, connectDB); err == nil {
+	if roles, err := queryRoles(ctx, db); err == nil {
 		m.Roles = roles
 	}
-	if tss, err := queryTablespaces(ctx, psqlBin, conn, connectDB); err == nil {
+	if tss, err := queryTablespaces(ctx, db); err == nil {
 		m.Tablespaces = tss
 	}
-	if dbs, err := queryDatabases(ctx, psqlBin, conn, connectDB); err == nil {
+	if dbs, err := queryDatabases(ctx, db); err == nil {
 		m.Databases = dbs
 	}
 }
 
-// pgDumpVersion returns the version string reported by pg_dump --version,
-// e.g. "pg_dump (PostgreSQL) 16.2".  Returns an empty string on error.
-func pgDumpVersion(pgDumpBin string) string {
-	out, err := exec.Command(pgDumpBin, "--version").Output()
+// queryDatabaseDetail populates db.Extensions, db.Schemas, and db.Relations
+// (including columns, constraints, and indexes) by opening a new connection
+// to db.Name.
+func queryDatabaseDetail(ctx context.Context, conn pgconn.ConnConfig, db *DatabaseInfo) error {
+	sqlDB, err := conn.Open(db.Name)
 	if err != nil {
-		return ""
+		return fmt.Errorf("connect to %s: %w", db.Name, err)
 	}
-	return strings.TrimSpace(string(out))
+	defer sqlDB.Close()
+
+	if err := queryExtensions(ctx, sqlDB, db); err != nil {
+		return err
+	}
+	if err := querySchemas(ctx, sqlDB, db); err != nil {
+		return err
+	}
+	return queryRelations(ctx, sqlDB, db)
 }
 
-// pgBaseBackupVersion returns the version string reported by
-// pg_basebackup --version, e.g. "pg_basebackup (PostgreSQL) 16.2".
-// Returns an empty string on error.
-func pgBaseBackupVersion(pgBaseBackupBin string) string {
-	out, err := exec.Command(pgBaseBackupBin, "--version").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+func queryClusterSystemID(ctx context.Context, db *sql.DB) string {
+	var id string
+	_ = db.QueryRowContext(ctx,
+		`SELECT system_identifier::text FROM pg_control_system()`).Scan(&id)
+	return id
 }
 
-// QueryClusterSystemID returns the PostgreSQL cluster system identifier from
-// pg_control_system().  Returns an empty string when not accessible (e.g.
-// the backup user lacks pg_monitor or superuser).
-func queryClusterSystemID(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) string {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
-		`SELECT system_identifier::text FROM pg_control_system()`)
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-		return ""
-	}
-	return rows[0][0]
+func queryInRecovery(ctx context.Context, db *sql.DB) bool {
+	var inRecovery bool
+	_ = db.QueryRowContext(ctx, `SELECT pg_is_in_recovery()`).Scan(&inRecovery)
+	return inRecovery
 }
 
-// QueryInRecovery reports whether the server is currently a hot-standby
-// (i.e. the backup was taken from a replica rather than the primary).
-func queryInRecovery(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) bool {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
-		`SELECT pg_is_in_recovery()`)
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-		return false
-	}
-	return parseBool(rows[0][0])
-}
-
-// QueryClusterConfig queries key server GUCs.  connectDB is any database the
-// caller already has access to; GUC data is cluster-wide regardless of the
-// connection database.
-func queryClusterConfig(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) (ClusterConfig, error) {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
+func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT name, setting FROM pg_settings `+
 			`WHERE name IN (`+
 			`'archive_command','archive_mode','block_size','data_checksums',`+
@@ -297,92 +232,110 @@ func queryClusterConfig(ctx context.Context, psqlBin string, conn pgconn.ConnCon
 	if err != nil {
 		return ClusterConfig{}, fmt.Errorf("query cluster config: %w", err)
 	}
+	defer rows.Close()
+
 	var cfg ClusterConfig
-	for _, r := range rows {
-		if len(r) < 2 {
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
 			continue
 		}
-		switch r[0] {
+		switch name {
 		case "archive_command":
-			cfg.ArchiveCommandSet = r[1] != "" && r[1] != "(disabled)"
+			cfg.ArchiveCommandSet = setting != "" && setting != "(disabled)"
 		case "archive_mode":
-			cfg.ArchiveMode = r[1]
+			cfg.ArchiveMode = setting
 		case "block_size":
-			cfg.BlockSize = parseInt(r[1])
+			fmt.Sscanf(setting, "%d", &cfg.BlockSize)
 		case "data_checksums":
-			cfg.DataChecksums = parseBool(r[1])
+			cfg.DataChecksums = setting == "on"
 		case "data_directory":
-			cfg.DataDirectory = r[1]
+			cfg.DataDirectory = setting
 		case "lc_collate":
-			cfg.LCCollate = r[1]
+			cfg.LCCollate = setting
 		case "lc_ctype":
-			cfg.LCCType = r[1]
+			cfg.LCCType = setting
 		case "max_connections":
-			cfg.MaxConnections = parseInt(r[1])
+			fmt.Sscanf(setting, "%d", &cfg.MaxConnections)
 		case "server_encoding":
-			cfg.ServerEncoding = r[1]
+			cfg.ServerEncoding = setting
 		case "shared_preload_libraries":
-			cfg.SharedPreloadLibraries = r[1]
+			cfg.SharedPreloadLibraries = setting
 		case "timezone":
-			cfg.Timezone = r[1]
+			cfg.Timezone = setting
 		case "wal_block_size":
-			cfg.WalBlockSize = parseInt(r[1])
+			fmt.Sscanf(setting, "%d", &cfg.WalBlockSize)
 		case "wal_level":
-			cfg.WalLevel = r[1]
+			cfg.WalLevel = setting
 		}
 	}
-	return cfg, nil
+	return cfg, rows.Err()
 }
 
-// QueryRoles queries all PostgreSQL roles with their attributes and group
-// memberships.
-func queryRoles(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) ([]Role, error) {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
+func queryRoles(ctx context.Context, db *sql.DB) ([]Role, error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT rolname, rolsuper, rolreplication, rolcanlogin, rolcreatedb, `+
 			`rolcreaterole, rolinherit, rolbypassrls, rolconnlimit, `+
-			`CASE WHEN rolvaliduntil IS NULL OR rolvaliduntil = 'infinity'::timestamptz `+
-			`THEN -1 ELSE EXTRACT(EPOCH FROM rolvaliduntil)::bigint END `+
+			`CASE WHEN rolvaliduntil = 'infinity'::timestamptz THEN NULL `+
+			`ELSE rolvaliduntil END `+
 			`FROM pg_roles ORDER BY rolname`)
 	if err != nil {
 		return nil, fmt.Errorf("query roles: %w", err)
 	}
+	defer rows.Close()
 
-	roles := make([]Role, 0, len(rows))
+	var roles []Role
 	roleIdx := make(map[string]int)
-	for _, r := range rows {
-		if len(r) < 10 {
+	for rows.Next() {
+		var (
+			name                                                   string
+			superuser, replication, canLogin, createDB, createRole bool
+			inherit, bypassRLS                                     bool
+			connLimit                                              int
+			validUntil                                             sql.NullTime
+		)
+		if err := rows.Scan(&name, &superuser, &replication, &canLogin, &createDB,
+			&createRole, &inherit, &bypassRLS, &connLimit, &validUntil); err != nil {
 			continue
 		}
 		role := Role{
-			Name:            r[0],
-			Superuser:       parseBool(r[1]),
-			Replication:     parseBool(r[2]),
-			CanLogin:        parseBool(r[3]),
-			CreateDB:        parseBool(r[4]),
-			CreateRole:      parseBool(r[5]),
-			Inherit:         parseBool(r[6]),
-			BypassRLS:       parseBool(r[7]),
-			ConnectionLimit: parseInt(r[8]),
-			ValidUntil:      parseEpoch(r[9]),
+			Name:            name,
+			Superuser:       superuser,
+			Replication:     replication,
+			CanLogin:        canLogin,
+			CreateDB:        createDB,
+			CreateRole:      createRole,
+			Inherit:         inherit,
+			BypassRLS:       bypassRLS,
+			ConnectionLimit: connLimit,
+		}
+		if validUntil.Valid {
+			t := validUntil.Time.UTC()
+			role.ValidUntil = &t
 		}
 		roleIdx[role.Name] = len(roles)
 		roles = append(roles, role)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("query roles: %w", err)
+	}
 
 	// Attach memberships: for each role, list the roles it belongs to.
-	memRows, err := queryRows(ctx, psqlBin, conn, connectDB,
+	memRows, err := db.QueryContext(ctx,
 		`SELECT m.rolname, r.rolname `+
 			`FROM pg_auth_members am `+
 			`JOIN pg_roles r ON r.oid = am.roleid `+
 			`JOIN pg_roles m ON m.oid = am.member `+
 			`ORDER BY m.rolname, r.rolname`)
 	if err == nil {
-		for _, r := range memRows {
-			if len(r) < 2 {
+		defer memRows.Close()
+		for memRows.Next() {
+			var member, parent string
+			if err := memRows.Scan(&member, &parent); err != nil {
 				continue
 			}
-			if idx, ok := roleIdx[r[0]]; ok {
-				roles[idx].MemberOf = append(roles[idx].MemberOf, r[1])
+			if idx, ok := roleIdx[member]; ok {
+				roles[idx].MemberOf = append(roles[idx].MemberOf, parent)
 			}
 		}
 	}
@@ -390,10 +343,8 @@ func queryRoles(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, con
 	return roles, nil
 }
 
-// QueryTablespaces queries all tablespaces with their owners, locations,
-// sizes, and storage options.
-func queryTablespaces(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) ([]Tablespace, error) {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
+func queryTablespaces(ctx context.Context, db *sql.DB) ([]Tablespace, error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT spcname, pg_get_userbyid(spcowner), `+
 			`pg_tablespace_location(oid), `+
 			`COALESCE(array_to_string(spcoptions, chr(2)), '') `+
@@ -401,26 +352,26 @@ func queryTablespaces(ctx context.Context, psqlBin string, conn pgconn.ConnConfi
 	if err != nil {
 		return nil, fmt.Errorf("query tablespaces: %w", err)
 	}
+	defer rows.Close()
+
 	var tss []Tablespace
-	for _, r := range rows {
-		if len(r) < 4 {
+	for rows.Next() {
+		var name, owner, location, options string
+		if err := rows.Scan(&name, &owner, &location, &options); err != nil {
 			continue
 		}
 		tss = append(tss, Tablespace{
-			Name:     r[0],
-			Owner:    r[1],
-			Location: r[2],
-			Options:  splitArray(r[3]),
+			Name:     name,
+			Owner:    owner,
+			Location: location,
+			Options:  splitArray(options),
 		})
 	}
-	return tss, nil
+	return tss, rows.Err()
 }
 
-// QueryDatabases queries the list of all databases with basic metadata.
-// Per-database detail (schemas, extensions, relations) is not fetched here;
-// call QueryDatabaseDetail for each database that needs it.
-func queryDatabases(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, connectDB string) ([]DatabaseInfo, error) {
-	rows, err := queryRows(ctx, psqlBin, conn, connectDB,
+func queryDatabases(ctx context.Context, db *sql.DB) ([]DatabaseInfo, error) {
+	rows, err := db.QueryContext(ctx,
 		`SELECT d.datname, pg_get_userbyid(d.datdba), pg_encoding_to_char(d.encoding), `+
 			`d.datcollate, d.datctype, d.datallowconn, d.datistemplate, `+
 			`d.datconnlimit, `+
@@ -431,58 +382,57 @@ func queryDatabases(ctx context.Context, psqlBin string, conn pgconn.ConnConfig,
 	if err != nil {
 		return nil, fmt.Errorf("query databases: %w", err)
 	}
+	defer rows.Close()
+
 	var dbs []DatabaseInfo
-	for _, r := range rows {
-		if len(r) < 9 {
+	for rows.Next() {
+		var (
+			name, owner, encoding, collate, ctype, defaultTS string
+			allowConn, isTemplate                            bool
+			connLimit                                        int
+		)
+		if err := rows.Scan(&name, &owner, &encoding, &collate, &ctype,
+			&allowConn, &isTemplate, &connLimit, &defaultTS); err != nil {
 			continue
 		}
 		dbs = append(dbs, DatabaseInfo{
-			Name:              r[0],
-			Owner:             r[1],
-			Encoding:          r[2],
-			Collate:           r[3],
-			CType:             r[4],
-			AllowConn:         parseBool(r[5]),
-			IsTemplate:        parseBool(r[6]),
-			ConnectionLimit:   parseInt(r[7]),
-			DefaultTablespace: r[8],
+			Name:              name,
+			Owner:             owner,
+			Encoding:          encoding,
+			Collate:           collate,
+			CType:             ctype,
+			AllowConn:         allowConn,
+			IsTemplate:        isTemplate,
+			ConnectionLimit:   connLimit,
+			DefaultTablespace: defaultTS,
 		})
 	}
-	return dbs, nil
+	return dbs, rows.Err()
 }
 
-// QueryDatabaseDetail populates db.Extensions, db.Schemas, and db.Relations
-// (including columns, constraints, and indexes) by connecting to db.Name.
-func queryDatabaseDetail(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, db *DatabaseInfo) error {
-	if err := queryExtensions(ctx, psqlBin, conn, db); err != nil {
-		return err
-	}
-	if err := querySchemas(ctx, psqlBin, conn, db); err != nil {
-		return err
-	}
-	return queryRelations(ctx, psqlBin, conn, db)
-}
-
-func queryExtensions(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, db *DatabaseInfo) error {
-	rows, err := queryRows(ctx, psqlBin, conn, db.Name,
+func queryExtensions(ctx context.Context, db *sql.DB, info *DatabaseInfo) error {
+	rows, err := db.QueryContext(ctx,
 		`SELECT e.extname, e.extversion, n.nspname `+
 			`FROM pg_extension e `+
 			`JOIN pg_namespace n ON n.oid = e.extnamespace `+
 			`ORDER BY e.extname`)
 	if err != nil {
-		return fmt.Errorf("query extensions for %s: %w", db.Name, err)
+		return fmt.Errorf("query extensions for %s: %w", info.Name, err)
 	}
-	for _, r := range rows {
-		if len(r) < 3 {
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, version, schema string
+		if err := rows.Scan(&name, &version, &schema); err != nil {
 			continue
 		}
-		db.Extensions = append(db.Extensions, Extension{Name: r[0], Version: r[1], Schema: r[2]})
+		info.Extensions = append(info.Extensions, Extension{Name: name, Version: version, Schema: schema})
 	}
-	return nil
+	return rows.Err()
 }
 
-func querySchemas(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, db *DatabaseInfo) error {
-	rows, err := queryRows(ctx, psqlBin, conn, db.Name,
+func querySchemas(ctx context.Context, db *sql.DB, info *DatabaseInfo) error {
+	rows, err := db.QueryContext(ctx,
 		`SELECT nspname, pg_get_userbyid(nspowner) `+
 			`FROM pg_namespace `+
 			`WHERE nspname NOT IN ('pg_catalog', 'information_schema') `+
@@ -490,21 +440,22 @@ func querySchemas(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, d
 			`AND nspname NOT LIKE 'pg_temp%' `+
 			`ORDER BY nspname`)
 	if err != nil {
-		return fmt.Errorf("query schemas for %s: %w", db.Name, err)
+		return fmt.Errorf("query schemas for %s: %w", info.Name, err)
 	}
-	for _, r := range rows {
-		if len(r) < 2 {
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, owner string
+		if err := rows.Scan(&name, &owner); err != nil {
 			continue
 		}
-		db.Schemas = append(db.Schemas, SchemaInfo{Name: r[0], Owner: r[1]})
+		info.Schemas = append(info.Schemas, SchemaInfo{Name: name, Owner: owner})
 	}
-	return nil
+	return rows.Err()
 }
 
-func queryRelations(ctx context.Context, psqlBin string, conn pgconn.ConnConfig, db *DatabaseInfo) error {
-	// Relations: ordinary tables, partitioned tables, foreign tables, views,
-	// materialized views, and sequences.
-	relRows, err := queryRows(ctx, psqlBin, conn, db.Name, `
+func queryRelations(ctx context.Context, db *sql.DB, info *DatabaseInfo) error {
+	relRows, err := db.QueryContext(ctx, `
 SELECT
   n.nspname,
   c.relname,
@@ -547,40 +498,58 @@ WHERE c.relkind IN ('r','p','f','m','v','S')
   AND n.nspname NOT LIKE 'pg_temp%'
 ORDER BY n.nspname, c.relname`)
 	if err != nil {
-		return fmt.Errorf("query relations for %s: %w", db.Name, err)
+		return fmt.Errorf("query relations for %s: %w", info.Name, err)
 	}
+	defer relRows.Close()
 
-	relIdx := make(map[string]int) // "schema.name" → position in db.Relations
-	for _, r := range relRows {
-		if len(r) < 18 {
+	relIdx := make(map[string]int) // "schema.name" → position in info.Relations
+	for relRows.Next() {
+		var (
+			schema, name, owner, persistence, kind           string
+			rowEst, liveRowEst                               int64
+			hasPK, hasTriggers, rlsEnabled, rlsForced        bool
+			isPartition                                      bool
+			storageOpts, partParent, partStrategy, tablespace string
+			lastVacuumEpoch, lastAnalyzeEpoch                int64
+		)
+		if err := relRows.Scan(
+			&schema, &name, &owner, &persistence, &kind,
+			&rowEst, &liveRowEst,
+			&hasPK, &hasTriggers, &rlsEnabled, &rlsForced, &isPartition,
+			&storageOpts, &partParent, &partStrategy, &tablespace,
+			&lastVacuumEpoch, &lastAnalyzeEpoch,
+		); err != nil {
 			continue
 		}
 		rel := RelationInfo{
-			Schema:            r[0],
-			Name:              r[1],
-			Owner:             r[2],
-			Persistence:       r[3],
-			Kind:              r[4],
-			RowEstimate:       parseInt64(r[5]),
-			LiveRowEstimate:   parseInt64(r[6]),
-			HasPrimaryKey:     parseBool(r[7]),
-			HasTriggers:       parseBool(r[8]),
-			RLSEnabled:        parseBool(r[9]),
-			RLSForced:         parseBool(r[10]),
-			IsPartition:       parseBool(r[11]),
-			StorageOptions:    splitArray(r[12]),
-			PartitionParent:   r[13],
-			PartitionStrategy: r[14],
-			Tablespace:        r[15],
-			LastVacuum:        parseEpoch(r[16]),
-			LastAnalyze:       parseEpoch(r[17]),
+			Schema:            schema,
+			Name:              name,
+			Owner:             owner,
+			Persistence:       persistence,
+			Kind:              kind,
+			RowEstimate:       rowEst,
+			LiveRowEstimate:   liveRowEst,
+			HasPrimaryKey:     hasPK,
+			HasTriggers:       hasTriggers,
+			RLSEnabled:        rlsEnabled,
+			RLSForced:         rlsForced,
+			IsPartition:       isPartition,
+			StorageOptions:    splitArray(storageOpts),
+			PartitionParent:   partParent,
+			PartitionStrategy: partStrategy,
+			Tablespace:        tablespace,
+			LastVacuum:        epochToTime(lastVacuumEpoch),
+			LastAnalyze:       epochToTime(lastAnalyzeEpoch),
 		}
-		relIdx[r[0]+"."+r[1]] = len(db.Relations)
-		db.Relations = append(db.Relations, rel)
+		relIdx[schema+"."+name] = len(info.Relations)
+		info.Relations = append(info.Relations, rel)
+	}
+	if err := relRows.Err(); err != nil {
+		return fmt.Errorf("query relations for %s: %w", info.Name, err)
 	}
 
 	// Columns.
-	colRows, err := queryRows(ctx, psqlBin, conn, db.Name, `
+	colRows, err := db.QueryContext(ctx, `
 SELECT
   n.nspname,
   c.relname,
@@ -601,32 +570,39 @@ WHERE a.attnum > 0
   AND n.nspname NOT LIKE 'pg_temp%'
 ORDER BY n.nspname, c.relname, a.attnum`)
 	if err != nil {
-		return fmt.Errorf("query columns for %s: %w", db.Name, err)
+		return fmt.Errorf("query columns for %s: %w", info.Name, err)
 	}
-	for _, r := range colRows {
-		if len(r) < 7 {
+	defer colRows.Close()
+
+	for colRows.Next() {
+		var schema, relname, colname, coltype, coldefault string
+		var attnum int
+		var nullable bool
+		if err := colRows.Scan(&schema, &relname, &attnum, &colname, &coltype, &nullable, &coldefault); err != nil {
 			continue
 		}
-		idx, ok := relIdx[r[0]+"."+r[1]]
+		idx, ok := relIdx[schema+"."+relname]
 		if !ok {
 			continue
 		}
-		db.Relations[idx].Columns = append(db.Relations[idx].Columns, ColumnInfo{
-			Position: parseInt(r[2]),
-			Name:     r[3],
-			Type:     r[4],
-			Nullable: parseBool(r[5]),
-			Default:  r[6],
+		info.Relations[idx].Columns = append(info.Relations[idx].Columns, ColumnInfo{
+			Position: attnum,
+			Name:     colname,
+			Type:     coltype,
+			Nullable: nullable,
+			Default:  coldefault,
 		})
 	}
+	if err := colRows.Err(); err != nil {
+		return fmt.Errorf("query columns for %s: %w", info.Name, err)
+	}
 	// Set ColumnCount from actual queried columns (more accurate than relnatts).
-	for i := range db.Relations {
-		db.Relations[i].ColumnCount = len(db.Relations[i].Columns)
+	for i := range info.Relations {
+		info.Relations[i].ColumnCount = len(info.Relations[i].Columns)
 	}
 
 	// Constraints (primary key, unique, foreign key, check, exclusion).
-	// We store the constrained column names; full expressions are in the dump.
-	conRows, err := queryRows(ctx, psqlBin, conn, db.Name, `
+	conRows, err := db.QueryContext(ctx, `
 SELECT
   n.nspname,
   c.relname,
@@ -648,25 +624,31 @@ WHERE n.nspname NOT IN ('pg_catalog','information_schema')
   AND con.contype IN ('p','u','f','c','x')
 ORDER BY n.nspname, c.relname, con.conname`)
 	if err != nil {
-		return fmt.Errorf("query constraints for %s: %w", db.Name, err)
+		return fmt.Errorf("query constraints for %s: %w", info.Name, err)
 	}
-	for _, r := range conRows {
-		if len(r) < 5 {
+	defer conRows.Close()
+
+	for conRows.Next() {
+		var schema, relname, conname, contype, cols string
+		if err := conRows.Scan(&schema, &relname, &conname, &contype, &cols); err != nil {
 			continue
 		}
-		idx, ok := relIdx[r[0]+"."+r[1]]
+		idx, ok := relIdx[schema+"."+relname]
 		if !ok {
 			continue
 		}
-		db.Relations[idx].Constraints = append(db.Relations[idx].Constraints, ConstraintInfo{
-			Name:    r[2],
-			Type:    r[3],
-			Columns: splitArray(r[4]),
+		info.Relations[idx].Constraints = append(info.Relations[idx].Constraints, ConstraintInfo{
+			Name:    conname,
+			Type:    contype,
+			Columns: splitArray(cols),
 		})
+	}
+	if err := conRows.Err(); err != nil {
+		return fmt.Errorf("query constraints for %s: %w", info.Name, err)
 	}
 
 	// Indexes with structured metadata.
-	idxRows, err := queryRows(ctx, psqlBin, conn, db.Name, `
+	idxRows, err := db.QueryContext(ctx, `
 SELECT
   ix.schemaname,
   ix.tablename,
@@ -687,27 +669,31 @@ WHERE ix.schemaname NOT IN ('pg_catalog','information_schema')
   AND ix.schemaname NOT LIKE 'pg_temp%'
 ORDER BY ix.schemaname, ix.tablename, ix.indexname`)
 	if err != nil {
-		return fmt.Errorf("query indexes for %s: %w", db.Name, err)
+		return fmt.Errorf("query indexes for %s: %w", info.Name, err)
 	}
-	for _, r := range idxRows {
-		if len(r) < 10 {
+	defer idxRows.Close()
+
+	for idxRows.Next() {
+		var schema, tablename, indexname, method, definition, constraintName string
+		var isUnique, isPrimary, isValid, isPartial bool
+		if err := idxRows.Scan(&schema, &tablename, &indexname, &method, &definition,
+			&isUnique, &isPrimary, &isValid, &isPartial, &constraintName); err != nil {
 			continue
 		}
-		idx, ok := relIdx[r[0]+"."+r[1]]
+		idx, ok := relIdx[schema+"."+tablename]
 		if !ok {
 			continue
 		}
-		db.Relations[idx].Indexes = append(db.Relations[idx].Indexes, IndexInfo{
-			Name:           r[2],
-			Method:         r[3],
-			Definition:     r[4],
-			IsUnique:       parseBool(r[5]),
-			IsPrimary:      parseBool(r[6]),
-			IsValid:        parseBool(r[7]),
-			IsPartial:      parseBool(r[8]),
-			ConstraintName: r[9],
+		info.Relations[idx].Indexes = append(info.Relations[idx].Indexes, IndexInfo{
+			Name:           indexname,
+			Method:         method,
+			Definition:     definition,
+			IsUnique:       isUnique,
+			IsPrimary:      isPrimary,
+			IsValid:        isValid,
+			IsPartial:      isPartial,
+			ConstraintName: constraintName,
 		})
 	}
-
-	return nil
+	return idxRows.Err()
 }

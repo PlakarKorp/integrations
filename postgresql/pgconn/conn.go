@@ -2,11 +2,12 @@ package pgconn
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
-	"strings"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // ConnConfig holds the connection parameters shared by all PostgreSQL connectors.
@@ -53,7 +54,7 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 			}
 		}
 		if u.Path != "" && u.Path != "/" {
-			dbPath = strings.TrimPrefix(u.Path, "/")
+			dbPath = u.Path[1:] // strip leading /
 		}
 	}
 
@@ -123,18 +124,57 @@ func (c ConnConfig) Env() []string {
 	return env
 }
 
-// Ping verifies connectivity by running SELECT 1 against the server.
+// DSN builds a PostgreSQL connection string for the given database.
+func (c ConnConfig) DSN(dbname string) string {
+	u := &url.URL{
+		Scheme: "postgresql",
+		Host:   c.Host + ":" + c.Port,
+		Path:   "/" + dbname,
+	}
+	if c.Username != "" {
+		if c.Password != "" {
+			u.User = url.UserPassword(c.Username, c.Password)
+		} else {
+			u.User = url.User(c.Username)
+		}
+	}
+	q := url.Values{}
+	if c.SSLMode != "" {
+		q.Set("sslmode", c.SSLMode)
+	}
+	if c.SSLCert != "" {
+		q.Set("sslcert", c.SSLCert)
+	}
+	if c.SSLKey != "" {
+		q.Set("sslkey", c.SSLKey)
+	}
+	if c.SSLRootCert != "" {
+		q.Set("sslrootcert", c.SSLRootCert)
+	}
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+// Open returns a *sql.DB connected to the given database.
+func (c ConnConfig) Open(dbname string) (*sql.DB, error) {
+	return sql.Open("pgx", c.DSN(dbname))
+}
+
+// Ping verifies connectivity by running a ping against the server.
 // If connectDB is empty, "postgres" is used.
-func (c ConnConfig) Ping(ctx context.Context, psqlBin, connectDB string) error {
+func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	args := append(c.Args(), "-d", connectDB, "-c", "SELECT 1", "-q", "--no-psqlrc")
-	cmd := exec.CommandContext(ctx, psqlBin, args...)
-	cmd.Stdin = nil
-	cmd.Env = c.Env()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ping: %w: %s", err, strings.TrimSpace(string(out)))
+	db, err := c.Open(connectDB)
+	if err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	defer db.Close()
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping: %w", err)
 	}
 	return nil
 }

@@ -90,7 +90,6 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
 	return manifest.EmitLogicalManifest(ctx, manifest.LogicalConfig{
-		PSQLBin:    p.bin("psql"),
 		PgDumpBin:  p.bin("pg_dump"),
 		Conn:       p.conn,
 		Database:   p.database,
@@ -133,19 +132,17 @@ func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
-	args := append(p.conn.Args(),
-		"-d", connectDB,
-		"-t", "-A", "--no-psqlrc",
-		"-c", "SELECT 1 FROM pg_authid LIMIT 1",
-	)
-	cmd := exec.CommandContext(ctx, p.bin("psql"), args...)
-	cmd.Stdin = nil
-	cmd.Env = p.conn.Env()
-	out, err := cmd.CombinedOutput()
+	db, err := p.conn.Open(connectDB)
+	if err != nil {
+		return true
+	}
+	defer db.Close()
+	var n int
+	err = db.QueryRowContext(ctx, `SELECT 1 FROM pg_authid LIMIT 1`).Scan(&n)
 	if err == nil {
 		return true
 	}
-	s := string(out)
+	s := err.Error()
 	return !(strings.Contains(s, "permission denied") && strings.Contains(s, "pg_authid"))
 }
 
@@ -259,7 +256,7 @@ func (r *cmdReader) Close() error {
 }
 
 func (p *Importer) Ping(ctx context.Context) error {
-	return p.conn.Ping(ctx, p.bin("psql"), p.database)
+	return p.conn.Ping(ctx, p.database)
 }
 
 func (p *Importer) Close(ctx context.Context) error { return nil }

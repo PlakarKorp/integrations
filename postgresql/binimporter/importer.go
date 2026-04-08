@@ -59,7 +59,6 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 
 func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connectors.Record) error {
 	return manifest.EmitPhysicalManifest(ctx, manifest.PhysicalConfig{
-		PSQLBin:         p.bin("psql"),
 		PgBaseBackupBin: p.bin("pg_basebackup"),
 		Conn:            p.conn,
 	}, records)
@@ -169,7 +168,7 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 
 // Ping verifies that the PostgreSQL server is reachable.
 func (p *BinImporter) Ping(ctx context.Context) error {
-	return p.conn.Ping(ctx, p.bin("psql"), "")
+	return p.conn.Ping(ctx, "")
 }
 
 func (p *BinImporter) Close(ctx context.Context) error { return nil }

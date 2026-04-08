@@ -112,7 +112,7 @@ func (p *Exporter) Type() string          { return "postgresql" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
 func (p *Exporter) Ping(ctx context.Context) error {
-	return p.conn.Ping(ctx, p.bin("psql"), p.database)
+	return p.conn.Ping(ctx, p.database)
 }
 
 func (p *Exporter) Close(ctx context.Context) error {
