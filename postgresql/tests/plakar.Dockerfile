@@ -1,9 +1,10 @@
-# Base image for integration tests.
-# Contains the Go toolchain, postgresql-client, and a plakar binary installed
-# at a specific commit.  The image is kept between runs so that the
-# go install step (which clones and builds plakar) is only paid once.
+# Image for integration tests.
+# Contains the Go toolchain, postgresql-client, a plakar binary, and the
+# postgresql plugin built and installed from the source tree.
+# The image is kept between runs (KeepImage: true) so that subsequent test
+# runs only rebuild layers that changed.
 #
-# Build:
+# Build manually:
 #   docker build --build-arg PLAKAR_SHA=abc1234 -t plakar-test -f tests/plakar.Dockerfile .
 ARG PLAKAR_SHA=main
 
@@ -16,3 +17,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
+
+COPY . /src
+
+RUN set -e && \
+    mkdir -p /tmp/pgpkg && \
+    cd /src && \
+    go build -o /tmp/pgpkg/postgresqlImporter    ./plugin/importer && \
+    go build -o /tmp/pgpkg/postgresqlExporter    ./plugin/exporter && \
+    go build -o /tmp/pgpkg/postgresqlBinImporter ./plugin/binimporter && \
+    cp /src/manifest.yaml /tmp/pgpkg/ && \
+    cd /tmp/pgpkg && \
+    PTAR="postgresql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \
+    plakar pkg create ./manifest.yaml v0.0.1 && \
+    plakar pkg add "./${PTAR}" && \
+    rm -rf /tmp/pgpkg /src

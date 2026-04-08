@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"testing"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -22,10 +21,11 @@ func repoRoot() string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
 }
 
-// StartPlakarContainer starts a container from the plakar test image with the
-// postgresql plugin built and installed from the mounted source tree.
-// networkName is an optional Docker network to attach the container to; pass
-// an empty string when no extra network is needed.
+// StartPlakarContainer starts a container from the plakar test image.
+// The image already has plakar and the postgresql plugin installed (built
+// during the Docker image build from the repository source).
+// net is an optional Docker network to attach the container to; pass nil
+// when no extra network is needed.
 // The container is automatically terminated when the test ends.
 func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
 	t.Helper()
@@ -47,9 +47,6 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 		},
 		Cmd:      []string{"sleep", "infinity"},
 		Networks: networks,
-		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
-			hc.Binds = append(hc.Binds, root+":/src")
-		},
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -59,22 +56,5 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 		t.Fatalf("start plakar container: %v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(ctx) })
-
-	installScript := `set -e
-mkdir -p /tmp/pgpkg
-cd /src
-go build -o /tmp/pgpkg/postgresqlImporter    ./plugin/importer
-go build -o /tmp/pgpkg/postgresqlExporter    ./plugin/exporter
-go build -o /tmp/pgpkg/postgresqlBinImporter ./plugin/binimporter
-cp /src/manifest.yaml /tmp/pgpkg/
-cd /tmp/pgpkg
-GOOS=$(go env GOOS)
-GOARCH=$(go env GOARCH)
-PTAR="postgresql_v0.0.1_${GOOS}_${GOARCH}.ptar"
-rm -f "${PTAR}"
-plakar pkg create ./manifest.yaml v0.0.1
-plakar pkg add "./${PTAR}"`
-
-	ExecOK(ctx, t, container, "sh", "-c", installScript)
 	return container
 }
