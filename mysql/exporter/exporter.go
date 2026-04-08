@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/integration-mysql/mysqlconn"
@@ -38,8 +39,8 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 }
 
 func parseBool(config map[string]string, key string) bool {
-	v := config[key]
-	return v == "true" || v == "1"
+	b, _ := strconv.ParseBool(config[key])
+	return b
 }
 
 // Origin returns a human-readable destination identifier.

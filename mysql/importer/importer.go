@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,8 +60,8 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 }
 
 func parseBool(config map[string]string, key string) bool {
-	v := config[key]
-	return v == "true" || v == "1"
+	b, _ := strconv.ParseBool(config[key])
+	return b
 }
 
 func parseBoolDefault(config map[string]string, key string, def bool) bool {
@@ -68,7 +69,11 @@ func parseBoolDefault(config map[string]string, key string, def bool) bool {
 	if !ok || v == "" {
 		return def
 	}
-	return v == "true" || v == "1"
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 // Origin returns a human-readable source identifier.
