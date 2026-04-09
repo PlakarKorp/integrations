@@ -25,6 +25,8 @@ type Importer struct {
 	database          string // empty = --all-databases
 	noData            bool
 	noCreateInfo      bool
+	noTablespaces     bool
+	columnStatistics  bool
 	singleTransaction bool
 	routines          bool
 	events            bool
@@ -74,6 +76,12 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	if imp.hexBlob, err = boolOpt("hex_blob", false); err != nil {
 		return nil, err
 	}
+	if imp.noTablespaces, err = boolOpt("no_tablespaces", true); err != nil {
+		return nil, err
+	}
+	if imp.columnStatistics, err = boolOpt("column_statistics", true); err != nil {
+		return nil, err
+	}
 
 	if imp.noData && imp.noCreateInfo {
 		return nil, fmt.Errorf("no_data and no_create_info are mutually exclusive")
@@ -119,6 +127,8 @@ func (i *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 		Options: manifest.ManifestOptions{
 			NoData:            i.noData,
 			NoCreateInfo:      i.noCreateInfo,
+			NoTablespaces:     i.noTablespaces,
+			ColumnStatistics:  i.columnStatistics,
 			SingleTransaction: i.singleTransaction,
 			Routines:          i.routines,
 			Events:            i.events,
@@ -179,6 +189,12 @@ func (i *Importer) dumpFlags() []string {
 	}
 	if i.noCreateInfo {
 		flags = append(flags, "--no-create-info")
+	}
+	if i.noTablespaces {
+		flags = append(flags, "--no-tablespaces")
+	}
+	if !i.columnStatistics {
+		flags = append(flags, "--column-statistics=0")
 	}
 	if i.hexBlob {
 		flags = append(flags, "--hex-blob")

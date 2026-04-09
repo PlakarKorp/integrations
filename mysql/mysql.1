@@ -122,6 +122,31 @@ Dump data only, no DDL
 Mutually exclusive with
 .BR no_data .
 .TP
+.B no_tablespaces
+Boolean (default:
+.BR true ).
+Suppress
+.B CREATE LOGFILE GROUP
+and
+.B CREATE TABLESPACE
+statements
+.RB ( --no-tablespaces ).
+Recommended when restoring to managed or cloud MySQL instances that do not
+support custom tablespaces.
+.TP
+.B column_statistics
+Boolean (default:
+.BR true ).
+Query
+.B information_schema.COLUMN_STATISTICS
+for histogram data, matching the default behaviour of mysqldump 8.0.
+Set to
+.B false
+to pass
+.B --column-statistics=0
+when using a mysqldump 8.0 binary against a MySQL 5.7 or MariaDB server,
+which does not have that table.
+.TP
 .B hex_blob
 Boolean (default:
 .BR false ).

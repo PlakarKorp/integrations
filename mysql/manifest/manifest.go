@@ -19,6 +19,8 @@ import (
 type ManifestOptions struct {
 	NoData            bool   `json:"no_data"`
 	NoCreateInfo      bool   `json:"no_create_info"`
+	NoTablespaces     bool   `json:"no_tablespaces"`
+	ColumnStatistics  bool   `json:"column_statistics"`
 	SingleTransaction bool   `json:"single_transaction"`
 	Routines          bool   `json:"routines"`
 	Events            bool   `json:"events"`
@@ -88,8 +90,10 @@ func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) er
 		DumpFormat:    "sql",
 		IsReadReplica: isReadReplica(ctx, db),
 		Options: &ManifestOptions{
-			NoData:        cfg.Options.NoData,
-			NoCreateInfo:          cfg.Options.NoCreateInfo,
+			NoData:            cfg.Options.NoData,
+			NoCreateInfo:      cfg.Options.NoCreateInfo,
+			NoTablespaces:     cfg.Options.NoTablespaces,
+			ColumnStatistics:  cfg.Options.ColumnStatistics,
 			SingleTransaction: cfg.Options.SingleTransaction,
 			Routines:          cfg.Options.Routines,
 			Events:            cfg.Options.Events,

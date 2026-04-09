@@ -59,6 +59,14 @@
       "type": "boolean",
       "description": "When true, passes --no-create-info so only INSERT statements are dumped (no DDL). Mutually exclusive with no_data."
     },
+    "no_tablespaces": {
+      "type": "boolean",
+      "description": "Suppress CREATE LOGFILE GROUP and CREATE TABLESPACE statements (--no-tablespaces, default: true). Recommended for restoring to managed or cloud MySQL instances that do not support custom tablespaces."
+    },
+    "column_statistics": {
+      "type": "boolean",
+      "description": "Query information_schema.COLUMN_STATISTICS for histogram data (default: true, matching mysqldump 8.0 behaviour). Set to false to pass --column-statistics=0, which is required when the mysqldump binary is 8.0 but the source server is MySQL 5.7 or MariaDB."
+    },
     "hex_blob": {
       "type": "boolean",
       "description": "Dump BINARY, VARBINARY, BLOB, and BIT columns using hexadecimal notation (--hex-blob). Useful when the dump may be loaded on a system with different character set settings."

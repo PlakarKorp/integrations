@@ -99,6 +99,8 @@ These options are passed after the URI when adding a source or during backup:
 | `triggers`           | boolean | `true`   | Include triggers (set `false` for `--skip-triggers`) |
 | `no_data`            | boolean | `false`  | Dump DDL only, no data (`--no-data`) |
 | `no_create_info`     | boolean | `false`  | Dump data only, no DDL (`--no-create-info`) |
+| `no_tablespaces`     | boolean | `true`   | Suppress tablespace statements (`--no-tablespaces`); recommended for cloud/managed MySQL |
+| `column_statistics`  | boolean | `true`   | Query `COLUMN_STATISTICS`; set `false` (`--column-statistics=0`) when mysqldump 8.0 targets MySQL 5.7/MariaDB |
 | `hex_blob`           | boolean | `false`  | Encode BINARY/BLOB columns as hex (`--hex-blob`) |
 | `set_gtid_purged`    | string  | `AUTO`   | GTID mode: `AUTO`, `ON`, or `OFF` |
 | `mysql_bin_dir`      | string  | —        | Directory containing `mysql`/`mysqldump` binaries |
