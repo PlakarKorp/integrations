@@ -39,17 +39,40 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		return nil, err
 	}
 
-	imp := &Importer{
-		conn:              conn,
-		database:          mysqlconn.DatabaseFromConfig(config),
-		singleTransaction: parseBoolDefault(config, "single_transaction", true),
-		routines:          parseBoolDefault(config, "routines", true),
-		events:            parseBoolDefault(config, "events", true),
-		triggers:          parseBoolDefault(config, "triggers", true),
-		schemaOnly:        parseBool(config, "schema_only"),
-		dataOnly:          parseBool(config, "data_only"),
-		hexBlob:           parseBool(config, "hex_blob"),
-		setGTIDPurged:     config["set_gtid_purged"],
+	boolOpt := func(key string, def bool) (bool, error) {
+		v, ok := config[key]
+		if !ok || v == "" {
+			return def, nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, fmt.Errorf("invalid value for %s: %w", key, err)
+		}
+		return b, nil
+	}
+
+	var err2 error
+	imp := &Importer{conn: conn, database: mysqlconn.DatabaseFromConfig(config), setGTIDPurged: config["set_gtid_purged"]}
+	if imp.singleTransaction, err2 = boolOpt("single_transaction", true); err2 != nil {
+		return nil, err2
+	}
+	if imp.routines, err2 = boolOpt("routines", true); err2 != nil {
+		return nil, err2
+	}
+	if imp.events, err2 = boolOpt("events", true); err2 != nil {
+		return nil, err2
+	}
+	if imp.triggers, err2 = boolOpt("triggers", true); err2 != nil {
+		return nil, err2
+	}
+	if imp.schemaOnly, err2 = boolOpt("schema_only", false); err2 != nil {
+		return nil, err2
+	}
+	if imp.dataOnly, err2 = boolOpt("data_only", false); err2 != nil {
+		return nil, err2
+	}
+	if imp.hexBlob, err2 = boolOpt("hex_blob", false); err2 != nil {
+		return nil, err2
 	}
 
 	if imp.schemaOnly && imp.dataOnly {
@@ -57,23 +80,6 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}
 
 	return imp, nil
-}
-
-func parseBool(config map[string]string, key string) bool {
-	b, _ := strconv.ParseBool(config[key])
-	return b
-}
-
-func parseBoolDefault(config map[string]string, key string, def bool) bool {
-	v, ok := config[key]
-	if !ok || v == "" {
-		return def
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		return def
-	}
-	return b
 }
 
 // Origin returns a human-readable source identifier.
