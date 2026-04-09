@@ -239,6 +239,36 @@ The manifest queries `INFORMATION_SCHEMA` (no extra privileges needed) and
 `mysql.user` (requires SELECT on mysql.*). The mysql.user query is best-effort
 and the backup succeeds even when it fails.
 
+## Client Binary Compatibility
+
+The plugin invokes `mysqldump` (for backup) and `mysql` (for restore) from
+`$PATH` or the directory set by `mysql_bin_dir`.  **The client binaries must
+come from the same MySQL distribution as the server being backed up.**
+
+### MariaDB vs MySQL
+
+Debian and Ubuntu systems install MariaDB's `mysqldump` by default when you
+run `apt install default-mysql-client`.  MariaDB's `mysqldump` is **not
+compatible** with a MySQL 8 server for all-databases backups: it generates
+`INSERT` statements for generated columns (e.g. `engine_cost.default_value`)
+that MySQL 8 rejects during restore with `ERROR 3105 (HY000): The value
+specified for generated column … is not allowed`.
+
+Always verify you are running the correct binary:
+
+```sh
+mysqldump --version
+# Good:    mysqldump  Ver 8.4.x Distrib 8.4.x, for Linux (x86_64)
+# Bad:     mysqldump from 11.x.x-MariaDB, client 10.x for …
+```
+
+If MariaDB tools are installed, point the plugin to the MySQL binary directory:
+
+```sh
+plakar source add mydb \
+  "mysql://dbuser:secret@db.example.com/mydb mysql_bin_dir=/usr/local/mysql/bin"
+```
+
 ## MySQL-Specific Notes
 
 ### InnoDB consistency with `single_transaction`
