@@ -2,7 +2,6 @@ package logical
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
@@ -68,20 +67,12 @@ func TestAllDatabasesBackup(t *testing.T) {
 	)
 
 	// Step 7 — verify testdb data.
-	out := testhelpers.ExecCapture(ctx, t, restoreContainer,
-		"mysql", "-uroot", "-psecret", "testdb",
-		"-sN", "-e", "SELECT count(*) FROM users",
-	)
-	if strings.TrimSpace(out) != "3" {
-		t.Fatalf("expected 3 rows in testdb.users after restore, got %q", out)
+	if n := testhelpers.MustQueryInt(ctx, t, restoreContainer, "root", "secret", "testdb", "SELECT COUNT(*) FROM users"); n != 3 {
+		t.Fatalf("expected 3 rows in testdb.users after restore, got %d", n)
 	}
 
 	// Step 8 — verify seconddb data.
-	out = testhelpers.ExecCapture(ctx, t, restoreContainer,
-		"mysql", "-uroot", "-psecret", "seconddb",
-		"-sN", "-e", "SELECT count(*) FROM items",
-	)
-	if strings.TrimSpace(out) != "2" {
-		t.Fatalf("expected 2 rows in seconddb.items after restore, got %q", out)
+	if n := testhelpers.MustQueryInt(ctx, t, restoreContainer, "root", "secret", "seconddb", "SELECT COUNT(*) FROM items"); n != 2 {
+		t.Fatalf("expected 2 rows in seconddb.items after restore, got %d", n)
 	}
 }

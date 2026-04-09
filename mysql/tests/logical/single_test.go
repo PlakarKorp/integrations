@@ -2,7 +2,6 @@ package logical
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
@@ -56,19 +55,10 @@ func TestSingleDatabaseBackup(t *testing.T) {
 	)
 
 	// Step 7 — verify the data was restored correctly.
-	out := testhelpers.ExecCapture(ctx, t, restoreContainer,
-		"mysql", "-uroot", "-psecret", "testdb",
-		"-sN", "-e", "SELECT count(*) FROM users",
-	)
-	if strings.TrimSpace(out) != "3" {
-		t.Fatalf("expected 3 rows in users after restore, got %q", out)
+	if n := testhelpers.MustQueryInt(ctx, t, restoreContainer, "root", "secret", "testdb", "SELECT COUNT(*) FROM users"); n != 3 {
+		t.Fatalf("expected 3 rows in users after restore, got %d", n)
 	}
-
-	out = testhelpers.ExecCapture(ctx, t, restoreContainer,
-		"mysql", "-uroot", "-psecret", "testdb",
-		"-sN", "-e", "SELECT count(*) FROM orders",
-	)
-	if strings.TrimSpace(out) != "3" {
-		t.Fatalf("expected 3 rows in orders after restore, got %q", out)
+	if n := testhelpers.MustQueryInt(ctx, t, restoreContainer, "root", "secret", "testdb", "SELECT COUNT(*) FROM orders"); n != 3 {
+		t.Fatalf("expected 3 rows in orders after restore, got %d", n)
 	}
 }

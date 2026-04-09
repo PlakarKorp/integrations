@@ -2,8 +2,11 @@ package testhelpers
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"testing"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -27,6 +30,7 @@ func StartMySQLContainer(ctx context.Context, t *testing.T, net *testcontainers.
 			"MYSQL_ROOT_PASSWORD": "secret",
 			"MYSQL_DATABASE":      "testdb",
 		},
+		ExposedPorts:   []string{"3306/tcp"},
 		Networks:       []string{net.Name},
 		NetworkAliases: map[string][]string{net.Name: {alias}},
 		// Wait until MySQL is accepting connections on port 3306.
@@ -69,4 +73,30 @@ func SeedMySQL(ctx context.Context, t *testing.T, container testcontainers.Conta
 	for _, stmt := range stmts {
 		ExecOK(ctx, t, container, "mysql", "-uroot", "-psecret", "testdb", "-e", stmt)
 	}
+}
+
+// MustQueryInt connects to the MySQL container from the test host and runs a
+// query that returns a single integer (e.g. SELECT COUNT(*) FROM ...).
+// The test fails immediately on any connection or query error.
+func MustQueryInt(ctx context.Context, t *testing.T, container testcontainers.Container, user, password, database, query string) int {
+	t.Helper()
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("get container host: %v", err)
+	}
+	port, err := container.MappedPort(ctx, "3306")
+	if err != nil {
+		t.Fatalf("get container mapped port: %v", err)
+	}
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, password, host, port.Port(), database)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("open mysql connection: %v", err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRowContext(ctx, query).Scan(&n); err != nil {
+		t.Fatalf("query %q: %v", query, err)
+	}
+	return n
 }
