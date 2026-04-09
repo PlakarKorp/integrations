@@ -4,19 +4,26 @@
 # The image is kept between runs (KeepImage: true) so that subsequent test
 # runs only rebuild layers that changed.
 #
+# We use mysql:8 as the base image (rather than a generic Debian/Go image)
+# to ensure that the mysql and mysqldump binaries are the official MySQL 8
+# client tools. Using the default Debian package (default-mysql-client)
+# installs MariaDB's mysqldump instead, which generates dumps incompatible
+# with MySQL 8 (e.g. it emits INSERT statements for generated columns such
+# as engine_cost.default_value, which MySQL 8 rejects with ERROR 3105).
+#
 # Build manually:
 #   docker build --build-arg PLAKAR_SHA=main -t plakar-mysql-test -f tests/plakar.Dockerfile .
 ARG PLAKAR_SHA=main
 
-FROM golang:1.25
+FROM mysql:8
 
 ARG PLAKAR_SHA
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends default-mysql-client ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+RUN microdnf install -y golang && microdnf clean all
 
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
+
+ENV PATH="/root/go/bin:${PATH}"
 
 COPY . /src
 
