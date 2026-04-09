@@ -357,24 +357,28 @@ func collectDatabaseDetail(ctx context.Context, db *sql.DB, info *DatabaseInfo) 
 }
 
 func queryTables(ctx context.Context, db *sql.DB, schema string) ([]TableInfo, error) {
+	// CHARACTER_SET_NAME was removed from information_schema.TABLES in MySQL 8.0.
+	// Derive it from the collation via COLLATION_CHARACTER_SET_APPLICABILITY instead.
 	rows, err := db.QueryContext(ctx, `
 SELECT
-  TABLE_NAME,
-  TABLE_TYPE,
-  COALESCE(ENGINE, ''),
-  COALESCE(ROW_FORMAT, ''),
-  COALESCE(TABLE_ROWS, 0),
-  COALESCE(DATA_LENGTH, 0),
-  COALESCE(INDEX_LENGTH, 0),
-  COALESCE(AUTO_INCREMENT, 0),
-  COALESCE(CHARACTER_SET_NAME, ''),
-  COALESCE(TABLE_COLLATION, ''),
-  CREATE_TIME,
-  UPDATE_TIME,
-  COALESCE(TABLE_COMMENT, '')
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = ?
-ORDER BY TABLE_NAME`, schema)
+  t.TABLE_NAME,
+  t.TABLE_TYPE,
+  COALESCE(t.ENGINE, ''),
+  COALESCE(t.ROW_FORMAT, ''),
+  COALESCE(t.TABLE_ROWS, 0),
+  COALESCE(t.DATA_LENGTH, 0),
+  COALESCE(t.INDEX_LENGTH, 0),
+  COALESCE(t.AUTO_INCREMENT, 0),
+  COALESCE(ccsa.CHARACTER_SET_NAME, ''),
+  COALESCE(t.TABLE_COLLATION, ''),
+  t.CREATE_TIME,
+  t.UPDATE_TIME,
+  COALESCE(t.TABLE_COMMENT, '')
+FROM information_schema.TABLES t
+LEFT JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY ccsa
+  ON ccsa.COLLATION_NAME = t.TABLE_COLLATION
+WHERE t.TABLE_SCHEMA = ?
+ORDER BY t.TABLE_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying TABLES for %s: %w", schema, err)
 	}
