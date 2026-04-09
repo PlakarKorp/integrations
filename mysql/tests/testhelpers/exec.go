@@ -15,6 +15,7 @@ import (
 // fails the test if the exit code is non-zero.
 func ExecOK(ctx context.Context, t *testing.T, container testcontainers.Container, cmd ...string) {
 	t.Helper()
+	t.Logf("$ %s", strings.Join(cmd, " "))
 	code, out, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
 	if err != nil {
 		t.Fatalf("exec %v: %v", cmd, err)
@@ -32,6 +33,7 @@ func ExecOK(ctx context.Context, t *testing.T, container testcontainers.Containe
 // string. The test fails if the exit code is non-zero.
 func ExecCapture(ctx context.Context, t *testing.T, container testcontainers.Container, cmd ...string) string {
 	t.Helper()
+	t.Logf("$ %s", strings.Join(cmd, " "))
 	code, out, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
 	if err != nil {
 		t.Fatalf("exec %v: %v", cmd, err)

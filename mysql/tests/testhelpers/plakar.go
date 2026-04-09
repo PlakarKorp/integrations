@@ -43,7 +43,7 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 			Dockerfile:    "tests/plakar.Dockerfile",
 			BuildArgs:     map[string]*string{"PLAKAR_SHA": &sha},
 			KeepImage:     true,
-			PrintBuildLog: false,
+			PrintBuildLog: true,
 		},
 		Cmd:      []string{"sleep", "infinity"},
 		Networks: networks,
