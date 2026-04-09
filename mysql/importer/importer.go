@@ -51,28 +51,27 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		return b, nil
 	}
 
-	var err2 error
 	imp := &Importer{conn: conn, database: mysqlconn.DatabaseFromConfig(config), setGTIDPurged: config["set_gtid_purged"]}
-	if imp.singleTransaction, err2 = boolOpt("single_transaction", true); err2 != nil {
-		return nil, err2
+	if imp.singleTransaction, err = boolOpt("single_transaction", true); err != nil {
+		return nil, err
 	}
-	if imp.routines, err2 = boolOpt("routines", true); err2 != nil {
-		return nil, err2
+	if imp.routines, err = boolOpt("routines", true); err != nil {
+		return nil, err
 	}
-	if imp.events, err2 = boolOpt("events", true); err2 != nil {
-		return nil, err2
+	if imp.events, err = boolOpt("events", true); err != nil {
+		return nil, err
 	}
-	if imp.triggers, err2 = boolOpt("triggers", true); err2 != nil {
-		return nil, err2
+	if imp.triggers, err = boolOpt("triggers", true); err != nil {
+		return nil, err
 	}
-	if imp.schemaOnly, err2 = boolOpt("schema_only", false); err2 != nil {
-		return nil, err2
+	if imp.schemaOnly, err = boolOpt("schema_only", false); err != nil {
+		return nil, err
 	}
-	if imp.dataOnly, err2 = boolOpt("data_only", false); err2 != nil {
-		return nil, err2
+	if imp.dataOnly, err = boolOpt("data_only", false); err != nil {
+		return nil, err
 	}
-	if imp.hexBlob, err2 = boolOpt("hex_blob", false); err2 != nil {
-		return nil, err2
+	if imp.hexBlob, err = boolOpt("hex_blob", false); err != nil {
+		return nil, err
 	}
 
 	if imp.schemaOnly && imp.dataOnly {
