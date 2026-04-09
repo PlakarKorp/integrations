@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-mysql/importer"
 	"github.com/PlakarKorp/integration-mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	iexporter "github.com/PlakarKorp/kloset/connectors/exporter"
@@ -108,7 +110,7 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
 	// Determine target database.
 	targetDB := e.database
-	if targetDB == "" && record.Pathname != "all.sql" {
+	if targetDB == "" && record.Pathname != path.Base(importer.AllDatabasesDumpFile) {
 		// Infer from filename: "mydb.sql" → "mydb"
 		base := filepath.Base(record.Pathname)
 		targetDB = strings.TrimSuffix(base, ".sql")

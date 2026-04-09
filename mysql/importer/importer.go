@@ -19,6 +19,9 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 )
 
+// AllDatabasesDumpFile is the snapshot path used for full-server dumps.
+const AllDatabasesDumpFile = "/all.sql"
+
 // Importer streams a logical MySQL backup using mysqldump.
 type Importer struct {
 	conn              mysqlconn.ConnConfig
@@ -161,7 +164,7 @@ func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *conne
 
 // dumpAllDatabases runs mysqldump --all-databases and emits /all.sql.
 func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
-	return i.emitDump(ctx, records, "/all.sql", func() (io.ReadCloser, error) {
+	return i.emitDump(ctx, records, AllDatabasesDumpFile, func() (io.ReadCloser, error) {
 		args := i.conn.Args()
 		args = append(args, "--all-databases")
 		args = append(args, i.dumpFlags()...)
