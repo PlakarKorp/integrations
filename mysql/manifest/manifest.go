@@ -17,8 +17,8 @@ import (
 
 // ManifestOptions records which dump options were active when the backup was created.
 type ManifestOptions struct {
-	SchemaOnly        bool   `json:"schema_only"`
-	DataOnly          bool   `json:"data_only"`
+	NoData            bool   `json:"no_data"`
+	NoCreateInfo      bool   `json:"no_create_info"`
 	SingleTransaction bool   `json:"single_transaction"`
 	Routines          bool   `json:"routines"`
 	Events            bool   `json:"events"`
@@ -88,8 +88,8 @@ func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) er
 		DumpFormat:    "sql",
 		IsReadReplica: isReadReplica(ctx, db),
 		Options: &ManifestOptions{
-			SchemaOnly:        cfg.Options.SchemaOnly,
-			DataOnly:          cfg.Options.DataOnly,
+			NoData:        cfg.Options.NoData,
+			NoCreateInfo:          cfg.Options.NoCreateInfo,
 			SingleTransaction: cfg.Options.SingleTransaction,
 			Routines:          cfg.Options.Routines,
 			Events:            cfg.Options.Events,

@@ -97,8 +97,8 @@ These options are passed after the URI when adding a source or during backup:
 | `routines`           | boolean | `true`   | Include stored procedures and functions (`--routines`) |
 | `events`             | boolean | `true`   | Include event scheduler events (`--events`) |
 | `triggers`           | boolean | `true`   | Include triggers (set `false` for `--skip-triggers`) |
-| `schema_only`        | boolean | `false`  | Dump DDL only, no data (`--no-data`) |
-| `data_only`          | boolean | `false`  | Dump data only, no DDL (`--no-create-info`) |
+| `no_data`            | boolean | `false`  | Dump DDL only, no data (`--no-data`) |
+| `no_create_info`     | boolean | `false`  | Dump data only, no DDL (`--no-create-info`) |
 | `hex_blob`           | boolean | `false`  | Encode BINARY/BLOB columns as hex (`--hex-blob`) |
 | `set_gtid_purged`    | string  | `AUTO`   | GTID mode: `AUTO`, `ON`, or `OFF` |
 | `mysql_bin_dir`      | string  | —        | Directory containing `mysql`/`mysqldump` binaries |
@@ -113,7 +113,7 @@ These options are passed after the URI when adding a source or during backup:
 # Schema only, custom binary location
 plakar source add mydb \
   "mysql://dbuser:secret@db.example.com/mydb \
-   schema_only=true \
+   no_data=true \
    mysql_bin_dir=/usr/local/mysql/bin"
 
 # Disable GTID tracking for cross-server restore
@@ -168,8 +168,8 @@ Each backup snapshot contains:
   "database": "mydb",
   "dump_format": "sql",
   "options": {
-    "schema_only": false,
-    "data_only": false,
+    "no_data": false,
+    "no_create_info": false,
     "single_transaction": true,
     "routines": true,
     "events": true,
@@ -315,7 +315,7 @@ make integration-test
   physical backups, consider Percona XtraBackup or MySQL Shell's dump utility
   (potential future plugin).
 - **No per-table filtering**: The entire database (or all databases) is dumped.
-- **No restore-time schema_only / data_only**: Filtering during restore is not
+- **No restore-time no_data / no_create_info**: Filtering during restore is not
   yet supported; the full dump is always piped to `mysql`.
 - **User/grant migration**: Single-database backups do not capture users or
   grants (see [User and grant migration](#user-and-grant-migration)).

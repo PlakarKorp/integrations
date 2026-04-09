@@ -22,8 +22,8 @@ import (
 type Importer struct {
 	conn              mysqlconn.ConnConfig
 	database          string // empty = --all-databases
-	schemaOnly        bool
-	dataOnly          bool
+	noData        bool
+	noCreateInfo          bool
 	singleTransaction bool
 	routines          bool
 	events            bool
@@ -64,18 +64,18 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	if imp.triggers, err = boolOpt("triggers", true); err != nil {
 		return nil, err
 	}
-	if imp.schemaOnly, err = boolOpt("schema_only", false); err != nil {
+	if imp.noData, err = boolOpt("no_data", false); err != nil {
 		return nil, err
 	}
-	if imp.dataOnly, err = boolOpt("data_only", false); err != nil {
+	if imp.noCreateInfo, err = boolOpt("no_create_info", false); err != nil {
 		return nil, err
 	}
 	if imp.hexBlob, err = boolOpt("hex_blob", false); err != nil {
 		return nil, err
 	}
 
-	if imp.schemaOnly && imp.dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+	if imp.noData && imp.noCreateInfo {
+		return nil, fmt.Errorf("no_data and no_create_info are mutually exclusive")
 	}
 
 	return imp, nil
@@ -116,8 +116,8 @@ func (i *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 		Conn:     i.conn,
 		Database: i.database,
 		Options: manifest.ManifestOptions{
-			SchemaOnly:        i.schemaOnly,
-			DataOnly:          i.dataOnly,
+			NoData:        i.noData,
+			NoCreateInfo:          i.noCreateInfo,
 			SingleTransaction: i.singleTransaction,
 			Routines:          i.routines,
 			Events:            i.events,
@@ -173,10 +173,10 @@ func (i *Importer) dumpFlags() []string {
 	if !i.triggers {
 		flags = append(flags, "--skip-triggers")
 	}
-	if i.schemaOnly {
+	if i.noData {
 		flags = append(flags, "--no-data")
 	}
-	if i.dataOnly {
+	if i.noCreateInfo {
 		flags = append(flags, "--no-create-info")
 	}
 	if i.hexBlob {

@@ -51,13 +51,13 @@
       "type": "boolean",
       "description": "Include triggers (default: true). Set to false to pass --skip-triggers."
     },
-    "schema_only": {
+    "no_data": {
       "type": "boolean",
-      "description": "When true, passes --no-data so only DDL statements are dumped (no INSERT rows). Mutually exclusive with data_only."
+      "description": "When true, passes --no-data so only DDL statements are dumped (no INSERT rows). Mutually exclusive with no_create_info."
     },
-    "data_only": {
+    "no_create_info": {
       "type": "boolean",
-      "description": "When true, passes --no-create-info so only INSERT statements are dumped (no DDL). Mutually exclusive with schema_only."
+      "description": "When true, passes --no-create-info so only INSERT statements are dumped (no DDL). Mutually exclusive with no_data."
     },
     "hex_blob": {
       "type": "boolean",

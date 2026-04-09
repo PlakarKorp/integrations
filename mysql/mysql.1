@@ -106,21 +106,21 @@ to pass
 .B --skip-triggers
 to mysqldump.
 .TP
-.B schema_only
+.B no_data
 Boolean (default:
 .BR false ).
 Dump DDL only, no data
 .RB ( --no-data ).
 Mutually exclusive with
-.BR data_only .
+.BR no_create_info .
 .TP
-.B data_only
+.B no_create_info
 Boolean (default:
 .BR false ).
 Dump data only, no DDL
 .RB ( --no-create-info ).
 Mutually exclusive with
-.BR schema_only .
+.BR no_data .
 .TP
 .B hex_blob
 Boolean (default:
@@ -252,7 +252,7 @@ plakar backup mysql://root:secret@db.example.com
 Back up schema only:
 .PP
 .nf
-plakar backup "mysql://dbuser:secret@db.example.com/mydb schema_only=true"
+plakar backup "mysql://dbuser:secret@db.example.com/mydb no_data=true"
 .fi
 .PP
 Restore to an existing database:
