@@ -1,6 +1,6 @@
 .\" mysql.1 — man page for the Plakar MySQL integration plugin
 .\" Process with: man ./mysql.1
-.TH MYSQL 1 "April 2025" "Plakar MySQL Integration" "Plakar Plugins"
+.TH MYSQL 1 2025-04-09 "Plakar MySQL Integration" "Plakar Plugins"
 .SH NAME
 mysql \- Plakar plugin for logical backup and restore of MySQL databases
 .SH SYNOPSIS
@@ -30,14 +30,12 @@ When a database is specified in the URI, only that database is backed up
 databases are backed up with
 .BR --all-databases .
 .SH CONNECTION URI
-.PP
 .nf
 mysql://[user[:password]@]host[:port][/database]
 .fi
-.PP
 .TS
 tab(|);
-l l.
+l l l.
 Component|Default|Description
 user| |MySQL username
 password| |MySQL password (never on command line; uses MYSQL_PWD)
