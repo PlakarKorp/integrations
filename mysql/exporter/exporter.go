@@ -88,7 +88,7 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 		return record.Ok()
 	}
 	// Skip the manifest — it is metadata only.
-	if record.Pathname == "/manifest.json" {
+	if record.Pathname == "manifest.json" {
 		return record.Ok()
 	}
 
@@ -106,8 +106,8 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
 	// Determine target database.
 	targetDB := e.database
-	if targetDB == "" && record.Pathname != "/all.sql" {
-		// Infer from filename: "/mydb.sql" → "mydb"
+	if targetDB == "" && record.Pathname != "all.sql" {
+		// Infer from filename: "mydb.sql" → "mydb"
 		base := filepath.Base(record.Pathname)
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
