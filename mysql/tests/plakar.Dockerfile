@@ -8,7 +8,7 @@
 #   docker build --build-arg PLAKAR_SHA=main -t plakar-mysql-test -f tests/plakar.Dockerfile .
 ARG PLAKAR_SHA=main
 
-FROM golang:1.24
+FROM golang:1.25
 
 ARG PLAKAR_SHA
 

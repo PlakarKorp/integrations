@@ -31,7 +31,11 @@ func TestAllDatabasesBackup(t *testing.T) {
 	)
 	testhelpers.ExecOK(ctx, t, mysqlContainer,
 		"mysql", "-uroot", "-psecret", "seconddb",
-		"-e", "CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, label VARCHAR(255)); INSERT INTO items (label) VALUES ('alpha'), ('beta');",
+		"-e", "CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, label VARCHAR(255))",
+	)
+	testhelpers.ExecOK(ctx, t, mysqlContainer,
+		"mysql", "-uroot", "-psecret", "seconddb",
+		"-e", "INSERT INTO items (label) VALUES ('alpha'), ('beta')",
 	)
 
 	// Step 2 — start the plakar container on the same network.

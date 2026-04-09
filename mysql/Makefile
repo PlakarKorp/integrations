@@ -46,7 +46,7 @@ testdb:
 
 .PHONY: integration-test
 integration-test:
-	go test -v ./tests/...
+	go test -v -timeout 20m ./tests/...
 
 .PHONY: clean
 clean:

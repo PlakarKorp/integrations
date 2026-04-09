@@ -48,33 +48,25 @@ func StartMySQLContainer(ctx context.Context, t *testing.T, net *testcontainers.
 // SeedMySQL populates testdb with representative data including tables,
 // a stored procedure, and a trigger. This covers the most common mysqldump
 // content types and gives meaningful row counts to verify after restore.
+//
+// Each statement is executed as a separate -e call because mysql interprets
+// ';' as a statement terminator, which breaks stored procedures and triggers
+// that contain semicolons in their bodies. Procedures and triggers are written
+// without BEGIN/END so their bodies contain no embedded semicolons.
 func SeedMySQL(ctx context.Context, t *testing.T, container testcontainers.Container) {
 	t.Helper()
 
-	seed := `
-CREATE TABLE users (
-  id   INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL
-);
-INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');
-
-CREATE TABLE orders (
-  id      INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NOT NULL,
-  amount  DECIMAL(10,2) NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id)
-);
-INSERT INTO orders (user_id, amount) VALUES (1, 99.99), (2, 149.50), (3, 9.99);
-
-DROP PROCEDURE IF EXISTS get_users;
-CREATE PROCEDURE get_users() BEGIN SELECT * FROM users; END;
-
-DROP TRIGGER IF EXISTS before_order_insert;
-CREATE TRIGGER before_order_insert
-  BEFORE INSERT ON orders
-  FOR EACH ROW
-  SET NEW.amount = IF(NEW.amount < 0, 0, NEW.amount);
-`
-	ExecOK(ctx, t, container,
-		"mysql", "-uroot", "-psecret", "testdb", "-e", seed)
+	stmts := []string{
+		`CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL)`,
+		`INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol')`,
+		`CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, amount DECIMAL(10,2) NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))`,
+		`INSERT INTO orders (user_id, amount) VALUES (1, 99.99), (2, 149.50), (3, 9.99)`,
+		// Single-statement procedure — no BEGIN/END, no embedded semicolon.
+		`CREATE PROCEDURE get_users() SELECT * FROM users`,
+		// Single-statement trigger — FOR EACH ROW with one action, no BEGIN/END.
+		`CREATE TRIGGER before_order_insert BEFORE INSERT ON orders FOR EACH ROW SET NEW.amount = IF(NEW.amount < 0, 0, NEW.amount)`,
+	}
+	for _, stmt := range stmts {
+		ExecOK(ctx, t, container, "mysql", "-uroot", "-psecret", "testdb", "-e", stmt)
+	}
 }

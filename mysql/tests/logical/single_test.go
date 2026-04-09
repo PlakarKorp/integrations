@@ -46,11 +46,12 @@ func TestSingleDatabaseBackup(t *testing.T) {
 	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapID, "/manifest.json")
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
+	// The MySQL container creates testdb automatically via MYSQL_DATABASE env,
+	// so no create_db=true is needed.
 	restoreContainer := testhelpers.StartMySQLContainer(ctx, t, net, "mysql-restore")
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "restore",
 		"-to", "mysql://root:secret@mysql-restore/testdb",
-		"create_db=true",
 		snapID,
 	)
 
