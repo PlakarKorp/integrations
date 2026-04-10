@@ -53,8 +53,7 @@ func (cc ConnConfig) dumpBin() string {
 }
 
 // ParseConnConfig builds a ConnConfig from the connector configuration map.
-// The map may contain a "location" URI (mysql://user:pass@host:port/db) and/or
-// individual override keys.  Standalone keys always take precedence over the URI.
+// Standalone keys (host, port, …) always take precedence over the location URI.
 func ParseConnConfig(config map[string]string) (ConnConfig, error) {
 	cc := ConnConfig{
 		Host: "127.0.0.1",
@@ -102,7 +101,7 @@ func ParseConnConfig(config map[string]string) (ConnConfig, error) {
 	if v := config["ssl_ca"]; v != "" {
 		cc.SSLCA = v
 	}
-	// Accept mysql_bin_dir (MySQL connector) and mariadb_bin_dir (MariaDB connector).
+	// Both mysql_bin_dir and mariadb_bin_dir map to BinDir; only one is present per plugin.
 	if v := config["mysql_bin_dir"]; v != "" {
 		cc.BinDir = v
 	}
@@ -114,7 +113,6 @@ func ParseConnConfig(config map[string]string) (ConnConfig, error) {
 }
 
 func parseURI(uri string, cc *ConnConfig) error {
-	// Accept mysql:// and mysql+mariadb:// schemes.
 	idx := strings.Index(uri, "://")
 	if idx < 0 || !strings.HasPrefix(uri, "mysql") {
 		return fmt.Errorf("unsupported URI scheme in %q: expected mysql:// or mysql+mariadb://", uri)
@@ -141,8 +139,8 @@ func parseURI(uri string, cc *ConnConfig) error {
 	return nil
 }
 
-// DatabaseFromConfig returns the database name from the config map.
-// It checks the explicit "database" key first, then falls back to the URI path.
+// DatabaseFromConfig returns the database name: explicit "database" key takes
+// precedence over the path component of the location URI.
 func DatabaseFromConfig(config map[string]string) string {
 	if db := config["database"]; db != "" {
 		return db
@@ -159,8 +157,8 @@ func DatabaseFromConfig(config map[string]string) string {
 	return ""
 }
 
-// Args returns the command-line flags common to client and dump tools.
-// The password is intentionally excluded; pass it via Env() instead.
+// Args returns the connection flags common to all CLI tools (host, port, user, SSL).
+// The password is excluded; use PasswordFileArg instead.
 func (cc ConnConfig) Args() []string {
 	args := []string{"-h", cc.Host, "-P", cc.Port}
 	if cc.Username != "" {
@@ -181,7 +179,6 @@ func (cc ConnConfig) Args() []string {
 	return args
 }
 
-// Env returns the current process environment for use as exec.Cmd.Env.
 func (cc ConnConfig) Env() []string {
 	return os.Environ()
 }
@@ -214,9 +211,7 @@ func (cc ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
 	return "--defaults-extra-file=" + name, cleanup, nil
 }
 
-// BinPath returns the full path to a binary.
-// If BinDir is set it is joined with the binary name; otherwise the binary
-// name is returned as-is for $PATH resolution.
+// BinPath resolves a binary name against BinDir, or returns it as-is for $PATH lookup.
 func (cc ConnConfig) BinPath(binary string) string {
 	if cc.BinDir != "" {
 		return filepath.Join(cc.BinDir, binary)
@@ -224,8 +219,8 @@ func (cc ConnConfig) BinPath(binary string) string {
 	return binary
 }
 
-// DSN returns a go-sql-driver/mysql data source name for the given database.
-// An empty database connects without selecting one (useful for server-wide queries).
+// DSN returns a go-sql-driver/mysql DSN. An empty database connects without
+// selecting one, which is useful for server-wide queries.
 func (cc ConnConfig) DSN(database string) string {
 	// Format: user:pass@tcp(host:port)/database?params
 	var dsn strings.Builder
@@ -245,7 +240,7 @@ func (cc ConnConfig) DSN(database string) string {
 	dsn.WriteString(database)
 	dsn.WriteString("?parseTime=true&multiStatements=true")
 	if cc.SSLMode != "" {
-		// go-sql-driver uses "tls" parameter; map from MySQL CLI ssl-mode names.
+		// go-sql-driver uses a "tls" parameter with different value names than the CLI.
 		tls := sslModeToTLS(cc.SSLMode)
 		if tls != "" {
 			dsn.WriteString("&tls=")
@@ -255,7 +250,6 @@ func (cc ConnConfig) DSN(database string) string {
 	return dsn.String()
 }
 
-// sslModeToTLS converts a MySQL CLI ssl-mode value to the go-sql-driver tls param.
 func sslModeToTLS(mode string) string {
 	switch strings.ToLower(mode) {
 	case "disabled":
@@ -303,8 +297,7 @@ func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) err
 	return nil
 }
 
-// Ping verifies connectivity by running SELECT 1 against the server.
-// If ExpectedFlavor is set it also checks that the server is the right type.
+// Ping checks connectivity and, when ExpectedFlavor is set, rejects a server of the wrong type.
 func (cc ConnConfig) Ping(ctx context.Context) error {
 	pwArg, cleanup, err := cc.PasswordFileArg()
 	if err != nil {
@@ -324,9 +317,8 @@ func (cc ConnConfig) Ping(ctx context.Context) error {
 	return nil
 }
 
-// ArgsWithPassword prepends pwArg (a --defaults-extra-file argument) to the
-// connection args followed by extra. If pwArg is empty it is omitted.
-// --defaults-extra-file must be the first CLI argument, hence the prepend.
+// ArgsWithPassword prepends the --defaults-extra-file arg (if any) before the
+// connection args. --defaults-extra-file must be the first CLI argument.
 func (cc ConnConfig) ArgsWithPassword(pwArg string, extra ...string) []string {
 	var args []string
 	if pwArg != "" {

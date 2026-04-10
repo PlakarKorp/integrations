@@ -90,7 +90,6 @@ func New(proto string, conn mysqlconn.ConnConfig, config map[string]string) (*Im
 	return imp, nil
 }
 
-// Origin returns a human-readable source identifier.
 func (i *Importer) Origin() string {
 	if i.Database != "" {
 		return i.Proto + "://" + i.Conn.Host + ":" + i.Conn.Port + "/" + i.Database
@@ -98,24 +97,14 @@ func (i *Importer) Origin() string {
 	return i.Proto + "://" + i.Conn.Host + ":" + i.Conn.Port
 }
 
-// Type returns the connector type label.
-func (i *Importer) Type() string { return i.Proto }
-
-// Root returns the root path of the backup.
-func (i *Importer) Root() string { return "/" }
-
-// Flags returns location.FLAG_STREAM: the importer produces a single-pass stream.
-func (i *Importer) Flags() location.Flags { return location.FLAG_STREAM }
-
-// Ping verifies connectivity to the server.
+func (i *Importer) Type() string                  { return i.Proto }
+func (i *Importer) Root() string                  { return "/" }
+func (i *Importer) Flags() location.Flags         { return location.FLAG_STREAM }
 func (i *Importer) Ping(ctx context.Context) error { return i.Conn.Ping(ctx) }
+func (i *Importer) Close(_ context.Context) error  { return nil }
 
-// Close is a no-op for this importer.
-func (i *Importer) Close(_ context.Context) error { return nil }
-
-// CommonManifestOptions returns the ManifestOptions fields derived from the
-// common Importer parameters. Provider-specific options should be set by the
-// caller after obtaining this value.
+// CommonManifestOptions returns the shared ManifestOptions.
+// The caller should set any provider-specific fields before use.
 func (i *Importer) CommonManifestOptions() manifest.ManifestOptions {
 	return manifest.ManifestOptions{
 		NoData:            i.NoData,
@@ -129,9 +118,8 @@ func (i *Importer) CommonManifestOptions() manifest.ManifestOptions {
 	}
 }
 
-// CommonDumpFlags returns the mysqldump/mariadb-dump flags derived from the
-// common Importer parameters. Provider-specific flags should be appended by
-// the caller.
+// CommonDumpFlags returns the shared dump flags.
+// The caller should append any provider-specific flags before invoking the dump tool.
 func (i *Importer) CommonDumpFlags() []string {
 	var flags []string
 	if i.SingleTransaction {
@@ -161,9 +149,8 @@ func (i *Importer) CommonDumpFlags() []string {
 	return flags
 }
 
-// Run emits the manifest then the dump. It is the shared import entry point
-// called by provider-specific Import() implementations.
-// extraFlags are appended to CommonDumpFlags() before invoking the dump tool.
+// Run is the shared entry point called by provider-specific Import() implementations.
+// It emits the manifest then the dump; extraFlags are appended to CommonDumpFlags().
 func (i *Importer) Run(ctx context.Context, records chan<- *connectors.Record, cfg manifest.Config, extraFlags []string) error {
 	defer close(records)
 
@@ -178,12 +165,9 @@ func (i *Importer) Run(ctx context.Context, records chan<- *connectors.Record, c
 	return i.dumpAllDatabases(ctx, records, flags)
 }
 
-// Ensure *Importer satisfies iimporter.Importer so that embedding works correctly
-// for providers that do not override Import().
 var _ iimporter.Importer = (*Importer)(nil)
 
-// Import is provided on the base type so that embedding compiles; providers
-// that need provider-specific behaviour must override it.
+// Import must be overridden by each provider plugin.
 func (i *Importer) Import(_ context.Context, _ chan<- *connectors.Record, _ <-chan *connectors.Result) error {
 	return fmt.Errorf("Import not implemented: provider must override this method")
 }
@@ -203,7 +187,7 @@ func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	})
 }
 
-// cmdReader wraps a command's stdout and captures its exit status on Close.
+// cmdReader captures the exit status and stderr of a dump command on Close.
 type cmdReader struct {
 	io.ReadCloser
 	cmd     *exec.Cmd

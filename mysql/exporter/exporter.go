@@ -16,7 +16,6 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 )
 
-// Exporter restores MySQL or MariaDB dumps using the mysql / mariadb CLI.
 type Exporter struct {
 	proto          string // registered protocol, e.g. "mysql" or "mysql+mariadb"
 	conn           mysqlconn.ConnConfig
@@ -26,10 +25,8 @@ type Exporter struct {
 	expectedFlavor string // "mysql" or "mariadb"
 }
 
-// New constructs an Exporter with a pre-configured connection.
-// flavor must be "mysql" or "mariadb" and is checked against the live server
-// at the start of Export to catch protocol mismatches early.
-// The caller is responsible for setting conn.ClientBin before calling.
+// New constructs an Exporter. conn.ClientBin must be set by the caller.
+// flavor is verified against the live server at the start of Export.
 func New(proto string, conn mysqlconn.ConnConfig, config map[string]string, flavor string) (*Exporter, error) {
 	exp := &Exporter{
 		proto:          proto,
@@ -47,7 +44,6 @@ func New(proto string, conn mysqlconn.ConnConfig, config map[string]string, flav
 	return exp, nil
 }
 
-// Origin returns a human-readable destination identifier.
 func (e *Exporter) Origin() string {
 	if e.database != "" {
 		return e.proto + "://" + e.conn.Host + ":" + e.conn.Port + "/" + e.database
@@ -55,24 +51,12 @@ func (e *Exporter) Origin() string {
 	return e.proto + "://" + e.conn.Host + ":" + e.conn.Port
 }
 
-// Type returns the connector type label.
-func (e *Exporter) Type() string { return e.proto }
+func (e *Exporter) Type() string                   { return e.proto }
+func (e *Exporter) Root() string                   { return "/" }
+func (e *Exporter) Flags() location.Flags          { return 0 }
+func (e *Exporter) Ping(ctx context.Context) error { return e.conn.Ping(ctx) }
+func (e *Exporter) Close(_ context.Context) error  { return nil }
 
-// Root returns the root path of the backup.
-func (e *Exporter) Root() string { return "/" }
-
-// Flags returns 0 — the exporter is not streaming and can re-read records.
-func (e *Exporter) Flags() location.Flags { return 0 }
-
-// Ping verifies connectivity to the server.
-func (e *Exporter) Ping(ctx context.Context) error {
-	return e.conn.Ping(ctx)
-}
-
-// Close is a no-op for this exporter.
-func (e *Exporter) Close(_ context.Context) error { return nil }
-
-// Export processes incoming backup records and restores them to the database.
 func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 	if err := e.conn.CheckFlavor(ctx, e.expectedFlavor); err != nil {
@@ -92,12 +76,10 @@ func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 }
 
 func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *connectors.Result {
-	// Skip directories.
 	if record.FileInfo.Lmode.IsDir() {
 		return record.Ok()
 	}
-	// Skip the manifest — it is metadata only.
-	if record.Pathname == "manifest.json" {
+	if record.Pathname == "manifest.json" { // metadata only, nothing to restore
 		return record.Ok()
 	}
 
@@ -111,17 +93,14 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 	return record.Ok()
 }
 
-// restoreSQL pipes a .sql file into the client CLI.
 func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
-	// Determine target database.
 	targetDB := e.database
 	if targetDB == "" && record.Pathname != path.Base(importer.AllDatabasesDumpFile) {
-		// Infer from filename: "mydb.sql" → "mydb"
+		// Infer from filename: "mydb.sql" → "mydb".
 		base := filepath.Base(record.Pathname)
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
-	// Optionally create the database before restoring.
 	if e.createDB && targetDB != "" {
 		if err := e.createDatabase(ctx, targetDB); err != nil {
 			return fmt.Errorf("creating database %s: %w", targetDB, err)
@@ -163,10 +142,8 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 	return nil
 }
 
-// createDatabase issues CREATE DATABASE IF NOT EXISTS for the target database.
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	// Validate the database name to prevent injection.
-	if strings.ContainsAny(database, "`\x00") {
+	if strings.ContainsAny(database, "`\x00") { // prevent injection via backtick or NUL
 		return fmt.Errorf("invalid database name: %q", database)
 	}
 
