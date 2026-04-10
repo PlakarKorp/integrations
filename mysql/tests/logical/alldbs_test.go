@@ -7,38 +7,49 @@ import (
 	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
 )
 
-// TestAllDatabasesBackup verifies the full backup and restore cycle when no
-// database is specified (--all-databases mode):
-//  1. Spin up a MySQL container with two databases (testdb, seconddb).
+func TestAllDatabasesBackup(t *testing.T) {
+	t.Parallel()
+	for _, v := range testhelpers.DBVariants {
+		v := v
+		t.Run(v.Name, func(t *testing.T) {
+			t.Parallel()
+			runAllDatabasesBackup(t, v)
+		})
+	}
+}
+
+// runAllDatabasesBackup verifies the full backup and restore cycle when no
+// database is specified (--all-databases mode) against the given variant:
+//  1. Spin up a database container with two databases (testdb, seconddb).
 //  2. Spin up a plakar container with the plugin installed.
 //  3. Create a plakar store and run a full-server backup.
-//  4. Spin up a fresh MySQL restore target.
+//  4. Spin up a fresh database restore target.
 //  5. Restore the snapshot and verify both databases and their data.
-func TestAllDatabasesBackup(t *testing.T) {
+func runAllDatabasesBackup(t *testing.T, v testhelpers.DBVariant) {
+	t.Helper()
 	ctx := context.Background()
 
 	net := testhelpers.NewNetwork(ctx, t)
 
-	// Step 1 — start source MySQL, seed testdb, and create seconddb.
-	mysqlContainer := testhelpers.StartMySQLContainer(ctx, t, net, "mysql")
-	testhelpers.SeedMySQL(ctx, t, mysqlContainer)
+	// Step 1 — start source database, seed testdb, and create seconddb.
+	dbContainer := testhelpers.StartDBContainer(ctx, t, net, "db", v)
+	testhelpers.SeedDB(ctx, t, dbContainer, v)
 
-	// Create a second database with its own data.
-	testhelpers.ExecOK(ctx, t, mysqlContainer,
-		"mysql", "-uroot", "-psecret",
+	testhelpers.ExecOK(ctx, t, dbContainer,
+		v.CLI, "-uroot", "-psecret",
 		"-e", "CREATE DATABASE seconddb",
 	)
-	testhelpers.ExecOK(ctx, t, mysqlContainer,
-		"mysql", "-uroot", "-psecret", "seconddb",
+	testhelpers.ExecOK(ctx, t, dbContainer,
+		v.CLI, "-uroot", "-psecret", "seconddb",
 		"-e", "CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, label VARCHAR(255))",
 	)
-	testhelpers.ExecOK(ctx, t, mysqlContainer,
-		"mysql", "-uroot", "-psecret", "seconddb",
+	testhelpers.ExecOK(ctx, t, dbContainer,
+		v.CLI, "-uroot", "-psecret", "seconddb",
 		"-e", "INSERT INTO items (label) VALUES ('alpha'), ('beta')",
 	)
 
 	// Step 2 — start the plakar container on the same network.
-	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net)
+	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net, v)
 
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")
@@ -46,7 +57,7 @@ func TestAllDatabasesBackup(t *testing.T) {
 	// Step 4 — run a full-server backup (no database in URI → --all-databases).
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "backup",
-		"mysql://root:secret@mysql",
+		v.Protocol+"://root:secret@db",
 	)
 
 	// Step 5 — inspect the snapshot.
@@ -59,10 +70,10 @@ func TestAllDatabasesBackup(t *testing.T) {
 	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapID, "/manifest.json")
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
-	restoreContainer := testhelpers.StartMySQLContainer(ctx, t, net, "mysql-restore")
+	restoreContainer := testhelpers.StartDBContainer(ctx, t, net, "db-restore", v)
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "restore",
-		"-to", "mysql://root:secret@mysql-restore",
+		"-to", v.Protocol+"://root:secret@db-restore",
 		snapID,
 	)
 

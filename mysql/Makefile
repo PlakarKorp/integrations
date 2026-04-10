@@ -11,8 +11,10 @@ PTAR   := mysql_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 all: build
 
 build:
-	${GO} build -v -o mysqlImporter${EXT} ./plugin/importer
-	${GO} build -v -o mysqlExporter${EXT} ./plugin/exporter
+	${GO} build -v -o mysqlImporter${EXT} ./plugin/mysql-importer
+	${GO} build -v -o mysqlExporter${EXT} ./plugin/mysql-exporter
+	${GO} build -v -o mariadbImporter${EXT} ./plugin/mariadb-importer
+	${GO} build -v -o mariadbExporter${EXT} ./plugin/mariadb-exporter
 
 package: build
 	rm -f $(PTAR)

@@ -1,6 +1,6 @@
 name: mysql
-display_name: MySQL
-description: Integration providing import and export capabilities for MySQL databases.
+display_name: MySQL / MariaDB
+description: Integration providing import and export capabilities for MySQL and MariaDB databases.
 api_version: v1.1.0
 homepage: https://github.com/PlakarKorp/integration-mysql
 license: ISC
@@ -20,4 +20,18 @@ connectors:
     license: ISC
     protocols: [mysql]
     validator: ./exporter/schema.json
+    class: database
+  - type: importer
+    executable: mariadbImporter
+    homepage: https://github.com/PlakarKorp/integration-mysql
+    license: ISC
+    protocols: [mysql+mariadb]
+    validator: ./plugin/mariadb-importer/schema.json
+    class: database
+  - type: exporter
+    executable: mariadbExporter
+    homepage: https://github.com/PlakarKorp/integration-mysql
+    license: ISC
+    protocols: [mysql+mariadb]
+    validator: ./plugin/mariadb-exporter/schema.json
     class: database

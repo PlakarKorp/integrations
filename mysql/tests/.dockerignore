@@ -1,4 +1,6 @@
 mysqlImporter
 mysqlExporter
+mariadbImporter
+mariadbExporter
 dist/
 *.ptar
