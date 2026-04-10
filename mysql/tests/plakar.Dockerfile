@@ -30,8 +30,8 @@ COPY . /src
 RUN set -e && \
     mkdir -p /tmp/mysqlpkg && \
     cd /src && \
-    go build -o /tmp/mysqlpkg/mysqlImporter ./plugin/importer && \
-    go build -o /tmp/mysqlpkg/mysqlExporter  ./plugin/exporter && \
+    go build -o /tmp/mysqlpkg/mysqlImporter ./plugin/mysql-importer && \
+    go build -o /tmp/mysqlpkg/mysqlExporter  ./plugin/mysql-exporter && \
     cp /src/manifest.yaml /tmp/mysqlpkg/ && \
     cd /tmp/mysqlpkg && \
     PTAR="mysql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \
