@@ -1,5 +1,7 @@
 mysqlImporter
 mysqlExporter
+mariadbImporter
+mariadbExporter
 dist/
 *.ptar
 *.local.json
