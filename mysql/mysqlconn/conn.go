@@ -178,15 +178,37 @@ func (cc ConnConfig) Args() []string {
 	return args
 }
 
-// Env returns an environment slice suitable for exec.Cmd.Env.
-// It inherits the current process environment and appends MYSQL_PWD so that
-// the password is never exposed via the command line.
+// Env returns the current process environment for use as exec.Cmd.Env.
 func (cc ConnConfig) Env() []string {
-	env := os.Environ()
-	if cc.Password != "" {
-		env = append(env, "MYSQL_PWD="+cc.Password)
+	return os.Environ()
+}
+
+// PasswordFileArg writes the password to a temporary MySQL option file and
+// returns the --defaults-extra-file=<path> argument and a cleanup function
+// that removes the file. When no password is set both are no-ops.
+//
+// --defaults-extra-file MUST be the first argument on the command line.
+// The caller must invoke cleanup (typically via defer) once the command exits.
+func (cc ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
+	if cc.Password == "" {
+		return "", func() {}, nil
 	}
-	return env
+	f, err := os.CreateTemp("", "plakar-mysqlpwd-*.cnf")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("creating password file: %w", err)
+	}
+	name := f.Name()
+	cleanup = func() { os.Remove(name) }
+	if _, err := fmt.Fprintf(f, "[client]\npassword=%s\n", cc.Password); err != nil {
+		f.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("writing password file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return "--defaults-extra-file=" + name, cleanup, nil
 }
 
 // BinPath returns the full path to a binary.
@@ -251,7 +273,12 @@ func sslModeToTLS(mode string) string {
 // string; MySQL never does. Returns a clear, actionable error on mismatch so
 // the user knows which protocol to use instead of getting a cryptic dump error.
 func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) error {
-	args := append(cc.Args(), "--batch", "--silent", "--skip-column-names", "-e", "SELECT VERSION()")
+	pwArg, cleanup, err := cc.PasswordFileArg()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	args := cc.ArgsWithPassword(pwArg, "--batch", "--silent", "--skip-column-names", "-e", "SELECT VERSION()")
 	cmd := exec.CommandContext(ctx, cc.BinPath(cc.clientBin()), args...)
 	cmd.Env = cc.Env()
 	out, err := cmd.CombinedOutput()
@@ -275,7 +302,12 @@ func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) err
 
 // Ping verifies connectivity by running SELECT 1 against the server.
 func (cc ConnConfig) Ping(ctx context.Context) error {
-	args := append(cc.Args(), "--connect-timeout=10", "--batch", "--silent", "-e", "SELECT 1")
+	pwArg, cleanup, err := cc.PasswordFileArg()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	args := cc.ArgsWithPassword(pwArg, "--connect-timeout=10", "--batch", "--silent", "-e", "SELECT 1")
 	cmd := exec.CommandContext(ctx, cc.BinPath(cc.clientBin()), args...)
 	cmd.Env = cc.Env()
 	out, err := cmd.CombinedOutput()
@@ -283,4 +315,16 @@ func (cc ConnConfig) Ping(ctx context.Context) error {
 		return fmt.Errorf("ping failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// ArgsWithPassword prepends pwArg (a --defaults-extra-file argument) to the
+// connection args followed by extra. If pwArg is empty it is omitted.
+// --defaults-extra-file must be the first CLI argument, hence the prepend.
+func (cc ConnConfig) ArgsWithPassword(pwArg string, extra ...string) []string {
+	var args []string
+	if pwArg != "" {
+		args = append(args, pwArg)
+	}
+	args = append(args, cc.Args()...)
+	return append(args, extra...)
 }

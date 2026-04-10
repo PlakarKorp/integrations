@@ -128,15 +128,21 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		}
 	}
 
-	args := e.conn.Args()
+	pwArg, cleanup, err := e.conn.PasswordFileArg()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	var extra []string
 	if e.force {
-		args = append(args, "--force")
+		extra = append(extra, "--force")
 	}
-	// Pass --batch and --silent to suppress interactive prompts.
-	args = append(args, "--batch", "--silent")
+	extra = append(extra, "--batch", "--silent")
 	if targetDB != "" {
-		args = append(args, targetDB)
+		extra = append(extra, targetDB)
 	}
+	args := e.conn.ArgsWithPassword(pwArg, extra...)
 
 	cmd := exec.CommandContext(ctx, e.conn.BinPath(e.conn.ClientBin), args...)
 	cmd.Env = e.conn.Env()
@@ -164,8 +170,14 @@ func (e *Exporter) createDatabase(ctx context.Context, database string) error {
 		return fmt.Errorf("invalid database name: %q", database)
 	}
 
-	args := e.conn.Args()
-	args = append(args, "--batch", "--silent",
+	pwArg, cleanup, err := e.conn.PasswordFileArg()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	args := e.conn.ArgsWithPassword(pwArg,
+		"--batch", "--silent",
 		"-e", "CREATE DATABASE IF NOT EXISTS `"+database+"`")
 
 	cmd := exec.CommandContext(ctx, e.conn.BinPath(e.conn.ClientBin), args...)

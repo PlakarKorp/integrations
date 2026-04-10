@@ -191,30 +191,31 @@ func (i *Importer) Import(_ context.Context, _ chan<- *connectors.Record, _ <-ch
 func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *connectors.Record, flags []string) error {
 	pathname := "/" + i.Database + ".sql"
 	return i.emitDump(ctx, records, pathname, func() (io.ReadCloser, error) {
-		args := append(i.Conn.Args(), flags...)
-		args = append(args, i.Database)
-		return i.startDump(ctx, args)
+		extra := append(flags, i.Database)
+		return i.startDump(ctx, extra)
 	})
 }
 
 func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record, flags []string) error {
 	return i.emitDump(ctx, records, AllDatabasesDumpFile, func() (io.ReadCloser, error) {
-		args := append(i.Conn.Args(), "--all-databases")
-		args = append(args, flags...)
-		return i.startDump(ctx, args)
+		extra := append([]string{"--all-databases"}, flags...)
+		return i.startDump(ctx, extra)
 	})
 }
 
 // cmdReader wraps a command's stdout and captures its exit status on Close.
 type cmdReader struct {
 	io.ReadCloser
-	cmd    *exec.Cmd
-	stderr *bytes.Buffer
+	cmd     *exec.Cmd
+	stderr  *bytes.Buffer
+	cleanup func() // removes the temporary password file, if any
 }
 
 func (r *cmdReader) Close() error {
 	r.ReadCloser.Close()
-	if err := r.cmd.Wait(); err != nil {
+	err := r.cmd.Wait()
+	r.cleanup()
+	if err != nil {
 		if msg := strings.TrimSpace(r.stderr.String()); msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
 		}
@@ -223,7 +224,14 @@ func (r *cmdReader) Close() error {
 	return nil
 }
 
-func (i *Importer) startDump(ctx context.Context, args []string) (io.ReadCloser, error) {
+func (i *Importer) startDump(ctx context.Context, extraArgs []string) (io.ReadCloser, error) {
+	pwArg, cleanup, err := i.Conn.PasswordFileArg()
+	if err != nil {
+		return nil, err
+	}
+	args := i.Conn.ArgsWithPassword(pwArg)
+	args = append(args, extraArgs...)
+
 	cmd := exec.CommandContext(ctx, i.Conn.BinPath(i.Conn.DumpBin), args...)
 	cmd.Env = i.Conn.Env()
 
@@ -232,12 +240,14 @@ func (i *Importer) startDump(ctx context.Context, args []string) (io.ReadCloser,
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("creating stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		cleanup()
 		return nil, fmt.Errorf("starting %s: %w", i.Conn.DumpBin, err)
 	}
-	return &cmdReader{ReadCloser: stdout, cmd: cmd, stderr: &stderr}, nil
+	return &cmdReader{ReadCloser: stdout, cmd: cmd, stderr: &stderr, cleanup: cleanup}, nil
 }
 
 func (i *Importer) emitDump(ctx context.Context, records chan<- *connectors.Record, pathname string, readerFunc func() (io.ReadCloser, error)) error {
