@@ -81,10 +81,10 @@ plakar backup @alldb
 plakar restore -to mysql://dbuser:secret@target.example.com/mydb <snapshot-id>
 
 # Restore and create the database first
-plakar restore -to "mysql://dbuser:secret@target.example.com/mydb create_db=true" <snapshot-id>
+plakar restore -to mysql://dbuser:secret@target.example.com/mydb -o create_db=true <snapshot-id>
 
 # MariaDB
-plakar restore -to "mysql+mariadb://dbuser:secret@target.example.com/mydb create_db=true" <snapshot-id>
+plakar restore -to mysql+mariadb://dbuser:secret@target.example.com/mydb -o create_db=true <snapshot-id>
 ```
 
 ### Restore all databases
