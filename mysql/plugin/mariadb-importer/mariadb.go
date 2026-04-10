@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
 
+	sdk "github.com/PlakarKorp/go-kloset-sdk"
 	"github.com/PlakarKorp/integration-mysql/importer"
 	"github.com/PlakarKorp/integration-mysql/manifest"
 	"github.com/PlakarKorp/integration-mysql/mysqlconn"
@@ -38,4 +40,8 @@ func (m *mariadbImporter) Import(ctx context.Context, records chan<- *connectors
 		Options:  m.CommonManifestOptions(),
 	}
 	return m.Run(ctx, records, cfg, nil)
+}
+
+func main() {
+	sdk.EntrypointImporter(os.Args, newMariaDB)
 }

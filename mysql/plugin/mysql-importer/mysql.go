@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
+	sdk "github.com/PlakarKorp/go-kloset-sdk"
 	"github.com/PlakarKorp/integration-mysql/importer"
 	"github.com/PlakarKorp/integration-mysql/manifest"
 	"github.com/PlakarKorp/integration-mysql/mysqlconn"
@@ -77,4 +79,8 @@ func (m *mysqlImporter) Import(ctx context.Context, records chan<- *connectors.R
 	}
 
 	return m.Run(ctx, records, cfg, extraFlags)
+}
+
+func main() {
+	sdk.EntrypointImporter(os.Args, newMySQL)
 }
