@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, exporter.NewMySQL)
+	sdk.EntrypointExporter(os.Args, exporter.NewMariaDB)
 }

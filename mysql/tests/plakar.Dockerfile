@@ -32,6 +32,8 @@ RUN set -e && \
     cd /src && \
     go build -o /tmp/mysqlpkg/mysqlImporter ./plugin/mysql-importer && \
     go build -o /tmp/mysqlpkg/mysqlExporter  ./plugin/mysql-exporter && \
+    go build -o /tmp/mysqlpkg/mariadbImporter ./plugin/mariadb-importer && \
+    go build -o /tmp/mysqlpkg/mariadbExporter  ./plugin/mariadb-exporter && \
     cp /src/manifest.yaml /tmp/mysqlpkg/ && \
     cd /tmp/mysqlpkg && \
     PTAR="mysql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \

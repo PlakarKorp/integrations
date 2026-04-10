@@ -17,22 +17,40 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 )
 
-// Exporter restores MySQL dumps using the mysql CLI.
+// Exporter restores MySQL or MariaDB dumps using the mysql / mariadb CLI.
 type Exporter struct {
+	proto    string // registered protocol, e.g. "mysql" or "mysql+mariadb"
 	conn     mysqlconn.ConnConfig
 	database string // target database; inferred from filename if empty
 	createDB bool
 	force    bool
 }
 
-// New constructs an Exporter from the connector configuration map.
-func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
+// NewMySQL constructs an Exporter for MySQL.
+func NewMySQL(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
+	return newExporter("mysql", proto, config)
+}
+
+// NewMariaDB constructs an Exporter for MariaDB.
+func NewMariaDB(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
+	return newExporter("mariadb", proto, config)
+}
+
+func newExporter(flavor, proto string, config map[string]string) (iexporter.Exporter, error) {
 	conn, err := mysqlconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	if flavor == "mariadb" {
+		conn.ClientBin = "mariadb"
+		conn.DumpBin = "mariadb-dump"
+	} else {
+		conn.ClientBin = "mysql"
+		conn.DumpBin = "mysqldump"
+	}
 
 	exp := &Exporter{
+		proto:    proto,
 		conn:     conn,
 		database: mysqlconn.DatabaseFromConfig(config),
 	}
@@ -48,13 +66,13 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 // Origin returns a human-readable destination identifier.
 func (e *Exporter) Origin() string {
 	if e.database != "" {
-		return "mysql://" + e.conn.Host + ":" + e.conn.Port + "/" + e.database
+		return e.proto + "://" + e.conn.Host + ":" + e.conn.Port + "/" + e.database
 	}
-	return "mysql://" + e.conn.Host + ":" + e.conn.Port
+	return e.proto + "://" + e.conn.Host + ":" + e.conn.Port
 }
 
 // Type returns the connector type label.
-func (e *Exporter) Type() string { return "mysql" }
+func (e *Exporter) Type() string { return e.proto }
 
 // Root returns the root path of the backup.
 func (e *Exporter) Root() string { return "/" }
@@ -62,7 +80,7 @@ func (e *Exporter) Root() string { return "/" }
 // Flags returns 0 — the exporter is not streaming and can re-read records.
 func (e *Exporter) Flags() location.Flags { return 0 }
 
-// Ping verifies connectivity to the MySQL server.
+// Ping verifies connectivity to the server.
 func (e *Exporter) Ping(ctx context.Context) error {
 	return e.conn.Ping(ctx)
 }
@@ -70,7 +88,7 @@ func (e *Exporter) Ping(ctx context.Context) error {
 // Close is a no-op for this exporter.
 func (e *Exporter) Close(_ context.Context) error { return nil }
 
-// Export processes incoming backup records and restores them to MySQL.
+// Export processes incoming backup records and restores them to the database.
 func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 	for {
@@ -97,7 +115,7 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 	}
 
 	if !strings.HasSuffix(record.Pathname, ".sql") {
-		return record.Error(fmt.Errorf("unexpected file in MySQL backup: %s", record.Pathname))
+		return record.Error(fmt.Errorf("unexpected file in backup: %s", record.Pathname))
 	}
 
 	if err := e.restoreSQL(ctx, record); err != nil {
@@ -106,7 +124,7 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 	return record.Ok()
 }
 
-// restoreSQL pipes a .sql file into the mysql CLI.
+// restoreSQL pipes a .sql file into the client CLI.
 func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
 	// Determine target database.
 	targetDB := e.database
@@ -133,7 +151,7 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		args = append(args, targetDB)
 	}
 
-	cmd := exec.CommandContext(ctx, e.conn.BinPath("mysql"), args...)
+	cmd := exec.CommandContext(ctx, e.conn.BinPath(e.conn.ClientBin), args...)
 	cmd.Env = e.conn.Env()
 
 	reader := record.Reader
@@ -154,8 +172,7 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 
 // createDatabase issues CREATE DATABASE IF NOT EXISTS for the target database.
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	// Validate the database name to prevent injection — MySQL names must not
-	// contain backticks.  The mysql CLI will further enforce naming rules.
+	// Validate the database name to prevent injection.
 	if strings.ContainsAny(database, "`\x00") {
 		return fmt.Errorf("invalid database name: %q", database)
 	}
@@ -164,7 +181,7 @@ func (e *Exporter) createDatabase(ctx context.Context, database string) error {
 	args = append(args, "--batch", "--silent",
 		"-e", "CREATE DATABASE IF NOT EXISTS `"+database+"`")
 
-	cmd := exec.CommandContext(ctx, e.conn.BinPath("mysql"), args...)
+	cmd := exec.CommandContext(ctx, e.conn.BinPath(e.conn.ClientBin), args...)
 	cmd.Env = e.conn.Env()
 	cmd.Stdin = io.NopCloser(strings.NewReader(""))
 

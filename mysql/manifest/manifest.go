@@ -16,11 +16,12 @@ import (
 )
 
 // ManifestOptions records which dump options were active when the backup was created.
+// MySQL-only options (ColumnStatistics, SetGTIDPurged) are omitted from MariaDB manifests.
 type ManifestOptions struct {
 	NoData            bool   `json:"no_data"`
 	NoCreateInfo      bool   `json:"no_create_info"`
 	NoTablespaces     bool   `json:"no_tablespaces"`
-	ColumnStatistics  bool   `json:"column_statistics"`
+	ColumnStatistics  *bool  `json:"column_statistics,omitempty"`
 	SingleTransaction bool   `json:"single_transaction"`
 	Routines          bool   `json:"routines"`
 	Events            bool   `json:"events"`
@@ -31,25 +32,27 @@ type ManifestOptions struct {
 
 // Manifest is the top-level structure serialised to /manifest.json.
 type Manifest struct {
-	Version          int              `json:"version"`
-	CreatedAt        time.Time        `json:"created_at"`
-	Connector        string           `json:"connector"`
-	Host             string           `json:"host"`
-	Port             string           `json:"port"`
-	ServerVersion    string           `json:"server_version"`
-	MysqldumpVersion string           `json:"mysqldump_version,omitempty"`
-	IsReadReplica    bool             `json:"is_read_replica"`
-	Database         string           `json:"database,omitempty"` // empty = all databases
-	DumpFormat       string           `json:"dump_format"`        // always "sql" for this plugin
-	Options          *ManifestOptions `json:"options,omitempty"`
-	ServerConfig     *ServerConfig    `json:"server_config,omitempty"`
-	Users            []UserInfo       `json:"users,omitempty"`
-	Databases        []DatabaseInfo   `json:"databases,omitempty"`
+	Version           int              `json:"version"`
+	CreatedAt         time.Time        `json:"created_at"`
+	Connector         string           `json:"connector"`
+	Host              string           `json:"host"`
+	Port              string           `json:"port"`
+	ServerVersion     string           `json:"server_version"`
+	MysqldumpVersion  string           `json:"mysqldump_version,omitempty"`
+	MariadumpVersion  string           `json:"mariadump_version,omitempty"`
+	IsReadReplica     bool             `json:"is_read_replica"`
+	Database          string           `json:"database,omitempty"` // empty = all databases
+	DumpFormat        string           `json:"dump_format"`        // always "sql" for this plugin
+	Options           *ManifestOptions `json:"options,omitempty"`
+	ServerConfig      *ServerConfig    `json:"server_config,omitempty"`
+	Users             []UserInfo       `json:"users,omitempty"`
+	Databases         []DatabaseInfo   `json:"databases,omitempty"`
 }
 
 // Config holds all parameters needed to build and emit a logical backup manifest.
 type Config struct {
 	Conn     mysqlconn.ConnConfig
+	Flavor   string // "mysql" or "mariadb"
 	Database string // empty = all databases (--all-databases)
 	Options  ManifestOptions
 }
@@ -79,31 +82,29 @@ func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) er
 		return fmt.Errorf("manifest: querying server version: %w", err)
 	}
 
+	connector := cfg.Flavor
+	if connector == "" {
+		connector = "mysql"
+	}
+
 	m := &Manifest{
 		Version:       1,
 		CreatedAt:     time.Now().UTC(),
-		Connector:     "mysql",
+		Connector:     connector,
 		Host:          cfg.Conn.Host,
 		Port:          cfg.Conn.Port,
 		ServerVersion: sv,
 		Database:      cfg.Database,
 		DumpFormat:    "sql",
 		IsReadReplica: isReadReplica(ctx, db),
-		Options: &ManifestOptions{
-			NoData:            cfg.Options.NoData,
-			NoCreateInfo:      cfg.Options.NoCreateInfo,
-			NoTablespaces:     cfg.Options.NoTablespaces,
-			ColumnStatistics:  cfg.Options.ColumnStatistics,
-			SingleTransaction: cfg.Options.SingleTransaction,
-			Routines:          cfg.Options.Routines,
-			Events:            cfg.Options.Events,
-			Triggers:          cfg.Options.Triggers,
-			HexBlob:           cfg.Options.HexBlob,
-			SetGTIDPurged:     cfg.Options.SetGTIDPurged,
-		},
+		Options:       &cfg.Options,
 	}
 
-	m.MysqldumpVersion = mysqldumpBinVersion(cfg.Conn.BinPath("mysqldump"))
+	if cfg.Flavor == "mariadb" {
+		m.MariadumpVersion = mysqldumpBinVersion(cfg.Conn.BinPath("mariadb-dump"))
+	} else {
+		m.MysqldumpVersion = mysqldumpBinVersion(cfg.Conn.BinPath("mysqldump"))
+	}
 
 	// Collect server configuration (best-effort).
 	if sc, err := collectServerConfig(ctx, db); err == nil {

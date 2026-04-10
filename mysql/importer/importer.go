@@ -22,27 +22,45 @@ import (
 // AllDatabasesDumpFile is the snapshot path used for full-server dumps.
 const AllDatabasesDumpFile = "/all.sql"
 
-// Importer streams a logical MySQL backup using mysqldump.
+// Importer streams a logical MySQL or MariaDB backup using mysqldump / mariadb-dump.
 type Importer struct {
+	proto             string // registered protocol, e.g. "mysql" or "mysql+mariadb"
+	flavor            string // "mysql" or "mariadb"
 	conn              mysqlconn.ConnConfig
 	database          string // empty = --all-databases
 	noData            bool
 	noCreateInfo      bool
 	noTablespaces     bool
-	columnStatistics  bool
+	columnStatistics  bool   // MySQL only
 	singleTransaction bool
 	routines          bool
 	events            bool
 	triggers          bool
 	hexBlob           bool
-	setGTIDPurged     string
+	setGTIDPurged     string // MySQL only
 }
 
-// New constructs an Importer from the connector configuration map.
-func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
+// NewMySQL constructs an Importer for MySQL using mysqldump.
+func NewMySQL(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
+	return newImporter("mysql", proto, ctx, config)
+}
+
+// NewMariaDB constructs an Importer for MariaDB using mariadb-dump.
+func NewMariaDB(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
+	return newImporter("mariadb", proto, ctx, config)
+}
+
+func newImporter(flavor, proto string, ctx context.Context, config map[string]string) (iimporter.Importer, error) {
 	conn, err := mysqlconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
+	}
+	if flavor == "mariadb" {
+		conn.ClientBin = "mariadb"
+		conn.DumpBin = "mariadb-dump"
+	} else {
+		conn.ClientBin = "mysql"
+		conn.DumpBin = "mysqldump"
 	}
 
 	boolOpt := func(key string, def bool) (bool, error) {
@@ -57,16 +75,12 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		return b, nil
 	}
 
-	gtid := config["set_gtid_purged"]
-	if gtid != "" {
-		switch strings.ToUpper(gtid) {
-		case "AUTO", "ON", "OFF":
-			gtid = strings.ToUpper(gtid)
-		default:
-			return nil, fmt.Errorf("invalid set_gtid_purged %q: must be AUTO, ON, or OFF", gtid)
-		}
+	imp := &Importer{
+		proto:    proto,
+		flavor:   flavor,
+		conn:     conn,
+		database: mysqlconn.DatabaseFromConfig(config),
 	}
-	imp := &Importer{conn: conn, database: mysqlconn.DatabaseFromConfig(config), setGTIDPurged: gtid}
 	if imp.singleTransaction, err = boolOpt("single_transaction", true); err != nil {
 		return nil, err
 	}
@@ -91,8 +105,21 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	if imp.noTablespaces, err = boolOpt("no_tablespaces", true); err != nil {
 		return nil, err
 	}
-	if imp.columnStatistics, err = boolOpt("column_statistics", true); err != nil {
-		return nil, err
+
+	if flavor == "mysql" {
+		if imp.columnStatistics, err = boolOpt("column_statistics", true); err != nil {
+			return nil, err
+		}
+		gtid := config["set_gtid_purged"]
+		if gtid != "" {
+			switch strings.ToUpper(gtid) {
+			case "AUTO", "ON", "OFF":
+				gtid = strings.ToUpper(gtid)
+			default:
+				return nil, fmt.Errorf("invalid set_gtid_purged %q: must be AUTO, ON, or OFF", gtid)
+			}
+		}
+		imp.setGTIDPurged = gtid
 	}
 
 	if imp.noData && imp.noCreateInfo {
@@ -105,13 +132,13 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 // Origin returns a human-readable source identifier.
 func (i *Importer) Origin() string {
 	if i.database != "" {
-		return "mysql://" + i.conn.Host + ":" + i.conn.Port + "/" + i.database
+		return i.proto + "://" + i.conn.Host + ":" + i.conn.Port + "/" + i.database
 	}
-	return "mysql://" + i.conn.Host + ":" + i.conn.Port
+	return i.proto + "://" + i.conn.Host + ":" + i.conn.Port
 }
 
 // Type returns the connector type label.
-func (i *Importer) Type() string { return "mysql" }
+func (i *Importer) Type() string { return i.proto }
 
 // Root returns the root path of the backup.
 func (i *Importer) Root() string { return "/" }
@@ -119,7 +146,7 @@ func (i *Importer) Root() string { return "/" }
 // Flags returns location.FLAG_STREAM: the importer produces a single-pass stream.
 func (i *Importer) Flags() location.Flags { return location.FLAG_STREAM }
 
-// Ping verifies connectivity to the MySQL server.
+// Ping verifies connectivity to the server.
 func (i *Importer) Ping(ctx context.Context) error {
 	return i.conn.Ping(ctx)
 }
@@ -127,20 +154,25 @@ func (i *Importer) Ping(ctx context.Context) error {
 // Close is a no-op for this importer.
 func (i *Importer) Close(_ context.Context) error { return nil }
 
-// Import emits the manifest and then the mysqldump output as records.
-// The results channel is not used (FLAG_STREAM, no FLAG_NEEDACK).
+// Import emits the manifest and then the dump output as records.
 func (i *Importer) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
 	defer close(records)
+
+	var columnStatistics *bool
+	if i.flavor == "mysql" {
+		columnStatistics = &i.columnStatistics
+	}
 
 	// Step 1: emit /manifest.json.
 	manifestCfg := manifest.Config{
 		Conn:     i.conn,
+		Flavor:   i.flavor,
 		Database: i.database,
 		Options: manifest.ManifestOptions{
 			NoData:            i.noData,
 			NoCreateInfo:      i.noCreateInfo,
 			NoTablespaces:     i.noTablespaces,
-			ColumnStatistics:  i.columnStatistics,
+			ColumnStatistics:  columnStatistics,
 			SingleTransaction: i.singleTransaction,
 			Routines:          i.routines,
 			Events:            i.events,
@@ -160,7 +192,7 @@ func (i *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	return i.dumpAllDatabases(ctx, records)
 }
 
-// dumpSingleDatabase runs mysqldump for one database and emits /<database>.sql.
+// dumpSingleDatabase runs the dump tool for one database and emits /<database>.sql.
 func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *connectors.Record) error {
 	pathname := "/" + i.database + ".sql"
 	return i.emitDump(ctx, records, pathname, func() (io.ReadCloser, error) {
@@ -171,7 +203,7 @@ func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *conne
 	})
 }
 
-// dumpAllDatabases runs mysqldump --all-databases and emits /all.sql.
+// dumpAllDatabases runs the dump tool with --all-databases and emits /all.sql.
 func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
 	return i.emitDump(ctx, records, AllDatabasesDumpFile, func() (io.ReadCloser, error) {
 		args := i.conn.Args()
@@ -181,7 +213,7 @@ func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	})
 }
 
-// dumpFlags returns mysqldump flags derived from the importer options.
+// dumpFlags returns dump tool flags derived from the importer options.
 func (i *Importer) dumpFlags() []string {
 	var flags []string
 	if i.singleTransaction {
@@ -205,14 +237,17 @@ func (i *Importer) dumpFlags() []string {
 	if i.noTablespaces {
 		flags = append(flags, "--no-tablespaces")
 	}
-	if !i.columnStatistics {
-		flags = append(flags, "--column-statistics=0")
-	}
 	if i.hexBlob {
 		flags = append(flags, "--hex-blob")
 	}
-	if i.setGTIDPurged != "" {
-		flags = append(flags, "--set-gtid-purged="+i.setGTIDPurged)
+	// MySQL-only flags.
+	if i.flavor == "mysql" {
+		if !i.columnStatistics {
+			flags = append(flags, "--column-statistics=0")
+		}
+		if i.setGTIDPurged != "" {
+			flags = append(flags, "--set-gtid-purged="+i.setGTIDPurged)
+		}
 	}
 	return flags
 }
@@ -236,10 +271,10 @@ func (r *cmdReader) Close() error {
 	return nil
 }
 
-// startDump starts mysqldump with the given args and returns a ReadCloser
+// startDump starts the dump binary with the given args and returns a ReadCloser
 // that streams stdout.  The exit status is captured on Close.
 func (i *Importer) startDump(ctx context.Context, args []string) (io.ReadCloser, error) {
-	cmd := exec.CommandContext(ctx, i.conn.BinPath("mysqldump"), args...)
+	cmd := exec.CommandContext(ctx, i.conn.BinPath(i.conn.DumpBin), args...)
 	cmd.Env = i.conn.Env()
 
 	var stderr bytes.Buffer
@@ -250,7 +285,7 @@ func (i *Importer) startDump(ctx context.Context, args []string) (io.ReadCloser,
 		return nil, fmt.Errorf("creating stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting mysqldump: %w", err)
+		return nil, fmt.Errorf("starting %s: %w", i.conn.DumpBin, err)
 	}
 	return &cmdReader{
 		ReadCloser: stdout,
