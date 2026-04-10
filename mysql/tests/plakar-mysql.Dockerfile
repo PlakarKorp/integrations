@@ -1,6 +1,6 @@
-# Image for integration tests.
-# Contains the Go toolchain, mysql-client, a plakar binary, and the
-# mysql plugin built and installed from the source tree.
+# Image for MySQL integration tests.
+# Contains the Go toolchain, the official MySQL 8 client tools, a plakar
+# binary, and the mysql plugin built and installed from the source tree.
 # The image is kept between runs (KeepImage: true) so that subsequent test
 # runs only rebuild layers that changed.
 #
@@ -12,7 +12,7 @@
 # as engine_cost.default_value, which MySQL 8 rejects with ERROR 3105).
 #
 # Build manually:
-#   docker build --build-arg PLAKAR_SHA=main -t plakar-mysql-test -f tests/plakar.Dockerfile .
+#   docker build --build-arg PLAKAR_SHA=main -t plakar-mysql-test -f tests/plakar-mysql.Dockerfile .
 ARG PLAKAR_SHA=main
 
 FROM mysql:8

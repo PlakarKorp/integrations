@@ -11,30 +11,61 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// StartMySQLContainer starts a mysql:8 container attached to net with the given
-// network alias.  It creates a database named "testdb" with root password "secret".
-//
-// The container is seeded with:
-//   - A "users" table with three rows
-//   - A "orders" table with two rows referencing users
-//   - A stored procedure "get_users"
-//   - A BEFORE INSERT trigger on "orders"
-//
-// The container is automatically terminated when the test ends.
-func StartMySQLContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork, alias string) testcontainers.Container {
-	t.Helper()
+// DBVariant describes a database engine variant used in parameterized tests.
+type DBVariant struct {
+	Name       string
+	Image      string            // Docker image for the database server
+	Env        map[string]string // environment variables for the container
+	ReadyLog   string            // log line to wait for before considering ready
+	Protocol   string            // Plakar protocol: "mysql" or "mysql+mariadb"
+	CLI        string            // client CLI for seeding: "mysql" or "mariadb"
+	Dockerfile string            // path to the plakar test image Dockerfile (from repo root)
+	ImageTag   string            // Docker image name for the cached plakar container
+}
 
-	req := testcontainers.ContainerRequest{
+// DBVariants lists all database variants exercised by the integration tests.
+var DBVariants = []DBVariant{
+	{
+		Name:  "mysql",
 		Image: "mysql:8",
 		Env: map[string]string{
 			"MYSQL_ROOT_PASSWORD": "secret",
 			"MYSQL_DATABASE":      "testdb",
 		},
+		ReadyLog:   "port: 3306  MySQL Community Server",
+		Protocol:   "mysql",
+		CLI:        "mysql",
+		Dockerfile: "tests/plakar-mysql.Dockerfile",
+		ImageTag:   "plakar-mysql-test",
+	},
+	{
+		Name:  "mariadb",
+		Image: "mariadb:11",
+		Env: map[string]string{
+			"MARIADB_ROOT_PASSWORD": "secret",
+			"MARIADB_DATABASE":      "testdb",
+		},
+		ReadyLog:   "ready for connections",
+		Protocol:   "mysql+mariadb",
+		CLI:        "mariadb",
+		Dockerfile: "tests/plakar-mariadb.Dockerfile",
+		ImageTag:   "plakar-mariadb-test",
+	},
+}
+
+// StartDBContainer starts a database container for the given variant, attached
+// to net with the given network alias. The container is automatically
+// terminated when the test ends.
+func StartDBContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork, alias string, v DBVariant) testcontainers.Container {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:          v.Image,
+		Env:            v.Env,
 		ExposedPorts:   []string{"3306/tcp"},
 		Networks:       []string{net.Name},
 		NetworkAliases: map[string][]string{net.Name: {alias}},
-		// Wait until MySQL is accepting connections on port 3306.
-		WaitingFor: wait.ForLog("port: 3306  MySQL Community Server"),
+		WaitingFor:     wait.ForLog(v.ReadyLog),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -42,22 +73,17 @@ func StartMySQLContainer(ctx context.Context, t *testing.T, net *testcontainers.
 		Started:          true,
 	})
 	if err != nil {
-		t.Fatalf("start mysql container: %v", err)
+		t.Fatalf("start %s container: %v", v.Name, err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(ctx) })
 
 	return container
 }
 
-// SeedMySQL populates testdb with representative data including tables,
-// a stored procedure, and a trigger. This covers the most common mysqldump
-// content types and gives meaningful row counts to verify after restore.
-//
-// Each statement is executed as a separate -e call because mysql interprets
-// ';' as a statement terminator, which breaks stored procedures and triggers
-// that contain semicolons in their bodies. Procedures and triggers are written
-// without BEGIN/END so their bodies contain no embedded semicolons.
-func SeedMySQL(ctx context.Context, t *testing.T, container testcontainers.Container) {
+// SeedDB populates testdb with representative data: two tables with rows, a
+// stored procedure, and a trigger. The CLI binary (mysql or mariadb) is taken
+// from the variant.
+func SeedDB(ctx context.Context, t *testing.T, container testcontainers.Container, v DBVariant) {
 	t.Helper()
 
 	stmts := []string{
@@ -65,18 +91,16 @@ func SeedMySQL(ctx context.Context, t *testing.T, container testcontainers.Conta
 		`INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol')`,
 		`CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, amount DECIMAL(10,2) NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))`,
 		`INSERT INTO orders (user_id, amount) VALUES (1, 99.99), (2, 149.50), (3, 9.99)`,
-		// Single-statement procedure — no BEGIN/END, no embedded semicolon.
 		`CREATE PROCEDURE get_users() SELECT * FROM users`,
-		// Single-statement trigger — FOR EACH ROW with one action, no BEGIN/END.
 		`CREATE TRIGGER before_order_insert BEFORE INSERT ON orders FOR EACH ROW SET NEW.amount = IF(NEW.amount < 0, 0, NEW.amount)`,
 	}
 	for _, stmt := range stmts {
-		ExecOK(ctx, t, container, "mysql", "-uroot", "-psecret", "testdb", "-e", stmt)
+		ExecOK(ctx, t, container, v.CLI, "-uroot", "-psecret", "testdb", "-e", stmt)
 	}
 }
 
-// MustQueryInt connects to the MySQL container from the test host and runs a
-// query that returns a single integer (e.g. SELECT COUNT(*) FROM ...).
+// MustQueryInt connects to the database container from the test host and runs
+// a query that returns a single integer (e.g. SELECT COUNT(*) FROM ...).
 // The test fails immediately on any connection or query error.
 func MustQueryInt(ctx context.Context, t *testing.T, container testcontainers.Container, user, password, database, query string) int {
 	t.Helper()
@@ -91,7 +115,7 @@ func MustQueryInt(ctx context.Context, t *testing.T, container testcontainers.Co
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, password, host, port.Port(), database)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		t.Fatalf("open mysql connection: %v", err)
+		t.Fatalf("open connection: %v", err)
 	}
 	defer db.Close()
 	var n int

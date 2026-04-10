@@ -21,15 +21,40 @@ func repoRoot() string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
 }
 
-// StartPlakarContainer starts a container from the plakar test image.
-// The image already has plakar and the mysql plugin installed (built during
-// the Docker image build from the repository source).
-// net is an optional Docker network to attach the container to; pass nil
-// when no extra network is needed.
-// The container is automatically terminated when the test ends.
-func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
+// PreBuildPlakarImage builds the plakar test image for the given variant and
+// keeps it in the local Docker image cache. Calling this before running tests
+// avoids rebuilding the image for each test case.
+func PreBuildPlakarImage(ctx context.Context, v DBVariant) error {
+	sha := plakarSHA
+	req := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:       repoRoot(),
+			Dockerfile:    v.Dockerfile,
+			BuildArgs:     map[string]*string{"PLAKAR_SHA": &sha},
+			KeepImage:     true,
+			Repo:          v.ImageTag,
+			Tag:           "latest",
+			PrintBuildLog: true,
+		},
+		Cmd: []string{"true"},
+	}
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return err
+	}
+	return c.Terminate(ctx)
+}
+
+// StartPlakarContainer starts a container from the plakar test image for the
+// given variant. The image already has plakar and the mysql plugin installed.
+// net is an optional Docker network to attach the container to; pass nil when
+// no extra network is needed. The container is automatically terminated when
+// the test ends.
+func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork, v DBVariant) testcontainers.Container {
 	t.Helper()
-	root := repoRoot()
 	sha := plakarSHA
 
 	var networks []string
@@ -39,10 +64,12 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:       root,
-			Dockerfile:    "tests/plakar.Dockerfile",
+			Context:       repoRoot(),
+			Dockerfile:    v.Dockerfile,
 			BuildArgs:     map[string]*string{"PLAKAR_SHA": &sha},
 			KeepImage:     true,
+			Repo:          v.ImageTag,
+			Tag:           "latest",
 			PrintBuildLog: true,
 		},
 		Cmd:      []string{"sleep", "infinity"},
@@ -53,7 +80,7 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 		Started:          true,
 	})
 	if err != nil {
-		t.Fatalf("start plakar container: %v", err)
+		t.Fatalf("start plakar container (%s): %v", v.Name, err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(ctx) })
 	return container

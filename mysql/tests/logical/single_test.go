@@ -7,24 +7,36 @@ import (
 	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
 )
 
-// TestSingleDatabaseBackup verifies the full backup and restore cycle for a
-// logical (mysql://) single-database backup:
-//  1. Spin up a MySQL container pre-seeded with test data.
+func TestSingleDatabaseBackup(t *testing.T) {
+	t.Parallel()
+	for _, v := range testhelpers.DBVariants {
+		v := v
+		t.Run(v.Name, func(t *testing.T) {
+			t.Parallel()
+			runSingleDatabaseBackup(t, v)
+		})
+	}
+}
+
+// runSingleDatabaseBackup verifies the full backup and restore cycle for a
+// single-database backup against the given database variant:
+//  1. Spin up a database container pre-seeded with test data.
 //  2. Spin up a plakar container with the plugin installed.
 //  3. Create a plakar store, run a backup, inspect the snapshot.
-//  4. Spin up a fresh MySQL restore target.
+//  4. Spin up a fresh database restore target.
 //  5. Restore the snapshot to the target and verify the data.
-func TestSingleDatabaseBackup(t *testing.T) {
+func runSingleDatabaseBackup(t *testing.T, v testhelpers.DBVariant) {
+	t.Helper()
 	ctx := context.Background()
 
 	net := testhelpers.NewNetwork(ctx, t)
 
-	// Step 1 — start source MySQL and seed test data.
-	mysqlContainer := testhelpers.StartMySQLContainer(ctx, t, net, "mysql")
-	testhelpers.SeedMySQL(ctx, t, mysqlContainer)
+	// Step 1 — start source database and seed test data.
+	dbContainer := testhelpers.StartDBContainer(ctx, t, net, "db", v)
+	testhelpers.SeedDB(ctx, t, dbContainer, v)
 
 	// Step 2 — start the plakar container on the same network.
-	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net)
+	plakarContainer := testhelpers.StartPlakarContainer(ctx, t, net, v)
 
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")
@@ -32,7 +44,7 @@ func TestSingleDatabaseBackup(t *testing.T) {
 	// Step 4 — run the backup (single database).
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "backup",
-		"mysql://root:secret@mysql/testdb",
+		v.Protocol+"://root:secret@db/testdb",
 	)
 
 	// Step 5 — inspect the snapshot.
@@ -45,12 +57,10 @@ func TestSingleDatabaseBackup(t *testing.T) {
 	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapID, "/manifest.json")
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
-	// The MySQL container creates testdb automatically via MYSQL_DATABASE env,
-	// so no create_db=true is needed.
-	restoreContainer := testhelpers.StartMySQLContainer(ctx, t, net, "mysql-restore")
+	restoreContainer := testhelpers.StartDBContainer(ctx, t, net, "db-restore", v)
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "restore",
-		"-to", "mysql://root:secret@mysql-restore/testdb",
+		"-to", v.Protocol+"://root:secret@db-restore/testdb",
 		snapID,
 	)
 
