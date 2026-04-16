@@ -13,6 +13,7 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -30,6 +31,7 @@ type k8s struct {
 
 	host      string
 	namespace string
+	labels    string
 	pvcName   string
 
 	portForward bool
@@ -79,7 +81,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		host = "in-cluster"
 	}
 
-	var namespace, pvcName, snapClass string
+	var namespace, pvcName, matchLabels, snapClass string
 
 	switch proto {
 	case "k8s+csi":
@@ -105,6 +107,14 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		namespace = strings.Trim(u.Path, "/")
 		if strings.Contains(namespace, "/") {
 			return nil, fmt.Errorf("bad location: slashes in namespace: %s", params["location"])
+		}
+
+		if l, ok := params["labels"]; ok && !export {
+			_, err := labels.Parse(l)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse labels: %w", err)
+			}
+			matchLabels = l
 		}
 
 	default:
@@ -146,6 +156,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		opts:       opts,
 		host:       host,
 		namespace:  namespace,
+		labels:     matchLabels,
 		pvcName:    pvcName,
 
 		portForward: portForward,

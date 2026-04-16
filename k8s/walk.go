@@ -47,7 +47,9 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 			gvr := groupVersion.WithResource(res.Name)
 
 			wg.Go(func() error {
-				list, err := k.dclient.Resource(gvr).List(ctx, metav1.ListOptions{})
+				list, err := k.dclient.Resource(gvr).List(ctx, metav1.ListOptions{
+					LabelSelector: k.labels,
+				})
 				if err != nil {
 					return err
 				}

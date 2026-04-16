@@ -11,6 +11,10 @@
       "type": "string",
       "minLength": 1,
       "description": "optional endpoint with optional namespace"
+    },
+    "labels": {
+      "type": "string",
+      "description": "optional kubernetes label selector"
     }
   }
 }

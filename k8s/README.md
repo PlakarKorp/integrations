@@ -12,6 +12,7 @@ CSI driver snapshot feature (preferred) and without.
 
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 - `kubelet_image`: optional, used only for PVC backups.  Defaults to a recent version of the kubelet image.
+- `labels` optional, used only for configuration backup.  Limits the manifests to backup to the ones matching the given labels.
 
 ## Examples
 
