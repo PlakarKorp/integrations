@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Plakar K8S Exporter Connector Config",
+  "title": "Plakar K8S Importer Connector Config",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,7 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "ETCD server url"
+      "description": "optional endpoint with optional namespace"
     },
     "volume_snapshot_class": {
       "type": "string",
@@ -18,7 +18,7 @@
     },
     "kubelet_image": {
       "type": "string",
-      "description": "Kubelet image"
+      "description": "Kubelet image to use"
     }
   }
 }

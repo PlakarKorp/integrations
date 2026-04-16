@@ -10,15 +10,7 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "ETCD server url"
-    },
-    "volume_snapshot_class": {
-      "type": "string",
-      "description": "Volume snapshot class"
-    },
-    "kubelet_image": {
-      "type": "string",
-      "description": "Kubelet image"
+      "description": "optional endpoint"
     }
   }
 }
