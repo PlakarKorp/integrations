@@ -6,17 +6,17 @@ EXT=
 all: build
 
 build:
-	${GO} build -v -o scalewayInstanceImporter${EXT} ./plugin/importer
-	#${GO} build -v -o scalewayInstanceExporter${EXT} ./plugin/exporter
+	${GO} build -v -o imapImporter${EXT} ./plugin/importer
+	#${GO} build -v -o imapExporter${EXT} ./plugin/exporter
 
 create:
 	${PLAKAR} pkg create manifest.yaml
 
 uninstall:
-	${PLAKAR} pkg ls | grep scaleway-Instance-v | xargs ${PLAKAR} pkg uninstall
+	${PLAKAR} pkg ls | grep imap-v | xargs ${PLAKAR} pkg uninstall
 
 install:
-	${PLAKAR} pkg install scaleway-Instance-${VERSION}.ptar
+	${PLAKAR} pkg install imap-${VERSION}.ptar
 
 clean:
-	rm -f scalewayInstanceImporter scalewayInstanceExporter scaleway-Instance-*.ptar
+	rm -f imapImporter imapExporter imap-*.ptar

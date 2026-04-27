@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-scaleway-instance/importer"
+	"github.com/PlakarKorp/integration-imap/importer"
 )
 
 func main() {

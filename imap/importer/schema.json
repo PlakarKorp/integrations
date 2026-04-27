@@ -1,56 +1,44 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Plakar Scaleway Block Storage Connector Config",
+  "title": "Plakar IMAP Importer Connector Config",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "location",
-    "access_key",
-    "secret_key",
-    "project_id",
-    "volume_id",
-    "bucket"
+    "username",
+    "password"
   ],
   "properties": {
     "location": {
       "type": "string",
-      "const": "scaleway+block://",
-      "description": "Connector location identifier for Scaleway Block Storage"
+      "minLength": 1,
+      "description": "IMAP location URI: imap://<host>[:<port>][/mailbox-or-path]",
+      "pattern": "^imap://[^/]+(/.*)?$"
     },
-    "access_key": {
+    "username": {
       "type": "string",
       "minLength": 1,
-      "description": "Scaleway API access key"
+      "description": "IMAP username"
     },
-    "secret_key": {
+    "password": {
       "type": "string",
       "minLength": 1,
-      "description": "Scaleway API secret key"
+      "description": "IMAP password"
     },
-    "project_id": {
+    "tls": {
       "type": "string",
-      "format": "uuid",
-      "description": "Scaleway project ID"
+      "default": "starttls",
+      "description": "TLS mode used to connect to the IMAP server",
+      "enum": [
+        "no-tls",
+        "starttls",
+        "tls"
+      ]
     },
-    "volume_id": {
-      "type": "string",
-      "format": "uuid",
-      "description": "Scaleway block volume ID"
-    },
-    "bucket": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Bucket or logical container name used to store snapshot data"
-    },
-    "zone": {
-      "type": "string",
-      "description": "Scaleway zone (e.g. fr-par-1)",
-      "pattern": "^[a-z]{2}-[a-z]+-[0-9]$"
-    },
-    "endpoint": {
-      "type": "string",
-      "format": "uri",
-      "description": "Optional custom API endpoint"
+    "tls_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
     }
   }
 }

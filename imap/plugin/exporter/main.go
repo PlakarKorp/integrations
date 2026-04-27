@@ -4,9 +4,9 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-scaleway-instance/exporter"
+	"github.com/PlakarKorp/integration-imap/exporter"
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, exporter.NewExporter)
+	sdk.EntrypointExporter(os.Args, exporter.NewImapExporter)
 }
