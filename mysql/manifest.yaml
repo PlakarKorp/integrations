@@ -14,6 +14,7 @@ connectors:
     protocols: [mysql]
     validator: ./importer/schema.json
     class: database
+    subclass: mysql
   - type: exporter
     executable: mysqlExporter
     homepage: https://github.com/PlakarKorp/integration-mysql
@@ -21,6 +22,7 @@ connectors:
     protocols: [mysql]
     validator: ./exporter/schema.json
     class: database
+    subclass: mysql
   - type: importer
     executable: mariadbImporter
     homepage: https://github.com/PlakarKorp/integration-mysql
@@ -28,6 +30,7 @@ connectors:
     protocols: [mysql+mariadb]
     validator: ./plugin/mariadb-importer/schema.json
     class: database
+    subclass: mysql
   - type: exporter
     executable: mariadbExporter
     homepage: https://github.com/PlakarKorp/integration-mysql
@@ -35,3 +38,4 @@ connectors:
     protocols: [mysql+mariadb]
     validator: ./plugin/mariadb-exporter/schema.json
     class: database
+    subclass: mysql
