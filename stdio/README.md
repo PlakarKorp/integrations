@@ -1,5 +1,8 @@
 # STDIO Integration
 
+This integration is bundled in plakar by default and is being used
+as a build-time dependency of https://github.com/PlakarKorp/plakar/ 
+
 ## Overview
 
 **STDIO (Standard Input/Output)** refers to the standard streams provided by most operating systems for input and output operations. In the context of this integration, STDIO allows you to use standard input, standard output, or standard error as sources or destinations for backup and restore operations.
