@@ -22,13 +22,13 @@ connectors:
   - type: importer
     executable: mysqlProxyImporter
     protocols: [mysql+gcsql]
-    validator: ./importer/schema.json
+    validator: ./plugin/mysql-proxy-importer/schema.json
     class: database
     subclass: mysql
   - type: exporter
     executable: mysqlProxyExporter
     protocols: [mysql+gcsql]
-    validator: ./exporter/schema.json
+    validator: ./plugin/mysql-proxy-exporter/schema.json
     class: database
     subclass: mysql
   - type: importer
