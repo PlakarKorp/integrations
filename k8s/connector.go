@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -18,6 +20,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type k8s struct {
@@ -60,10 +63,31 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, par
 func New(ctx context.Context, opts *connectors.Options, proto string, params map[string]string, export bool) (*k8s, error) {
 	var host string
 	var portForward bool
+	var hasKubeConfig bool
 
 	u, err := url.Parse(params["location"])
 	if err != nil {
 		return nil, fmt.Errorf("bad location: %w", err)
+	}
+
+	home, _ := os.UserHomeDir()
+	kubeconfpath := filepath.Join(home, ".kube", "config")
+	if v, ok := params["kubeconfig_file"]; ok {
+		hasKubeConfig = true
+		kubeconfpath = v
+	}
+
+	var kubeconf []byte
+	if content, ok := params["kubeconfig"]; ok {
+		kubeconf = []byte(content)
+	} else {
+		kubeconf, err = os.ReadFile(kubeconfpath)
+		if err != nil {
+			if hasKubeConfig {
+				return nil, fmt.Errorf("failed to open %s: %w",
+					kubeconfpath, err)
+			}
+		}
 	}
 
 	var config *rest.Config
@@ -73,6 +97,16 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		}
 		host = u.Host
 		portForward = true
+	} else if kubeconf != nil {
+		config, err = clientcmd.RESTConfigFromKubeConfig(kubeconf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create config from kubeconfig: %w", err)
+		}
+		portForward = true
+
+		if u, err := url.Parse(config.Host); err == nil {
+			host = u.Host
+		}
 	} else {
 		config, err = rest.InClusterConfig()
 		if err != nil {

@@ -12,6 +12,14 @@
       "minLength": 1,
       "description": "optional endpoint with optional namespace"
     },
+    "kubeconfig_file": {
+      "type": "string",
+      "description": "optional path to a kube config file"
+    },
+    "kubeconfig": {
+      "type": "string",
+      "description": "optional kube config content to use"
+    },
     "volume_snapshot_class": {
       "type": "string",
       "description": "Volume snapshot class"

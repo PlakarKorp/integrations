@@ -12,6 +12,14 @@
       "minLength": 1,
       "description": "optional endpoint with optional namespace"
     },
+    "kubeconfig_file": {
+      "type": "string",
+      "description": "optional path to a kube config file"
+    },
+    "kubeconfig": {
+      "type": "string",
+      "description": "optional kube config content to use"
+    },
     "labels": {
       "type": "string",
       "description": "optional kubernetes label selector"
