@@ -141,6 +141,9 @@ func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
 
 func setupCloudSqlProxy(cc ConnConfig) (int, error) {
 	cleanup, err := mysql.RegisterDriver("cloudsql-mysql")
+	if err != nil {
+		return 0, err
+	}
 
 	d, err := cloudsqlconn.NewDialer(context.Background())
 	if err != nil {
