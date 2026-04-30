@@ -211,7 +211,7 @@ func (k *k8s) Root() string {
 }
 
 func (k *k8s) Flags() location.Flags {
-	if k.proto == "k8s+csi" {
+	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" {
 		return location.FLAG_STREAM | location.FLAG_NEEDACK
 	}
 	return 0
