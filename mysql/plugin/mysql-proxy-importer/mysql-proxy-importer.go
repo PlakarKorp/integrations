@@ -22,7 +22,7 @@ type mysqlImporter struct {
 }
 
 func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
-	conn, err := mysqlconn.ParseConnConfig(false, config)
+	conn, err := mysqlconn.ParseConnConfig(true, config)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +62,7 @@ func (m *mysqlImporter) Import(ctx context.Context, records chan<- *connectors.R
 	if err := m.Conn.CheckFlavor(ctx, "mysql"); err != nil {
 		return err
 	}
+
 	cs := m.columnStatistics
 	opts := m.CommonManifestOptions()
 	opts.ColumnStatistics = &cs

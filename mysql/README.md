@@ -12,11 +12,17 @@ and can be restored without Plakar if needed.
 | Protocol          | Target           | Dump tool       | Client tool |
 |-------------------|------------------|-----------------|-------------|
 | `mysql://`        | MySQL 5.7 / 8.x  | `mysqldump`     | `mysql`     |
+| `mysql+gcsql://`  | MySQL 5.7 / 8.x  | `mysqldump`     | `mysql`     |
 | `mysql+mariadb://`| MariaDB 10.x / 11.x | `mariadb-dump` | `mariadb`  |
 
 Use the protocol that matches your server. The two connectors are independent:
 `mysql://` always uses MySQL binaries; `mysql+mariadb://` always uses MariaDB
 binaries.
+
+The `gcsql` variant is specific to databases hosted at Google Cloud (TM), it
+uses Cloud SQL Proxy to connect to the database to make the experience easier.
+As Google does not offer MariaDB backends it's only available for the MySQL
+flavor.
 
 ## Prerequisites
 

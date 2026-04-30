@@ -11,8 +11,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// --- Types ---
-
 // ServerConfig holds key MySQL server configuration parameters.
 type ServerConfig struct {
 	DataDir              string `json:"datadir,omitempty"`
@@ -31,11 +29,11 @@ type ServerConfig struct {
 
 // UserInfo describes a MySQL user account.
 type UserInfo struct {
-	User               string `json:"user"`
-	Host               string `json:"host"`
-	AuthPlugin         string `json:"auth_plugin,omitempty"`
-	PasswordExpired    bool   `json:"password_expired,omitempty"`
-	AccountLocked      bool   `json:"account_locked,omitempty"`
+	User            string `json:"user"`
+	Host            string `json:"host"`
+	AuthPlugin      string `json:"auth_plugin,omitempty"`
+	PasswordExpired bool   `json:"password_expired,omitempty"`
+	AccountLocked   bool   `json:"account_locked,omitempty"`
 }
 
 // ColumnInfo describes a single column in a table.
@@ -52,24 +50,24 @@ type ColumnInfo struct {
 
 // IndexInfo describes an index on a table.
 type IndexInfo struct {
-	Name       string   `json:"name"`
-	Columns    []string `json:"columns"`
-	NonUnique  bool     `json:"non_unique"`
-	IndexType  string   `json:"index_type"`  // BTREE, HASH, FULLTEXT, SPATIAL
+	Name      string   `json:"name"`
+	Columns   []string `json:"columns"`
+	NonUnique bool     `json:"non_unique"`
+	IndexType string   `json:"index_type"` // BTREE, HASH, FULLTEXT, SPATIAL
 }
 
 // ConstraintInfo describes a table constraint.
 type ConstraintInfo struct {
-	Name           string   `json:"name"`
-	Type           string   `json:"type"` // PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK
-	Columns        []string `json:"columns,omitempty"`
-	ReferencedTable string  `json:"referenced_table,omitempty"`
+	Name            string   `json:"name"`
+	Type            string   `json:"type"` // PRIMARY KEY, UNIQUE, FOREIGN KEY, CHECK
+	Columns         []string `json:"columns,omitempty"`
+	ReferencedTable string   `json:"referenced_table,omitempty"`
 }
 
 // TableInfo describes a table or view in a database.
 type TableInfo struct {
 	Name          string           `json:"name"`
-	Type          string           `json:"type"`           // BASE TABLE, VIEW, SYSTEM VIEW
+	Type          string           `json:"type"` // BASE TABLE, VIEW, SYSTEM VIEW
 	Engine        string           `json:"engine,omitempty"`
 	RowFormat     string           `json:"row_format,omitempty"`
 	RowEstimate   int64            `json:"row_estimate,omitempty"`
@@ -100,13 +98,13 @@ type RoutineInfo struct {
 
 // TriggerInfo describes a table trigger.
 type TriggerInfo struct {
-	Name        string `json:"name"`
-	Event       string `json:"event"`   // INSERT, UPDATE, DELETE
-	Timing      string `json:"timing"`  // BEFORE, AFTER
-	Table       string `json:"table"`
-	Definer     string `json:"definer,omitempty"`
-	SQLMode     string `json:"sql_mode,omitempty"`
-	Created     string `json:"created,omitempty"`
+	Name    string `json:"name"`
+	Event   string `json:"event"`  // INSERT, UPDATE, DELETE
+	Timing  string `json:"timing"` // BEFORE, AFTER
+	Table   string `json:"table"`
+	Definer string `json:"definer,omitempty"`
+	SQLMode string `json:"sql_mode,omitempty"`
+	Created string `json:"created,omitempty"`
 }
 
 // EventInfo describes a MySQL event scheduler event.
@@ -132,13 +130,21 @@ type DatabaseInfo struct {
 	Events    []EventInfo   `json:"events,omitempty"`
 }
 
-// --- Helpers ---
-
 func openDB(conn mysqlconn.ConnConfig, database string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", conn.DSN(database))
-	if err != nil {
-		return nil, fmt.Errorf("opening connection to %s: %w", conn.Host, err)
+	connStr := conn.DSN(database)
+	driver := "mysql"
+	targetHost := conn.Host
+	if conn.SqlCloud {
+		connStr = conn.DSNForCloudSQL(database)
+		driver = "cloudsql-mysql"
+		targetHost = conn.TrueHost
 	}
+
+	db, err := sql.Open(driver, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("opening connection to %s: %w", targetHost, err)
+	}
+
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
@@ -164,7 +170,6 @@ func nullableInt64(ni sql.NullInt64) int64 {
 	}
 	return 0
 }
-
 
 // collectServerConfig queries key server variables from INFORMATION_SCHEMA / SHOW VARIABLES.
 func collectServerConfig(ctx context.Context, db *sql.DB) (ServerConfig, error) {
@@ -482,7 +487,7 @@ ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`, schema)
 	// Accumulate columns per (table, index).
 	type key struct{ table, index string }
 	type entry struct {
-		idx       int   // position in tables[tableIdx[table]].Indexes
+		idx       int // position in tables[tableIdx[table]].Indexes
 		nonUnique bool
 		indexType string
 	}

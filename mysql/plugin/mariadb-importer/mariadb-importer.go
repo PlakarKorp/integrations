@@ -17,7 +17,7 @@ type mariadbImporter struct {
 }
 
 func newMariaDB(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
-	conn, err := mysqlconn.ParseConnConfig(config)
+	conn, err := mysqlconn.ParseConnConfig(false, config)
 	if err != nil {
 		return nil, err
 	}

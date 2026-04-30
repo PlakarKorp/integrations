@@ -15,6 +15,8 @@ build:
 	${GO} build -v -o mysqlExporter${EXT} ./plugin/mysql-exporter
 	${GO} build -v -o mariadbImporter${EXT} ./plugin/mariadb-importer
 	${GO} build -v -o mariadbExporter${EXT} ./plugin/mariadb-exporter
+	${GO} build -v -o mysqlProxyImporter${EXT} ./plugin/mysql-proxy-importer
+	${GO} build -v -o mysqlProxyExporter${EXT} ./plugin/mysql-proxy-exporter
 
 package: build
 	rm -f $(PTAR)
@@ -42,4 +44,4 @@ test:
 	${GO} test -v ./tests/...
 
 clean:
-	rm -f mysqlImporter mysqlExporter
+	rm -f mysqlImporter mysqlExporter mariadbImporter mariadbExporter mysqlProxyImporter mysqlProxyExporter

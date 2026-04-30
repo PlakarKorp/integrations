@@ -1,5 +1,7 @@
 mysqlImporter
 mysqlExporter
+mysqlProxyExporter
+mysqlProxyImporter
 mariadbImporter
 mariadbExporter
 dist/

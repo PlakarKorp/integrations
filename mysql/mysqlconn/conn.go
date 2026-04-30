@@ -3,12 +3,19 @@ package mysqlconn
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+
+	"cloud.google.com/go/cloudsqlconn"
+	"cloud.google.com/go/cloudsqlconn/mysql/mysql"
 )
 
 // ConnConfig holds the parsed connection parameters for a MySQL-compatible server.
@@ -36,6 +43,11 @@ type ConnConfig struct {
 	// ExpectedFlavor is the server type this connector is configured for
 	// ("mysql" or "mariadb"). When set, Ping rejects a server of the wrong type.
 	ExpectedFlavor string
+
+	SqlCloud bool
+	// When using SqlCloud this is the real host (the instance connection name)
+	// that was given, host will always be 127.0.0.1
+	TrueHost string
 }
 
 func (cc ConnConfig) clientBin() string {
@@ -54,7 +66,7 @@ func (cc ConnConfig) dumpBin() string {
 
 // ParseConnConfig builds a ConnConfig from the connector configuration map.
 // Standalone keys (host, port, …) always take precedence over the location URI.
-func ParseConnConfig(config map[string]string) (ConnConfig, error) {
+func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
 	cc := ConnConfig{
 		Host: "127.0.0.1",
 		Port: "3306",
@@ -109,7 +121,71 @@ func ParseConnConfig(config map[string]string) (ConnConfig, error) {
 		cc.BinDir = v
 	}
 
+	// We are in a Google Cloud environment, attempt to use gcloud-sql-proxy
+	if proxy {
+		port, err := setupCloudSqlProxy(cc)
+		if err != nil {
+			return cc, err
+		}
+
+		// Override connection params to go through the proxy now that it is
+		// running
+		cc.Port = strconv.Itoa(port)
+		cc.TrueHost = cc.Host
+		cc.Host = "127.0.0.1"
+		cc.SqlCloud = true
+	}
+
 	return cc, nil
+}
+
+func setupCloudSqlProxy(cc ConnConfig) (int, error) {
+	cleanup, err := mysql.RegisterDriver("cloudsql-mysql")
+	if err != nil {
+		return 0, err
+	}
+
+	d, err := cloudsqlconn.NewDialer(context.Background())
+	if err != nil {
+		return 0, err
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+
+	port := l.Addr().(*net.TCPAddr).Port
+
+	go func() {
+		defer cleanup()
+		defer d.Close()
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return // listener closed just end the background worker.
+			}
+
+			go func() {
+				defer c.Close()
+				s, err := d.Dial(context.Background(), cc.Host)
+				if err != nil {
+					log.Printf("failed to dial to %s: %s", cc.Host, err)
+					return
+				}
+
+				defer s.Close()
+
+				wg := sync.WaitGroup{}
+				wg.Go(func() { io.Copy(s, c) })
+				wg.Go(func() { io.Copy(c, s) })
+
+				wg.Wait()
+			}()
+		}
+	}()
+
+	return port, nil
 }
 
 func parseURI(uri string, cc *ConnConfig) error {
@@ -236,6 +312,33 @@ func (cc ConnConfig) DSN(database string) string {
 	dsn.WriteString(cc.Host)
 	dsn.WriteByte(':')
 	dsn.WriteString(cc.Port)
+	dsn.WriteString(")/")
+	dsn.WriteString(database)
+	dsn.WriteString("?parseTime=true&multiStatements=true")
+	if cc.SSLMode != "" {
+		// go-sql-driver uses a "tls" parameter with different value names than the CLI.
+		tls := sslModeToTLS(cc.SSLMode)
+		if tls != "" {
+			dsn.WriteString("&tls=")
+			dsn.WriteString(tls)
+		}
+	}
+	return dsn.String()
+}
+
+func (cc ConnConfig) DSNForCloudSQL(database string) string {
+	// Format: user:pass@cloudsql-mysql(host:port)/database?params
+	var dsn strings.Builder
+	if cc.Username != "" {
+		dsn.WriteString(cc.Username)
+		if cc.Password != "" {
+			dsn.WriteByte(':')
+			dsn.WriteString(cc.Password)
+		}
+		dsn.WriteByte('@')
+	}
+	dsn.WriteString("cloudsql-mysql(")
+	dsn.WriteString(cc.TrueHost)
 	dsn.WriteString(")/")
 	dsn.WriteString(database)
 	dsn.WriteString("?parseTime=true&multiStatements=true")

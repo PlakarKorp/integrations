@@ -12,7 +12,7 @@ import (
 )
 
 func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
-	conn, err := mysqlconn.ParseConnConfig(false, config)
+	conn, err := mysqlconn.ParseConnConfig(true, config)
 	if err != nil {
 		return nil, err
 	}

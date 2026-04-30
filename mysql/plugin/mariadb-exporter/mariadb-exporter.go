@@ -12,7 +12,7 @@ import (
 )
 
 func newMariaDB(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
-	conn, err := mysqlconn.ParseConnConfig(config)
+	conn, err := mysqlconn.ParseConnConfig(false, config)
 	if err != nil {
 		return nil, err
 	}
