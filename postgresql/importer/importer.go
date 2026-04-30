@@ -32,6 +32,7 @@ type Importer struct {
 	schemaOnly bool   // pass -s: dump schema only
 	dataOnly   bool   // pass -a: dump data only
 	pgBinDir   string // directory containing pg_dump, pg_dumpall, psql; empty means use $PATH
+	connType   string // returned by Type(); if empty, "postgresql" is used
 }
 
 // bin returns the full path to a PostgreSQL binary.
@@ -43,49 +44,66 @@ func (p *Importer) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
+// NewImporterFromConfig creates an Importer from an already-constructed
+// ConnConfig and explicit option values.  It is intended for variant importers
+// (such as postgres+aws) that build ConnConfig themselves — for example, after
+// fetching an ephemeral authentication token — and then delegate the pg_dump
+// logic to the standard importer.
+//
+// connType is the value returned by Type().  Pass an empty string to use the
+// default "postgresql".
+func NewImporterFromConfig(conn pgconn.ConnConfig, database, pgBinDir, connType string, compress, schemaOnly, dataOnly bool) (*Importer, error) {
+	if schemaOnly && dataOnly {
+		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+	}
+	return &Importer{
+		conn:       conn,
+		database:   database,
+		compress:   compress,
+		schemaOnly: schemaOnly,
+		dataOnly:   dataOnly,
+		pgBinDir:   pgBinDir,
+		connType:   connType,
+	}, nil
+}
+
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
-	imp := &Importer{
-		conn:     conn,
-		database: dbPath,
+	database := dbPath
+	if db, ok := config["database"]; ok && db != "" {
+		database = db
 	}
 
-	if db, ok := config["database"]; ok && db != "" {
-		imp.database = db
-	}
+	var pgBinDir string
 	if v, ok := config["pg_bin_dir"]; ok && v != "" {
-		imp.pgBinDir = v
+		pgBinDir = v
 	}
+
+	var compress, schemaOnly, dataOnly bool
 	if v, ok := config["compress"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		compress, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("compress: %w", err)
 		}
-		imp.compress = b
 	}
 	if v, ok := config["schema_only"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		schemaOnly, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("schema_only: %w", err)
 		}
-		imp.schemaOnly = b
 	}
 	if v, ok := config["data_only"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		dataOnly, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("data_only: %w", err)
 		}
-		imp.dataOnly = b
-	}
-	if imp.schemaOnly && imp.dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
 	}
 
-	return imp, nil
+	return NewImporterFromConfig(conn, database, pgBinDir, "", compress, schemaOnly, dataOnly)
 }
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
@@ -262,7 +280,12 @@ func (p *Importer) Ping(ctx context.Context) error {
 func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.conn.Host }
-func (p *Importer) Type() string                    { return "postgresql" }
+func (p *Importer) Type() string {
+	if p.connType != "" {
+		return p.connType
+	}
+	return "postgresql"
+}
 
 // Flags returns FLAG_STREAM to signal that Import produces a single streaming
 // pass. Without it, the framework calls Import twice — once to enumerate
