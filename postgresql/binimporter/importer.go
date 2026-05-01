@@ -22,12 +22,12 @@ import (
 )
 
 func init() {
-	importer.Register("postgresql+bin", 0, NewBinImporter)
+	importer.Register("postgres+bin", location.FLAG_STREAM|location.FLAG_NEEDACK, NewBinImporter)
 }
 
 type BinImporter struct {
-	conn      pgconn.ConnConfig
-	pgBinDir  string // directory containing pg_basebackup, psql; empty means use $PATH
+	conn     pgconn.ConnConfig
+	pgBinDir string // directory containing pg_basebackup, psql; empty means use $PATH
 }
 
 // bin returns the full path to a PostgreSQL binary.

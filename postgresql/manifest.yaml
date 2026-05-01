@@ -23,6 +23,14 @@ connectors:
     validator: ./binimporter/schema.json
     class: database
     subclass: postgresql
+  - type: importer
+    executable: postgresqlAWSImporter
+    homepage: https://github.com/PlakarKorp/integration-postgresql
+    license: ISC
+    protocols: [postgres+aws]
+    validator: ./awsimporter/schema.json
+    class: database
+    subclass: postgresql
   - type: exporter
     executable: postgresqlExporter
     homepage: https://github.com/PlakarKorp/integration-postgresql

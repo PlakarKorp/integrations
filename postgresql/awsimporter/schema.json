@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar PostgreSQL AWS IAM Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL connection URI: postgres+aws://[user@]host[:port][/database]. No password should be provided — the IAM authentication token is fetched automatically from AWS.",
+      "pattern": "^postgres\\+aws://"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RDS instance hostname (default: localhost). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RDS instance port (default: 5432). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL username to authenticate as (required). Must be an IAM-enabled database user. Overrides the username in the location URI."
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1,
+      "description": "AWS region of the RDS instance (required), e.g. us-east-1. Passed to `aws rds generate-db-auth-token --region`."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the database to back up using pg_dump. If omitted, all databases are backed up using pg_dumpall. Overrides the database in the location URI."
+    },
+    "schema_only": {
+      "type": "boolean",
+      "description": "When true, passes -s to pg_dump/pg_dumpall to dump only schema (no data). Mutually exclusive with data_only."
+    },
+    "data_only": {
+      "type": "boolean",
+      "description": "When true, passes -a to pg_dump/pg_dumpall to dump only data (no schema). Mutually exclusive with schema_only."
+    },
+    "pg_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the PostgreSQL client binaries (pg_dump, pg_dumpall, psql). When omitted, binaries are resolved via $PATH."
+    },
+    "compress": {
+      "type": "boolean",
+      "description": "Enable pg_dump compression (default: false). By default dumps are uncompressed so that Plakar's own compression is not degraded."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+      "description": "SSL mode for the connection, passed via PGSSLMODE. IAM authentication requires an encrypted connection — use `require` or higher."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
+    },
+    "ssl_root_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
+    }
+  }
+}

@@ -15,9 +15,8 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 )
 
-
 func init() {
-	exporter.Register("postgresql", 0, NewExporter)
+	exporter.Register("postgres", 0, NewExporter)
 }
 
 type Exporter struct {

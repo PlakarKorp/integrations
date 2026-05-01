@@ -14,6 +14,7 @@ build:
 	${GO} build -v -o postgresqlImporter${EXT} ./plugin/importer
 	${GO} build -v -o postgresqlExporter${EXT} ./plugin/exporter
 	${GO} build -v -o postgresqlBinImporter${EXT} ./plugin/binimporter
+	${GO} build -v -o postgresqlAWSImporter${EXT} ./plugin/awsimporter
 
 package: build
 	rm -f $(PTAR)
@@ -41,4 +42,4 @@ test:
 	${GO} test -v ./tests/...
 
 clean:
-	rm -f postgresqlImporter postgresqlExporter postgresqlBinImporter
+	rm -f postgresqlImporter postgresqlExporter postgresqlBinImporter postgresqlAWSImporter
