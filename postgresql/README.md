@@ -155,14 +155,115 @@ variables, `~/.aws/credentials`, EC2/ECS instance metadata, etc.).  No
 The backup output is identical to `postgres://` and can be restored with the
 same `postgres://` exporter.
 
-### Prerequisites
+### AWS setup
 
-- AWS credentials must be available via the standard SDK credential chain
-  with the `rds-db:connect` IAM permission for the target database and user.
-- The RDS instance must have **IAM database authentication** enabled.
-- The PostgreSQL user must be created with `GRANT rds_iam TO <user>`.
-- An SSL connection is required by AWS for IAM-authenticated connections —
-  set `ssl_mode` to `require` or higher.
+#### 1. Enable IAM authentication on the RDS instance
+
+In the AWS console (or via CLI/Terraform), enable **IAM database
+authentication** on the RDS instance.  Without this, the token is
+accepted by the SDK but rejected by RDS.
+
+#### 2. Create an IAM policy with `rds-db:connect`
+
+Attach the following policy to the IAM user or role that will run Plakar:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:REGION:ACCOUNT_ID:dbuser:DB_RESOURCE_ID/DB_USER"
+    }
+  ]
+}
+```
+
+- `REGION` — e.g. `eu-west-3`
+- `ACCOUNT_ID` — your 12-digit AWS account ID
+- `DB_RESOURCE_ID` — the resource ID of the RDS instance (e.g. `db-ABCDEFGHIJKL1234`), found in the RDS console under **Configuration**
+- `DB_USER` — the PostgreSQL username Plakar will connect as
+
+To allow any user on any instance in the account, use `"Resource": "*"`.
+This is convenient for testing but too broad for production.
+
+#### 3. Create the PostgreSQL user with IAM login
+
+Connect to the database as a superuser and run:
+
+```sql
+CREATE USER myuser WITH LOGIN;
+GRANT rds_iam TO myuser;
+```
+
+`rds_iam` is a special RDS role that marks the user as IAM-authenticated.
+The user must not have a password set — authentication is handled entirely
+via the IAM token.
+
+### Providing credentials
+
+#### Option A — Environment variables (local testing)
+
+Export the credentials before running Plakar:
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+export AWS_REGION=eu-west-3   # or set region= in the source config
+
+plakar source add myrds postgres+aws://myuser@mydb.cluster-xyz.eu-west-3.rds.amazonaws.com/myapp \
+    region=eu-west-3 ssl_mode=require
+plakar source ping myrds
+plakar backup @myrds
+```
+
+If your IAM user requires a session token (assumed role, temporary
+credentials from `aws sts assume-role`, etc.):
+
+```bash
+export AWS_SESSION_TOKEN=AQoDYXdzEJr...
+```
+
+#### Option B — `~/.aws` profile (local testing)
+
+```ini
+# ~/.aws/credentials
+[default]
+aws_access_key_id     = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+```ini
+# ~/.aws/config
+[default]
+region = eu-west-3
+```
+
+Then run Plakar without any environment variables — the SDK picks up the
+profile automatically.  To use a named profile instead of `default`:
+
+```bash
+export AWS_PROFILE=myprofile
+plakar backup @myrds
+```
+
+#### Option C — EC2 instance profile (production)
+
+Attach an IAM role with the `rds-db:connect` policy to the EC2 instance
+that runs Plakar.  No credentials need to be configured anywhere — the
+SDK automatically retrieves short-lived credentials from the instance
+metadata service (IMDS).
+
+```bash
+# No AWS_* variables needed on the instance.
+plakar source add myrds postgres+aws://myuser@mydb.cluster-xyz.eu-west-3.rds.amazonaws.com/myapp \
+    region=eu-west-3 ssl_mode=require
+plakar backup @myrds
+```
+
+The same approach works for **ECS tasks** (task IAM role) and **Lambda**
+functions (execution role).
 
 ### Importer options (`postgres+aws://`)
 
