@@ -147,25 +147,18 @@ plakar restore -to @mypgdst <snapid>
 
 `postgres+aws://` performs the same logical backup as `postgres://` but
 authenticates using a short-lived IAM token instead of a static password.
-Before running `pg_dump` / `pg_dumpall`, the importer calls:
-
-```
-aws rds generate-db-auth-token \
-    --hostname HOST --port PORT --username USER --region REGION
-```
-
-The resulting token is used as the PostgreSQL password.  No `password`
-parameter is needed (or accepted) in the configuration.
+The token is generated in-process via the AWS SDK before `pg_dump` /
+`pg_dumpall` runs, using the standard SDK credential chain (environment
+variables, `~/.aws/credentials`, EC2/ECS instance metadata, etc.).  No
+`password` parameter is needed (or accepted) in the configuration.
 
 The backup output is identical to `postgres://` and can be restored with the
 same `postgres://` exporter.
 
 ### Prerequisites
 
-- The **AWS CLI** (`aws`) must be installed and in `$PATH` on the machine
-  running Plakar, or its path must be given via `aws_cli_path`.
-- The CLI must be configured with credentials that have the
-  `rds-db:connect` IAM permission for the target database and user.
+- AWS credentials must be available via the standard SDK credential chain
+  with the `rds-db:connect` IAM permission for the target database and user.
 - The RDS instance must have **IAM database authentication** enabled.
 - The PostgreSQL user must be created with `GRANT rds_iam TO <user>`.
 - An SSL connection is required by AWS for IAM-authenticated connections —
@@ -180,7 +173,6 @@ same `postgres://` exporter.
 | `port` | `5432` | RDS instance port. Overrides the URI port. |
 | `username` | — | PostgreSQL username (required). Must be an IAM-enabled database user. Overrides the URI user. |
 | `region` | — | AWS region of the RDS instance (required), e.g. `us-east-1`. |
-| `aws_cli_path` | `aws` | Path to the AWS CLI executable. Useful when `aws` is not in `$PATH` or when a specific version is required. |
 | `database` | — | Database to back up. If omitted, all databases are backed up via `pg_dumpall`. Overrides the URI path. |
 | `compress` | `false` | Enable `pg_dump` compression. By default dumps are stored uncompressed so that Plakar's own compression is not degraded. |
 | `schema_only` | `false` | Dump only the schema (no data). Mutually exclusive with `data_only`. |
@@ -202,11 +194,6 @@ plakar backup @myrds
 # Back up all databases on an RDS instance
 plakar source add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/ \
     region=us-east-1 ssl_mode=require
-plakar backup @myrds
-
-# Use a custom AWS CLI path (e.g. installed via pip into a virtualenv)
-plakar source add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/myapp \
-    region=us-east-1 ssl_mode=require aws_cli_path=/opt/venv/bin/aws
 plakar backup @myrds
 ```
 

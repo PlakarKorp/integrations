@@ -30,11 +30,6 @@
       "minLength": 1,
       "description": "AWS region of the RDS instance (required), e.g. us-east-1. Passed to `aws rds generate-db-auth-token --region`."
     },
-    "aws_cli_path": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Path to the AWS CLI executable. When omitted, `aws` is resolved via $PATH."
-    },
     "database": {
       "type": "string",
       "minLength": 1,

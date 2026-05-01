@@ -1,11 +1,11 @@
 package awsimporter
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 
 	pqimporter "github.com/PlakarKorp/integration-postgresql/importer"
 	"github.com/PlakarKorp/integration-postgresql/pgconn"
@@ -17,13 +17,13 @@ func init() {
 	importer.Register("postgresql+aws", 0, NewAWSImporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
-	conn, dbPath, err := pgconn.ParseConnConfig(config)
+func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	region := config["region"]
+	region := cfg["region"]
 	if region == "" {
 		return nil, fmt.Errorf("postgres+aws: region is required")
 	}
@@ -32,46 +32,28 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 		return nil, fmt.Errorf("postgres+aws: username is required for IAM authentication")
 	}
 
-	awsCLI := config["aws_cli_path"]
-	if awsCLI == "" {
-		awsCLI = "aws"
-	}
-
-	token, err := generateDBAuthToken(appCtx, awsCLI, conn.Host, conn.Port, conn.Username, region)
+	token, err := generateDBAuthToken(appCtx, conn.Host, conn.Port, conn.Username, region)
 	if err != nil {
 		return nil, err
 	}
 	conn.Password = token
 
-	return pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", config)
+	return pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
 }
 
-// generateDBAuthToken calls `aws rds generate-db-auth-token` and returns the
-// IAM authentication token to use as the PostgreSQL password.
-func generateDBAuthToken(ctx context.Context, awsCLI, host, port, username, region string) (string, error) {
-	args := []string{
-		"rds", "generate-db-auth-token",
-		"--hostname", host,
-		"--port", port,
-		"--username", username,
-		"--region", region,
+// generateDBAuthToken uses the AWS SDK to build a short-lived RDS IAM
+// authentication token.  Credentials are resolved via the standard SDK
+// chain: environment variables, ~/.aws/credentials, EC2/ECS instance
+// metadata, etc.
+func generateDBAuthToken(ctx context.Context, host, port, username, region string) (string, error) {
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return "", fmt.Errorf("postgres+aws: loading AWS config: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, awsCLI, args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if s := strings.TrimSpace(stderr.String()); s != "" {
-			return "", fmt.Errorf("aws rds generate-db-auth-token: %w: %s", err, s)
-		}
-		return "", fmt.Errorf("aws rds generate-db-auth-token: %w", err)
-	}
-
-	token := strings.TrimSpace(stdout.String())
-	if token == "" {
-		return "", fmt.Errorf("aws rds generate-db-auth-token returned an empty token")
+	token, err := auth.BuildAuthToken(ctx, host+":"+port, region, username, awsCfg.Credentials)
+	if err != nil {
+		return "", fmt.Errorf("postgres+aws: generating RDS auth token: %w", err)
 	}
 	return token, nil
 }
