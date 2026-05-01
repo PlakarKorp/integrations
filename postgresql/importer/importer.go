@@ -101,7 +101,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if err != nil {
 		return nil, err
 	}
-	return NewImporterFromConfigMap(conn, dbPath, "", config)
+	return NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
 }
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
@@ -278,12 +278,7 @@ func (p *Importer) Ping(ctx context.Context) error {
 func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.conn.Host }
-func (p *Importer) Type() string {
-	if p.connType != "" {
-		return p.connType
-	}
-	return "postgresql"
-}
+func (p *Importer) Type() string { return p.connType }
 
 // Flags returns FLAG_STREAM to signal that Import produces a single streaming
 // pass. Without it, the framework calls Import twice — once to enumerate
