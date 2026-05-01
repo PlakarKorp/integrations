@@ -12,10 +12,11 @@ import (
 	"github.com/PlakarKorp/integration-postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
+	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	importer.Register("postgresql+aws", 0, NewAWSImporter)
+	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
 }
 
 func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {

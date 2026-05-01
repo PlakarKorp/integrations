@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgresql", 0, NewImporter)
+	importer.Register("postgres", location.FLAG_STREAM, NewImporter)
 }
 
 type Importer struct {
@@ -278,7 +278,7 @@ func (p *Importer) Ping(ctx context.Context) error {
 func (p *Importer) Close(ctx context.Context) error { return nil }
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.conn.Host }
-func (p *Importer) Type() string { return p.connType }
+func (p *Importer) Type() string                    { return p.connType }
 
 // Flags returns FLAG_STREAM to signal that Import produces a single streaming
 // pass. Without it, the framework calls Import twice — once to enumerate
