@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	pqimporter "github.com/PlakarKorp/integration-postgresql/importer"
@@ -44,37 +43,7 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 	}
 	conn.Password = token
 
-	database := dbPath
-	if db, ok := config["database"]; ok && db != "" {
-		database = db
-	}
-
-	var pgBinDir string
-	if v, ok := config["pg_bin_dir"]; ok && v != "" {
-		pgBinDir = v
-	}
-
-	var compress, schemaOnly, dataOnly bool
-	if v, ok := config["compress"]; ok && v != "" {
-		compress, err = strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("compress: %w", err)
-		}
-	}
-	if v, ok := config["schema_only"]; ok && v != "" {
-		schemaOnly, err = strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("schema_only: %w", err)
-		}
-	}
-	if v, ok := config["data_only"]; ok && v != "" {
-		dataOnly, err = strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("data_only: %w", err)
-		}
-	}
-
-	return pqimporter.NewImporterFromConfig(conn, database, pgBinDir, "postgresql+aws", compress, schemaOnly, dataOnly)
+	return pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", config)
 }
 
 // generateDBAuthToken calls `aws rds generate-db-auth-token` and returns the

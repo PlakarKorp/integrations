@@ -44,35 +44,11 @@ func (p *Importer) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
-// NewImporterFromConfig creates an Importer from an already-constructed
-// ConnConfig and explicit option values.  It is intended for variant importers
-// (such as postgres+aws) that build ConnConfig themselves — for example, after
-// fetching an ephemeral authentication token — and then delegate the pg_dump
-// logic to the standard importer.
-//
-// connType is the value returned by Type().  Pass an empty string to use the
-// default "postgresql".
-func NewImporterFromConfig(conn pgconn.ConnConfig, database, pgBinDir, connType string, compress, schemaOnly, dataOnly bool) (*Importer, error) {
-	if schemaOnly && dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
-	}
-	return &Importer{
-		conn:       conn,
-		database:   database,
-		compress:   compress,
-		schemaOnly: schemaOnly,
-		dataOnly:   dataOnly,
-		pgBinDir:   pgBinDir,
-		connType:   connType,
-	}, nil
-}
-
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
-	conn, dbPath, err := pgconn.ParseConnConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
+// NewImporterFromConfigMap creates an Importer from an already-constructed
+// ConnConfig (e.g. one whose password was replaced with a fetched token) and
+// the raw config map for the remaining option parsing.  connType is the value
+// returned by Type(); pass an empty string to use the default "postgresql".
+func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, config map[string]string) (*Importer, error) {
 	database := dbPath
 	if db, ok := config["database"]; ok && db != "" {
 		database = db
@@ -83,7 +59,10 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		pgBinDir = v
 	}
 
-	var compress, schemaOnly, dataOnly bool
+	var (
+		compress, schemaOnly, dataOnly bool
+		err                            error
+	)
 	if v, ok := config["compress"]; ok && v != "" {
 		compress, err = strconv.ParseBool(v)
 		if err != nil {
@@ -102,8 +81,27 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 			return nil, fmt.Errorf("data_only: %w", err)
 		}
 	}
+	if schemaOnly && dataOnly {
+		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+	}
 
-	return NewImporterFromConfig(conn, database, pgBinDir, "", compress, schemaOnly, dataOnly)
+	return &Importer{
+		conn:       conn,
+		database:   database,
+		compress:   compress,
+		schemaOnly: schemaOnly,
+		dataOnly:   dataOnly,
+		pgBinDir:   pgBinDir,
+		connType:   connType,
+	}, nil
+}
+
+func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return NewImporterFromConfigMap(conn, dbPath, "", config)
 }
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
