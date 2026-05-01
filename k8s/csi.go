@@ -94,12 +94,9 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		}
 
 		if s.Status != nil && s.Status.ReadyToUse != nil && *s.Status.ReadyToUse {
-			snap = s
-			break
+			return s, nil
 		}
 	}
-
-	return snap, err
 }
 
 func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) error {
