@@ -200,10 +200,12 @@ func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
 // The lexicographic ordering of the filenames guarantees that globals are
 // always restored before any database dump.
 func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
-	// Globals first.
-	globalsArgs := p.noRolePasswordsArgs(ctx, append(p.conn.Args(), "--globals-only"))
-	if err := p.emitRecord(ctx, records, p.bin("pg_dumpall"), globalsArgs, "/00000-globals.sql"); err != nil {
-		return err
+	// Globals first — skipped for data-only backups since globals are schema-only.
+	if !p.dataOnly {
+		globalsArgs := p.noRolePasswordsArgs(ctx, append(p.conn.Args(), "--globals-only"))
+		if err := p.emitRecord(ctx, records, p.bin("pg_dumpall"), globalsArgs, "/00000-globals.sql"); err != nil {
+			return err
+		}
 	}
 
 	databases, err := p.listDatabases(ctx)
