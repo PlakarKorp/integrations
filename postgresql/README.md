@@ -284,7 +284,7 @@ functions (execution role).
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
 
-### Examples
+### Importer examples
 
 ```bash
 # Back up a single RDS database using IAM authentication
@@ -296,6 +296,51 @@ plakar backup @myrds
 plakar source add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/ \
     region=us-east-1 ssl_mode=require
 plakar backup @myrds
+```
+
+### Exporter options (`postgres+aws://`)
+
+The `postgres+aws://` exporter supports the same options as `postgres://`, minus
+`password`, plus `region`.  An IAM token is generated automatically and used as
+the password for the restore connection.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `location` | — | Connection URI: `postgres+aws://[user@]host[:port][/database]`. No password component — the IAM token is fetched automatically. |
+| `host` | `localhost` | RDS instance hostname. Overrides the URI host. |
+| `port` | `5432` | RDS instance port. Overrides the URI port. |
+| `username` | — | PostgreSQL username (required). Must be an IAM-enabled database user. Overrides the URI user. |
+| `region` | — | AWS region of the RDS instance (required), e.g. `us-east-1`. |
+| `database` | — | Controls the `-d` argument passed to `pg_restore` or `psql`. If omitted, the name is inferred from the dump filename. |
+| `create_db` | `false` | When `true`, passes `-C` to `pg_restore`: the database is created from the archive metadata, and `-d` names only the initial connection database. |
+| `restore_globals` | `false` | When `true`, feeds `/globals.sql` to `psql` before restoring the database dump, recreating roles and tablespaces. |
+| `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. |
+| `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. |
+| `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. |
+| `exit_on_error` | `false` | Stop on the first restore error. |
+| `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |
+| `ssl_mode` | `prefer` | SSL mode. IAM authentication requires an encrypted connection — use `require` or higher. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+
+### Exporter examples
+
+```bash
+# Restore a single database to an RDS instance using IAM authentication
+plakar destination add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/myapp \
+    region=us-east-1 ssl_mode=require
+plakar restore -to @myrds <snapid>
+
+# Restore, creating the target database automatically
+plakar destination add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/ \
+    region=us-east-1 ssl_mode=require create_db=true
+plakar restore -to @myrds <snapid>
+
+# Restore, skipping owner assignment (e.g. roles differ on target)
+plakar destination add myrds postgres+aws://myuser@mydb.cluster-xyz.us-east-1.rds.amazonaws.com/myapp \
+    region=us-east-1 ssl_mode=require no_owner=true
+plakar restore -to @myrds <snapid>
 ```
 
 ---

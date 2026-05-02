@@ -1,22 +1,21 @@
-package awsimporter
+package awsexporter
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/PlakarKorp/integration-postgresql/awsauth"
-	pqimporter "github.com/PlakarKorp/integration-postgresql/importer"
+	pqexporter "github.com/PlakarKorp/integration-postgresql/exporter"
 	"github.com/PlakarKorp/integration-postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
 func init() {
-	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
+	exporter.Register("postgres+aws", 0, NewAWSExporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
+func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -37,5 +36,5 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 	}
 	conn.Password = token
 
-	return pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
+	return pqexporter.NewExporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
 }

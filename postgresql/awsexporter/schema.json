@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar PostgreSQL AWS IAM Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL connection URI: postgres+aws://[user@]host[:port][/database]. No password component — the IAM authentication token is fetched automatically from AWS.",
+      "pattern": "^postgres\\+aws://"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RDS instance hostname (default: localhost). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RDS instance port (default: 5432). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL username to authenticate as (required). Must be an IAM-enabled database user. Overrides the username in the location URI."
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1,
+      "description": "AWS region of the RDS instance (required), e.g. eu-west-3."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target database for pg_restore when restoring a single-database dump. If omitted, the database name is inferred from the dump filename."
+    },
+    "create_db": {
+      "type": "boolean",
+      "description": "When true, passes -C to pg_restore so the target database is created from the archive metadata."
+    },
+    "restore_globals": {
+      "type": "boolean",
+      "description": "When true, feeds globals.sql to psql before restoring the database dump."
+    },
+    "no_owner": {
+      "type": "boolean",
+      "description": "When true, passes --no-owner to pg_restore so that ALTER OWNER commands are skipped."
+    },
+    "exit_on_error": {
+      "type": "boolean",
+      "description": "When true, passes -e to pg_restore and ON_ERROR_STOP=1 to psql so restore stops on the first error."
+    },
+    "schema_only": {
+      "type": "boolean",
+      "description": "When true, passes -s to pg_restore to restore only schema (no data). Mutually exclusive with data_only."
+    },
+    "data_only": {
+      "type": "boolean",
+      "description": "When true, passes -a to pg_restore to restore only data (no schema). Mutually exclusive with schema_only."
+    },
+    "pg_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the PostgreSQL client binaries (pg_restore, psql). When omitted, binaries are resolved via $PATH."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+      "description": "SSL mode for the connection, passed via PGSSLMODE. IAM authentication requires an encrypted connection — use `require` or higher."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
+    },
+    "ssl_root_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
+    }
+  }
+}

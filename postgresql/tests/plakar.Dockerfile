@@ -27,6 +27,7 @@ RUN set -e && \
     go build -o /tmp/pgpkg/postgresqlExporter    ./plugin/exporter && \
     go build -o /tmp/pgpkg/postgresqlBinImporter ./plugin/binimporter && \
     go build -o /tmp/pgpkg/postgresqlAWSImporter ./plugin/awsimporter && \
+    go build -o /tmp/pgpkg/postgresqlAWSExporter ./plugin/awsexporter && \
     cp /src/manifest.yaml /tmp/pgpkg/ && \
     cd /tmp/pgpkg && \
     PTAR="postgresql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \

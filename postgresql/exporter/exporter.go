@@ -29,6 +29,7 @@ type Exporter struct {
 	dataOnly       bool   // pass -a to pg_restore
 	restoreGlobals bool   // feed globals.sql to psql before restoring the database
 	pgBinDir       string // directory containing pg_restore, psql; empty means use $PATH
+	connType       string // returned by Type()
 }
 
 // bin returns the full path to a PostgreSQL binary.
@@ -40,61 +41,56 @@ func (p *Exporter) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
-	conn, dbPath, err := pgconn.ParseConnConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
+// NewExporterFromConfigMap creates an Exporter from an already-constructed
+// ConnConfig (e.g. one whose password was replaced with a fetched token) and
+// the raw config map for the remaining option parsing.  connType is the value
+// returned by Type().
+func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, config map[string]string) (*Exporter, error) {
 	exp := &Exporter{
 		conn:     conn,
 		database: dbPath,
+		connType: connType,
 	}
 
+	var err error
 	if db, ok := config["database"]; ok && db != "" {
 		exp.database = db
 	}
 	if v, ok := config["no_owner"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.noOwner, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("no_owner: %w", err)
 		}
-		exp.noOwner = b
 	}
 	if v, ok := config["exit_on_error"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.exitOnError, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("exit_on_error: %w", err)
 		}
-		exp.exitOnError = b
 	}
 	if v, ok := config["create_db"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.createDB, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("create_db: %w", err)
 		}
-		exp.createDB = b
 	}
 	if v, ok := config["restore_globals"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.restoreGlobals, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("restore_globals: %w", err)
 		}
-		exp.restoreGlobals = b
 	}
 	if v, ok := config["schema_only"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.schemaOnly, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("schema_only: %w", err)
 		}
-		exp.schemaOnly = b
 	}
 	if v, ok := config["data_only"]; ok && v != "" {
-		b, err := strconv.ParseBool(v)
+		exp.dataOnly, err = strconv.ParseBool(v)
 		if err != nil {
 			return nil, fmt.Errorf("data_only: %w", err)
 		}
-		exp.dataOnly = b
 	}
 	if exp.schemaOnly && exp.dataOnly {
 		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
@@ -105,9 +101,17 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	return exp, nil
 }
 
+func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+	conn, dbPath, err := pgconn.ParseConnConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
+}
+
 func (p *Exporter) Root() string          { return "/" }
 func (p *Exporter) Origin() string        { return p.conn.Host }
-func (p *Exporter) Type() string          { return "postgresql" }
+func (p *Exporter) Type() string          { return p.connType }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
 func (p *Exporter) Ping(ctx context.Context) error {

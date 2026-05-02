@@ -39,3 +39,11 @@ connectors:
     validator: ./exporter/schema.json
     class: database
     subclass: postgresql
+  - type: exporter
+    executable: postgresqlAWSExporter
+    homepage: https://github.com/PlakarKorp/integration-postgresql
+    license: ISC
+    protocols: [postgres+aws]
+    validator: ./awsexporter/schema.json
+    class: database
+    subclass: postgresql

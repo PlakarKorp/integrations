@@ -2,5 +2,6 @@
 /postgresqlExporter
 /postgresqlBinImporter
 /postgresqlAWSImporter
+/postgresqlAWSExporter
 /postgresql_*.ptar
 *.local.json
