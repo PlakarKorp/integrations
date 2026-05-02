@@ -43,6 +43,16 @@ func LsSnapshot(ctx context.Context, t *testing.T, container testcontainers.Cont
 	ExecOK(ctx, t, container, "plakar", "at", store, "ls", snapshotID)
 }
 
+// LsSnapshotOutput runs `plakar at <store> ls <snapshotID>`, logs the output,
+// and returns it as a string for inspection.
+func LsSnapshotOutput(ctx context.Context, t *testing.T, container testcontainers.Container, store, snapshotID string) string {
+	t.Helper()
+	out := ExecCapture(ctx, t, container, "plakar", "at", store, "ls", snapshotID)
+	t.Log("=== plakar ls snapshot ===")
+	t.Log(out)
+	return out
+}
+
 // CatFile runs `plakar at <store> cat <snapshotID>:<path>` and logs the output.
 func CatFile(ctx context.Context, t *testing.T, container testcontainers.Container, store, snapshotID, path string) {
 	t.Helper()

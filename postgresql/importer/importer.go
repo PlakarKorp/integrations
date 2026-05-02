@@ -121,19 +121,10 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	if p.database != "" {
-		if err := p.emitManifest(ctx, records, "custom"); err != nil {
-			return err
-		}
-		if err := p.dumpGlobals(ctx, records); err != nil {
-			return err
-		}
-		return p.dumpDatabase(ctx, records, p.database)
-	}
-	if err := p.emitManifest(ctx, records, "sql"); err != nil {
+	if err := p.emitManifest(ctx, records, "custom"); err != nil {
 		return err
 	}
-	return p.dumpAll(ctx, records)
+	return p.dumpAllDatabases(ctx, records)
 }
 
 // canReadPgAuthid checks whether the connected user can read pg_authid.
@@ -173,39 +164,78 @@ func (p *Importer) noRolePasswordsArgs(ctx context.Context, args []string) []str
 	return args
 }
 
-// dumpGlobals runs pg_dumpall --globals-only and emits one record named /globals.sql.
-// It captures roles and tablespaces that pg_dump does not include.
-func (p *Importer) dumpGlobals(ctx context.Context, records chan<- *connectors.Record) error {
-	args := p.noRolePasswordsArgs(ctx, append(p.conn.Args(), "--globals-only"))
-	return p.emitRecord(ctx, records, p.bin("pg_dumpall"), args, "/globals.sql")
+// listDatabases returns the names of all databases with datallowconn = true,
+// ordered by name.  This matches the set of databases that pg_dumpall dumps.
+func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
+	db, err := p.conn.Open("postgres")
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT datname FROM pg_database WHERE datallowconn = true ORDER BY datname`)
+	if err != nil {
+		return nil, fmt.Errorf("list databases: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan database name: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
 }
 
-// dumpDatabase runs pg_dump -Fc and emits one record named /<dbname>.dump.
-func (p *Importer) dumpDatabase(ctx context.Context, records chan<- *connectors.Record, dbname string) error {
-	args := append(p.conn.Args(), "-Fc")
-	if !p.compress {
-		args = append(args, "-Z0")
-	}
-	if p.schemaOnly {
-		args = append(args, "-s")
-	} else if p.dataOnly {
-		args = append(args, "-a")
-	}
-	args = append(args, dbname)
-
-	return p.emitRecord(ctx, records, p.bin("pg_dump"), args, "/"+dbname+".dump")
-}
-
-// dumpAll runs pg_dumpall and emits one record named /all.sql.
-func (p *Importer) dumpAll(ctx context.Context, records chan<- *connectors.Record) error {
-	args := p.noRolePasswordsArgs(ctx, p.conn.Args())
-	if p.schemaOnly {
-		args = append(args, "-s")
-	} else if p.dataOnly {
-		args = append(args, "-a")
+// dumpAllDatabases backs up the cluster by:
+//  1. Emitting /00000-globals.sql via pg_dumpall --globals-only (roles, tablespaces).
+//  2. Listing all connectable databases (datallowconn = true).
+//  3. Emitting one /00001-<name>.dump, /00002-<name>.dump, … per database via
+//     pg_dump -Fc, skipping databases that do not match p.database when it is set.
+//
+// The lexicographic ordering of the filenames guarantees that globals are
+// always restored before any database dump.
+func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
+	// Globals first.
+	globalsArgs := p.noRolePasswordsArgs(ctx, append(p.conn.Args(), "--globals-only"))
+	if err := p.emitRecord(ctx, records, p.bin("pg_dumpall"), globalsArgs, "/00000-globals.sql"); err != nil {
+		return err
 	}
 
-	return p.emitRecord(ctx, records, p.bin("pg_dumpall"), args, "/all.sql")
+	databases, err := p.listDatabases(ctx)
+	if err != nil {
+		return err
+	}
+
+	n := 0
+	for _, dbname := range databases {
+		if p.database != "" && dbname != p.database {
+			continue
+		}
+		n++
+		args := append(p.conn.Args(), "-Fc")
+		if !p.compress {
+			args = append(args, "-Z0")
+		}
+		if p.schemaOnly {
+			args = append(args, "-s")
+		} else if p.dataOnly {
+			args = append(args, "-a")
+		}
+		args = append(args, dbname)
+		if err := p.emitRecord(ctx, records, p.bin("pg_dump"), args, fmt.Sprintf("/%05d-%s.dump", n, dbname)); err != nil {
+			return err
+		}
+	}
+
+	if p.database != "" && n == 0 {
+		return fmt.Errorf("database %q not found or not connectable", p.database)
+	}
+	return nil
 }
 
 // emitRecord starts bin with args and sends a streaming Record on records.

@@ -39,9 +39,9 @@
       "type": "boolean",
       "description": "When true, passes -C to pg_restore so the target database is created from the archive metadata."
     },
-    "restore_globals": {
+    "no_globals": {
       "type": "boolean",
-      "description": "When true, feeds globals.sql to psql before restoring the database dump."
+      "description": "When true, skips feeding the globals file to psql. By default globals are restored automatically when present. Defaults to false."
     },
     "no_owner": {
       "type": "boolean",

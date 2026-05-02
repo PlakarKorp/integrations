@@ -8,13 +8,17 @@ import (
 	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
 )
 
-// TestDumpallBackup verifies the full backup and restore cycle for a pg_dumpall
-// logical backup (no database specified in the URI — backs up the entire server):
+// TestDumpallBackup verifies the full backup and restore cycle for an
+// all-databases logical backup (no database specified in the URI):
 //  1. Spin up a source PostgreSQL container pre-seeded with test data.
 //  2. Spin up a plakar container with the plugin installed.
 //  3. Create a plakar store, run a backup, inspect the snapshot.
 //  4. Spin up a restore target PostgreSQL container.
 //  5. Restore the snapshot to the target and verify the data landed correctly.
+//
+// The backup produces one record per database in pg_dump custom format
+// (e.g. /00001-postgres.dump, /00002-testdb.dump) plus a
+// /00000-globals.sql record containing roles and tablespaces.
 func TestDumpallBackup(t *testing.T) {
 	ctx := context.Background()
 
@@ -32,25 +36,33 @@ INSERT INTO users (name) VALUES ('alice'), ('bob'), ('carol');`
 	// Step 3 — initialise a plakar store.
 	testhelpers.ExecOK(ctx, t, plakarContainer, "plakar", "at", "/var/backups", "create", "-plaintext")
 
-	// Step 4 — run a full-server backup (no database in URI triggers pg_dumpall,
-	// producing a single all.sql record in the snapshot).
+	// Step 4 — run a full-server backup (no database in URI triggers a per-database
+	// backup, producing 00000-globals.sql + one .dump file per database).
 	testhelpers.ExecOK(ctx, t, plakarContainer,
 		"plakar", "at", "/var/backups", "backup",
 		"postgres://postgres:secret@postgres",
 	)
 
-	// Step 5 — inspect the snapshot.
+	// Step 5 — inspect the snapshot and assert the expected file layout.
 	snapshots := testhelpers.ListSnapshots(ctx, t, plakarContainer, "/var/backups")
 	if len(snapshots) == 0 {
 		t.Fatal("no snapshots found after backup")
 	}
-	testhelpers.LsSnapshot(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID)
-	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snapshots[0].ID, "/manifest.json")
+	snap := snapshots[0].ID
+	files := testhelpers.LsSnapshotOutput(ctx, t, plakarContainer, "/var/backups", snap)
+	testhelpers.CatFile(ctx, t, plakarContainer, "/var/backups", snap, "/manifest.json")
+
+	// Globals and at least two per-database dumps (postgres + testdb) must be present.
+	for _, want := range []string{"00000-globals.sql", "testdb.dump"} {
+		if !strings.Contains(files, want) {
+			t.Errorf("snapshot missing expected file %q", want)
+		}
+	}
 
 	// Step 6 — start a fresh restore target and restore the snapshot into it.
 	restoreContainer := testhelpers.StartPostgresContainer(ctx, t, net, "postgres-restore")
 	testhelpers.ExecOK(ctx, t, plakarContainer,
-		"plakar", "at", "/var/backups", "restore", "-to", "postgres://postgres:secret@postgres-restore", snapshots[0].ID)
+		"plakar", "at", "/var/backups", "restore", "-to", "postgres://postgres:secret@postgres-restore", snap)
 
 	// Step 7 — verify the data was restored correctly.
 	out := testhelpers.ExecCapture(ctx, t, restoreContainer,

@@ -22,12 +22,12 @@ func init() {
 type Exporter struct {
 	conn           pgconn.ConnConfig
 	database       string // target database; if empty, inferred from dump filename
-	noOwner        bool   // pass --no-owner to pg_restore
-	exitOnError    bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
-	createDB       bool   // pass -C to pg_restore: create the database from archive metadata
-	schemaOnly     bool   // pass -s to pg_restore
-	dataOnly       bool   // pass -a to pg_restore
-	restoreGlobals bool   // feed globals.sql to psql before restoring the database
+	noOwner    bool // pass --no-owner to pg_restore
+	exitOnError bool // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	createDB    bool // pass -C to pg_restore: create the database from archive metadata
+	schemaOnly  bool // pass -s to pg_restore
+	dataOnly    bool // pass -a to pg_restore
+	noGlobals   bool // skip feeding globals.sql / 00000-globals.sql to psql
 	pgBinDir       string // directory containing pg_restore, psql; empty means use $PATH
 	connType       string // returned by Type()
 }
@@ -74,10 +74,10 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 			return nil, fmt.Errorf("create_db: %w", err)
 		}
 	}
-	if v, ok := config["restore_globals"]; ok && v != "" {
-		exp.restoreGlobals, err = strconv.ParseBool(v)
+	if v, ok := config["no_globals"]; ok && v != "" {
+		exp.noGlobals, err = strconv.ParseBool(v)
 		if err != nil {
-			return nil, fmt.Errorf("restore_globals: %w", err)
+			return nil, fmt.Errorf("no_globals: %w", err)
 		}
 	}
 	if v, ok := config["schema_only"]; ok && v != "" {
@@ -173,8 +173,8 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
-	if record.Pathname == "globals.sql" {
-		if p.restoreGlobals {
+	if record.Pathname == "globals.sql" || record.Pathname == "00000-globals.sql" {
+		if !p.noGlobals {
 			return p.psqlRestore(ctx, record.Reader)
 		}
 		return nil
@@ -200,7 +200,22 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	} else {
 		targetDB := p.database
 		if targetDB == "" {
-			targetDB = strings.TrimSuffix(filepath.Base(pathname), ".dump")
+			base := strings.TrimSuffix(filepath.Base(pathname), ".dump")
+			// Strip leading numeric prefix from all-databases backup naming
+			// (e.g. "00001-mydb" → "mydb").
+			if idx := strings.Index(base, "-"); idx > 0 {
+				allDigits := true
+				for _, c := range base[:idx] {
+					if c < '0' || c > '9' {
+						allDigits = false
+						break
+					}
+				}
+				if allDigits {
+					base = base[idx+1:]
+				}
+			}
+			targetDB = base
 		}
 		args = append(args, "-d", targetDB)
 	}

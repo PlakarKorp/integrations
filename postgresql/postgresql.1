@@ -155,7 +155,7 @@ Passed via
 .Ev PGSSLROOTCERT .
 .El
 .Ss Destination options
-.Bl -tag -width "restore_globals"
+.Bl -tag -width "no_globals"
 .It Ar location
 Connection URI:
 .Li postgres://[user[:password]@]host[:port][/database] .
@@ -198,19 +198,17 @@ so the database is created from the archive metadata;
 then names only the initial connection database (defaults to
 .Li postgres
 if unset).
-.It Ar restore_globals
+.It Ar no_globals
 When
 .Li true ,
-feeds
-.Li globals.sql
+skips feeding the globals file
+.Li ( globals.sql
+or
+.Li 00000-globals.sql )
 to
-.Xr psql 1
-before restoring the database dump, recreating roles and tablespaces on
-the target server (default:
+.Xr psql 1 .
+By default globals are restored automatically when present (default:
 .Li false ) .
-Not needed for
-.Xr pg_dumpall 1
-restores, which already contain global objects.
 .It Ar no_owner
 Pass
 .Fl -no-owner
