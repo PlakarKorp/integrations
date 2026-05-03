@@ -35,9 +35,13 @@
       "minLength": 1,
       "description": "Target database for pg_restore when restoring a single-database dump. If omitted, the database name is inferred from the dump filename."
     },
-    "create_db": {
+    "clean": {
       "type": "boolean",
-      "description": "When true, passes -C to pg_restore so the target database is created from the archive metadata."
+      "description": "When true, passes --clean --if-exists to pg_restore, dropping objects within the target database before recreating them. The database must already exist. Mutually exclusive with drop_and_recreate. Defaults to false."
+    },
+    "drop_and_recreate": {
+      "type": "boolean",
+      "description": "When true, passes -C --clean --if-exists to pg_restore: the entire target database is dropped and recreated from the archive metadata. The target database name is taken from the archive. Mutually exclusive with clean. Defaults to false."
     },
     "no_globals": {
       "type": "boolean",

@@ -20,17 +20,18 @@ func init() {
 }
 
 type Exporter struct {
-	conn          pgconn.ConnConfig
-	database      string // target database; if empty, inferred from dump filename
-	noOwner       bool   // pass --no-owner to pg_restore
-	exitOnError   bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
-	createDB      bool   // pass -C to pg_restore: create the database from archive metadata
-	schemaOnly    bool   // pass -s to pg_restore
-	dataOnly      bool   // pass -a to pg_restore
-	noGlobals     bool   // skip feeding globals.sql / 00000-globals.sql to psql
-	pgBinDir      string // directory containing pg_restore, psql; empty means use $PATH
-	connType      string // returned by Type()
-	TokenProvider func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
+	conn             pgconn.ConnConfig
+	database         string // target database; if empty, inferred from dump filename
+	noOwner          bool   // pass --no-owner to pg_restore
+	exitOnError      bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	clean            bool   // pass --clean --if-exists to pg_restore: drop objects before recreating
+	dropAndRecreate  bool   // pass -C --clean --if-exists: drop the database and recreate it from archive metadata
+	schemaOnly       bool   // pass -s to pg_restore
+	dataOnly         bool   // pass -a to pg_restore
+	noGlobals        bool   // skip feeding globals.sql / 00000-globals.sql to psql
+	pgBinDir         string // directory containing pg_restore, psql; empty means use $PATH
+	connType         string // returned by Type()
+	TokenProvider    func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
 }
 
 // bin returns the full path to a PostgreSQL binary.
@@ -69,11 +70,20 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 			return nil, fmt.Errorf("exit_on_error: %w", err)
 		}
 	}
-	if v, ok := config["create_db"]; ok && v != "" {
-		exp.createDB, err = strconv.ParseBool(v)
+	if v, ok := config["clean"]; ok && v != "" {
+		exp.clean, err = strconv.ParseBool(v)
 		if err != nil {
-			return nil, fmt.Errorf("create_db: %w", err)
+			return nil, fmt.Errorf("clean: %w", err)
 		}
+	}
+	if v, ok := config["drop_and_recreate"]; ok && v != "" {
+		exp.dropAndRecreate, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("drop_and_recreate: %w", err)
+		}
+	}
+	if exp.clean && exp.dropAndRecreate {
+		return nil, fmt.Errorf("clean and drop_and_recreate are mutually exclusive")
 	}
 	if v, ok := config["no_globals"]; ok && v != "" {
 		exp.noGlobals, err = strconv.ParseBool(v)
@@ -202,20 +212,20 @@ func (p *Exporter) refreshToken(ctx context.Context) error {
 }
 
 // pgRestore restores a pg_dump custom-format dump via pg_restore.
-// With create_db: -C creates the database from the archive metadata and
-// -d is used only for the initial maintenance-database connection.
-// Without create_db: the target database must already exist.
+//
+// Default: restores objects into an existing database (-d <targetdb>).
+// clean=true: drops objects within the database before recreating them
+// (-d <targetdb> --clean --if-exists); the database itself must already exist.
+// drop_and_recreate=true: drops the whole database and recreates it from the
+// archive metadata (-C --clean --if-exists -d postgres); the target database
+// name is taken from the archive, not from the database parameter.
 func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) error {
 	if err := p.refreshToken(ctx); err != nil {
 		return err
 	}
 	args := p.conn.Args()
-	if p.createDB {
-		connectDB := p.database
-		if connectDB == "" {
-			connectDB = "postgres"
-		}
-		args = append(args, "-C", "-d", connectDB)
+	if p.dropAndRecreate {
+		args = append(args, "-C", "--clean", "--if-exists", "-d", "postgres")
 	} else {
 		targetDB := p.database
 		if targetDB == "" {
@@ -237,6 +247,9 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 			targetDB = base
 		}
 		args = append(args, "-d", targetDB)
+		if p.clean {
+			args = append(args, "--clean", "--if-exists")
+		}
 	}
 	if p.exitOnError {
 		args = append(args, "-e")
