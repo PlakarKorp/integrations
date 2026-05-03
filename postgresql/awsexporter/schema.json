@@ -37,9 +37,9 @@
     },
     "clean": {
       "type": "boolean",
-      "description": "When true, passes --clean --if-exists to pg_restore, dropping objects within the target database before recreating them. The database must already exist. Mutually exclusive with drop_and_recreate. Defaults to false."
+      "description": "When true, passes --clean --if-exists to pg_restore, dropping objects within the target database before recreating them. The database must already exist. Mutually exclusive with recreate. Defaults to false."
     },
-    "drop_and_recreate": {
+    "recreate": {
       "type": "boolean",
       "description": "When true, passes -C --clean --if-exists to pg_restore: the entire target database is dropped and recreated from the archive metadata. The target database name is taken from the archive. The 'postgres' database is never dropped — it is restored with --clean --if-exists instead, mirroring pg_dumpall behaviour. Mutually exclusive with clean. Defaults to false."
     },

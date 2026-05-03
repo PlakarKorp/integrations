@@ -25,7 +25,7 @@ type Exporter struct {
 	noOwner          bool   // pass --no-owner to pg_restore
 	exitOnError      bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
 	clean            bool   // pass --clean --if-exists to pg_restore: drop objects before recreating
-	dropAndRecreate  bool   // pass -C --clean --if-exists: drop the database and recreate it from archive metadata
+	recreate  bool   // pass -C --clean --if-exists: drop the database and recreate it from archive metadata
 	schemaOnly       bool   // pass -s to pg_restore
 	dataOnly         bool   // pass -a to pg_restore
 	noGlobals        bool   // skip feeding 00000-globals.sql to psql
@@ -76,14 +76,14 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 			return nil, fmt.Errorf("clean: %w", err)
 		}
 	}
-	if v, ok := config["drop_and_recreate"]; ok && v != "" {
-		exp.dropAndRecreate, err = strconv.ParseBool(v)
+	if v, ok := config["recreate"]; ok && v != "" {
+		exp.recreate, err = strconv.ParseBool(v)
 		if err != nil {
-			return nil, fmt.Errorf("drop_and_recreate: %w", err)
+			return nil, fmt.Errorf("recreate: %w", err)
 		}
 	}
-	if exp.clean && exp.dropAndRecreate {
-		return nil, fmt.Errorf("clean and drop_and_recreate are mutually exclusive")
+	if exp.clean && exp.recreate {
+		return nil, fmt.Errorf("clean and recreate are mutually exclusive")
 	}
 	if v, ok := config["no_globals"]; ok && v != "" {
 		exp.noGlobals, err = strconv.ParseBool(v)
@@ -216,7 +216,7 @@ func (p *Exporter) refreshToken(ctx context.Context) error {
 // Default: restores objects into an existing database (-d <targetdb>).
 // clean=true: drops objects within the database before recreating them
 // (-d <targetdb> --clean --if-exists); the database itself must already exist.
-// drop_and_recreate=true: drops the whole database and recreates it from the
+// recreate=true: drops the whole database and recreates it from the
 // archive metadata (-C --clean --if-exists -d postgres).  The "postgres"
 // database is special-cased: like pg_dumpall, we never try to drop it —
 // instead we restore into it with --clean --if-exists.
@@ -247,7 +247,7 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	}
 
 	args := p.conn.Args()
-	if p.dropAndRecreate && targetDB != "postgres" {
+	if p.recreate && targetDB != "postgres" {
 		// Drop and recreate the database from the archive metadata.
 		// "postgres" is excluded: it always exists and cannot be dropped,
 		// mirroring the behaviour of pg_dumpall which never emits
@@ -255,8 +255,8 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 		args = append(args, "-C", "--clean", "--if-exists", "-d", "postgres")
 	} else {
 		args = append(args, "-d", targetDB)
-		if p.clean || p.dropAndRecreate {
-			// drop_and_recreate on "postgres" falls back to --clean --if-exists:
+		if p.clean || p.recreate {
+			// recreate on "postgres" falls back to --clean --if-exists:
 			// restore objects into the existing database without touching the
 			// database itself.
 			args = append(args, "--clean", "--if-exists")
