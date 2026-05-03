@@ -41,8 +41,8 @@ database list, schema and relation details).  See the [Manifest](#manifest)
 section below for details.
 
 Restore dispatches on file name and extension: `.dump` files are fed to
-`pg_restore` (the database name is inferred from the filename); `globals.sql`
-and `00000-globals.sql` are fed to `psql` automatically (unless `no_globals`
+`pg_restore` (the database name is inferred from the filename);
+`00000-globals.sql` is fed to `psql` automatically (unless `no_globals`
 is set).
 
 ### Pros and cons
@@ -109,7 +109,7 @@ restored roles will have no password set.
 | `database` | — | Target database for `pg_restore`. If omitted, the name is inferred from the dump filename (e.g. `00001-myapp.dump` → `myapp`). Not used with `drop_and_recreate` (the target database name is taken from the archive in that case). |
 | `clean` | `false` | Pass `--clean --if-exists` to `pg_restore`: drop objects within the target database before recreating them. The database itself must already exist. Mutually exclusive with `drop_and_recreate`. |
 | `drop_and_recreate` | `false` | Pass `-C --clean --if-exists` to `pg_restore`: drop the entire target database and recreate it from the archive metadata. Safe to use on both empty and populated clusters. The `postgres` database is never dropped — it is restored with `--clean --if-exists` instead, mirroring `pg_dumpall` behaviour. Mutually exclusive with `clean`. |
-| `no_globals` | `false` | When `true`, skips feeding the globals file (`globals.sql` for single-database backups, `00000-globals.sql` for all-databases backups) to `psql`. By default globals are restored automatically when present, recreating roles and tablespaces on the target server before any database dump is applied. Set to `true` when the target server already has the required roles and tablespaces and you want to skip the globals step. |
+| `no_globals` | `false` | When `true`, skips feeding `00000-globals.sql` to `psql`. By default globals are restored automatically when present, recreating roles and tablespaces on the target server before any database dump is applied. Set to `true` when the target server already has the required roles and tablespaces and you want to skip the globals step. |
 | `no_owner` | `false` | Pass `--no-owner` to `pg_restore`, skipping `ALTER OWNER` statements. Useful when roles from the source server do not exist on the target. |
 | `schema_only` | `false` | Restore only the schema (no data). Mutually exclusive with `data_only`. Not applicable to `pg_dumpall` restores. |
 | `data_only` | `false` | Restore only the data (no schema). Mutually exclusive with `schema_only`. Not applicable to `pg_dumpall` restores. |

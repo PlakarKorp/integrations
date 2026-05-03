@@ -28,7 +28,7 @@ type Exporter struct {
 	dropAndRecreate  bool   // pass -C --clean --if-exists: drop the database and recreate it from archive metadata
 	schemaOnly       bool   // pass -s to pg_restore
 	dataOnly         bool   // pass -a to pg_restore
-	noGlobals        bool   // skip feeding globals.sql / 00000-globals.sql to psql
+	noGlobals        bool   // skip feeding 00000-globals.sql to psql
 	pgBinDir         string // directory containing pg_restore, psql; empty means use $PATH
 	connType         string // returned by Type()
 	TokenProvider    func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
@@ -184,7 +184,7 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 	if strings.HasSuffix(record.Pathname, ".dump") {
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
-	if record.Pathname == "globals.sql" || record.Pathname == "00000-globals.sql" {
+	if record.Pathname == "00000-globals.sql" {
 		if !p.noGlobals {
 			return p.psqlRestore(ctx, record.Reader)
 		}
