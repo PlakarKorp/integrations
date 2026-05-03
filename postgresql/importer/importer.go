@@ -26,13 +26,14 @@ func init() {
 }
 
 type Importer struct {
-	conn       pgconn.ConnConfig
-	database   string // empty means back up all databases via pg_dumpall
-	compress   bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
-	schemaOnly bool   // pass -s: dump schema only
-	dataOnly   bool   // pass -a: dump data only
-	pgBinDir   string // directory containing pg_dump, pg_dumpall, psql; empty means use $PATH
-	connType   string // returned by Type(); if empty, "postgresql" is used
+	conn          pgconn.ConnConfig
+	database      string // empty means back up all databases
+	compress      bool   // enable pg_dump compression; off by default to avoid degrading Plakar's compression
+	schemaOnly    bool   // pass -s: dump schema only
+	dataOnly      bool   // pass -a: dump data only
+	pgBinDir      string // directory containing pg_dump, pg_dumpall, psql; empty means use $PATH
+	connType      string // returned by Type(); if empty, "postgresql" is used
+	TokenProvider func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
 }
 
 // bin returns the full path to a PostgreSQL binary.
@@ -121,6 +122,9 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
 	if err := p.emitManifest(ctx, records, "custom"); err != nil {
 		return err
 	}
@@ -240,9 +244,27 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	return nil
 }
 
+// refreshToken calls the tokenProvider (if set) and updates conn.Password with
+// a fresh token.  Called before each subprocess so that short-lived credentials
+// (e.g. AWS IAM tokens) are always valid when pg_dump / pg_dumpall starts.
+func (p *Importer) refreshToken(ctx context.Context) error {
+	if p.TokenProvider == nil {
+		return nil
+	}
+	token, err := p.TokenProvider(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh token: %w", err)
+	}
+	p.conn.Password = token
+	return nil
+}
+
 // emitRecord starts bin with args and sends a streaming Record on records.
 // The record size is 0 because the dump size is not known until the stream is consumed.
 func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Record, bin string, args []string, recordPath string) error {
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = nil
 	cmd.Env = p.conn.Env()
@@ -304,6 +326,9 @@ func (r *cmdReader) Close() error {
 }
 
 func (p *Importer) Ping(ctx context.Context) error {
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
 	return p.conn.Ping(ctx, p.database)
 }
 

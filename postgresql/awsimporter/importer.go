@@ -31,11 +31,15 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 		return nil, fmt.Errorf("postgres+aws: username is required for IAM authentication")
 	}
 
-	token, err := awsauth.GenerateDBAuthToken(appCtx, conn.Host, conn.Port, conn.Username, region)
+	imp, err := pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
 	if err != nil {
 		return nil, err
 	}
-	conn.Password = token
 
-	return pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
+	// The token is generated just before each connection or subprocess so that
+	// short-lived IAM tokens (~15 min) are always fresh when they are used.
+	imp.TokenProvider = func(ctx context.Context) (string, error) {
+		return awsauth.GenerateDBAuthToken(ctx, conn.Host, conn.Port, conn.Username, region)
+	}
+	return imp, nil
 }

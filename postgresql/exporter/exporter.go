@@ -20,16 +20,17 @@ func init() {
 }
 
 type Exporter struct {
-	conn           pgconn.ConnConfig
-	database       string // target database; if empty, inferred from dump filename
-	noOwner    bool // pass --no-owner to pg_restore
-	exitOnError bool // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
-	createDB    bool // pass -C to pg_restore: create the database from archive metadata
-	schemaOnly  bool // pass -s to pg_restore
-	dataOnly    bool // pass -a to pg_restore
-	noGlobals   bool // skip feeding globals.sql / 00000-globals.sql to psql
-	pgBinDir       string // directory containing pg_restore, psql; empty means use $PATH
-	connType       string // returned by Type()
+	conn          pgconn.ConnConfig
+	database      string // target database; if empty, inferred from dump filename
+	noOwner       bool   // pass --no-owner to pg_restore
+	exitOnError   bool   // pass -e to pg_restore / ON_ERROR_STOP=1 to psql
+	createDB      bool   // pass -C to pg_restore: create the database from archive metadata
+	schemaOnly    bool   // pass -s to pg_restore
+	dataOnly      bool   // pass -a to pg_restore
+	noGlobals     bool   // skip feeding globals.sql / 00000-globals.sql to psql
+	pgBinDir      string // directory containing pg_restore, psql; empty means use $PATH
+	connType      string // returned by Type()
+	TokenProvider func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
 }
 
 // bin returns the full path to a PostgreSQL binary.
@@ -185,11 +186,29 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 	return fmt.Errorf("unable to restore file %q", record.Pathname)
 }
 
+// refreshToken calls the tokenProvider (if set) and updates conn.Password with
+// a fresh token.  Called before each subprocess so that short-lived credentials
+// (e.g. AWS IAM tokens) are always valid when pg_restore / psql starts.
+func (p *Exporter) refreshToken(ctx context.Context) error {
+	if p.TokenProvider == nil {
+		return nil
+	}
+	token, err := p.TokenProvider(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh token: %w", err)
+	}
+	p.conn.Password = token
+	return nil
+}
+
 // pgRestore restores a pg_dump custom-format dump via pg_restore.
 // With create_db: -C creates the database from the archive metadata and
 // -d is used only for the initial maintenance-database connection.
 // Without create_db: the target database must already exist.
 func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) error {
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
 	args := p.conn.Args()
 	if p.createDB {
 		connectDB := p.database
@@ -240,9 +259,12 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	return nil
 }
 
-// psqlRestore feeds a pg_dumpall plain-SQL dump to psql, connecting to the
-// "postgres" maintenance database so the script can recreate other databases.
+// psqlRestore feeds a plain-SQL dump to psql, connecting to the "postgres"
+// maintenance database so the script can recreate other databases.
 func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
 	args := append(p.conn.Args(), "-d", "postgres")
 	if p.exitOnError {
 		args = append(args, "-v", "ON_ERROR_STOP=1")
