@@ -41,10 +41,12 @@
     },
     "schema_only": {
       "type": "boolean",
+      "default": false,
       "description": "When true, passes -s to pg_dump to dump only schema (no data). Mutually exclusive with data_only."
     },
     "data_only": {
       "type": "boolean",
+      "default": false,
       "description": "When true, passes -a to pg_dump to dump only data (no schema). Mutually exclusive with schema_only."
     },
     "pg_bin_dir": {
@@ -54,12 +56,14 @@
     },
     "compress": {
       "type": "boolean",
-      "description": "Enable pg_dump compression (default: false). By default dumps are uncompressed so that Plakar's own compression is not degraded."
+      "default": false,
+      "description": "Enable pg_dump compression. By default dumps are uncompressed so that Plakar's own compression is not degraded."
     },
     "ssl_mode": {
       "type": "string",
+      "default": "prefer",
       "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
-      "description": "SSL mode for the connection, passed via PGSSLMODE (default: prefer)."
+      "description": "SSL mode for the connection, passed via PGSSLMODE."
     },
     "ssl_cert": {
       "type": "string",
