@@ -42,37 +42,37 @@
     "clean": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes --clean --if-exists to pg_restore, dropping objects within the target database before recreating them. The database must already exist. Mutually exclusive with recreate."
+      "description": "When enabled, passes --clean --if-exists to pg_restore, dropping objects within the target database before recreating them. The database must already exist. Mutually exclusive with recreate."
     },
     "recreate": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -C --clean --if-exists to pg_restore: the entire target database is dropped and recreated from the archive metadata. The target database name is taken from the archive. The 'postgres' database is never dropped — it is restored with --clean --if-exists instead, mirroring pg_dumpall behaviour. Mutually exclusive with clean."
+      "description": "When enabled, passes -C --clean --if-exists to pg_restore: the entire target database is dropped and recreated from the archive metadata. The target database name is taken from the archive. The 'postgres' database is never dropped — it is restored with --clean --if-exists instead, mirroring pg_dumpall behaviour. Mutually exclusive with clean."
     },
     "no_globals": {
       "type": "boolean",
       "default": false,
-      "description": "When true, skips feeding the globals file to psql. By default globals are restored automatically when present."
+      "description": "When enabled, skips feeding the globals file to psql. By default globals are restored automatically when present."
     },
     "no_owner": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes --no-owner to pg_restore so that ALTER OWNER commands are skipped."
+      "description": "When enabled, passes --no-owner to pg_restore so that ALTER OWNER commands are skipped."
     },
     "exit_on_error": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -e to pg_restore and ON_ERROR_STOP=1 to psql so restore stops on the first error."
+      "description": "When enabled, passes -e to pg_restore and ON_ERROR_STOP=1 to psql so restore stops on the first error."
     },
     "schema_only": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -s to pg_restore to restore only schema (no data). Mutually exclusive with data_only."
+      "description": "When enabled, passes -s to pg_restore to restore only schema (no data). Mutually exclusive with data_only."
     },
     "data_only": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -a to pg_restore to restore only data (no schema). Mutually exclusive with schema_only."
+      "description": "When enabled, passes -a to pg_restore to restore only data (no schema). Mutually exclusive with schema_only."
     },
     "pg_bin_dir": {
       "type": "string",

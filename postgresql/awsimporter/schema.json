@@ -43,12 +43,12 @@
     "schema_only": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -s to pg_dump to dump only schema (no data). Mutually exclusive with data_only."
+      "description": "When enabled, passes -s to pg_dump to dump only schema (no data). Mutually exclusive with data_only."
     },
     "data_only": {
       "type": "boolean",
       "default": false,
-      "description": "When true, passes -a to pg_dump to dump only data (no schema). Mutually exclusive with schema_only."
+      "description": "When enabled, passes -a to pg_dump to dump only data (no schema). Mutually exclusive with schema_only."
     },
     "pg_bin_dir": {
       "type": "string",
