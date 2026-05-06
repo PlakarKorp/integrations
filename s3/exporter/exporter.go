@@ -18,6 +18,7 @@ package exporter
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"path"
@@ -29,6 +30,7 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/encrypt"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -39,6 +41,7 @@ type S3Exporter struct {
 	host        string
 	bucket      string
 	restoreDir  string
+	ssec        encrypt.ServerSide
 }
 
 func init() {
@@ -115,6 +118,18 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		virtualHost = tmp
 	}
 
+	var ssec encrypt.ServerSide
+	if value, ok := config["sse_customer_key"]; ok {
+		keyBytes, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: must be base64-encoded: %w", err)
+		}
+		ssec, err = encrypt.NewSSEC(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: %w", err)
+		}
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -155,6 +170,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		host:        host,
 		bucket:      bucket,
 		restoreDir:  restoreDir,
+		ssec:        ssec,
 	}, nil
 }
 
@@ -189,7 +205,7 @@ func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 		g.Go(func() error {
 			objname := strings.TrimLeft(path.Join(p.restoreDir, record.Pathname), "/")
 			_, err := p.minioClient.PutObject(ctx, p.bucket, objname,
-				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{})
+				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{ServerSideEncryption: p.ssec})
 			results <- record.Error(err)
 			return nil
 		})

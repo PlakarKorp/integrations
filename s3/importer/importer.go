@@ -18,6 +18,7 @@ package importer
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/url"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/encrypt"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -40,6 +42,7 @@ type S3Importer struct {
 	bucket  string
 	host    string
 	scanDir string
+	ssec    encrypt.ServerSide
 }
 
 func init() {
@@ -114,6 +117,18 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		virtualHost = tmp
 	}
 
+	var ssec encrypt.ServerSide
+	if value, ok := config["sse_customer_key"]; ok {
+		keyBytes, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: must be base64-encoded: %w", err)
+		}
+		ssec, err = encrypt.NewSSEC(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: %w", err)
+		}
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -145,6 +160,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		scanDir:     scanDir,
 		minioClient: conn,
 		host:        host,
+		ssec:        ssec,
 	}, nil
 }
 
@@ -193,7 +209,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		}
 
 		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
-			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{})
+			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
 		})
 	}
 

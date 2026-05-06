@@ -54,6 +54,11 @@
       "type": "boolean",
       "default": false,
       "description": "Whether the hostname in location includes the bucket name as well."
+    },
+    "sse_customer_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base64-encoded 256-bit (32-byte) customer-provided AES-256 key for SSE-C server-side encryption"
     }
   }
 }

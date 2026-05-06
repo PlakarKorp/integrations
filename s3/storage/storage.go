@@ -19,6 +19,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/encrypt"
 )
 
 type Store struct {
@@ -44,6 +46,7 @@ type Store struct {
 	bucket       string
 	prefixDir    string
 	storageClass string
+	ssec         encrypt.ServerSide
 
 	bufPool sync.Pool
 
@@ -104,6 +107,18 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		virtualHost = tmp
 	}
 
+	var ssec encrypt.ServerSide
+	if value, ok := storeConfig["sse_customer_key"]; ok {
+		keyBytes, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: must be base64-encoded: %w", err)
+		}
+		ssec, err = encrypt.NewSSEC(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sse_customer_key: %w", err)
+		}
+	}
+
 	u, err := url.Parse(storeConfig["location"])
 	if err != nil {
 		return nil, fmt.Errorf("parse location: %w", err)
@@ -153,6 +168,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		bucket:       bucket,
 		prefixDir:    prefixDir,
 		storageClass: storageClass,
+		ssec:         ssec,
 
 		bufPool: sync.Pool{
 			New: func() any {
@@ -164,8 +180,9 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 			// Some providers (eg. BlackBlaze) return the error
 			// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
 			// is not set.
-			StorageClass:   storageClass,
-			SendContentMd5: true,
+			StorageClass:         storageClass,
+			SendContentMd5:       true,
+			ServerSideEncryption: ssec,
 		},
 	}, nil
 }
@@ -186,7 +203,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		}
 	}
 
-	_, err = s.minioClient.StatObject(ctx, s.bucket, s.realpath("CONFIG"), minio.StatObjectOptions{})
+	_, err = s.minioClient.StatObject(ctx, s.bucket, s.realpath("CONFIG"), minio.StatObjectOptions{ServerSideEncryption: s.ssec})
 	if err != nil {
 		if minio.ToErrorResponse(err).Code != "NoSuchKey" {
 			return fmt.Errorf("stat object CONFIG: %w", err)
@@ -224,7 +241,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("bucket does not exist")
 	}
 
-	object, err := s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), minio.GetObjectOptions{})
+	object, err := s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), minio.GetObjectOptions{ServerSideEncryption: s.ssec})
 	if err != nil {
 		return nil, fmt.Errorf("error getting object: %w", err)
 	}
@@ -359,7 +376,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 		return nil, errors.ErrUnsupported
 	}
 
-	object, err := s.minioClient.GetObject(ctx, s.bucket, path, minio.GetObjectOptions{})
+	object, err := s.minioClient.GetObject(ctx, s.bucket, path, minio.GetObjectOptions{ServerSideEncryption: s.ssec})
 	if err != nil {
 		return nil, fmt.Errorf("get %s object: %w", res, err)
 	}
