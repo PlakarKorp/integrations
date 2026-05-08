@@ -145,14 +145,26 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
+.It Ar ssl_cert_data
+Inline PEM content of the client SSL certificate.
+Alternative to
+.Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
+.It Ar ssl_key_data
+Inline PEM content of the client SSL private key.
+Alternative to
+.Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
+.It Ar ssl_root_cert_data
+Inline PEM content of the root CA certificate.
+Alternative to
+.Ar ssl_root_cert .
 .El
 .Ss Destination options
 .Bl -tag -width "no_globals"
@@ -267,14 +279,26 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
+.It Ar ssl_cert_data
+Inline PEM content of the client SSL certificate.
+Alternative to
+.Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
+.It Ar ssl_key_data
+Inline PEM content of the client SSL private key.
+Alternative to
+.Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
+.It Ar ssl_root_cert_data
+Inline PEM content of the root CA certificate.
+Alternative to
+.Ar ssl_root_cert .
 .El
 .Sh MANIFEST
 Every snapshot produced by this integration contains a
@@ -461,14 +485,26 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
+.It Ar ssl_cert_data
+Inline PEM content of the client SSL certificate.
+Alternative to
+.Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
+.It Ar ssl_key_data
+Inline PEM content of the client SSL private key.
+Alternative to
+.Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
+.It Ar ssl_root_cert_data
+Inline PEM content of the root CA certificate.
+Alternative to
+.Ar ssl_root_cert .
 .El
 .Sh EXAMPLES
 Back up a single database:

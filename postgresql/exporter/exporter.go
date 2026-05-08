@@ -142,6 +142,7 @@ func (p *Exporter) Ping(ctx context.Context) error {
 }
 
 func (p *Exporter) Close(ctx context.Context) error {
+	p.conn.Cleanup()
 	return nil
 }
 

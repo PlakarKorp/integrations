@@ -349,7 +349,10 @@ func (p *Importer) Ping(ctx context.Context) error {
 	return p.conn.Ping(ctx, p.database)
 }
 
-func (p *Importer) Close(ctx context.Context) error { return nil }
+func (p *Importer) Close(ctx context.Context) error {
+	p.conn.Cleanup()
+	return nil
+}
 func (p *Importer) Root() string                    { return "/" }
 func (p *Importer) Origin() string                  { return p.conn.Host }
 func (p *Importer) Type() string                    { return p.connType }

@@ -171,7 +171,10 @@ func (p *BinImporter) Ping(ctx context.Context) error {
 	return p.conn.Ping(ctx, "")
 }
 
-func (p *BinImporter) Close(ctx context.Context) error { return nil }
+func (p *BinImporter) Close(ctx context.Context) error {
+	p.conn.Cleanup()
+	return nil
+}
 func (p *BinImporter) Root() string                    { return "/" }
 func (p *BinImporter) Origin() string                  { return p.conn.Host }
 func (p *BinImporter) Type() string                    { return "postgres+bin" }

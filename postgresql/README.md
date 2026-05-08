@@ -95,8 +95,11 @@ restored roles will have no password set.
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_dump`, `pg_dumpall`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
 | `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Exporter options (`postgres://`)
 
@@ -119,8 +122,11 @@ restored roles will have no password set.
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_restore`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
 | `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Examples
 
@@ -301,8 +307,11 @@ functions (execution role).
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |
 | `ssl_mode` | `prefer` | SSL mode. IAM authentication requires an encrypted connection — use `require` or higher. |
 | `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Importer examples
 
@@ -343,8 +352,11 @@ the password for the restore connection.
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |
 | `ssl_mode` | `prefer` | SSL mode. IAM authentication requires an encrypted connection — use `require` or higher. |
 | `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Exporter examples
 
@@ -430,8 +442,11 @@ The PostgreSQL server must have:
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_basebackup`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
 | `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
 | `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
 | `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Restoring a physical backup
 

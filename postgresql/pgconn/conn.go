@@ -10,6 +10,28 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// sslFileParam describes one SSL file parameter and its inline-content variant.
+type sslFileParam struct {
+	pathKey string  // config key for the file path, e.g. "ssl_cert"
+	dataKey string  // config key for inline content, e.g. "ssl_cert_data"
+	field   *string // pointer to the ConnConfig field to set
+}
+
+// writeTempFile writes content to a temporary PEM file and returns its path.
+func writeTempFile(label, content string) (string, error) {
+	f, err := os.CreateTemp("", "plakar-pg-"+label+"-*")
+	if err != nil {
+		return "", fmt.Errorf("%s_data: create temp file: %w", label, err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%s_data: write temp file: %w", label, err)
+	}
+	return f.Name(), nil
+}
+
+
 // ConnConfig holds the connection parameters shared by all PostgreSQL connectors.
 type ConnConfig struct {
 	Host     string
@@ -21,6 +43,17 @@ type ConnConfig struct {
 	SSLCert     string // path to client certificate file (PEM)
 	SSLKey      string // path to client private key file (PEM)
 	SSLRootCert string // path to root CA certificate file (PEM)
+
+	tmpFiles []string // temp files written for inline SSL content; removed by Cleanup
+}
+
+// Cleanup removes any temporary files that were created for inline SSL content.
+// It should be called when the connector is closed.
+func (c *ConnConfig) Cleanup() {
+	for _, f := range c.tmpFiles {
+		_ = os.Remove(f)
+	}
+	c.tmpFiles = nil
 }
 
 // ParseConnConfig parses host, port, username, and password from the "location"
@@ -79,14 +112,28 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 			return ConnConfig{}, "", fmt.Errorf("ssl_mode: invalid value %q (accepted: disable, allow, prefer, require, verify-ca, verify-full)", v)
 		}
 	}
-	if v, ok := config["ssl_cert"]; ok && v != "" {
-		c.SSLCert = v
-	}
-	if v, ok := config["ssl_key"]; ok && v != "" {
-		c.SSLKey = v
-	}
-	if v, ok := config["ssl_root_cert"]; ok && v != "" {
-		c.SSLRootCert = v
+	for _, p := range []sslFileParam{
+		{"ssl_cert", "ssl_cert_data", &c.SSLCert},
+		{"ssl_key", "ssl_key_data", &c.SSLKey},
+		{"ssl_root_cert", "ssl_root_cert_data", &c.SSLRootCert},
+	} {
+		path, hasPath := config[p.pathKey]
+		data, hasData := config[p.dataKey]
+		if hasPath && path != "" && hasData && data != "" {
+			c.Cleanup()
+			return ConnConfig{}, "", fmt.Errorf("%s and %s are mutually exclusive", p.pathKey, p.dataKey)
+		}
+		if hasPath && path != "" {
+			*p.field = path
+		} else if hasData && data != "" {
+			tmp, err := writeTempFile(p.pathKey, data)
+			if err != nil {
+				c.Cleanup()
+				return ConnConfig{}, "", err
+			}
+			*p.field = tmp
+			c.tmpFiles = append(c.tmpFiles, tmp)
+		}
 	}
 
 	return c, dbPath, nil

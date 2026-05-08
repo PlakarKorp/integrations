@@ -90,15 +90,30 @@
       "minLength": 1,
       "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
     },
+    "ssl_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL certificate. Alternative to ssl_cert."
+    },
     "ssl_key": {
       "type": "string",
       "minLength": 1,
       "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
     },
+    "ssl_key_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL private key. Alternative to ssl_key."
+    },
     "ssl_root_cert": {
       "type": "string",
       "minLength": 1,
       "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
+    },
+    "ssl_root_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the root CA certificate. Alternative to ssl_root_cert."
     }
   }
 }
