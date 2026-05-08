@@ -119,7 +119,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	var ssec encrypt.ServerSide
-	if value, ok := config["sse_customer_key"]; ok {
+	if value, ok := config["sse_customer_key"]; ok && value != "" {
 		keyBytes, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid sse_customer_key: must be base64-encoded: %w", err)

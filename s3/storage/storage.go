@@ -108,7 +108,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	var ssec encrypt.ServerSide
-	if value, ok := storeConfig["sse_customer_key"]; ok {
+	if value, ok := storeConfig["sse_customer_key"]; ok && value != "" {
 		keyBytes, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid sse_customer_key: must be base64-encoded: %w", err)
