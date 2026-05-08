@@ -150,6 +150,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
 	}
 
+	if !strings.HasPrefix(scanDir, "/") {
+		scanDir = "/" + scanDir
+	}
+
 	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err

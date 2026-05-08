@@ -140,7 +140,11 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
 	}
 
-	if prefixDir != "" && !strings.HasSuffix(prefixDir, "/") {
+	if !strings.HasPrefix(prefixDir, "/") {
+		prefixDir = "/" + prefixDir
+	}
+
+	if !strings.HasSuffix(prefixDir, "/") {
 		prefixDir += "/"
 	}
 
@@ -188,7 +192,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 }
 
 func (s *Store) realpath(path string) string {
-	return s.prefixDir + path
+	return strings.TrimPrefix(s.prefixDir+path, "/")
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
