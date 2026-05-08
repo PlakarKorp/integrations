@@ -43,32 +43,32 @@
     "ssl_cert": {
       "type": "string",
       "minLength": 1,
-      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT. Mutually exclusive with ssl_cert_data."
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
     },
     "ssl_cert_data": {
       "type": "string",
       "minLength": 1,
-      "description": "Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with ssl_cert."
+      "description": "Inline PEM content of the client SSL certificate. Alternative to ssl_cert."
     },
     "ssl_key": {
       "type": "string",
       "minLength": 1,
-      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY. Mutually exclusive with ssl_key_data."
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
     },
     "ssl_key_data": {
       "type": "string",
       "minLength": 1,
-      "description": "Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with ssl_key."
+      "description": "Inline PEM content of the client SSL private key. Alternative to ssl_key."
     },
     "ssl_root_cert": {
       "type": "string",
       "minLength": 1,
-      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT. Mutually exclusive with ssl_root_cert_data."
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
     },
     "ssl_root_cert_data": {
       "type": "string",
       "minLength": 1,
-      "description": "Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with ssl_root_cert."
+      "description": "Inline PEM content of the root CA certificate. Alternative to ssl_root_cert."
     }
   }
 }

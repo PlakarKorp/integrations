@@ -145,34 +145,25 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
-Mutually exclusive with
-.Ar ssl_cert_data .
 .It Ar ssl_cert_data
 Inline PEM content of the client SSL certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
-Mutually exclusive with
-.Ar ssl_key_data .
 .It Ar ssl_key_data
 Inline PEM content of the client SSL private key.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
-Mutually exclusive with
-.Ar ssl_root_cert_data .
 .It Ar ssl_root_cert_data
 Inline PEM content of the root CA certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_root_cert .
 .El
 .Ss Destination options
@@ -288,34 +279,25 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
-Mutually exclusive with
-.Ar ssl_cert_data .
 .It Ar ssl_cert_data
 Inline PEM content of the client SSL certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
-Mutually exclusive with
-.Ar ssl_key_data .
 .It Ar ssl_key_data
 Inline PEM content of the client SSL private key.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
-Mutually exclusive with
-.Ar ssl_root_cert_data .
 .It Ar ssl_root_cert_data
 Inline PEM content of the root CA certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_root_cert .
 .El
 .Sh MANIFEST
@@ -503,34 +485,25 @@ Passed via
 Path to the client SSL certificate file (PEM format).
 Passed via
 .Ev PGSSLCERT .
-Mutually exclusive with
-.Ar ssl_cert_data .
 .It Ar ssl_cert_data
 Inline PEM content of the client SSL certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_cert .
 .It Ar ssl_key
 Path to the client SSL private key file (PEM format).
 Passed via
 .Ev PGSSLKEY .
-Mutually exclusive with
-.Ar ssl_key_data .
 .It Ar ssl_key_data
 Inline PEM content of the client SSL private key.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_key .
 .It Ar ssl_root_cert
 Path to the root CA certificate used to verify the server (PEM format).
 Passed via
 .Ev PGSSLROOTCERT .
-Mutually exclusive with
-.Ar ssl_root_cert_data .
 .It Ar ssl_root_cert_data
 Inline PEM content of the root CA certificate.
-Written to a temporary file at runtime.
-Mutually exclusive with
+Alternative to
 .Ar ssl_root_cert .
 .El
 .Sh EXAMPLES

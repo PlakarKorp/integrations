@@ -94,12 +94,12 @@ restored roles will have no password set.
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_dump`, `pg_dumpall`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
-| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. Mutually exclusive with `ssl_cert_data`. |
-| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_cert`. |
-| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. Mutually exclusive with `ssl_key_data`. |
-| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with `ssl_key`. |
-| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. Mutually exclusive with `ssl_root_cert_data`. |
-| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_root_cert`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Exporter options (`postgres://`)
 
@@ -121,12 +121,12 @@ restored roles will have no password set.
 | `exit_on_error` | `false` | Stop on the first restore error. Applies to both `pg_restore` (`-e`) and `psql` (`ON_ERROR_STOP=1`). |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_restore`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
-| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. Mutually exclusive with `ssl_cert_data`. |
-| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_cert`. |
-| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. Mutually exclusive with `ssl_key_data`. |
-| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with `ssl_key`. |
-| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. Mutually exclusive with `ssl_root_cert_data`. |
-| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_root_cert`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Examples
 
@@ -306,12 +306,12 @@ functions (execution role).
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |
 | `ssl_mode` | `prefer` | SSL mode. IAM authentication requires an encrypted connection — use `require` or higher. |
-| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. Mutually exclusive with `ssl_cert_data`. |
-| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_cert`. |
-| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. Mutually exclusive with `ssl_key_data`. |
-| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with `ssl_key`. |
-| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. Mutually exclusive with `ssl_root_cert_data`. |
-| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_root_cert`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Importer examples
 
@@ -351,12 +351,12 @@ the password for the restore connection.
 | `exit_on_error` | `false` | Stop on the first restore error. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |
 | `ssl_mode` | `prefer` | SSL mode. IAM authentication requires an encrypted connection — use `require` or higher. |
-| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. Mutually exclusive with `ssl_cert_data`. |
-| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_cert`. |
-| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. Mutually exclusive with `ssl_key_data`. |
-| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with `ssl_key`. |
-| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. Mutually exclusive with `ssl_root_cert_data`. |
-| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_root_cert`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Exporter examples
 
@@ -441,12 +441,12 @@ The PostgreSQL server must have:
 | `password` | — | PostgreSQL password. Overrides the URI password. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_basebackup`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
 | `ssl_mode` | `prefer` | SSL mode: `disable`, `allow`, `prefer`, `require`, `verify-ca`, or `verify-full`. Passed via `PGSSLMODE`. |
-| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. Mutually exclusive with `ssl_cert_data`. |
-| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_cert`. |
-| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. Mutually exclusive with `ssl_key_data`. |
-| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Written to a temporary file at runtime. Mutually exclusive with `ssl_key`. |
-| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. Mutually exclusive with `ssl_root_cert_data`. |
-| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Written to a temporary file at runtime. Mutually exclusive with `ssl_root_cert`. |
+| `ssl_cert` | — | Path to the client SSL certificate file (PEM). Passed via `PGSSLCERT`. |
+| `ssl_cert_data` | — | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert`. |
+| `ssl_key` | — | Path to the client SSL private key file (PEM). Passed via `PGSSLKEY`. |
+| `ssl_key_data` | — | Inline PEM content of the client SSL private key. Alternative to `ssl_key`. |
+| `ssl_root_cert` | — | Path to the root CA certificate used to verify the server (PEM). Passed via `PGSSLROOTCERT`. |
+| `ssl_root_cert_data` | — | Inline PEM content of the root CA certificate. Alternative to `ssl_root_cert`. |
 
 ### Restoring a physical backup
 
