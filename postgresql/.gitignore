@@ -5,3 +5,4 @@
 /postgresqlAWSExporter
 /postgresql_*.ptar
 *.local.json
+/vendor
