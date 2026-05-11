@@ -210,6 +210,11 @@ func (g *Importer) sendResults(stream grpc.BidiStreamingClient[ImportRequest, Im
 			Result: gconn.ResultToProto(result),
 		}
 		if err := stream.Send(&hdr); err != nil {
+			for range results {
+				// The underlying transport died we still need to drain the
+				// channel or we will deadlock
+			}
+
 			return err
 		}
 	}
