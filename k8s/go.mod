@@ -58,6 +58,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tink-crypto/tink-go/v2 v2.6.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
