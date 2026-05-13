@@ -24,4 +24,4 @@ connectors:
 - type: exporter
   executable: k8s-exporter
   protocols: [k8s+csi]
-  validator: ./exporter/k8s+csi.json
+  validator: ./exporter/k8s+pvc.json
