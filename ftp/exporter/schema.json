@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Plakar FTP Exporter Connector Config",
+  "title": "FTP connector config",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,14 +13,30 @@
       "description": "FTP location URI: ftp://[<user>[:<password>]@]<host>[/<path>]",
       "pattern": "^ftp://[^/]+(/.*)?$"
     },
+    "root": {
+      "type": "string",
+      "default": "/",
+      "pattern": "^/",
+      "description": "Absolute filesystem path"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 21,
+      "description": "TCP/UDP port number"
+    },
     "username": {
       "type": "string",
       "minLength": 1,
+      "maxLength": 255,
+      "default": "anonymous",
       "description": "FTP username"
     },
     "password": {
       "type": "string",
       "minLength": 1,
+      "maxLength": 255,
       "description": "FTP password"
     }
   }

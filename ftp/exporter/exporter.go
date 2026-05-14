@@ -41,10 +41,9 @@ func init() {
 type Exporter struct {
 	opts *connectors.Options
 
-	host     string
-	rootDir  string
-	client   *goftp.Client
-	endpoint *url.URL
+	host    string
+	rootDir string
+	client  *goftp.Client
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -63,6 +62,14 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	if tmp, ok := config["password"]; ok {
 		password = tmp
 	}
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
 
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
@@ -73,25 +80,37 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		}
 	}
 
-	client, err := common.ConnectToFTP(parsed.Host, username, password)
+	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+
+	host := parsed.Host
+	if parsed.Port() == "" && port != "" {
+		host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
+
+	client, err := common.ConnectToFTP(host, username, password)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Exporter{
-		opts:     opts,
-		endpoint: parsed,
-		client:   client,
+		opts: opts,
+		//endpoint: parsed,
+		client:  client,
+		rootDir: rootDir,
 	}, nil
 }
 
 func (p *Exporter) Root() string {
-	if p.endpoint.Path == "" {
-		return "/"
-	}
-	return p.endpoint.Path
+	return p.rootDir
 }
-func (p *Exporter) Origin() string        { return p.endpoint.Host }
+
+func (p *Exporter) Origin() string        { return p.host }
 func (p *Exporter) Type() string          { return "ftp" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 

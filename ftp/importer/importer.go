@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/url"
@@ -26,6 +27,7 @@ type Importer struct {
 	rootDir  string
 	username string
 	password string
+	port     string
 
 	client *goftp.Client
 }
@@ -45,6 +47,14 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if tmp, ok := config["password"]; ok {
 		password = tmp
 	}
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
 
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
@@ -55,11 +65,25 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		}
 	}
 
+	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+
+	host := parsed.Host
+	if parsed.Port() == "" && port != "" {
+		host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
+
 	return &Importer{
-		host:     parsed.Host,
-		rootDir:  parsed.Path,
+		host:     host,
+		rootDir:  rootDir,
 		username: username,
 		password: password,
+		port:     port,
 	}, nil
 }
 
