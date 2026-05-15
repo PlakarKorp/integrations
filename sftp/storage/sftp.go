@@ -54,10 +54,32 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("missing location")
 	}
 
+	var port string
+	if tmp, ok := storeConfig["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := storeConfig["root"]; ok {
+		root = tmp
+	}
+
 	parsed, err := url.Parse(location)
 	if err != nil {
 		return nil, err
 	}
+
+	if parsed.Port() == "" && port != "" {
+		parsed.Host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
+
+	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+	parsed.Path = rootDir
 
 	return &Store{
 		config:   storeConfig,
@@ -154,8 +176,8 @@ func (s *Store) Location(ctx context.Context) (string, error) {
 }
 
 func (s *Store) Path(args ...string) string {
-	root := strings.TrimPrefix(s.config["location"], "sftp://")
-	atoms := strings.Split(root, "/")
+	root := s.endpoint.Path
+	atoms := strings.Split(s.endpoint.Path, "/")
 	if len(atoms) == 0 {
 		return "/"
 	} else {
@@ -191,7 +213,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		}
 	} else {
 		if len(dirfp) > 0 {
-			return fmt.Errorf("directory %s is not empty", s.config["location"])
+			return fmt.Errorf("directory %s is not empty", s.endpoint.Path)
 		}
 	}
 	s.packfiles = NewBuckets(client, s.Path("packfiles"))

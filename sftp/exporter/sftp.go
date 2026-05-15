@@ -56,9 +56,31 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 
 	target := config["location"]
 
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
+	}
+
+	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+	parsed.Path = rootDir
+
+	if parsed.Port() == "" && port != "" {
+		parsed.Host = fmt.Sprintf("%s:%s", parsed.Host, port)
 	}
 
 	client, err := plakarsftp.Connect(parsed, config)

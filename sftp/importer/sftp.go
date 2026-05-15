@@ -55,11 +55,31 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 	target := config["location"]
 
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
+
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
+
 	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+
+	if parsed.Port() == "" && port != "" {
+		parsed.Host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
 
 	nocrossfs, _ := strconv.ParseBool(config["dont_traverse_fs"])
 
@@ -82,7 +102,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		excludes:  excludes,
 	}
 
-	realpath, devno, err := imp.realpathFollow(parsed.Path)
+	realpath, devno, err := imp.realpathFollow(rootDir)
 	if err != nil {
 		return nil, err
 	}
