@@ -107,6 +107,16 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		virtualHost = tmp
 	}
 
+	var port string
+	if tmp, ok := storeConfig["port"]; ok {
+		port = tmp
+	}
+
+	var root string
+	if tmp, ok := storeConfig["root"]; ok {
+		root = tmp
+	}
+
 	var ssec encrypt.ServerSide
 	if value, ok := storeConfig["sse_customer_key"]; ok && value != "" {
 		keyBytes, err := base64.StdEncoding.DecodeString(value)
@@ -124,6 +134,10 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("parse location: %w", err)
 	}
 
+	if u.Port() == "" && port != "" {
+		u.Host = fmt.Sprintf("%s:%s", u.Host, port)
+	}
+
 	var bucket, prefixDir, host string
 	if virtualHost {
 		bucket, host, _ = strings.Cut(u.Host, ".")
@@ -132,8 +146,14 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
 		}
 	} else {
-		bucket, prefixDir, _ = strings.Cut(u.RequestURI()[1:], "/")
+
 		host = u.Host
+
+		source := u.RequestURI()
+		if root != "" {
+			source = root
+		}
+		bucket, prefixDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {

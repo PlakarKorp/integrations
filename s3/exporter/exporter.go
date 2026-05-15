@@ -118,6 +118,16 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		virtualHost = tmp
 	}
 
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
+
 	var ssec encrypt.ServerSide
 	if value, ok := config["sse_customer_key"]; ok && value != "" {
 		keyBytes, err := base64.StdEncoding.DecodeString(value)
@@ -135,6 +145,10 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		return nil, err
 	}
 
+	if parsed.Port() == "" && port != "" {
+		parsed.Host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
+
 	var bucket, restoreDir, host string
 	if virtualHost {
 		bucket, host, _ = strings.Cut(parsed.Host, ".")
@@ -143,8 +157,13 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
 		}
 	} else {
-		bucket, restoreDir, _ = strings.Cut(parsed.RequestURI()[1:], "/")
 		host = parsed.Host
+
+		source := parsed.RequestURI()
+		if root != "" {
+			source = root
+		}
+		bucket, restoreDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {
