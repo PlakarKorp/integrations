@@ -50,10 +50,21 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to absolutify root: %w", err)
+	}
+
 	return &FSExporter{
 		opts:    opts,
-		rootDir: rootDir,
+		rootDir: absRoot,
 	}, nil
+}
+
+// isContained reports whether path is rooted within root (or is root itself).
+// Both arguments must be clean absolute paths.
+func isContained(root, path string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 func (p *FSExporter) Root() string          { return p.rootDir }
@@ -104,6 +115,10 @@ loop:
 			}
 
 			pathname := filepath.Join(p.rootDir, record.Pathname)
+			if !isContained(p.rootDir, pathname) {
+				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
+				continue
+			}
 
 			if record.FileInfo.Lmode.IsDir() {
 				if err := os.Mkdir(pathname, 0700); err != nil {
