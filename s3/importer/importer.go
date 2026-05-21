@@ -30,6 +30,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 
+	"github.com/PlakarKorp/integration-s3/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -117,6 +118,8 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		virtualHost = tmp
 	}
 
+	endpoint := config["endpoint"]
+
 	var port string
 	if tmp, ok := config["port"]; ok {
 		port = tmp
@@ -150,15 +153,26 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 
 	var bucket, scanDir, host string
 	if virtualHost {
-		bucket, host, _ = strings.Cut(parsed.Host, ".")
-		scanDir = strings.TrimPrefix(parsed.Path, "/")
-		if host == "" {
-			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
+		if endpoint == "" {
+			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
 		}
+
+		bucket, host, err = common.SplitVirtualHost(parsed.Host, endpoint)
+		if err != nil {
+			return nil, err
+		}
+
+		scanDir = strings.TrimPrefix(parsed.Path, "/")
 	} else {
+		if endpoint != "" {
+			if parsed.Host != endpoint {
+				parsed.Path = path.Join(parsed.Host, parsed.Path)
+				parsed.Host = endpoint
+			}
+		}
 		host = parsed.Host
 
-		source := parsed.RequestURI()
+		source := parsed.Path
 		if root != "" {
 			source = root
 		}

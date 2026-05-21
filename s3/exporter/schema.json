@@ -27,6 +27,11 @@
       "pattern": "^/",
       "description": "bucket path prefix to use"
     },
+    "endpoint": {
+      "type": "string",
+      "default": "",
+      "description": "S3 endpoint URL"
+    },
     "access_key": {
       "type": "string",
       "minLength": 1,

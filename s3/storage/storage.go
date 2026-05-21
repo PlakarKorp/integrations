@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarKorp/integration-s3/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
@@ -107,6 +108,8 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		virtualHost = tmp
 	}
 
+	endpoint := storeConfig["endpoint"]
+
 	var port string
 	if tmp, ok := storeConfig["port"]; ok {
 		port = tmp
@@ -140,16 +143,26 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 	var bucket, prefixDir, host string
 	if virtualHost {
-		bucket, host, _ = strings.Cut(u.Host, ".")
-		prefixDir = strings.TrimPrefix(u.Path, "/")
-		if host == "" {
-			return nil, fmt.Errorf("failed to extract bucket name from URL (maybe virtual_host needs to be disable?)")
+		if endpoint == "" {
+			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
 		}
-	} else {
 
+		bucket, host, err = common.SplitVirtualHost(u.Host, endpoint)
+		if err != nil {
+			return nil, err
+		}
+
+		prefixDir = strings.TrimPrefix(u.Path, "/")
+	} else {
+		if endpoint != "" {
+			if u.Host != endpoint {
+				u.Path = path.Join(u.Host, u.Path)
+				u.Host = endpoint
+			}
+		}
 		host = u.Host
 
-		source := u.RequestURI()
+		source := u.Path
 		if root != "" {
 			source = root
 		}
@@ -183,6 +196,9 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		Secure:    useSsl,
 		Transport: transport,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create minio client: %w", err)
+	}
 
 	client.SetAppInfo("plakar", "v1.1.0")
 
