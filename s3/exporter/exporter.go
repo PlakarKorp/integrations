@@ -119,10 +119,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		virtualHost = tmp
 	}
 
-	endpoint := ""
-	if value, ok := config["endpoint"]; ok {
-		endpoint = value
-	}
+	endpoint := config["endpoint"]
 
 	var port string
 	if tmp, ok := config["port"]; ok {

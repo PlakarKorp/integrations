@@ -108,10 +108,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		virtualHost = tmp
 	}
 
-	endpoint := ""
-	if value, ok := storeConfig["endpoint"]; ok {
-		endpoint = value
-	}
+	endpoint := storeConfig["endpoint"]
 
 	var port string
 	if tmp, ok := storeConfig["port"]; ok {
