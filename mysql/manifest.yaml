@@ -1,0 +1,45 @@
+name: mysql
+display_name: MySQL / MariaDB
+description: Integration providing import and export capabilities for MySQL and MariaDB databases.
+api_version: v1.1.0
+homepage: https://github.com/PlakarKorp/integration-mysql
+license: ISC
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+  - type: importer
+    executable: mysqlImporter
+    protocols: [mysql]
+    validator: ./importer/schema.json
+    class: database
+    subclass: mysql
+  - type: exporter
+    executable: mysqlExporter
+    protocols: [mysql]
+    validator: ./exporter/schema.json
+    class: database
+    subclass: mysql
+  - type: importer
+    executable: mysqlProxyImporter
+    protocols: [mysql+gcsql]
+    validator: ./plugin/mysql-proxy-importer/schema.json
+    class: database
+    subclass: mysql
+  - type: exporter
+    executable: mysqlProxyExporter
+    protocols: [mysql+gcsql]
+    validator: ./plugin/mysql-proxy-exporter/schema.json
+    class: database
+    subclass: mysql
+  - type: importer
+    executable: mariadbImporter
+    protocols: [mysql+mariadb]
+    validator: ./plugin/mariadb-importer/schema.json
+    class: database
+    subclass: mysql
+  - type: exporter
+    executable: mariadbExporter
+    protocols: [mysql+mariadb]
+    validator: ./plugin/mariadb-exporter/schema.json
+    class: database
+    subclass: mysql

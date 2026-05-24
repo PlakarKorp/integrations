@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar MySQL Importer Connector Config (Google SQL Proxy)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL connection URI: mysql+gcsql://[user[:password]@]localhost[/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up with --all-databases.",
+      "pattern": "^mysql\\+gcsql://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Google Cloud SQL Connection name"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL password. Overrides the password in the location URI. Never appears on the command line; passed via MYSQL_PWD."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the database to back up. If omitted, all non-system databases are backed up using --all-databases. Overrides the database in the location URI."
+    },
+    "single_transaction": {
+      "type": "boolean",
+      "description": "Use --single-transaction for a consistent InnoDB snapshot without locking tables (default: true). Strongly recommended for production InnoDB databases. MyISAM tables still require table locks even with this option."
+    },
+    "routines": {
+      "type": "boolean",
+      "description": "Include stored procedures and functions via --routines (default: true)."
+    },
+    "events": {
+      "type": "boolean",
+      "description": "Include event scheduler events via --events (default: true)."
+    },
+    "triggers": {
+      "type": "boolean",
+      "description": "Include triggers (default: true). Set to false to pass --skip-triggers."
+    },
+    "no_data": {
+      "type": "boolean",
+      "description": "When true, passes --no-data so only DDL statements are dumped (no INSERT rows). Mutually exclusive with no_create_info."
+    },
+    "no_create_info": {
+      "type": "boolean",
+      "description": "When true, passes --no-create-info so only INSERT statements are dumped (no DDL). Mutually exclusive with no_data."
+    },
+    "no_tablespaces": {
+      "type": "boolean",
+      "description": "Suppress CREATE LOGFILE GROUP and CREATE TABLESPACE statements (--no-tablespaces, default: true). Recommended for restoring to managed or cloud MySQL instances that do not support custom tablespaces."
+    },
+    "column_statistics": {
+      "type": "boolean",
+      "description": "Query information_schema.COLUMN_STATISTICS for histogram data (default: true, matching mysqldump 8.0 behaviour). Set to false to pass --column-statistics=0, which is required when the mysqldump binary is 8.0 but the source server is MySQL 5.7 or MariaDB."
+    },
+    "hex_blob": {
+      "type": "boolean",
+      "description": "Dump BINARY, VARBINARY, BLOB, and BIT columns using hexadecimal notation (--hex-blob). Useful when the dump may be loaded on a system with different character set settings."
+    },
+    "set_gtid_purged": {
+      "type": "string",
+      "enum": ["AUTO", "ON", "OFF"],
+      "description": "Controls the SET @@GLOBAL.GTID_PURGED statement in the dump (--set-gtid-purged). AUTO (default) includes it only when GTIDs are enabled on the server. Use OFF when restoring to a server that already has GTID history."
+    },
+    "mysql_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the MySQL client binaries (mysqldump, mysql). When omitted, binaries are resolved via $PATH."
+    }
+  }
+}

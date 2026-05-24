@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar MySQL Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL connection URI: mysql://[user[:password]@]host[:port][/database]. If a database path is included, it is used as the restore target for single-database dumps.",
+      "pattern": "^mysql://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL server hostname (default: 127.0.0.1). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL server port (default: 3306). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL password. Overrides the password in the location URI."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target database for restore. If omitted, the database name is inferred from the dump filename (e.g. mydb.sql → mydb). Not used when restoring an all.sql dump."
+    },
+    "create_db": {
+      "type": "boolean",
+      "description": "When true, issues CREATE DATABASE IF NOT EXISTS before restoring a single-database dump. Defaults to false."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "When true, passes --force to mysql so restore continues after SQL errors. Defaults to false."
+    },
+    "mysql_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the MySQL client binary (mysql). When omitted, the binary is resolved via $PATH."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disabled", "preferred", "required", "verify_ca", "verify_identity"],
+      "description": "SSL/TLS mode for the connection (--ssl-mode). Default: not set (server decides)."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via --ssl-cert."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via --ssl-key."
+    },
+    "ssl_ca": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the CA certificate used to verify the server (PEM format), passed via --ssl-ca."
+    }
+  }
+}

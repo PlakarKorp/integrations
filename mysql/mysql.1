@@ -1,0 +1,364 @@
+.\" mysql.1 — man page for the Plakar MySQL integration plugin
+.\" Process with: man ./mysql.1
+.TH MYSQL 1 2025-04-09 "Plakar MySQL Integration" "Plakar Plugins"
+.SH NAME
+mysql \- Plakar plugin for logical backup and restore of MySQL databases
+.SH SYNOPSIS
+.B plakar backup
+.I mysql://[user[:password]@]host[:port][/database]
+.RI [ option = value " ...]"
+.PP
+.B plakar restore
+.B \-to
+.I mysql://[user[:password]@]host[:port][/database]
+.RI [ option = value " ...]"
+.I snapshot-id
+.SH DESCRIPTION
+The
+.B mysql
+Plakar plugin provides logical backup and restore of MySQL databases using
+.BR mysqldump (1)
+and
+.BR mysql (1).
+.PP
+Backups produce standard SQL files that are human-readable and restorable
+without Plakar.  Plakar adds deduplication, compression, encryption,
+versioning, and remote storage on top.
+.PP
+When a database is specified in the URI, only that database is backed up
+(single-database mode).  When no database is specified, all non-system
+databases are backed up with
+.BR --all-databases .
+.SH CONNECTION URI
+.nf
+mysql://[user[:password]@]host[:port][/database]
+.fi
+.TS
+tab(|);
+l l l.
+Component|Default|Description
+user| |MySQL username
+password| |MySQL password (never on command line; uses MYSQL_PWD)
+host|127.0.0.1|MySQL server hostname or IP address
+port|3306|MySQL server port
+database| |Database to back up (omit for all-databases mode)
+.TE
+.SH IMPORTER OPTIONS
+Options are appended after the URI as
+.IR key = value
+pairs.
+.TP
+.B location
+Full connection URI
+.RB ( mysql:// \&...).
+.TP
+.B host
+Server hostname. Overrides the URI.
+.TP
+.B port
+Server port (default:
+.BR 3306 ).
+Overrides the URI.
+.TP
+.B username
+MySQL username. Overrides the URI.
+.TP
+.B password
+MySQL password. Overrides the URI.
+Passed to commands via the
+.B MYSQL_PWD
+environment variable, never via the command line.
+.TP
+.B database
+Name of the database to back up. Overrides the URI database path.
+When omitted,
+.BR mysqldump " --all-databases"
+is used.
+.TP
+.B single_transaction
+Boolean (default:
+.BR true ).
+Use
+.B --single-transaction
+for a consistent InnoDB snapshot without table locks.
+Strongly recommended for production InnoDB databases.
+Has no effect on MyISAM tables.
+.TP
+.B routines
+Boolean (default:
+.BR true ).
+Include stored procedures and functions
+.RB ( --routines ).
+.TP
+.B events
+Boolean (default:
+.BR true ).
+Include event scheduler events
+.RB ( --events ).
+.TP
+.B triggers
+Boolean (default:
+.BR true ).
+Include triggers.
+Set to
+.B false
+to pass
+.B --skip-triggers
+to mysqldump.
+.TP
+.B no_data
+Boolean (default:
+.BR false ).
+Dump DDL only, no data
+.RB ( --no-data ).
+Mutually exclusive with
+.BR no_create_info .
+.TP
+.B no_create_info
+Boolean (default:
+.BR false ).
+Dump data only, no DDL
+.RB ( --no-create-info ).
+Mutually exclusive with
+.BR no_data .
+.TP
+.B no_tablespaces
+Boolean (default:
+.BR true ).
+Suppress
+.B CREATE LOGFILE GROUP
+and
+.B CREATE TABLESPACE
+statements
+.RB ( --no-tablespaces ).
+Recommended when restoring to managed or cloud MySQL instances that do not
+support custom tablespaces.
+.TP
+.B column_statistics
+Boolean (default:
+.BR true ).
+Query
+.B information_schema.COLUMN_STATISTICS
+for histogram data, matching the default behaviour of mysqldump 8.0.
+Set to
+.B false
+to pass
+.B --column-statistics=0
+when using a mysqldump 8.0 binary against a MySQL 5.7 or MariaDB server,
+which does not have that table.
+.TP
+.B hex_blob
+Boolean (default:
+.BR false ).
+Encode BINARY, VARBINARY, BLOB, and BIT columns using hexadecimal notation
+.RB ( --hex-blob ).
+Useful for cross-platform portability.
+.TP
+.B set_gtid_purged
+String:
+.BR AUTO ,
+.BR ON ,
+or
+.B OFF
+(default:
+.BR AUTO ).
+Controls the
+.B SET @@GLOBAL.GTID_PURGED
+statement in the dump.
+.B AUTO
+includes it only when GTIDs are enabled on the server.
+Use
+.B OFF
+when restoring to a server with existing GTID history.
+.TP
+.B mysql_bin_dir
+Directory containing the
+.B mysqldump
+and
+.B mysql
+binaries.
+When omitted, binaries are resolved via
+.BR $PATH .
+.TP
+.B ssl_mode
+SSL/TLS mode:
+.BR disabled ,
+.BR preferred ,
+.BR required ,
+.BR verify_ca ,
+or
+.BR verify_identity .
+Passed as
+.B --ssl-mode
+to mysqldump and mysql.
+.TP
+.B ssl_cert
+Path to the client SSL certificate file (PEM format).
+.TP
+.B ssl_key
+Path to the client SSL private key file (PEM format).
+.TP
+.B ssl_ca
+Path to the CA certificate file used to verify the server (PEM format).
+.SH EXPORTER OPTIONS
+.TP
+.B location
+Full connection URI
+.RB ( mysql:// \&...).
+.TP
+.B host
+Server hostname. Overrides the URI.
+.TP
+.B port
+Server port. Overrides the URI.
+.TP
+.B username
+MySQL username. Overrides the URI.
+.TP
+.B password
+MySQL password. Overrides the URI.
+.TP
+.B database
+Target database for restore.
+When omitted, the database name is inferred from the dump filename
+(e.g.
+.I mydb.sql
+→
+.IR mydb ).
+Not used when restoring an
+.I all.sql
+dump.
+.TP
+.B create_db
+Boolean (default:
+.BR false ).
+Issue
+.B CREATE DATABASE IF NOT EXISTS
+before restoring a single-database dump.
+.TP
+.B force
+Boolean (default:
+.BR false ).
+Pass
+.B --force
+to
+.BR mysql (1)
+so restore continues after SQL errors.
+.TP
+.B mysql_bin_dir
+Directory containing the
+.B mysql
+binary.
+.TP
+.B ssl_mode , ssl_cert , ssl_key , ssl_ca
+Same as the importer options.
+.SH SNAPSHOT LAYOUT
+.TS
+tab(|);
+l l.
+Path|Contents
+/manifest.json|Server metadata (version, config, databases, tables, routines, triggers, events)
+/<database>.sql|Single-database dump (when database is specified)
+/all.sql|Full-server dump (when database is omitted)
+.TE
+.SH EXAMPLES
+Back up a single database:
+.PP
+.nf
+plakar backup mysql://dbuser:secret@db.example.com/mydb
+.fi
+.PP
+Back up all databases:
+.PP
+.nf
+plakar backup mysql://root:secret@db.example.com
+.fi
+.PP
+Back up schema only:
+.PP
+.nf
+plakar backup "mysql://dbuser:secret@db.example.com/mydb no_data=true"
+.fi
+.PP
+Restore to an existing database:
+.PP
+.nf
+plakar restore -to mysql://dbuser:secret@target.example.com/mydb abc1234
+.fi
+.PP
+Restore and create the database first:
+.PP
+.nf
+plakar restore -to "mysql://root:secret@target.example.com/mydb create_db=true" abc1234
+.fi
+.PP
+Restore all databases:
+.PP
+.nf
+plakar restore -to mysql://root:secret@target.example.com abc1234
+.fi
+.PP
+Use non-standard binary location and TLS:
+.PP
+.nf
+plakar backup "mysql://dbuser:secret@db.example.com/mydb \\
+  mysql_bin_dir=/usr/local/mysql/bin \\
+  ssl_mode=verify_identity \\
+  ssl_ca=/etc/mysql/ca.pem"
+.fi
+.SH REQUIRED PRIVILEGES
+For single-database backup with
+.B single_transaction
+(recommended):
+.PP
+.nf
+GRANT SELECT, SHOW VIEW, TRIGGER, EVENT ON mydb.* TO 'backup'@'%';
+GRANT PROCESS ON *.* TO 'backup'@'%';
+.fi
+.PP
+For all-databases backup:
+.PP
+.nf
+GRANT SELECT, SHOW VIEW, TRIGGER, LOCK TABLES, EVENT, RELOAD ON *.* TO 'backup'@'%';
+GRANT PROCESS ON *.* TO 'backup'@'%';
+.fi
+.SH NOTES
+.SS InnoDB and single_transaction
+The
+.B single_transaction
+option (enabled by default) takes a consistent read snapshot for the entire
+dump without acquiring table locks.  This is strongly recommended for
+production InnoDB databases.
+.PP
+MyISAM tables require table locks regardless of
+.BR single_transaction .
+Consider migrating MyISAM tables to InnoDB for lock-free backups.
+.SS GTIDs
+When GTIDs are enabled on the source server, the dump includes
+.B SET @@GLOBAL.GTID_PURGED
+statements.  Restoring such a dump to a server with existing GTID history
+will fail.  Set
+.B set_gtid_purged=OFF
+to omit these statements, or run
+.B RESET MASTER
+on the target before restoring.
+.SS Users and grants
+Single-database dumps do not include MySQL user accounts or grants.  Use an
+all-databases backup (which includes the
+.I mysql
+system database) or migrate grants manually using
+.BR pt-show-grants (1)
+from the Percona Toolkit.
+.SH LIMITATIONS
+Physical backups are not supported in v1.
+Only logical dumps via
+.BR mysqldump (1)
+are implemented.
+Per-table filtering, restore-time schema/data filtering, and user/grant
+migration for single-database backups are planned for future versions.
+.SH SEE ALSO
+.BR plakar (1),
+.BR mysqldump (1),
+.BR mysql (1)
+.SH BUGS
+Report issues at https://github.com/PlakarKorp/integration-mysql/issues

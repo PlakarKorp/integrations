@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar MySQL Exporter Connector Config (Google SQL Proxy)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL connection URI: mysql+gcsql://[user[:password]@]localhost[/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up with --all-databases.",
+      "pattern": "^mysql\\+gcsql://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Google Cloud SQL Connection name"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MySQL password. Overrides the password in the location URI."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target database for restore. If omitted, the database name is inferred from the dump filename (e.g. mydb.sql → mydb). Not used when restoring an all.sql dump."
+    },
+    "create_db": {
+      "type": "boolean",
+      "description": "When true, issues CREATE DATABASE IF NOT EXISTS before restoring a single-database dump. Defaults to false."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "When true, passes --force to mysql so restore continues after SQL errors. Defaults to false."
+    },
+    "mysql_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the MySQL client binary (mysql). When omitted, the binary is resolved via $PATH."
+    }
+  }
+}
