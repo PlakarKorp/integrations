@@ -1,0 +1,12 @@
+name: notion
+description: notion backend
+version: v1.0.0-beta.2
+connectors:
+  - type: importer
+    executable: notion-importer
+    homepage: https://github.com/PlakarKorp/integration-notion
+    license: ISC
+    protocols: [notion]
+  - type: exporter
+    executable: notion-exporter
+    protocols: [notion]
