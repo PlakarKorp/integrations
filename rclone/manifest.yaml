@@ -1,0 +1,13 @@
+name: rclone
+description: A plugin for Rclone integration with various cloud storage services.
+version: v1.0.0-beta.5
+connectors:
+  - type: importer
+    executable: rclone-importer
+    protocols: ['rclone']
+  - type: exporter
+    executable: rclone-exporter
+    protocols: ['rclone']
+  - type: storage
+    executable: rclone-storage
+    protocols: ['rclone']
