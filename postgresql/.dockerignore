@@ -1,0 +1,7 @@
+.git
+postgresqlImporter
+postgresqlExporter
+postgresqlBinImporter
+postgresqlAWSImporter
+postgresqlAWSExporter
+*.ptar

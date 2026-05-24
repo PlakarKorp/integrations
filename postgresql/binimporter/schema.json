@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar PostgreSQL Binary Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Connection URI: postgres+bin://[user[:password]@]host[:port]",
+      "pattern": "^postgres\\+bin://"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL server hostname (default: localhost). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL server port (default: 5432). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL replication username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL password. Overrides the password in the location URI."
+    },
+    "pg_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the PostgreSQL client binaries (pg_basebackup, psql). When omitted, binaries are resolved via $PATH."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+      "description": "SSL mode for the connection, passed via PGSSLMODE (default: prefer)."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
+    },
+    "ssl_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL certificate. Alternative to ssl_cert."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
+    },
+    "ssl_key_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL private key. Alternative to ssl_key."
+    },
+    "ssl_root_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
+    },
+    "ssl_root_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the root CA certificate. Alternative to ssl_root_cert."
+    }
+  }
+}

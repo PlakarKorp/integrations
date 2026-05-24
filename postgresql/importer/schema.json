@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar PostgreSQL Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL connection URI: postgres://[user[:password]@]host[:port][/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up.",
+      "pattern": "^postgres://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL server hostname (default: localhost). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL server port (default: 5432). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "PostgreSQL password. Overrides the password in the location URI."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the database to back up. If omitted, all connectable databases are backed up individually. Overrides the database in the location URI."
+    },
+    "exclude_databases": {
+      "type": "string",
+      "description": "Comma-separated list of database names to skip during a full backup. Has no effect when a single database is selected via the database parameter or URI path. Example: rdsadmin,template1."
+    },
+    "schema_only": {
+      "type": "boolean",
+      "default": false,
+      "description": "When enabled, passes -s to pg_dump to dump only schema (no data). Mutually exclusive with data_only."
+    },
+    "data_only": {
+      "type": "boolean",
+      "default": false,
+      "description": "When enabled, passes -a to pg_dump to dump only data (no schema). Mutually exclusive with schema_only."
+    },
+    "pg_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the PostgreSQL client binaries (pg_dump, pg_dumpall, psql). When omitted, binaries are resolved via $PATH."
+    },
+    "compress": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable pg_dump compression. By default dumps are uncompressed so that Plakar's own compression is not degraded."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "default": "prefer",
+      "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"],
+      "description": "SSL mode for the connection, passed via PGSSLMODE."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via PGSSLCERT."
+    },
+    "ssl_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL certificate. Alternative to ssl_cert."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via PGSSLKEY."
+    },
+    "ssl_key_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL private key. Alternative to ssl_key."
+    },
+    "ssl_root_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the root CA certificate used to verify the server (PEM format), passed via PGSSLROOTCERT."
+    },
+    "ssl_root_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the root CA certificate. Alternative to ssl_root_cert."
+    }
+  }
+}
