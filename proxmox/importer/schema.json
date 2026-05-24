@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Proxmox Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "mode"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Proxmox endpoint address"
+    },
+    "mode": {
+      "type": "string",
+      "description": "Execution mode for proxmox operations",
+      "enum": [
+        "local",
+        "remote"
+      ]
+    },
+    "conn_method": {
+      "type": "string",
+      "description": "SSH connection method when mode=remote",
+      "enum": [
+        "password",
+        "identity"
+      ]
+    },
+    "conn_username": {
+      "type": "string",
+      "description": "Proxmox SSH username used in remote mode",
+      "minLength": 1
+    },
+    "conn_password": {
+      "type": "string",
+      "description": "Password for conn_method=password",
+      "minLength": 1
+    },
+    "conn_identity_file": {
+      "type": "string",
+      "description": "Path to private key when conn_method=identity",
+      "minLength": 1
+    },
+    "backup_compression": {
+      "type": "string",
+      "description": "Compression used by vzdump",
+      "enum": [
+        "0",
+        "1",
+        "lzo",
+        "gzip",
+        "zstd"
+      ],
+      "default": "0"
+    },
+    "backup_mode": {
+      "type": "string",
+      "description": "VZDump backup behavior",
+      "enum": [
+        "snapshot",
+        "suspend",
+        "stop"
+      ],
+      "default": "snapshot"
+    },
+    "dump_dir": {
+      "type": "string",
+      "description": "Directory used to create/read vzdump archives",
+      "default": "/var/lib/vz/dump"
+    },
+    "node": {
+      "type": "string",
+      "description": "Optional Proxmox node name"
+    },
+    "cleanup": {
+      "type": "boolean",
+      "description": "Delete temporary vzdump files after operations",
+      "default": true
+    },
+    "vmid": {
+      "type": "integer",
+      "description": "Backup one VM/CT by ID",
+      "minimum": 1
+    },
+    "pool": {
+      "type": "string",
+      "description": "Backup all VMs/CTs belonging to this pool",
+      "minLength": 1
+    },
+    "all": {
+      "type": "boolean",
+      "description": "Backup everything (not recommended)",
+      "default": false
+    }
+  }
+}
