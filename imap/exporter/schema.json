@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar IMAP Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "username",
+    "password"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP location URI: imap://<host>[:<port>][/mailbox-or-path]",
+      "pattern": "^imap://[^/]+(/.*)?$"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP username"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP password"
+    },
+    "tls": {
+      "type": "string",
+      "default": "starttls",
+      "description": "TLS mode used to connect to the IMAP server",
+      "enum": [
+        "no-tls",
+        "starttls",
+        "tls"
+      ]
+    },
+    "tls_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    }
+  }
+}

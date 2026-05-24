@@ -1,0 +1,19 @@
+name: imap
+display_name: IMAP
+description: Integration providing import and export capabilities for IMAP accounts.
+api_version: v1.1.0
+tier: official
+homepage: https://github.com/PlakarKorp/integration-imap
+license: ISC
+contact: mailto:help@plakar.io
+connectors:
+- type: importer
+  executable: imapImporter
+  protocols: [imap]
+  validator: ./importer/schema.json
+  class: compute
+#- type: exporter
+#  executable: imapExporter
+#  protocols: [imap]
+#  validator: ./exporter/schema.json
+#  class: compute
