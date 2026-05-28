@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-tar
+module github.com/PlakarKorp/integrations/tar
 
 go 1.24.0
 
