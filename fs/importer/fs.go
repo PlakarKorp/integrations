@@ -138,7 +138,13 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connect
 
 		if path != "/" {
 			if f.excludes.IsExcluded(path, d.IsDir()) {
-				return filepath.SkipDir
+				// SkipDir on a non-directory also skips later siblings,
+				// which would silently drop files re-included by a
+				// later negation rule. See PlakarKorp/plakar#2120.
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 		}
 
