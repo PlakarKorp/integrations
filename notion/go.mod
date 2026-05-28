@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/notion-integration
+module github.com/PlakarKorp/integrations/notion
 
 go 1.24.0
 
