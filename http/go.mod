@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-http
+module github.com/PlakarKorp/integrations/http
 
 go 1.24.0
 
