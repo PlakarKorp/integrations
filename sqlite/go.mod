@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-sqlite
+module github.com/PlakarKorp/integrations/sqlite
 
 go 1.24.0
 
