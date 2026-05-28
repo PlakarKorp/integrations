@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-oci
+module github.com/PlakarKorp/integrations/oci
 
 go 1.24.0
 
