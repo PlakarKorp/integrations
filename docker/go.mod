@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-docker
+module github.com/PlakarKorp/integrations/docker
 
 go 1.24.0
 
