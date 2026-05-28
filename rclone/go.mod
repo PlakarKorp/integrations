@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-rclone
+module github.com/PlakarKorp/integrations/rclone
 
 go 1.24.0
 
