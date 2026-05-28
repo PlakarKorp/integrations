@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-sftp
+module github.com/PlakarKorp/integrations/sftp
 
 go 1.24.0
 
