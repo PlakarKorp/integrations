@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-s3
+module github.com/PlakarKorp/integrations/s3
 
 go 1.24.0
 
