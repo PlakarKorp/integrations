@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-caldav
+module github.com/PlakarKorp/integrations/caldav
 
 go 1.24.0
 
