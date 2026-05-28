@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-grpc
+module github.com/PlakarKorp/integrations/grpc
 
 go 1.25.0
 
