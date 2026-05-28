@@ -1,9 +1,9 @@
 module github.com/PlakarKorp/integrations/ptar
 
-go 1.24.0
+go 1.25.0
 
 require (
-	github.com/PlakarKorp/kloset v1.1.0-beta.2
+	github.com/PlakarKorp/kloset v1.1.0-rc.3
 	github.com/dustin/go-humanize v1.0.1
 )
 
@@ -18,7 +18,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/nickball/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 // indirect
-	github.com/pierrec/lz4/v4 v4.1.25 // indirect
+	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -26,13 +26,12 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/mod v0.32.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/mod v0.36.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	modernc.org/libc v1.67.6 // indirect
+	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.44.3 // indirect
+	modernc.org/sqlite v1.50.0 // indirect
 )
