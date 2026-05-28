@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-stdio
+module github.com/PlakarKorp/integrations/stdio
 
 go 1.24.0
 
