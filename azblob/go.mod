@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-azblob
+module github.com/PlakarKorp/integrations/azblob
 
 go 1.24.0
 
