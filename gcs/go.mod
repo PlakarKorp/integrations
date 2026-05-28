@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-gcs
+module github.com/PlakarKorp/integrations/gcs
 
 go 1.24.0
 
