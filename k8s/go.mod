@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-k8s
+module github.com/PlakarKorp/integrations/k8s
 
 go 1.25.5
 
