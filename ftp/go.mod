@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-ftp
+module github.com/PlakarKorp/integrations/ftp
 
 go 1.24.0
 
