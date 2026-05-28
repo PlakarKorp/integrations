@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-example
+module github.com/PlakarKorp/integrations/example
 
 go 1.25.7
 
