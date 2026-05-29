@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"

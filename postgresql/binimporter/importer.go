@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PlakarKorp/integration-postgresql/manifest"
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/manifest"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
