@@ -300,7 +300,7 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	cmd.Stdin = r
 	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("pg_restore: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("pg_restore: %w: %s", err, pgconn.TruncateOutput(out))
 	}
 	return nil
 }
@@ -320,7 +320,7 @@ func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
 	cmd.Stdin = r
 	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("psql: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("psql: %w: %s", err, pgconn.TruncateOutput(out))
 	}
 	return nil
 }
