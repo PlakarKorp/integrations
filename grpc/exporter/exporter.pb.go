@@ -7,7 +7,7 @@
 package exporter
 
 import (
-	integration_grpc "github.com/PlakarKorp/integration-grpc"
+	integration_grpc "github.com/PlakarKorp/integrations/grpc"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

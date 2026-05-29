@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	gconn "github.com/PlakarKorp/integration-grpc"
+	gconn "github.com/PlakarKorp/integrations/grpc"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 	"google.golang.org/grpc"
