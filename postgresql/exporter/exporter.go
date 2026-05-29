@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -209,19 +210,21 @@ func dumpBaseName(pathname string) string {
 }
 
 func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
+	path := path.Base(record.Pathname)
+
 	// manifest.json is metadata only; nothing to restore.
-	if record.Pathname == "manifest.json" {
+	if path == "manifest.json" {
 		return nil
 	}
-	if strings.HasSuffix(record.Pathname, ".dump") {
+	if strings.HasSuffix(path, ".dump") {
 		if len(p.databases) > 0 {
-			if _, ok := p.databases[dumpBaseName(record.Pathname)]; !ok {
+			if _, ok := p.databases[dumpBaseName(path)]; !ok {
 				return nil
 			}
 		}
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
-	if record.Pathname == "00000-globals.sql" {
+	if path == "00000-globals.sql" {
 		if !p.noGlobals {
 			return p.psqlRestore(ctx, record.Reader)
 		}
