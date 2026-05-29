@@ -19,6 +19,7 @@ package exporter
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path"
@@ -241,8 +242,21 @@ func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 
 		g.Go(func() error {
 			objname := strings.TrimLeft(path.Join(p.restoreDir, record.Pathname), "/")
+			var objectInfo minio.ObjectInfo
+			if len(record.ExtendedAttributes) > 0 {
+				if err := json.Unmarshal([]byte(record.ExtendedAttributes[0]), &objectInfo); err != nil {
+					objectInfo.UserTags = nil
+					objectInfo.UserMetadata = nil
+				}
+			}
+
 			_, err := p.minioClient.PutObject(ctx, p.bucket, objname,
-				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{ServerSideEncryption: p.ssec})
+				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{
+					ServerSideEncryption: p.ssec,
+					ContentType:          objectInfo.ContentType,
+					UserTags:             objectInfo.UserTags,
+					UserMetadata:         objectInfo.UserMetadata,
+				})
 			results <- record.Error(err)
 			return nil
 		})
