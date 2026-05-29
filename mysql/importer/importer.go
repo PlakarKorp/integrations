@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-mysql/manifest"
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/manifest"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	iimporter "github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -97,9 +97,9 @@ func (i *Importer) Origin() string {
 	return i.Proto + "://" + i.Conn.Host + ":" + i.Conn.Port
 }
 
-func (i *Importer) Type() string                  { return i.Proto }
-func (i *Importer) Root() string                  { return "/" }
-func (i *Importer) Flags() location.Flags         { return location.FLAG_STREAM }
+func (i *Importer) Type() string                   { return i.Proto }
+func (i *Importer) Root() string                   { return "/" }
+func (i *Importer) Flags() location.Flags          { return location.FLAG_STREAM }
 func (i *Importer) Ping(ctx context.Context) error { return i.Conn.Ping(ctx) }
 func (i *Importer) Close(_ context.Context) error  { return nil }
 

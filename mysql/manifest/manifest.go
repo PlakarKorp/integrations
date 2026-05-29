@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 )
@@ -32,21 +32,21 @@ type ManifestOptions struct {
 
 // Manifest is the top-level structure serialised to /manifest.json.
 type Manifest struct {
-	Version           int              `json:"version"`
-	CreatedAt         time.Time        `json:"created_at"`
-	Connector         string           `json:"connector"`
-	Host              string           `json:"host"`
-	Port              string           `json:"port"`
-	ServerVersion     string           `json:"server_version"`
-	MysqldumpVersion  string           `json:"mysqldump_version,omitempty"`
-	MariadumpVersion  string           `json:"mariadump_version,omitempty"`
-	IsReadReplica     bool             `json:"is_read_replica"`
-	Database          string           `json:"database,omitempty"` // empty = all databases
-	DumpFormat        string           `json:"dump_format"`        // always "sql" for this plugin
-	Options           *ManifestOptions `json:"options,omitempty"`
-	ServerConfig      *ServerConfig    `json:"server_config,omitempty"`
-	Users             []UserInfo       `json:"users,omitempty"`
-	Databases         []DatabaseInfo   `json:"databases,omitempty"`
+	Version          int              `json:"version"`
+	CreatedAt        time.Time        `json:"created_at"`
+	Connector        string           `json:"connector"`
+	Host             string           `json:"host"`
+	Port             string           `json:"port"`
+	ServerVersion    string           `json:"server_version"`
+	MysqldumpVersion string           `json:"mysqldump_version,omitempty"`
+	MariadumpVersion string           `json:"mariadump_version,omitempty"`
+	IsReadReplica    bool             `json:"is_read_replica"`
+	Database         string           `json:"database,omitempty"` // empty = all databases
+	DumpFormat       string           `json:"dump_format"`        // always "sql" for this plugin
+	Options          *ManifestOptions `json:"options,omitempty"`
+	ServerConfig     *ServerConfig    `json:"server_config,omitempty"`
+	Users            []UserInfo       `json:"users,omitempty"`
+	Databases        []DatabaseInfo   `json:"databases,omitempty"`
 }
 
 // Config holds all parameters needed to build and emit a logical backup manifest.

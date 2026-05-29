@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/integration-mysql/importer"
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/importer"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/location"
 )
