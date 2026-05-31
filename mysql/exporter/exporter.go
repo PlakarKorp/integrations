@@ -6,7 +6,6 @@ import (
 	"io"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -79,11 +78,12 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 	if record.FileInfo.Lmode.IsDir() {
 		return record.Ok()
 	}
-	if record.Pathname == "manifest.json" { // metadata only, nothing to restore
+	name := path.Base(record.Pathname)
+	if name == "manifest.json" { // metadata only, nothing to restore
 		return record.Ok()
 	}
 
-	if !strings.HasSuffix(record.Pathname, ".sql") {
+	if !strings.HasSuffix(name, ".sql") {
 		return record.Error(fmt.Errorf("unexpected file in backup: %s", record.Pathname))
 	}
 
@@ -95,9 +95,9 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 
 func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
 	targetDB := e.database
-	if targetDB == "" && record.Pathname != path.Base(importer.AllDatabasesDumpFile) {
+	if targetDB == "" && path.Base(record.Pathname) != path.Base(importer.AllDatabasesDumpFile) {
 		// Infer from filename: "mydb.sql" → "mydb".
-		base := filepath.Base(record.Pathname)
+		base := path.Base(record.Pathname)
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
