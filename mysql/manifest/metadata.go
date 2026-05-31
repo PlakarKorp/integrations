@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	_ "github.com/go-sql-driver/mysql"
 )
 

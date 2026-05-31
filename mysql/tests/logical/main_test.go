@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
+	"github.com/PlakarKorp/integrations/mysql/tests/testhelpers"
 )
 
 // TestMain pre-builds the plakar test images for all variants before any test
