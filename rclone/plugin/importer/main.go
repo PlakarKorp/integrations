@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-rclone/importer"
+	"github.com/PlakarKorp/integrations/rclone/importer"
 )
 
 func main() {

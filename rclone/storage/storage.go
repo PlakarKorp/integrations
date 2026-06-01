@@ -13,7 +13,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PlakarKorp/integration-rclone/utils"
+	"github.com/PlakarKorp/integrations/rclone/utils"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"

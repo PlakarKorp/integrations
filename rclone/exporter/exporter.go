@@ -10,7 +10,7 @@ import (
 	stdpath "path"
 	"strings"
 
-	"github.com/PlakarKorp/integration-rclone/utils"
+	"github.com/PlakarKorp/integrations/rclone/utils"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
