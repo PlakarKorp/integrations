@@ -260,7 +260,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	}
 
 	putObjectOptions := s.putObjectOptions
-	if s.mode()&storage.ModeWrite == 0 {
+	if s.mode()&storage.ModeRead == 0 {
 		putObjectOptions.StorageClass = "STANDARD"
 	}
 
@@ -389,7 +389,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		return info.Size, nil
 	case storage.StorageResourceLock:
 		putObjectOptions := s.putObjectOptions
-		if s.mode()&storage.ModeWrite == 0 {
+		if s.mode()&storage.ModeRead == 0 {
 			putObjectOptions.StorageClass = "STANDARD"
 		}
 
