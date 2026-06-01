@@ -152,7 +152,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		}
 
 	default:
-		return nil, fmt.Errorf("integration-k8s cannot handle protocol %s", proto)
+		return nil, fmt.Errorf("integrations/k8s cannot handle protocol %s", proto)
 	}
 
 	kubeletImage := params["kubelet_image"]

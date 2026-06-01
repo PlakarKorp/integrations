@@ -8,8 +8,8 @@ import (
 	"path"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	fsexporter "github.com/PlakarKorp/integration-fs/exporter"
-	fsimporter "github.com/PlakarKorp/integration-fs/importer"
+	fsexporter "github.com/PlakarKorp/integrations/fs/exporter"
+	fsimporter "github.com/PlakarKorp/integrations/fs/importer"
 )
 
 func usage() {

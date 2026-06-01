@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	k8s "github.com/PlakarKorp/integration-k8s"
+	k8s "github.com/PlakarKorp/integrations/k8s"
 )
 
 func main() {

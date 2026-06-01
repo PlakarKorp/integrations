@@ -1,7 +1,7 @@
 name: k8s
 display_name: Kubernetes
 description: backup and restore kubernetes resources & PVC data
-homepage: https://github.com/PlakarKorp/integration-k8s
+homepage: https://github.com/PlakarKorp/integrations/tree/main/k8s
 license: ISC
 api_version: v1.1.0
 connectors:
