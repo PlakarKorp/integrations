@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/PlakarKorp/integration-caldav/oauth2utils"
+	"github.com/PlakarKorp/integrations/caldav/oauth2utils"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"github.com/studio-b12/gowebdav"
