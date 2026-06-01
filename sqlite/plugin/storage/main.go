@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-sqlite/storage"
+	"github.com/PlakarKorp/integrations/sqlite/storage"
 )
 
 func main() {
