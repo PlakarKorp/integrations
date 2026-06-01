@@ -30,7 +30,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/integration-s3/common"
+	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"

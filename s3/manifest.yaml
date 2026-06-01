@@ -1,7 +1,7 @@
 name: s3
 display_name: S3
 description: Integration providing storage, import and export capabilities to and from/to buckets hosted on S3-compatible servers.
-homepage: https://github.com/PlakarKorp/integration-s3
+homepage: https://github.com/PlakarKorp/integrations/s3
 license: ISC
 api_version: v1.1.0
 tier: official
@@ -9,7 +9,7 @@ contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: s3Importer
-  homepage: https://github.com/PlakarKorp/integration-s3
+  homepage: https://github.com/PlakarKorp/integrations/s3
   license: ISC
   protocols: [s3]
   validator: ./importer/schema.json
@@ -17,7 +17,7 @@ connectors:
   subclass: s3
 - type: exporter
   executable: s3Exporter
-  homepage: https://github.com/PlakarKorp/integration-s3
+  homepage: https://github.com/PlakarKorp/integrations/s3
   license: ISC
   protocols: [s3]
   validator: ./exporter/schema.json
@@ -25,7 +25,7 @@ connectors:
   subclass: s3
 - type: storage
   executable: s3Storage
-  homepage: https://github.com/PlakarKorp/integration-s3
+  homepage: https://github.com/PlakarKorp/integrations/s3
   license: ISC
   protocols: [s3]
   validator: ./storage/schema.json
