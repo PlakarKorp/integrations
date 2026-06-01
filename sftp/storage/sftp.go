@@ -28,7 +28,7 @@ import (
 	"path"
 	"strings"
 
-	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
+	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"

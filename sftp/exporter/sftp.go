@@ -26,7 +26,7 @@ import (
 	"path"
 	"sync"
 
-	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
+	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
