@@ -5,6 +5,6 @@ version: v.1.0.0-beta
 connectors:
 - type: importer
   executable: dockerImporter
-  homepage: https://github.com/PlakarKorp/integration-docker
+  homepage: https://github.com/PlakarKorp/integrations/docker
   license: ISC
   protocols: [docker]
