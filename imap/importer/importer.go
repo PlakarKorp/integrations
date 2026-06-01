@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-imap/common"
+	"github.com/PlakarKorp/integrations/imap/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
