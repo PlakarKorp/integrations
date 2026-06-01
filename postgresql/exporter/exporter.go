@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -209,19 +210,21 @@ func dumpBaseName(pathname string) string {
 }
 
 func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
+	name := path.Base(record.Pathname)
+
 	// manifest.json is metadata only; nothing to restore.
-	if record.Pathname == "manifest.json" {
+	if name == "manifest.json" {
 		return nil
 	}
-	if strings.HasSuffix(record.Pathname, ".dump") {
+	if strings.HasSuffix(name, ".dump") {
 		if len(p.databases) > 0 {
-			if _, ok := p.databases[dumpBaseName(record.Pathname)]; !ok {
+			if _, ok := p.databases[dumpBaseName(name)]; !ok {
 				return nil
 			}
 		}
 		return p.pgRestore(ctx, record.Reader, record.Pathname)
 	}
-	if record.Pathname == "00000-globals.sql" {
+	if name == "00000-globals.sql" {
 		if !p.noGlobals {
 			return p.psqlRestore(ctx, record.Reader)
 		}
@@ -297,7 +300,7 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	cmd.Stdin = r
 	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("pg_restore: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("pg_restore: %w: %s", err, pgconn.TruncateOutput(out))
 	}
 	return nil
 }
@@ -317,7 +320,7 @@ func (p *Exporter) psqlRestore(ctx context.Context, r io.Reader) error {
 	cmd.Stdin = r
 	cmd.Env = p.conn.Env()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("psql: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("psql: %w: %s", err, pgconn.TruncateOutput(out))
 	}
 	return nil
 }

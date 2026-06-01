@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-postgresql
+module github.com/PlakarKorp/integrations/postgresql
 
 go 1.25.0
 

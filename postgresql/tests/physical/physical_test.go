@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
+	"github.com/PlakarKorp/integrations/postgresql/tests/testhelpers"
 )
 
 // TestPhysicalBackup verifies the full backup cycle for a physical

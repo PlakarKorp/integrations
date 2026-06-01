@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PlakarKorp/integration-postgresql/tests/testhelpers"
+	"github.com/PlakarKorp/integrations/postgresql/tests/testhelpers"
 )
 
 // TestLogicalBackup verifies the full backup and restore cycle for a
