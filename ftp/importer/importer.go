@@ -10,7 +10,7 @@ import (
 	"path"
 	"sync"
 
-	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/integrations/ftp/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"

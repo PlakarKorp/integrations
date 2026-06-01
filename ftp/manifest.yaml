@@ -7,14 +7,14 @@ contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: ftpImporter
-  homepage: https://github.com/PlakarKorp/integration-ftp
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/ftp
   license: ISC
   protocols: [ftp]
   validator: ./importer/schema.json
   class: compute
 - type: exporter
   executable: ftpExporter
-  homepage: https://github.com/PlakarKorp/integration-ftp
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/ftp
   license: ISC
   protocols: [ftp]
   validator: ./exporter/schema.json
