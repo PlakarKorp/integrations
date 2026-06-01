@@ -8,6 +8,8 @@ github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1 h1:gPetIUfg///RiaML7CRINCcdXo5
 github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1/go.mod h1:ni69BgWur3+rHb7cOg/8JOKEMFh8J7tEPxTTSUhGNjE=
 github.com/PlakarKorp/integration-grpc v1.1.0-beta.3 h1:u0n6Uyz7wqHOMoMYbfBLrcSrfAGqzcNQtcgkgYfU5TQ=
 github.com/PlakarKorp/integration-grpc v1.1.0-beta.3/go.mod h1:lrkbUc9iT0jHiZ5wmB19wAhjDTMRO/VDhMJEt5trFlY=
+github.com/PlakarKorp/integration-s3 v1.1.2 h1:ldT/4sXebvxl8V7RuNkFl2WJXCrLd+YrtTqCdC26HKg=
+github.com/PlakarKorp/integration-s3 v1.1.2/go.mod h1:eD28q6EFzUpEUTklHZ2MZ0E9iA9p+wRXwl6r9RJ0wUo=
 github.com/PlakarKorp/kloset v1.1.0-beta.2 h1:YUMCCguPW6buz3h17eYYX+c0QMVE9c8WqkwTI6ueLwA=
 github.com/PlakarKorp/kloset v1.1.0-beta.2/go.mod h1:LVCuJUI+ojPMyGeB32ydlT8xMl4NqVbvbnGwwFBaBMM=
 github.com/RaduBerinde/axisds v0.1.0 h1:YItk/RmU5nvlsv/awo2Fjx97Mfpt4JfgtEVAGPrLdz8=
