@@ -352,7 +352,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
 			t, err := hex.DecodeString(object.Key[prefixSize:])
 			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", res, err)
+				continue
 			}
 			if len(t) != 32 {
 				continue
