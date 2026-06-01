@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PlakarKorp/integration-mysql/tests/testhelpers"
+	"github.com/PlakarKorp/integrations/mysql/tests/testhelpers"
 )
 
 func TestSingleDatabaseBackup(t *testing.T) {

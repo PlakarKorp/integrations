@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-mysql/importer"
-	"github.com/PlakarKorp/integration-mysql/manifest"
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/importer"
+	"github.com/PlakarKorp/integrations/mysql/manifest"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	iimporter "github.com/PlakarKorp/kloset/connectors/importer"
 )

@@ -383,7 +383,7 @@ func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) err
 	cmd.Env = cc.Env()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("querying server version: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("querying server version: %w: %s", err, TruncateOutput(out))
 	}
 	version := strings.TrimSpace(string(out))
 	isMariaDB := strings.Contains(version, "MariaDB")
@@ -412,7 +412,7 @@ func (cc ConnConfig) Ping(ctx context.Context) error {
 	cmd.Env = cc.Env()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("ping failed: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("ping failed: %w: %s", err, TruncateOutput(out))
 	}
 	if cc.ExpectedFlavor != "" {
 		return cc.CheckFlavor(ctx, cc.ExpectedFlavor)
@@ -429,4 +429,16 @@ func (cc ConnConfig) ArgsWithPassword(pwArg string, extra ...string) []string {
 	}
 	args = append(args, cc.Args()...)
 	return append(args, extra...)
+}
+
+// TruncateOutput caps subprocess output embedded in error messages. gRPC
+// rejects messages that exceed its maximum frame size, so we keep only the
+// first and last 1000 bytes, which contain the most useful diagnostic context.
+func TruncateOutput(out []byte) string {
+	const window = 1000
+	s := strings.TrimSpace(string(out))
+	if len(s) <= window*2 {
+		return s
+	}
+	return s[:window] + "\n[output truncated]\n" + s[len(s)-window:]
 }
