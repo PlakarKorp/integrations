@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -83,6 +85,79 @@ func TestImporterImportReportsClosedResults(t *testing.T) {
 	err := importer.Import(context.Background(), records, results)
 	if err == nil {
 		t.Fatal("expected an error when results closes without acknowledgement")
+	}
+}
+
+func TestImporterStartDumpRunsForgejoCommand(t *testing.T) {
+	tmp := t.TempDir()
+	argsFile := filepath.Join(tmp, "args.txt")
+	forgejoBin := filepath.Join(tmp, "forgejo")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "Forgejo version 1.0"
+  exit 0
+fi
+printf '%s\n' "$@" > "$FORGEJO_ARGS_FILE"
+printf 'archive-data'
+`
+	if err := os.WriteFile(forgejoBin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := parseImporterConfig(map[string]string{
+		"forgejo_bin": forgejoBin,
+		"dump_type":   "zip",
+		"work_path":   "/var/lib/forgejo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	importer := &Importer{cfg: cfg}
+	t.Setenv("FORGEJO_ARGS_FILE", argsFile)
+
+	reader, err := importer.startDump(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "archive-data" {
+		t.Fatalf("unexpected dump output: %q", data)
+	}
+
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "dump\n--file\n-\n--type\nzip\n--quiet\n--work-path\n/var/lib/forgejo\n"
+	if string(got) != want {
+		t.Fatalf("unexpected forgejo args:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestImporterPingReportsForgejoOutput(t *testing.T) {
+	tmp := t.TempDir()
+	forgejoBin := filepath.Join(tmp, "forgejo")
+	script := `#!/bin/sh
+echo "bad config" >&2
+exit 42
+`
+	if err := os.WriteFile(forgejoBin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	importer := &Importer{cfg: config{forgejoBin: forgejoBin}}
+	err := importer.Ping(context.Background())
+	if err == nil {
+		t.Fatal("expected ping error")
+	}
+	if !strings.Contains(err.Error(), "bad config") {
+		t.Fatalf("expected stderr in error, got %q", err)
 	}
 }
 
