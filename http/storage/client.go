@@ -116,7 +116,7 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+func (s *Store) List(ctx context.Context, res storage.StorageResource, flags uint32) ([]objects.MAC, error) {
 	uri := "/resources/" + strres(res)
 	r, err := s.sendRequest("GET", uri, nil, nil)
 	if err != nil {
@@ -139,7 +139,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader, flags uint32) (int64, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	cr := &countingReader{rc: rd}
 	r, err := s.sendRequest("PUT", uri, cr, nil)
@@ -159,7 +159,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	return cr.n, nil
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range, flags uint32) (io.ReadCloser, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest("GET", uri, nil, rg)
 	if err != nil {
@@ -176,7 +176,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	return r.Body, nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC, flags uint32) error {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest("DELETE", uri, nil, nil)
 	if err != nil {
