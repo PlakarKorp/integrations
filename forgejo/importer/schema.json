@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Forgejo Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Forgejo source location, for example forgejo://local"
+    },
+    "forgejo_bin": {
+      "type": "string",
+      "description": "Path to the Forgejo binary. Defaults to forgejo."
+    },
+    "work_path": {
+      "type": "string",
+      "description": "Forgejo work path passed to --work-path."
+    },
+    "custom_path": {
+      "type": "string",
+      "description": "Forgejo custom path passed to --custom-path."
+    },
+    "config_path": {
+      "type": "string",
+      "description": "Forgejo app.ini path passed to --config."
+    },
+    "temp_dir": {
+      "type": "string",
+      "description": "Temporary directory passed to --tempdir."
+    },
+    "database": {
+      "type": "string",
+      "description": "Database SQL syntax passed to --database, for example sqlite3, mysql, or postgres."
+    },
+    "dump_type": {
+      "type": "string",
+      "enum": ["tar", "tar.gz", "tgz", "zip"],
+      "description": "Forgejo dump output type. Defaults to tar.gz."
+    },
+    "skip_repository": {
+      "type": "boolean",
+      "description": "Pass --skip-repository to forgejo dump."
+    },
+    "skip_log": {
+      "type": "boolean",
+      "description": "Pass --skip-log to forgejo dump."
+    },
+    "skip_custom_dir": {
+      "type": "boolean",
+      "description": "Pass --skip-custom-dir to forgejo dump."
+    },
+    "skip_lfs_data": {
+      "type": "boolean",
+      "description": "Pass --skip-lfs-data to forgejo dump."
+    },
+    "skip_attachment_data": {
+      "type": "boolean",
+      "description": "Pass --skip-attachment-data to forgejo dump."
+    },
+    "skip_package_data": {
+      "type": "boolean",
+      "description": "Pass --skip-package-data to forgejo dump."
+    },
+    "skip_index": {
+      "type": "boolean",
+      "description": "Pass --skip-index to forgejo dump."
+    },
+    "skip_repo_archives": {
+      "type": "boolean",
+      "description": "Pass --skip-repo-archives to forgejo dump."
+    }
+  }
+}
