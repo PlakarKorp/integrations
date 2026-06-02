@@ -56,6 +56,37 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestCommandArgsWithSudo(t *testing.T) {
+	cfg := Config{UseSudo: true}
+	got := cfg.commandArgs("gitlab-backup", "restore", "BACKUP=abc")
+	want := []string{"sudo", "-n", "gitlab-backup", "restore", "BACKUP=abc"}
+	if len(got) != len(want) {
+		t.Fatalf("command length=%d, want %d: %#v", len(got), len(want), got)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("command[%d]=%q, want %q", idx, got[idx], want[idx])
+		}
+	}
+}
+
+func TestSSHArgs(t *testing.T) {
+	cfg := Config{SSHHost: "gitlab.example.com", SSHUser: "git", SSHPort: "2222", SSHIdentity: "/tmp/key"}
+	got, err := cfg.sshArgs("true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-o", "BatchMode=yes", "-p", "2222", "-i", "/tmp/key", "git@gitlab.example.com", "true"}
+	if len(got) != len(want) {
+		t.Fatalf("ssh args length=%d, want %d: %#v", len(got), len(want), got)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("sshArgs[%d]=%q, want %q", idx, got[idx], want[idx])
+		}
+	}
+}
+
 func TestNewestBackup(t *testing.T) {
 	dir := t.TempDir()
 	oldPath := filepath.Join(dir, "1700000000_gitlab_backup.tar")
