@@ -72,7 +72,10 @@ func (i *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case result := <-results:
+	case result, ok := <-results:
+		if !ok || result == nil {
+			return fmt.Errorf("forgejo dump record was not acknowledged")
+		}
 		return result.Err
 	}
 }

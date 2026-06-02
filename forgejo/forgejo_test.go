@@ -5,10 +5,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/PlakarKorp/kloset/connectors"
 )
 
 func TestImporterDumpArgs(t *testing.T) {
@@ -56,6 +59,30 @@ func TestImporterDumpArgs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dump args mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestImporterNormalizesDumpType(t *testing.T) {
+	cfg, err := parseImporterConfig(map[string]string{
+		"dump_type": "TGZ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.dumpType != "tgz" {
+		t.Fatalf("unexpected dump type: %q", cfg.dumpType)
+	}
+}
+
+func TestImporterImportReportsClosedResults(t *testing.T) {
+	importer := &Importer{cfg: config{dumpType: defaultDumpType}}
+	records := make(chan *connectors.Record, 1)
+	results := make(chan *connectors.Result)
+	close(results)
+
+	err := importer.Import(context.Background(), records, results)
+	if err == nil {
+		t.Fatal("expected an error when results closes without acknowledgement")
 	}
 }
 

@@ -50,6 +50,7 @@ func parseImporterConfig(values map[string]string) (config, error) {
 	cfg.tempDir = values["temp_dir"]
 	cfg.database = values["database"]
 	if v := values["dump_type"]; v != "" {
+		v = strings.ToLower(v)
 		if !supportedDumpType(v) {
 			return cfg, fmt.Errorf("unsupported dump_type %q", v)
 		}
