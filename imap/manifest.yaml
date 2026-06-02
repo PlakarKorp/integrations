@@ -12,8 +12,8 @@ connectors:
   protocols: [imap]
   validator: ./importer/schema.json
   class: compute
-#- type: exporter
-#  executable: imapExporter
-#  protocols: [imap]
-#  validator: ./exporter/schema.json
-#  class: compute
+- type: exporter
+  executable: imapExporter
+  protocols: [imap]
+  validator: ./exporter/schema.json
+  class: compute

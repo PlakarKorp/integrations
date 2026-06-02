@@ -34,11 +34,24 @@ $ plakar pkg
 
 The configuration parameters are as follow:
 
-- `location`: The URL of the IMAP server in the form imap://<host>:<port>.
+- `location`: The URL of the IMAP server in the form `imap://<host>[:<port>]`. When the port is omitted it defaults to 993 for `tls` and 143 otherwise. Credentials may also be embedded as `imap://user:password@host`.
 - `username`: Username to login.
 - `password`: Password for login.
-- `tls`:      TlS mode to use.  Possible values are tls (the default), starttls and no-tls.
-- `tls_no_verify`: If set to yes, the client will not verify the server certificate in tls mode.
+- `tls`:      TLS mode to use. Possible values are `starttls` (the default), `tls` and `no-tls`.
+- `tls_no_verify`: If set to `true`, the client will not verify the server certificate (dangerous; testing only).
+
+## Behavior
+
+- **Folder hierarchy** is preserved across servers even when source and
+  destination use different hierarchy delimiters (e.g. Dovecot's `.` vs `/`).
+  Each mailbox segment is percent-encoded into the snapshot path, so a folder
+  named `Work/Notes` or `Reçus` round-trips intact.
+- **Message flags** (`\Seen`, `\Answered`, `\Flagged`, `\Draft`, `\Deleted`,
+  and keywords such as `$Junk`) are encoded into each message's file name and
+  re-applied on restore. The session-only `\Recent` flag is intentionally
+  dropped. Messages are fetched with `BODY.PEEK`, so a backup never alters the
+  source mailbox.
+- On restore, missing mailboxes (and their parents) are created automatically.
 
 ## Examples
 

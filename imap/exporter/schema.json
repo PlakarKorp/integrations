@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Plakar IMAP Importer Connector Config",
+  "title": "Plakar IMAP Exporter Connector Config",
   "type": "object",
   "additionalProperties": false,
   "required": [

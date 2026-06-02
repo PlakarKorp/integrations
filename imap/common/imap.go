@@ -48,16 +48,20 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 		if p, ok := endpoint.User.Password(); ok {
 			ic.Password = p
 		}
-	} else {
+	}
+
+	if ic.Username == "" {
 		v, ok := config["username"]
 		if !ok {
-			return fmt.Errorf("Missing username")
+			return fmt.Errorf("missing username")
 		}
 		ic.Username = v
+	}
 
-		v, ok = config["password"]
+	if ic.Password == "" {
+		v, ok := config["password"]
 		if !ok {
-			return fmt.Errorf("Missing password")
+			return fmt.Errorf("missing password")
 		}
 		ic.Password = v
 	}
@@ -68,16 +72,25 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	}
 	ic.TlsMode = v
 
-	v, ok = config["tls_no_verify"]
-	if v == "true" {
+	if config["tls_no_verify"] == "true" {
 		ic.TlsNoVerify = true
+	}
+
+	// Default ports when the location omits one.
+	if ic.Address != "" && !strings.Contains(ic.Address, ":") {
+		switch ic.TlsMode {
+		case "tls":
+			ic.Address += ":993"
+		default:
+			ic.Address += ":143"
+		}
 	}
 
 	return nil
 }
 
 func (imp *ImapConnector) Connect() (*ImapSession, error) {
-	dialer := imapclient.DialTLS
+	var dialer func(string, *imapclient.Options) (*imapclient.Client, error)
 	switch imp.TlsMode {
 	case "no-tls":
 		dialer = imapclient.DialInsecure
@@ -86,7 +99,7 @@ func (imp *ImapConnector) Connect() (*ImapSession, error) {
 	case "tls":
 		dialer = imapclient.DialTLS
 	default:
-		return nil, fmt.Errorf("Invalid tls mode %q", imp.TlsMode)
+		return nil, fmt.Errorf("invalid tls mode %q", imp.TlsMode)
 	}
 
 	tlsCfg := &tls.Config{
@@ -99,13 +112,13 @@ func (imp *ImapConnector) Connect() (*ImapSession, error) {
 
 	client, err := dialer(imp.Address, opts)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to dial IMAP server: %w", err)
+		return nil, fmt.Errorf("failed to dial IMAP server: %w", err)
 	}
 
 	err = client.Login(imp.Username, imp.Password).Wait()
 	if err != nil {
 		client.Close()
-		return nil, fmt.Errorf("Failed to login %w", err)
+		return nil, fmt.Errorf("failed to login: %w", err)
 	}
 
 	return &ImapSession{
@@ -128,8 +141,7 @@ func (session *ImapSession) Create(mailbox string, existOk bool) error {
 	opts := imap.CreateOptions{}
 	err := session.Client.Create(mailbox, &opts).Wait()
 	if err != nil {
-		e, ok := err.(*imap.Error)
-		if ok && e.Code == imap.ResponseCodeAlreadyExists && existOk {
+		if existOk && IsAlreadyExists(err) {
 			return nil
 		}
 		return err
@@ -169,7 +181,35 @@ func (session *ImapSession) Append(mailbox string, fp io.Reader, size int64) err
 }
 
 func (session *ImapSession) Logout() error {
+	if session == nil || session.Client == nil {
+		return nil
+	}
 	return session.Client.Logout().Wait()
+}
+
+// IsAlreadyExists reports whether err is an IMAP error indicating the mailbox
+// already exists (so CREATE can be treated as idempotent).
+func IsAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeAlreadyExists {
+		return true
+	}
+	up := strings.ToUpper(err.Error())
+	return strings.Contains(up, "ALREADYEXISTS") || strings.Contains(up, "ALREADY EXISTS")
+}
+
+// IsTryCreate reports whether an APPEND failed because the target mailbox does
+// not exist yet (RFC 3501 [TRYCREATE] response code).
+func IsTryCreate(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeTryCreate {
+		return true
+	}
+	return strings.Contains(strings.ToUpper(err.Error()), "TRYCREATE")
 }
 
 func SafeName(s string) string {

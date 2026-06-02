@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PlakarKorp/integrations/imap/common"
@@ -18,6 +18,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const defaultPoolSize = 5
+
 func init() {
 	exporter.Register("imap", 0, NewExporter)
 }
@@ -26,10 +28,19 @@ type Exporter struct {
 	connector common.ImapConnector
 	pool      *common.ConnectionPool
 	poolSize  int
+
+	delimOnce sync.Once
+	delim     rune
+
+	mu      sync.Mutex
+	created map[string]struct{} // mailboxes we have already ensured exist
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
-	exp := &Exporter{poolSize: 5}
+	exp := &Exporter{
+		poolSize: defaultPoolSize,
+		created:  make(map[string]struct{}),
+	}
 	if err := exp.connector.InitFromConfig(config); err != nil {
 		return nil, err
 	}
@@ -51,6 +62,7 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 	_, err = s.Client.List("", "*", nil).Collect()
 	return err
 }
+
 func (exp *Exporter) Close(ctx context.Context) error {
 	if exp.pool != nil {
 		exp.pool.Close()
@@ -58,27 +70,48 @@ func (exp *Exporter) Close(ctx context.Context) error {
 	return nil
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+// delimiter discovers (once) the destination server's hierarchy delimiter so
+// kloset paths can be mapped back to native mailbox names.
+func (exp *Exporter) delimiter(ctx context.Context) rune {
+	exp.delimOnce.Do(func() {
+		exp.delim = '/' // sane default
+		_ = exp.pool.WithSession(ctx, func(ps *common.PoolSession) error {
+			list, err := ps.Session.Client.List("", "", &imap.ListOptions{}).Collect()
+			if err == nil {
+				for _, l := range list {
+					if l.Delim != 0 {
+						exp.delim = l.Delim
+						break
+					}
+				}
+			}
+			return nil
+		})
+	})
+	return exp.delim
+}
+
+func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
 
-	if err := p.Ping(ctx); err != nil {
+	if err := exp.Ping(ctx); err != nil {
 		return err
 	}
 
-	pool, err := common.NewPool(p.connector, 1)
+	pool, err := common.NewPool(exp.connector, exp.poolSize)
 	if err != nil {
 		return err
 	}
-	p.pool = pool
+	exp.pool = pool
 
-	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(1)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(exp.poolSize)
 
 loop:
 	for {
 		select {
-		case <-ctx.Done():
-			ret = ctx.Err()
+		case <-gctx.Done():
+			ret = gctx.Err()
 			break loop
 
 		case record, ok := <-records:
@@ -95,17 +128,21 @@ loop:
 				continue
 			}
 
-			// Normalize incoming path: may or may not start with "/"
-			recPath := cleanAbs(record.Pathname)
+			recPath := record.Pathname
 
-			// directories are handled synchronously (like FTP exporter)
+			// Directories map to mailboxes; create them synchronously so a
+			// message APPEND never races ahead of its parent mailbox.
 			if record.FileInfo.Lmode.IsDir() {
-				if recPath == "/" {
+				mbox, err := common.PathToMailbox(recPath, exp.delimiter(gctx))
+				if err != nil {
+					results <- record.Error(err)
+					continue
+				}
+				if mbox == "" {
 					results <- record.Ok()
 					continue
 				}
-				mbox := strings.TrimPrefix(recPath, "/")
-				if err := p.ensureMailbox(ctx, mbox); err != nil {
+				if err := exp.ensureMailbox(gctx, mbox); err != nil {
 					results <- record.Error(err)
 				} else {
 					results <- record.Ok()
@@ -113,11 +150,9 @@ loop:
 				continue
 			}
 
-			// non-dirs handled concurrently
 			r := record
 			g.Go(func() error {
-				err := p.exportFile(ctx, r)
-				if err != nil {
+				if err := exp.exportFile(gctx, r); err != nil {
 					results <- r.Error(err)
 				} else {
 					results <- r.Ok()
@@ -133,16 +168,20 @@ loop:
 	return ret
 }
 
-func (p *Exporter) exportFile(ctx context.Context, record *connectors.Record) error {
+func (exp *Exporter) exportFile(ctx context.Context, record *connectors.Record) error {
 	if record.FileInfo.Lmode&0o120000 != 0 { // os.ModeSymlink
 		return errors.ErrUnsupported
 	}
 
-	// derive mailbox from path: /Trash/xxx.eml -> Trash
-	recPath := cleanAbs(record.Pathname)
-	mbox, err := mailboxFromPath(recPath)
+	// The mailbox is the directory portion of the path; the file name carries
+	// the original flags.
+	dir, file := splitPath(record.Pathname)
+	mbox, err := common.PathToMailbox(dir, exp.delimiter(ctx))
 	if err != nil {
 		return err
+	}
+	if mbox == "" {
+		return fmt.Errorf("refusing to restore message at repository root: %q", record.Pathname)
 	}
 
 	var buf bytes.Buffer
@@ -151,33 +190,31 @@ func (p *Exporter) exportFile(ctx context.Context, record *connectors.Record) er
 	}
 	msg := buf.Bytes()
 
-	var aopts imap.AppendOptions
+	aopts := &imap.AppendOptions{
+		Flags: common.ParseMessageFileName(file),
+	}
 	if !record.FileInfo.LmodTime.IsZero() {
 		aopts.Time = record.FileInfo.LmodTime
 	} else {
 		aopts.Time = time.Now()
 	}
 
-	err = p.appendMessage(ctx, mbox, msg, &aopts)
+	err = exp.appendMessage(ctx, mbox, msg, aopts)
 	if err == nil {
 		return nil
 	}
-	if isTryCreate(err) {
-		if e := p.ensureMailbox(ctx, mbox); e != nil {
-			return fmt.Errorf("append TRYCREATE but ensure mailbox %q failed: %w (orig: %v)", mbox, e, err)
+	if common.IsTryCreate(err) {
+		if e := exp.ensureMailbox(ctx, mbox); e != nil {
+			return fmt.Errorf("append to %q returned TRYCREATE but ensuring mailbox failed: %w (orig: %v)", mbox, e, err)
 		}
-		return p.appendMessage(ctx, mbox, msg, &aopts)
+		return exp.appendMessage(ctx, mbox, msg, aopts)
 	}
 	return err
 }
-func (p *Exporter) appendMessage(ctx context.Context, mailbox string, msg []byte, opts *imap.AppendOptions) error {
-	do := func() error {
-		return p.pool.WithSession(ctx, func(ps *common.PoolSession) error {
-			if err := ps.Session.Client.Noop().Wait(); err != nil {
-				ps.Bad = true
-				return err
-			}
 
+func (exp *Exporter) appendMessage(ctx context.Context, mailbox string, msg []byte, opts *imap.AppendOptions) error {
+	attempt := func() error {
+		return exp.pool.WithSession(ctx, func(ps *common.PoolSession) error {
 			cmd := ps.Session.Client.Append(mailbox, int64(len(msg)), opts)
 			if _, err := cmd.Write(msg); err != nil {
 				_ = cmd.Close()
@@ -188,82 +225,82 @@ func (p *Exporter) appendMessage(ctx context.Context, mailbox string, msg []byte
 				ps.Bad = true
 				return err
 			}
-			_, err := cmd.Wait()
-			if err != nil {
-				ps.Bad = true
+			if _, err := cmd.Wait(); err != nil {
+				// A TRYCREATE is a clean protocol response, not a broken
+				// connection: keep the session for the caller's retry.
+				if !common.IsTryCreate(err) {
+					ps.Bad = true
+				}
+				return err
 			}
-			return err
+			return nil
 		})
 	}
 
-	// retry once after reconnect if the first attempt killed the connection
-	if err := do(); err != nil {
-		return do()
+	err := attempt()
+	if err == nil || common.IsTryCreate(err) {
+		return err
 	}
-	return nil
+	// One retry on a (now reconnected) session for transient connection errors.
+	return attempt()
 }
 
-func (p *Exporter) ensureMailbox(ctx context.Context, mailbox string) error {
-	mailbox = strings.Trim(mailbox, "/")
+func (exp *Exporter) ensureMailbox(ctx context.Context, mailbox string) error {
+	mailbox = strings.TrimSpace(mailbox)
 	if mailbox == "" {
 		return nil
 	}
 
-	parts := strings.Split(mailbox, "/")
+	exp.mu.Lock()
+	if _, ok := exp.created[mailbox]; ok {
+		exp.mu.Unlock()
+		return nil
+	}
+	exp.mu.Unlock()
+
+	// Create the full hierarchy. Intermediate mailboxes are created with the
+	// destination delimiter so nested folders land in the right place.
+	delim := exp.delimiter(ctx)
+	segs := strings.Split(mailbox, string(delim))
 	curr := ""
-	for _, part := range parts {
+	for _, part := range segs {
 		if part == "" {
 			continue
 		}
 		if curr == "" {
 			curr = part
 		} else {
-			curr = curr + "/" + part
+			curr = curr + string(delim) + part
 		}
-		if err := p.createMailbox(ctx, curr); err != nil {
+		if err := exp.createMailbox(ctx, curr); err != nil {
 			return err
 		}
 	}
+
+	exp.mu.Lock()
+	exp.created[mailbox] = struct{}{}
+	exp.mu.Unlock()
 	return nil
 }
 
 func (exp *Exporter) createMailbox(ctx context.Context, mailbox string) error {
 	return exp.pool.WithSession(ctx, func(ps *common.PoolSession) error {
 		err := ps.Session.Client.Create(mailbox, nil).Wait()
-		if err == nil {
-			return nil
-		}
-		if strings.Contains(strings.ToUpper(err.Error()), "ALREADY") ||
-			strings.Contains(strings.ToUpper(err.Error()), "EXISTS") {
+		if err == nil || common.IsAlreadyExists(err) {
 			return nil
 		}
 		return err
 	})
 }
 
-/* ---------- helpers (adapt to your actual Record shape) ---------- */
-
-func cleanAbs(p string) string {
-	if p == "" {
-		return "/"
+func splitPath(p string) (dir, file string) {
+	i := strings.LastIndexByte(p, '/')
+	if i < 0 {
+		return "/", p
 	}
-	p = path.Clean("/" + strings.TrimPrefix(p, "/"))
-	return p
-}
-
-func mailboxFromPath(p string) (string, error) {
-	p = strings.TrimPrefix(p, "/")
-	parts := strings.SplitN(p, "/", 2)
-	if len(parts) < 1 || parts[0] == "" {
-		return "", fmt.Errorf("invalid imap path: %q", p)
+	dir = p[:i]
+	if dir == "" {
+		dir = "/"
 	}
-	return parts[0], nil
-}
-
-func isTryCreate(err error) bool {
-	if err == nil {
-		return false
-	}
-	up := strings.ToUpper(err.Error())
-	return strings.Contains(up, "[TRYCREATE]") || strings.Contains(up, "TRYCREATE")
+	return dir, p[i+1:]
 }

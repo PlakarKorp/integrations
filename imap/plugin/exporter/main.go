@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, exporter.NewImapExporter)
+	sdk.EntrypointExporter(os.Args, exporter.NewExporter)
 }
