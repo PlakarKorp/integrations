@@ -452,16 +452,28 @@ func (c *connector) openRDBWithCommand(ctx context.Context, args ...string) (io.
 	}
 	_ = conn.SetDeadline(time.Time{})
 	ok = true
-	return &rdbReader{conn: conn, reader: &io.LimitedReader{R: br, N: n}}, nil
+	return &rdbReader{conn: conn, reader: br, remaining: n}, nil
 }
 
 type rdbReader struct {
-	conn   net.Conn
-	reader *io.LimitedReader
+	conn      net.Conn
+	reader    io.Reader
+	remaining int64
 }
 
 func (r *rdbReader) Read(p []byte) (int, error) {
-	return r.reader.Read(p)
+	if r.remaining <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	if err == io.EOF && r.remaining > 0 {
+		err = io.ErrUnexpectedEOF
+	}
+	return n, err
 }
 
 func (r *rdbReader) Close() error {

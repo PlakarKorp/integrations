@@ -106,7 +106,7 @@ func TestSendCommand(t *testing.T) {
 
 func TestRDBReaderClosesConnection(t *testing.T) {
 	conn := &fakeConn{}
-	r := &rdbReader{conn: conn, reader: &io.LimitedReader{R: bytes.NewBufferString("abc"), N: 3}}
+	r := &rdbReader{conn: conn, reader: bytes.NewBufferString("abc"), remaining: 3}
 	data, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +138,14 @@ type netAddr string
 func (a netAddr) Network() string { return string(a) }
 func (a netAddr) String() string  { return string(a) }
 
+func TestRDBReaderReportsShortStream(t *testing.T) {
+	conn := &fakeConn{}
+	r := &rdbReader{conn: conn, reader: bytes.NewBufferString("ab"), remaining: 3}
+	_, err := io.ReadAll(r)
+	if err != io.ErrUnexpectedEOF {
+		t.Fatalf("err = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+}
 func TestOpenRDBWithFakeRedis(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
