@@ -1,0 +1,15 @@
+name: pcp
+display_name: Plakar Control Plane
+description: Back up your instance of Plakar Control Plane.
+api_version: v1.1.0
+homepage: https://github.com/PlakarKorp/integrations/tree/main/plakar-control-plane
+license: ISC
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+  - type: importer
+    executable: pcpImporter
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/plakar-control-plane
+    license: ISC
+    protocols: [pcp]
+    validator: ./importer/schema.json
