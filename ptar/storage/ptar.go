@@ -252,7 +252,7 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return fi.Size(), nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+func (s *Store) List(ctx context.Context, res storage.StorageResource, flags uint32) ([]objects.MAC, error) {
 	switch res {
 	case storage.StorageResourceState:
 		if s.mode&storage.ModeWrite != 0 {
@@ -273,7 +273,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader, flags uint32) (int64, error) {
 	switch res {
 	case storage.StorageResourceState:
 		if s.mode&storage.ModeWrite == 0 {
@@ -311,7 +311,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range, flags uint32) (io.ReadCloser, error) {
 	switch res {
 	case storage.StorageResourceState:
 		if mac != stateMAC {
@@ -331,7 +331,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(context.Context, storage.StorageResource, objects.MAC) error {
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC, flags uint32) error {
 	if s.mode&storage.ModeWrite == 0 {
 		return storage.ErrNotWritable
 	}
