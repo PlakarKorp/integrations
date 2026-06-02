@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/notion-integration/notion"
+	"github.com/PlakarKorp/integrations/notion/notion"
 )
 
 func main() {
