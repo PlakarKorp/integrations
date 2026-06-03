@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-imap/common"
+	"github.com/PlakarKorp/integrations/imap/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -24,6 +24,7 @@ func init() {
 
 type Importer struct {
 	connector common.ImapConnector
+	pool      *common.ConnectionPool
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -53,21 +54,20 @@ func (imp *Importer) Ping(ctx context.Context) error {
 func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	if err := imp.Ping(ctx); err != nil {
-		return err
-	}
-
 	session, err := imp.connector.Connect()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = session.Logout() }()
 
+	// The per-message body readers are consumed lazily by the backup engine,
+	// possibly after Import returns. The pool therefore outlives Import and is
+	// torn down in Close().
 	pool, err := common.NewPool(imp.connector, 5)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	imp.pool = pool
 
 	mboxes, err := session.Client.List("", "*", nil).Collect()
 	if err != nil {
@@ -82,7 +82,9 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		LmodTime: time.Unix(0, 0),
 	}, nil, nil)
 
-	// mailbox dirs and parents
+	// Emit a directory record for every mailbox and its ancestors. The kloset
+	// path is derived from the mailbox name using the server delimiter so the
+	// hierarchy round-trips regardless of the delimiter character.
 	emitted := map[string]struct{}{"/": {}}
 	emitDir := func(p string) {
 		p = path.Clean(p)
@@ -99,9 +101,13 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}
 
 	for _, m := range mboxes {
-		mboxPath := path.Clean("/" + m.Mailbox)
+		// Skip \NonExistent / \NoSelect intermediate markers that have no path.
+		if m.Mailbox == "" {
+			continue
+		}
+		mboxPath := common.MailboxToPath(m.Mailbox, m.Delim)
 		curr := "/"
-		for part := range strings.SplitSeq(strings.TrimPrefix(mboxPath, "/"), "/") {
+		for _, part := range strings.Split(strings.TrimPrefix(mboxPath, "/"), "/") {
 			if part == "" {
 				continue
 			}
@@ -111,15 +117,28 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}
 
 	for _, m := range mboxes {
-		if err := imp.importMailbox(ctx, session, pool, m.Mailbox, records); err != nil {
-			records <- connectors.NewError("/"+m.Mailbox, err)
+		if m.Mailbox == "" || hasAttr(m.Attrs, imap.MailboxAttrNonExistent) || hasAttr(m.Attrs, imap.MailboxAttrNoSelect) {
+			continue
+		}
+		mboxPath := common.MailboxToPath(m.Mailbox, m.Delim)
+		if err := imp.importMailbox(ctx, session, pool, m.Mailbox, mboxPath, records); err != nil {
+			records <- connectors.NewError(mboxPath, err)
 		}
 	}
 
 	return nil
 }
 
-func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSession, pool *common.ConnectionPool, mailbox string, records chan<- *connectors.Record) error {
+func hasAttr(attrs []imap.MailboxAttr, want imap.MailboxAttr) bool {
+	for _, a := range attrs {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSession, pool *common.ConnectionPool, mailbox, mboxPath string, records chan<- *connectors.Record) error {
 	sel, err := session.Client.Select(mailbox, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
 		return fmt.Errorf("SELECT %q failed: %w", mailbox, err)
@@ -130,16 +149,17 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 
 	// Sequence numbers 1:* (NOT UIDs)
 	var seq imap.SeqSet
-	seq.AddRange(1, uint32(sel.NumMessages))
+	seq.AddRange(1, sel.NumMessages)
 
 	msgs, err := session.Client.Fetch(seq, &imap.FetchOptions{
 		UID:          true,
+		Flags:        true,
 		InternalDate: true,
 		RFC822Size:   true,
 		Envelope:     true,
 	}).Collect()
 	if err != nil {
-		return fmt.Errorf("FETCH (UID) %q failed: %w", mailbox, err)
+		return fmt.Errorf("FETCH %q failed: %w", mailbox, err)
 	}
 
 	for _, msg := range msgs {
@@ -153,26 +173,25 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 			continue
 		}
 
-		uid := imap.UID(msg.UID)
-		uidStr := fmt.Sprint(uid)
+		uid := msg.UID
 
 		mod := time.Unix(0, 0)
 		if !msg.InternalDate.IsZero() {
 			mod = msg.InternalDate
 		}
 
-		size := int64(-1)
+		size := int64(0)
 		if msg.RFC822Size != 0 {
-			size = int64(msg.RFC822Size)
+			size = msg.RFC822Size
 		}
 
-		base := uidStr
-		if msg.Envelope != nil && msg.Envelope.Subject != "" {
-			base = fmt.Sprintf("%s-%s", uidStr, common.SafeName(msg.Envelope.Subject))
+		subject := ""
+		if msg.Envelope != nil {
+			subject = msg.Envelope.Subject
 		}
-		lname := base + ".eml"
 
-		p := fmt.Sprintf("/%s/%s", mailbox, lname)
+		lname := common.MessageFileName(uid, msg.Flags, subject)
+		p := path.Join(mboxPath, lname)
 
 		fi := objects.FileInfo{
 			Lname:    lname,
@@ -191,13 +210,13 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 				// SELECT mailbox on this pooled connection (state is per-connection)
 				if ps.Selected != mbox {
 					if _, err := ps.Session.Client.Select(mbox, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
-						ps.Selected = ""
+						ps.Bad = true
 						return fmt.Errorf("SELECT %q failed: %w", mbox, err)
 					}
 					ps.Selected = mbox
 				}
 
-				// UID FETCH
+				// UID FETCH the full body (peek so we don't set \Seen on the source).
 				var set imap.UIDSet
 				set.AddNum(u)
 
@@ -209,6 +228,7 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 
 				msgs, err := ps.Session.Client.Fetch(set, fopts).Collect()
 				if err != nil {
+					ps.Bad = true
 					return err
 				}
 				if len(msgs) != 1 || len(msgs[0].BodySection) != 1 {
@@ -237,5 +257,9 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 }
 
 func (imp *Importer) Close(ctx context.Context) error {
+	if imp.pool != nil {
+		imp.pool.Close()
+		imp.pool = nil
+	}
 	return nil
 }

@@ -18,34 +18,45 @@ type ConnectionPool struct {
 }
 
 func NewPool(connector ImapConnector, n int) (*ConnectionPool, error) {
+	if n < 1 {
+		n = 1
+	}
 	p := &ConnectionPool{
 		connector: connector,
 		ch:        make(chan *PoolSession, n),
 		size:      n,
 	}
 
-	for i := range n {
-		s, err := connector.Connect()
-		if err != nil {
-			p.Close()
-			return nil, fmt.Errorf("imap pool connect %d/%d: %w", i+1, n, err)
-		}
-		p.ch <- &PoolSession{Session: s, Selected: ""} // nothing selected yet
+	// Probe a single connection so NewPool fails fast on bad credentials or
+	// an unreachable server, then seed the pool with empty slots that are
+	// connected lazily on first use. This keeps the pool from holding n idle
+	// connections open and guarantees the channel always has exactly n slots.
+	probe, err := connector.Connect()
+	if err != nil {
+		return nil, fmt.Errorf("imap pool connect: %w", err)
+	}
+	_ = probe.Logout()
+
+	for range n {
+		p.ch <- &PoolSession{}
 	}
 	return p, nil
 }
 
 func (p *ConnectionPool) Close() {
-	for {
-		select {
-		case ps := <-p.ch:
+	for range p.size {
+		ps := <-p.ch
+		if ps.Session != nil {
 			_ = ps.Session.Logout()
-		default:
-			return
 		}
 	}
 }
 
+// WithSession borrows a slot from the pool, ensures it holds a healthy
+// connection (reconnecting lazily if needed), runs fn, and always returns a
+// slot to the pool afterwards so the pool never shrinks. If fn fails or marks
+// the session Bad, the underlying connection is dropped and the slot is
+// returned empty for the next caller to reconnect.
 func (p *ConnectionPool) WithSession(ctx context.Context, fn func(*PoolSession) error) error {
 	var ps *PoolSession
 	select {
@@ -54,23 +65,30 @@ func (p *ConnectionPool) WithSession(ctx context.Context, fn func(*PoolSession) 
 		return ctx.Err()
 	}
 
-	ok := true
 	defer func() {
-		if ok {
-			p.ch <- ps
-			return
+		if ps.Bad && ps.Session != nil {
+			_ = ps.Session.Logout()
+			ps.Session = nil
 		}
-		_ = ps.Session.Logout()
-		if ns, err := p.connector.Connect(); err == nil {
-			p.ch <- &PoolSession{Session: ns, Selected: ""}
+		if ps.Session == nil {
+			ps.Selected = ""
+			ps.Bad = false
 		}
+		p.ch <- ps
 	}()
 
-	err := fn(ps)
-	if err != nil {
-		// Treat any error as “maybe poisoned”.
-		// (If you want, only poison on net.Error/EOF.)
-		ok = false
+	if ps.Session == nil {
+		s, err := p.connector.Connect()
+		if err != nil {
+			return fmt.Errorf("imap pool reconnect: %w", err)
+		}
+		ps.Session = s
+		ps.Selected = ""
+		ps.Bad = false
+	}
+
+	if err := fn(ps); err != nil {
+		ps.Bad = true
 		return err
 	}
 	return nil

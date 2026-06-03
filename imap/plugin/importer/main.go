@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-imap/importer"
+	"github.com/PlakarKorp/integrations/imap/importer"
 )
 
 func main() {
