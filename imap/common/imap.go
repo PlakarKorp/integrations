@@ -37,6 +37,12 @@ type ImapConnector struct {
 	TlsNoVerify bool
 	// IOTimeout overrides the per-operation idle deadline (0 = default).
 	IOTimeout time.Duration
+	// MailboxPrefix is an optional decoded mailbox-name prefix taken from the
+	// location URL path (e.g. imap://host/Archive -> ["Archive"]). When set, the
+	// importer scopes the backup to that mailbox and its descendants. Each
+	// element is one already-decoded hierarchy segment; the native mailbox name
+	// is assembled with the server delimiter at connect time.
+	MailboxPrefix []string
 }
 
 // idleConn wraps a net.Conn and refreshes a read/write idle deadline on every
@@ -90,6 +96,21 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 
 	location = endpoint.Host
 	ic.Address = location
+
+	// An optional path scopes the backup to a mailbox subtree. Split the
+	// escaped path on "/" and decode each segment, so a mailbox name that
+	// itself contains "/" (percent-encoded as %2F in the URL) round-trips.
+	ic.MailboxPrefix = nil
+	for _, seg := range strings.Split(strings.Trim(endpoint.EscapedPath(), "/"), "/") {
+		if seg == "" {
+			continue
+		}
+		dec, derr := url.PathUnescape(seg)
+		if derr != nil {
+			return fmt.Errorf("invalid mailbox in location path %q: %w", seg, derr)
+		}
+		ic.MailboxPrefix = append(ic.MailboxPrefix, dec)
+	}
 
 	if endpoint.User != nil {
 		if endpoint.User.Username() != "" {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,4 +223,90 @@ func TestBackupTrickyMailbox(t *testing.T) {
 	}
 	t.Logf("seeded %d messages, snapshot has %d files", want, got)
 	require.Equal(t, want, got, "snapshot file count does not match seeded message count")
+}
+
+// snapshotFiles returns the non-directory pathnames in a snapshot.
+func snapshotFiles(t *testing.T, snap *snapshot.Snapshot) []string {
+	t.Helper()
+	fs, err := snap.Filesystem()
+	require.NoError(t, err)
+	var files []string
+	for pathname, err := range fs.Pathnames() {
+		require.NoError(t, err)
+		if e, err := fs.GetEntry(pathname); err == nil && !e.Stat().Mode().IsDir() {
+			files = append(files, pathname)
+		}
+	}
+	return files
+}
+
+func TestBackupSubfolderScope(t *testing.T) {
+	a := addr(t)
+
+	// Seed: INBOX, a sibling Other, and an Archive subtree (Archive + Archive.2024).
+	c := dialLogin(t, a, "srcuser", "secret")
+	boxes, _ := c.List("", "*", nil).Collect()
+	for i := len(boxes) - 1; i >= 0; i-- {
+		if boxes[i].Mailbox != "INBOX" {
+			_ = c.Delete(boxes[i].Mailbox).Wait()
+		}
+	}
+	if sel, err := c.Select("INBOX", nil).Wait(); err == nil && sel.NumMessages > 0 {
+		var seq imap.SeqSet
+		seq.AddRange(1, sel.NumMessages)
+		_ = c.Store(seq, &imap.StoreFlags{Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagDeleted}}, nil).Close()
+		_ = c.Expunge().Close()
+	}
+	put := func(mbox, subj string) {
+		if mbox != "INBOX" {
+			_ = c.Create(mbox, nil).Wait()
+		}
+		raw := []byte(fmt.Sprintf("From: a@b.c\r\nSubject: %s\r\n\r\nbody\r\n", subj))
+		cmd := c.Append(mbox, int64(len(raw)), &imap.AppendOptions{Time: time.Unix(1700000000, 0)})
+		cmd.Write(raw)
+		require.NoError(t, cmd.Close())
+		_, err := cmd.Wait()
+		require.NoError(t, err)
+	}
+	put("INBOX", "inbox-msg")
+	put("Other", "other-msg")
+	put("Archive", "archive-root")
+	put("Archive.2024", "archive-nested")
+	_ = c.Logout().Wait()
+
+	repo := newFsRepo(t)
+	imp, err := imapimporter.NewImporter(repo.AppContext(), &connectors.Options{}, "imap", map[string]string{
+		"location": "imap://" + a + "/Archive", // scope to the Archive subtree
+		"username": "srcuser",
+		"password": "secret",
+		"tls":      "no-tls",
+	})
+	require.NoError(t, err)
+	defer imp.Close(context.Background())
+
+	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
+	require.NoError(t, err)
+	builder, err := snapshot.Create(repo, repository.DefaultType, "", [32]byte{}, &snapshot.BuilderOptions{})
+	require.NoError(t, err)
+	require.NoError(t, builder.Backup(src))
+	require.NoError(t, builder.Commit())
+	require.NoError(t, builder.Close())
+	require.NoError(t, builder.Repository().RebuildState())
+
+	snap, err := snapshot.Load(repo, builder.Header.Identifier)
+	require.NoError(t, err)
+	defer snap.Close()
+
+	files := snapshotFiles(t, snap)
+	t.Logf("subfolder-scoped snapshot files: %v", files)
+
+	require.Len(t, files, 2, "expected exactly the two Archive-subtree messages")
+	for _, f := range files {
+		require.True(t, strings.HasPrefix(f, "/Archive/"), "file %q escaped the Archive scope", f)
+	}
+	// And nothing from INBOX or the sibling Other leaked in.
+	for _, f := range files {
+		require.NotContains(t, f, "/Other/")
+		require.NotContains(t, f, "/INBOX/")
+	}
 }

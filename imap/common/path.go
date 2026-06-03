@@ -84,6 +84,30 @@ func splitMailbox(mailbox string, delim rune) []string {
 	return strings.Split(mailbox, string(delim))
 }
 
+// SegmentsToMailbox joins already-decoded hierarchy segments into a native
+// mailbox name using the server delimiter (e.g. ["Archive","2024"] -> "Archive.2024"
+// on Dovecot). Returns "" for no segments.
+func SegmentsToMailbox(segs []string, delim rune) string {
+	if len(segs) == 0 {
+		return ""
+	}
+	d := delim
+	if d == 0 {
+		d = '/'
+	}
+	return strings.Join(segs, string(d))
+}
+
+// SegmentsToPath converts decoded hierarchy segments into the absolute kloset
+// path the importer roots a subtree at (e.g. ["Archive","2024"] -> "/Archive/2024").
+func SegmentsToPath(segs []string) string {
+	enc := make([]string, len(segs))
+	for i, s := range segs {
+		enc[i] = encodeSegment(s)
+	}
+	return "/" + strings.Join(enc, "/")
+}
+
 // flag round-tripping --------------------------------------------------------
 //
 // kloset's FileInfo has no place for IMAP flags, so we encode them into the

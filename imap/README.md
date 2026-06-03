@@ -34,7 +34,7 @@ $ plakar pkg
 
 The configuration parameters are as follow:
 
-- `location`: The URL of the IMAP server in the form `imap://<host>[:<port>]`. When the port is omitted it defaults to 993 for `tls` and 143 otherwise. Credentials may also be embedded as `imap://user:password@host`.
+- `location`: The URL of the IMAP server in the form `imap://<host>[:<port>][/<mailbox>]`. When the port is omitted it defaults to 993 for `tls` and 143 otherwise. Credentials may also be embedded as `imap://user:password@host`. An optional trailing path scopes a **backup** to a single mailbox and its sub-mailboxes — e.g. `imap://host/Archive` backs up `Archive` and everything nested under it, leaving the rest of the account untouched. Nested folders use `/` regardless of the server's hierarchy delimiter (`imap://host/Archive/2024`), and a mailbox name containing `/` must be percent-encoded (`%2F`). The path is honoured by the importer (source); the exporter/storage connectors ignore it.
 - `username`: Username to login.
 - `password`: Password for login.
 - `tls`:      TLS mode to use. Possible values are `starttls` (the default), `tls` and `no-tls`.
@@ -65,6 +65,11 @@ $ plakar source add myIMAPsrc imap://imap.mydomain.com:143 \
 
 # backup the mailbox
 $ plakar backup @myIMAPsrc
+
+# back up only a specific folder (and its sub-folders)
+$ plakar source add myArchive imap://imap.mydomain.com/Archive \
+    username=myuser password=mypassword tls=starttls
+$ plakar backup @myArchive
 
 # configure an IMAP destination connector
 $ plakar destination add myIMAPdst imap://imap.alsomydomain.com:143 username=alsomyuser password=alsomypassword tls=starttls

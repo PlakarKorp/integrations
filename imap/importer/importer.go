@@ -69,9 +69,17 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}
 	imp.pool = pool
 
-	mboxes, err := session.Client.List("", "*", nil).Collect()
+	all, err := session.Client.List("", "*", nil).Collect()
 	if err != nil {
 		return fmt.Errorf("LIST failed: %w", err)
+	}
+
+	// If the location URL carried a path, scope the backup to that mailbox and
+	// its descendants. The native prefix name uses the server delimiter (which
+	// the LIST results report); a message-less holder mailbox is fine.
+	mboxes, err := imp.scopeMailboxes(all)
+	if err != nil {
+		return err
 	}
 
 	// root dir
@@ -136,6 +144,43 @@ func hasAttr(attrs []imap.MailboxAttr, want imap.MailboxAttr) bool {
 		}
 	}
 	return false
+}
+
+// scopeMailboxes filters the full LIST result to the configured mailbox prefix
+// and its descendants. With no prefix it returns the list unchanged. The
+// prefix is matched against the native mailbox name built from the server's
+// hierarchy delimiter, so "Archive" matches "Archive" and "Archive<delim>2024"
+// but not "Archived".
+func (imp *Importer) scopeMailboxes(all []*imap.ListData) ([]*imap.ListData, error) {
+	if len(imp.connector.MailboxPrefix) == 0 {
+		return all, nil
+	}
+
+	// Determine the server delimiter from the LIST results.
+	var delim rune
+	for _, m := range all {
+		if m.Delim != 0 {
+			delim = m.Delim
+			break
+		}
+	}
+
+	prefix := common.SegmentsToMailbox(imp.connector.MailboxPrefix, delim)
+	var sep string
+	if delim != 0 {
+		sep = string(delim)
+	}
+
+	var out []*imap.ListData
+	for _, m := range all {
+		if m.Mailbox == prefix || (sep != "" && strings.HasPrefix(m.Mailbox, prefix+sep)) {
+			out = append(out, m)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("mailbox %q not found on server", prefix)
+	}
+	return out, nil
 }
 
 func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSession, pool *common.ConnectionPool, mailbox, mboxPath string, records chan<- *connectors.Record) error {
