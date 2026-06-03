@@ -96,6 +96,12 @@ func (e *Exporter) writeRecord(record *connectors.Record) error {
 }
 
 func safeJoin(root, pathname string) (string, error) {
+	for _, part := range strings.Split(strings.ReplaceAll(pathname, "\\", "/"), "/") {
+		if part == ".." {
+			return "", fmt.Errorf("record path escapes output directory: %s", pathname)
+		}
+	}
+
 	rel := strings.TrimPrefix(path.Clean("/"+pathname), "/")
 	if rel == "." || rel == "" {
 		return "", fmt.Errorf("invalid empty record path")
