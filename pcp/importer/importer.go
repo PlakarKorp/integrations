@@ -25,6 +25,7 @@ type SubImporter struct {
 }
 
 type Importer struct {
+	opts         *connectors.Options
 	subImporters []SubImporter
 }
 
@@ -70,6 +71,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}
 
 	return &Importer{
+		opts:         opts,
 		subImporters: subImporters,
 	}, nil
 }
@@ -120,7 +122,7 @@ func (p *Importer) Close(ctx context.Context) error {
 }
 
 func (p *Importer) Root() string   { return "/" }
-func (p *Importer) Origin() string { return "pcp" }
+func (p *Importer) Origin() string { return p.opts.Hostname }
 func (p *Importer) Type() string   { return "pcp" }
 
 // FLAG_STREAM tells the framework not to pre-count records. Without it, the
