@@ -70,31 +70,6 @@ func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors
 	}
 }
 
-func (imp *Importer) walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record) {
-	for {
-		var finfo objects.FileInfo
-
-		sb, err := imp.client.Lstat(root)
-		if err != nil {
-			records <- connectors.NewError(root, err)
-			finfo = objects.FileInfo{
-				Lname: path.Base(root),
-				Lmode: os.ModeDir | 0755,
-			}
-		} else {
-			finfo = objects.FileInfoFromStat(sb)
-		}
-
-		records <- connectors.NewRecord(root, "", finfo, nil, nil)
-
-		newroot := path.Dir(root)
-		if newroot == root { // base case for "/" or "C:\"
-			break
-		}
-		root = newroot
-	}
-}
-
 func walkdir(client *sftp.Client, info os.FileInfo, p string, walkFn func(string, os.FileInfo, error) error) error {
 	if err := walkFn(p, info, nil); err != nil {
 		return err
