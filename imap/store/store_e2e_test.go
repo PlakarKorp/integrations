@@ -38,9 +38,11 @@ func storeConfig(t *testing.T) map[string]string {
 	if addr == "" {
 		t.Skip("set IMAP_E2E_ADDR to run the IMAP store end-to-end test")
 	}
+	// Use a different account than the importer tests so the two test packages
+	// don't clobber each other's mailboxes when run in parallel (go test ./...).
 	return map[string]string{
 		"location": "imap://" + addr,
-		"username": envOr("IMAP_E2E_STORE_USER", "srcuser"),
+		"username": envOr("IMAP_E2E_STORE_USER", "dstuser"),
 		"password": "secret",
 		"tls":      "no-tls",
 		"root":     "PlakarStore",

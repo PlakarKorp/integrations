@@ -5,14 +5,26 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
 const MB = 1048576
+
+// dialTimeout bounds the TCP/TLS connection setup.
+const dialTimeout = 30 * time.Second
+
+// defaultIOTimeout is the idle deadline applied to each socket read/write. A
+// server that stalls mid-response (e.g. Gmail under throttling) would otherwise
+// block a connection — and, once the pool is exhausted, the whole backup —
+// forever. The deadline turns such a stall into a connection error that the
+// pool treats as poisoned and recovers from.
+const defaultIOTimeout = 2 * time.Minute
 
 var ErrNotExist = fs.ErrNotExist
 
@@ -22,12 +34,49 @@ type ImapConnector struct {
 	Password    string
 	TlsMode     string
 	TlsNoVerify bool
+	// IOTimeout overrides the per-operation idle deadline (0 = default).
+	IOTimeout time.Duration
+}
+
+// idleConn wraps a net.Conn and refreshes a read/write idle deadline on every
+// I/O operation, so a connection that goes silent eventually fails instead of
+// blocking forever.
+type idleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleConn) Read(b []byte) (int, error) {
+	if c.timeout > 0 {
+		_ = c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *idleConn) Write(b []byte) (int, error) {
+	if c.timeout > 0 {
+		_ = c.Conn.SetWriteDeadline(time.Now().Add(c.timeout))
+	}
+	return c.Conn.Write(b)
 }
 
 type ImapSession struct {
 	Client         *imapclient.Client
 	CurrentMailbox string
 	buf            []byte
+
+	// rawConn is the underlying socket. Closing it directly breaks a stalled
+	// connection without waiting on go-imap's graceful Close (which itself can
+	// block on the reader goroutine when the server has stalled mid-transfer).
+	rawConn net.Conn
+}
+
+// ForceClose closes the underlying socket immediately, unblocking any in-flight
+// IMAP operation. Safe to call concurrently with a blocked operation.
+func (s *ImapSession) ForceClose() {
+	if s != nil && s.rawConn != nil {
+		_ = s.rawConn.Close()
+	}
 }
 
 func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
@@ -76,6 +125,14 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 		ic.TlsNoVerify = true
 	}
 
+	if v, ok := config["io_timeout"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid io_timeout %q: %w", v, err)
+		}
+		ic.IOTimeout = d
+	}
+
 	// Default ports when the location omits one.
 	if ic.Address != "" && !strings.Contains(ic.Address, ":") {
 		switch ic.TlsMode {
@@ -90,40 +147,63 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 }
 
 func (imp *ImapConnector) Connect() (*ImapSession, error) {
-	var dialer func(string, *imapclient.Options) (*imapclient.Client, error)
 	switch imp.TlsMode {
-	case "no-tls":
-		dialer = imapclient.DialInsecure
-	case "starttls":
-		dialer = imapclient.DialStartTLS
-	case "tls":
-		dialer = imapclient.DialTLS
+	case "no-tls", "starttls", "tls":
 	default:
 		return nil, fmt.Errorf("invalid tls mode %q", imp.TlsMode)
 	}
 
-	tlsCfg := &tls.Config{
-		InsecureSkipVerify: imp.TlsNoVerify,
+	timeout := imp.IOTimeout
+	if timeout == 0 {
+		timeout = defaultIOTimeout
 	}
 
-	opts := &imapclient.Options{
-		TLSConfig: tlsCfg,
-	}
-
-	client, err := dialer(imp.Address, opts)
+	// Dial the raw TCP connection ourselves so we can wrap it with an idle
+	// deadline. The deadline wraps the underlying socket, so it remains in
+	// effect even after a STARTTLS upgrade.
+	rawConn, err := net.DialTimeout("tcp", imp.Address, dialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial IMAP server: %w", err)
 	}
+	conn := net.Conn(&idleConn{Conn: rawConn, timeout: timeout})
 
-	err = client.Login(imp.Username, imp.Password).Wait()
-	if err != nil {
+	tlsCfg := &tls.Config{InsecureSkipVerify: imp.TlsNoVerify}
+	if host, _, e := net.SplitHostPort(imp.Address); e == nil {
+		tlsCfg.ServerName = host
+	}
+	opts := &imapclient.Options{TLSConfig: tlsCfg}
+
+	var client *imapclient.Client
+	switch imp.TlsMode {
+	case "no-tls":
+		client = imapclient.New(conn, opts)
+	case "starttls":
+		client, err = imapclient.NewStartTLS(conn, opts)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to start TLS: %w", err)
+		}
+	case "tls":
+		if tlsCfg.NextProtos == nil {
+			tlsCfg.NextProtos = []string{"imap"}
+		}
+		tlsConn := tls.Client(conn, tlsCfg)
+		if err := tlsConn.Handshake(); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("TLS handshake failed: %w", err)
+		}
+		client = imapclient.New(tlsConn, opts)
+	}
+
+	if err := client.Login(imp.Username, imp.Password).Wait(); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to login: %w", err)
 	}
 
 	return &ImapSession{
-		Client: client,
-		buf:    make([]byte, 2*MB),
+		Client:  client,
+		buf:     make([]byte, 2*MB),
+		rawConn: conn,
 	}, nil
 }
 

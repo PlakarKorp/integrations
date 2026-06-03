@@ -39,6 +39,7 @@ The configuration parameters are as follow:
 - `password`: Password for login.
 - `tls`:      TLS mode to use. Possible values are `starttls` (the default), `tls` and `no-tls`.
 - `tls_no_verify`: If set to `true`, the client will not verify the server certificate (dangerous; testing only).
+- `io_timeout`: Idle timeout for each IMAP socket operation, as a Go duration (e.g. `2m`, `30s`); default `2m`. If a server stalls mid-response (common with throttling providers), the affected operation is aborted after this timeout and recorded as an error, rather than hanging the whole backup indefinitely.
 
 ## Behavior
 

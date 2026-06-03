@@ -39,6 +39,10 @@
       "type": "boolean",
       "default": false,
       "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "io_timeout": {
+      "type": "string",
+      "description": "Idle timeout for each IMAP socket operation as a Go duration (e.g. \"2m\", \"30s\"). A stalled server operation is aborted after this, preventing a hung backup. Default 2m."
     }
   }
 }
