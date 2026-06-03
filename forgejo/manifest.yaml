@@ -1,0 +1,23 @@
+name: forgejo
+display_name: Forgejo
+description: Integration providing backup and restore capabilities for Forgejo instances using forgejo dump archives.
+api_version: v1.1.0
+homepage: https://github.com/PlakarKorp/integration-forgejo
+license: ISC
+tier: community
+contact: mailto:help@plakar.io
+connectors:
+  - type: importer
+    executable: forgejoImporter
+    protocols: [forgejo]
+    validator: ./importer/schema.json
+    class: application
+    subclass: forgejo
+    flags: [localfs, stream, needack]
+  - type: exporter
+    executable: forgejoExporter
+    protocols: [forgejo]
+    validator: ./exporter/schema.json
+    class: application
+    subclass: forgejo
+    flags: [localfs]
