@@ -34,7 +34,7 @@ files and the database into an archive and supports formats including `zip`,
 | `config` | - | Forgejo config path, passed as `--config`. |
 | `custom_path` | - | Forgejo custom path, passed as `--custom-path`. |
 | `tempdir` | OS default | Temporary directory for `forgejo dump`. |
-| `dump_type` | `zip` | Archive type passed to `forgejo dump --type`. |
+| `dump_type` | `zip` | Archive type passed to `forgejo dump --type`. Supported values: `zip`, `tar`, `tar.sz`, `tar.gz`, `tar.xz`, `tar.bz2`, `tar.br`, `tar.lz4`, `tar.zst`. |
 
 ## Exporter options
 

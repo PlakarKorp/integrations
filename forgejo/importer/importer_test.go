@@ -42,6 +42,15 @@ func TestNewImporterConfig(t *testing.T) {
 	}
 }
 
+func TestNewImporterRejectsUnknownDumpType(t *testing.T) {
+	_, err := NewImporter(context.Background(), nil, "forgejo", map[string]string{
+		"dump_type": "tarz",
+	})
+	if err == nil {
+		t.Fatal("NewImporter() succeeded with unsupported dump type")
+	}
+}
+
 func TestGlobalArgs(t *testing.T) {
 	imp := &Importer{
 		workPath:   "/srv/forgejo",
@@ -61,18 +70,31 @@ func TestGlobalArgs(t *testing.T) {
 
 func TestArchiveExtension(t *testing.T) {
 	tests := map[string]string{
-		"":        "zip",
 		"zip":     "zip",
 		"tar":     "tar",
+		"tar.sz":  "tar.sz",
 		"tar.gz":  "tar.gz",
 		"tar.xz":  "tar.xz",
-		"unknown": "zip",
+		"tar.bz2": "tar.bz2",
+		"tar.br":  "tar.br",
+		"tar.lz4": "tar.lz4",
+		"tar.zst": "tar.zst",
 	}
 
 	for dumpType, want := range tests {
 		if got := archiveExtension(dumpType); got != want {
 			t.Fatalf("archiveExtension(%q) = %q, want %q", dumpType, got, want)
 		}
+	}
+}
+
+func TestNormalizeDumpType(t *testing.T) {
+	got, err := normalizeDumpType(" TAR.GZ ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "tar.gz" {
+		t.Fatalf("normalizeDumpType() = %q, want tar.gz", got)
 	}
 }
 

@@ -28,10 +28,12 @@
     },
     "dump_type": {
       "type": "string",
+      "enum": ["zip", "tar", "tar.sz", "tar.gz", "tar.xz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst"],
       "description": "Dump archive type passed to forgejo dump --type. Defaults to zip."
     },
     "type": {
       "type": "string",
+      "enum": ["zip", "tar", "tar.sz", "tar.gz", "tar.xz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst"],
       "description": "Alias for dump_type."
     }
   },

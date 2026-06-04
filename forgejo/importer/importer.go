@@ -60,6 +60,10 @@ func NewImporter(ctx context.Context, opts *connectors.Options, name string, con
 	if dumpType == "" {
 		dumpType = "zip"
 	}
+	dumpType, err := normalizeDumpType(dumpType)
+	if err != nil {
+		return nil, err
+	}
 
 	binary := config["binary"]
 	if binary == "" {
@@ -230,7 +234,13 @@ func sendRecord(ctx context.Context, records chan<- *connectors.Record, results 
 }
 
 func archiveExtension(dumpType string) string {
-	switch strings.ToLower(dumpType) {
+	switch dumpType {
+	case "zip":
+		return "zip"
+	case "tar":
+		return "tar"
+	case "tar.sz":
+		return "tar.sz"
 	case "tar.gz":
 		return "tar.gz"
 	case "tar.bz2":
@@ -243,11 +253,17 @@ func archiveExtension(dumpType string) string {
 		return "tar.br"
 	case "tar.lz4":
 		return "tar.lz4"
-	case "tar.sz":
-		return "tar.sz"
-	case "tar":
-		return "tar"
 	default:
-		return "zip"
+		panic("unsupported dump type: " + dumpType)
+	}
+}
+
+func normalizeDumpType(dumpType string) (string, error) {
+	dumpType = strings.ToLower(strings.TrimSpace(dumpType))
+	switch dumpType {
+	case "zip", "tar", "tar.sz", "tar.gz", "tar.xz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst":
+		return dumpType, nil
+	default:
+		return "", fmt.Errorf("unsupported forgejo dump type %q", dumpType)
 	}
 }
