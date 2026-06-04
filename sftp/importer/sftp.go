@@ -141,12 +141,6 @@ func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connect
 		go imp.walkDir_worker(jobs, records, &wg)
 	}
 
-	// Add prefix directories first
-	imp.walkDir_addPrefixDirectories(path.Dir(imp.realpath), records)
-	if imp.realpath != imp.Root() {
-		imp.walkDir_addPrefixDirectories(imp.Root(), records)
-	}
-
 	err := SFTPWalk(imp.client, imp.rootDir, func(path string, info os.FileInfo, err error) error {
 		if ctx.Err() != nil {
 			return err
