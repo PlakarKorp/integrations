@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": {
+      "type": "string",
+      "description": "Forgejo restore URI, for example forgejo:///tmp/forgejo-restore."
+    },
+    "output_dir": {
+      "type": "string",
+      "description": "Directory where snapshot files should be materialized."
+    }
+  },
+  "additionalProperties": true
+}
