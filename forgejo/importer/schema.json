@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": { "type": "string" },
+    "forgejo_bin": { "type": "string" },
+    "config": { "type": "string" },
+    "work_path": { "type": "string" },
+    "timeout": { "type": "string" }
+  },
+  "additionalProperties": true
+}
