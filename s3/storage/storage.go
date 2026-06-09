@@ -30,7 +30,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/integration-s3/common"
+	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
@@ -48,10 +48,9 @@ type Store struct {
 	prefixDir    string
 	storageClass string
 	ssec         encrypt.ServerSide
+	isGlacier    bool
 
 	bufPool sync.Pool
-
-	putObjectOptions minio.PutObjectOptions
 }
 
 func init() {
@@ -209,20 +208,12 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		prefixDir:    prefixDir,
 		storageClass: storageClass,
 		ssec:         ssec,
+		isGlacier:    storageClass == "GLACIER" || storageClass == "DEEP_ARCHIVE",
 
 		bufPool: sync.Pool{
 			New: func() any {
 				return &bytes.Buffer{}
 			},
-		},
-
-		putObjectOptions: minio.PutObjectOptions{
-			// Some providers (eg. BlackBlaze) return the error
-			// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
-			// is not set.
-			StorageClass:         storageClass,
-			SendContentMd5:       true,
-			ServerSideEncryption: ssec,
 		},
 	}, nil
 }
@@ -252,18 +243,23 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return fmt.Errorf("bucket already initialized")
 	}
 
-	if s.mode()&storage.ModeRead == 0 {
-		_, err = s.minioClient.PutObject(ctx, s.bucket, s.realpath("CONFIG.frozen"), bytes.NewReader(config), int64(len(config)), s.putObjectOptions)
+	putObjectOptions := minio.PutObjectOptions{
+		// Some providers (eg. BlackBlaze) return the error
+		// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
+		// is not set.
+		StorageClass:         s.storageClass,
+		SendContentMd5:       true,
+		ServerSideEncryption: s.ssec,
+	}
+
+	if s.isGlacier {
+		_, err = s.minioClient.PutObject(ctx, s.bucket, s.realpath("CONFIG.frozen"), bytes.NewReader(config), int64(len(config)), putObjectOptions)
 		if err != nil {
 			return fmt.Errorf("put object CONFIG.frozen: %w", err)
 		}
 	}
 
-	putObjectOptions := s.putObjectOptions
-	if s.mode()&storage.ModeWrite == 0 {
-		putObjectOptions.StorageClass = "STANDARD"
-	}
-
+	putObjectOptions.StorageClass = "STANDARD"
 	_, err = s.minioClient.PutObject(ctx, s.bucket, s.realpath("CONFIG"), bytes.NewReader(config), int64(len(config)), putObjectOptions)
 	if err != nil {
 		return fmt.Errorf("put object CONFIG: %w", err)
@@ -312,7 +308,7 @@ func (s *Store) Type() string          { return "s3" }
 func (s *Store) Flags() location.Flags { return 0 }
 
 func (s *Store) mode() storage.Mode {
-	if s.storageClass == "GLACIER" || s.storageClass == "DEEP_ARCHIVE" {
+	if s.isGlacier {
 		return storage.ModeWrite
 	}
 	return storage.ModeRead | storage.ModeWrite
@@ -352,8 +348,9 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
 			t, err := hex.DecodeString(object.Key[prefixSize:])
 			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", res, err)
+				continue
 			}
+
 			if len(t) != 32 {
 				continue
 			}
@@ -364,6 +361,40 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 }
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	putObjectOptions := minio.PutObjectOptions{
+		// Some providers (eg. BlackBlaze) return the error
+		// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
+		// is not set.
+		StorageClass:         s.storageClass,
+		SendContentMd5:       true,
+		ServerSideEncryption: s.ssec,
+	}
+
+	copyToGlacier := func(name string) error {
+		src := minio.CopySrcOptions{
+			Bucket:     s.bucket,
+			Object:     name,
+			Encryption: s.ssec,
+		}
+
+		dst := minio.CopyDestOptions{
+			Bucket:     s.bucket,
+			Object:     name + ".frozen",
+			Encryption: s.ssec,
+
+			ReplaceMetadata: true,
+			UserMetadata: map[string]string{
+				"x-amz-storage-class": s.storageClass,
+			},
+		}
+
+		if _, err := s.minioClient.CopyObject(ctx, dst, src); err != nil {
+			return fmt.Errorf("copy %s to %s failed with: %w", src.Object, dst.Object, err)
+		}
+
+		return nil
+	}
+
 	switch res {
 	case storage.StorageResourcePackfile:
 		buf := s.bufPool.Get().(*bytes.Buffer)
@@ -372,24 +403,59 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 			return 0, fmt.Errorf("read %s object: %w", res, err)
 		}
 
-		info, err := s.minioClient.PutObject(ctx, s.bucket, s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac)), buf, copied, s.putObjectOptions)
+		hot := storage.Flag(ctx) == storage.StorageHot
+		name := s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac))
+
+		// Three paths here:
+		// 1 - Normal path no glacier we just put the object.
+		// 2 - This is glacier and the file is "hot", we push it to standard
+		// storage (without extension), then Copy to Glacier with the extension
+		// 3 - This is glacier and the file is not hot, we push directly to
+		// glacier storage with extension.
+		if s.isGlacier {
+			if !hot {
+				name += ".frozen"
+			} else {
+				putObjectOptions.StorageClass = "STANDARD"
+			}
+		}
+
+		info, err := s.minioClient.PutObject(ctx, s.bucket, name, buf, copied, putObjectOptions)
 		if err != nil {
 			return 0, fmt.Errorf("put %s object: %w", res, err)
 		}
 
 		buf.Reset()
 		s.bufPool.Put(buf)
+
+		if s.isGlacier && hot {
+			if err := copyToGlacier(name); err != nil {
+				return 0, err
+			}
+		}
+
 		return info.Size, nil
 	case storage.StorageResourceState:
-		info, err := s.minioClient.PutObject(ctx, s.bucket, s.realpath(fmt.Sprintf("states/%02x/%016x", mac[0], mac)), rd, -1, s.putObjectOptions)
+		if s.isGlacier {
+			putObjectOptions.StorageClass = "STANDARD"
+		}
+
+		name := s.realpath(fmt.Sprintf("states/%02x/%016x", mac[0], mac))
+		info, err := s.minioClient.PutObject(ctx, s.bucket, name, rd, -1, putObjectOptions)
 		if err != nil {
 			return 0, fmt.Errorf("put %s object: %w", res, err)
 		}
 
+		if s.isGlacier {
+			if err := copyToGlacier(name); err != nil {
+				return 0, err
+			}
+		}
+
 		return info.Size, nil
 	case storage.StorageResourceLock:
-		putObjectOptions := s.putObjectOptions
-		if s.mode()&storage.ModeWrite == 0 {
+		// Always keep those in hot storage
+		if s.isGlacier {
 			putObjectOptions.StorageClass = "STANDARD"
 		}
 
