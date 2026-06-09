@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/integration-s3/common"
+	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
