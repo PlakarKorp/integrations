@@ -10,20 +10,22 @@ connectors:
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
-  class: compute
+  class: service
+  subclass: sftp
   validator: ./importer/schema.json
 - type: exporter
   executable: sftpExporter
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
-  class: compute
+  class: service
+  subclass: sftp
   validator: ./exporter/schema.json
 - type: storage
   executable: sftpStorage
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
-  class: compute
+  class: service
+  subclass: sftp
   validator: ./storage/schema.json
-
