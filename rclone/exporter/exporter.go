@@ -86,49 +86,36 @@ func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.maxConcurrency)
 
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			ret = ctx.Err()
-			break loop
-
-		case record, ok := <-records:
-			if !ok {
-				break loop
-			}
-
-			if record.Err != nil {
-				results <- record.Ok()
-				continue
-			}
-
-			if record.IsXattr || record.FileInfo.Lmode&os.ModeSymlink != 0 {
-				results <- record.Ok()
-				continue
-			}
-
-			pathname := stdpath.Join(p.Root(), record.Pathname)
-			if record.FileInfo.Lmode.IsDir() {
-				if err := p.mkdir(ctx, pathname); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
-
-				continue
-			}
-
-			g.Go(func() error {
-				if err := p.storeFile(ctx, pathname, record); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
-				return nil
-			})
-
+	for record := range records {
+		if record.Err != nil {
+			results <- record.Ok()
+			continue
 		}
+
+		if record.IsXattr || record.FileInfo.Lmode&os.ModeSymlink != 0 {
+			results <- record.Ok()
+			continue
+		}
+
+		pathname := stdpath.Join(p.Root(), record.Pathname)
+		if record.FileInfo.Lmode.IsDir() {
+			if err := p.mkdir(ctx, pathname); err != nil {
+				results <- record.Error(err)
+			} else {
+				results <- record.Ok()
+			}
+
+			continue
+		}
+
+		g.Go(func() error {
+			if err := p.storeFile(ctx, pathname, record); err != nil {
+				results <- record.Error(err)
+			} else {
+				results <- record.Ok()
+			}
+			return nil
+		})
 	}
 
 	if err := g.Wait(); err != nil && ret == nil {
