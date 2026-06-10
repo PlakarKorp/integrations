@@ -126,38 +126,6 @@ func (p *RcloneImporter) GetPathInBackup(path string) string {
 	return stdpath.Clean(path)
 }
 
-// generatePathComponents is a helper function that returns a slice of strings
-// containing all the hierarchical components of an absolute path, starting
-// from the full path down to the root.
-//
-// The path given as an argument must be an absolute clean path within the
-// backup.
-//
-// Example:
-//
-//	Input:  "/path/to/dir"
-//	Output: []string{"/path/to/dir", "/path/to", "/path", "/"}
-//
-//	Input:  "/relative/path"
-//	Output: []string{"/relative/path", "/relative", "/"}
-//
-//	Input:  "/"
-//	Output: []string{"/"}
-func generatePathComponents(path string) []string {
-	components := []string{}
-	tmp := path
-
-	for {
-		components = append(components, tmp)
-		parent := stdpath.Dir(tmp)
-		if parent == tmp { // Reached the root
-			break
-		}
-		tmp = parent
-	}
-	return components
-}
-
 func (p *RcloneImporter) scanRecursive(results chan<- *connectors.Record, path string, wg *sync.WaitGroup) {
 	response, _ := p.ListFolder(results, path)
 	p.scanFolder(results, path, response, wg)
