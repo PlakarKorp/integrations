@@ -81,7 +81,7 @@ func (p *RcloneExporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
 	var g errgroup.Group
@@ -119,11 +119,11 @@ func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.
 		})
 	}
 
-	if err := g.Wait(); err != nil && ret == nil {
-		ret = err
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	return ret
+	return nil
 }
 
 func (p *RcloneExporter) mkdir(ctx context.Context, pathname string) error {
