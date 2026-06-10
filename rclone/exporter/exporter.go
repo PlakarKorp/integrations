@@ -81,61 +81,49 @@ func (p *RcloneExporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
-	g, ctx := errgroup.WithContext(ctx)
+
+	var g errgroup.Group
 	g.SetLimit(p.maxConcurrency)
 
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			ret = ctx.Err()
-			break loop
-
-		case record, ok := <-records:
-			if !ok {
-				break loop
-			}
-
-			if record.Err != nil {
-				results <- record.Ok()
-				continue
-			}
-
-			if record.IsXattr || record.FileInfo.Lmode&os.ModeSymlink != 0 {
-				results <- record.Ok()
-				continue
-			}
-
-			pathname := stdpath.Join(p.Root(), record.Pathname)
-			if record.FileInfo.Lmode.IsDir() {
-				if err := p.mkdir(ctx, pathname); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
-
-				continue
-			}
-
-			g.Go(func() error {
-				if err := p.storeFile(ctx, pathname, record); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
-				return nil
-			})
-
+	for record := range records {
+		if record.Err != nil {
+			results <- record.Ok()
+			continue
 		}
+
+		if record.IsXattr || record.FileInfo.Lmode&os.ModeSymlink != 0 {
+			results <- record.Ok()
+			continue
+		}
+
+		pathname := stdpath.Join(p.Root(), record.Pathname)
+		if record.FileInfo.Lmode.IsDir() {
+			if err := p.mkdir(ctx, pathname); err != nil {
+				results <- record.Error(err)
+			} else {
+				results <- record.Ok()
+			}
+
+			continue
+		}
+
+		g.Go(func() error {
+			if err := p.storeFile(ctx, pathname, record); err != nil {
+				results <- record.Error(err)
+			} else {
+				results <- record.Ok()
+			}
+			return nil
+		})
 	}
 
-	if err := g.Wait(); err != nil && ret == nil {
-		ret = err
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	return ret
+	return nil
 }
 
 func (p *RcloneExporter) mkdir(ctx context.Context, pathname string) error {
