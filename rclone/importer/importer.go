@@ -132,7 +132,7 @@ func (p *RcloneImporter) scanRecursive(results chan<- *connectors.Record, path s
 }
 
 func (p *RcloneImporter) ListFolder(results chan<- *connectors.Record, path string) (Response, error) {
-	payload := map[string]interface{}{
+	payload := map[string]string{
 		"fs":     fmt.Sprintf("%s:%s", p.Typee, p.Base),
 		"remote": path,
 	}
