@@ -53,7 +53,6 @@ type RcloneImporter struct {
 	Typee    string
 	Base     string
 	confFile *os.File
-	logFile  *os.File
 }
 
 // NewRcloneImporter creates a new RcloneImporter instance. It expects the location
@@ -79,13 +78,10 @@ func NewRcloneImporter(ctx context.Context, opts *connectors.Options, providerNa
 
 	librclone.Initialize()
 
-	f, _ := os.Create("/home/ptr/dev/plakar/plakar/log2.txt")
-
 	return &RcloneImporter{
 		Typee:    typee,
 		Base:     base,
 		confFile: file,
-		logFile:  f,
 	}, nil
 }
 
@@ -301,8 +297,6 @@ func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	fmt.Fprintf(p.logFile, "downloading and processing %s %s to %s\n", pathname, relativePath, name)
-
 	payload := map[string]string{
 		"srcFs":     fmt.Sprintf("%s:%s", p.Typee, p.Base),
 		"srcRemote": strings.TrimPrefix(relativePath, "/"),
@@ -331,7 +325,6 @@ func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 }
 
 func (p *RcloneImporter) Close(ctx context.Context) error {
-	p.logFile.Close()
 	utils.DeleteTempConf(p.confFile.Name())
 	librclone.Finalize()
 	return nil
