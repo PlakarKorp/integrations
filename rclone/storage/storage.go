@@ -170,7 +170,7 @@ func (r *RcloneStorage) deleteFile(pathname string) error {
 }
 
 func (r *RcloneStorage) listFolder(pathname string) ([]string, error) {
-	payload := map[string]interface{}{
+	payload := map[string]string{
 		"fs":     fmt.Sprintf("%s:%s", r.Typee, r.Base),
 		"remote": pathname,
 	}
