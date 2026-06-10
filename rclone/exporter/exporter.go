@@ -83,7 +83,8 @@ func (p *RcloneExporter) Ping(ctx context.Context) error {
 
 func (p *RcloneExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
-	g, ctx := errgroup.WithContext(ctx)
+
+	var g errgroup.Group
 	g.SetLimit(p.maxConcurrency)
 
 	for record := range records {
