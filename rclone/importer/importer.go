@@ -105,7 +105,7 @@ func (p *RcloneImporter) Import(ctx context.Context, records chan<- *connectors.
 	}
 
 	wg := &sync.WaitGroup{}
-	p.scanFolder(records, "", response, wg)
+	p.scanFolder(records, response, wg)
 
 	wg.Wait()
 	return nil
@@ -128,7 +128,7 @@ func (p *RcloneImporter) GetPathInBackup(path string) string {
 
 func (p *RcloneImporter) scanRecursive(results chan<- *connectors.Record, path string, wg *sync.WaitGroup) {
 	response, _ := p.ListFolder(results, path)
-	p.scanFolder(results, path, response, wg)
+	p.scanFolder(results, response, wg)
 }
 
 func (p *RcloneImporter) ListFolder(results chan<- *connectors.Record, path string) (Response, error) {
@@ -159,7 +159,7 @@ func (p *RcloneImporter) ListFolder(results chan<- *connectors.Record, path stri
 	return response, nil
 }
 
-func (p *RcloneImporter) scanFolder(results chan<- *connectors.Record, path string, response Response, wg *sync.WaitGroup) {
+func (p *RcloneImporter) scanFolder(results chan<- *connectors.Record, response Response, wg *sync.WaitGroup) {
 	for _, file := range response.List {
 		wg.Add(1)
 		go func() {
