@@ -2,7 +2,6 @@ package importer
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -219,33 +218,6 @@ func (p *RcloneImporter) scanFolder(results chan<- *connectors.Record, response 
 	}
 }
 
-func nextRandom() string {
-	b := make([]byte, 8)
-	_, err := rand.Read(b)
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%x", b)
-}
-
-func createTempPath(originalPath string) (path string, err error) {
-	tmpPath := os.TempDir() + "/" + originalPath
-	prefix, suffix := "", ""
-	if i := strings.LastIndex(tmpPath, "*"); i >= 0 {
-		prefix, suffix = tmpPath[:i], tmpPath[i+1:]
-	} else {
-		prefix = tmpPath
-	}
-
-	for i := 0; i < 10000; i++ {
-		name := prefix + nextRandom() + suffix
-		if _, err := os.Stat(name); os.IsNotExist(err) {
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("failed to find a folder to create the temporary file")
-}
-
 // AutoremoveTmpFile is a wrapper around an os.File that removes the file when it's closed.
 type AutoremoveTmpFile struct {
 	*os.File
@@ -260,10 +232,12 @@ func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 	// pathname is an absolute path within the backup. Let's convert it to a
 	// relative path to the base path.
 	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
-	name, err := createTempPath("plakar_temp_*")
+
+	fp, err := os.CreateTemp("", "plakar_rclone_tmp_*")
 	if err != nil {
 		return nil, err
 	}
+	name := fp.Name()
 
 	payload := map[string]string{
 		"srcFs":     fmt.Sprintf("%s:%s", p.Typee, p.Base),
@@ -284,12 +258,7 @@ func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("failed to copy file: %s", body)
 	}
 
-	tmpFile, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AutoremoveTmpFile{tmpFile}, nil
+	return &AutoremoveTmpFile{fp}, nil
 }
 
 func (p *RcloneImporter) Close(ctx context.Context) error {
