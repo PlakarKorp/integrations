@@ -2,7 +2,7 @@ GO	= go
 EXT	=
 
 PLAKAR	= plakar
-VERSION	= v1.1.0-alpha.1
+VERSION	= v1.1.0-alpha.2
 
 all: build
 
