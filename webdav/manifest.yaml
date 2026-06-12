@@ -1,0 +1,15 @@
+name: webdav
+display_name: WebDAV
+description: backup and restore from/to WebDAV storages
+homepage: https://github.com/PlakarKorp/integrations/tree/main/webdav
+license: ISC
+api_version: v1.1.0
+connectors:
+- type: importer
+  executable: webdav-importer
+  protocols: [dav, davs]
+  validator: ./plugin/importer/dav.json
+- type: exporter
+  executable: webdav-exporter
+  protocols: [dav, davs]
+  validator: ./plugin/importer/dav.json
