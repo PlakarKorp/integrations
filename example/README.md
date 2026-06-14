@@ -51,13 +51,13 @@ The connector is where you implement your logic. It must satisfy the relevant in
 
 ```go
 type Importer interface {
-  Origin() string
-  Type() string
-  Root() string
-  Flags() location.Flags
-  Ping(context.Context) error
-  Import(context.Context, chan<- *connectors.Record, <-chan *connectors.Result) error
-  Close(context.Context) error
+	Origin() string
+	Type() string
+	Root() string
+	Flags() location.Flags
+	Ping(context.Context) error
+	Import(context.Context, chan<- *connectors.Record, <-chan *connectors.Result) error
+	Close(context.Context) error
 }
 ```
 
@@ -65,13 +65,13 @@ type Importer interface {
 
 ```go
 type Exporter interface {
-  Origin() string
-  Type() string
-  Root() string
-  Flags() location.Flags
-  Ping(context.Context) error
-  Export(context.Context, <-chan *connectors.Record, chan<- *connectors.Result) error
-  Close(context.Context) error
+	Origin() string
+	Type() string
+	Root() string
+	Flags() location.Flags
+	Ping(context.Context) error
+	Export(context.Context, <-chan *connectors.Record, chan<- *connectors.Result) error
+	Close(context.Context) error
 }
 ```
 
@@ -79,23 +79,23 @@ type Exporter interface {
 
 ```go
 type Store interface {
-  Create(context.Context, []byte) error
-  Open(context.Context) ([]byte, error)
-  Ping(context.Context) error
+	Create(context.Context, []byte) error
+	Open(context.Context) ([]byte, error)
+	Ping(context.Context) error
 
-  Origin() string
-  Type() string
-  Root() string
-  Flags() location.Flags
+	Origin() string
+	Type() string
+	Root() string
+	Flags() location.Flags
 
-  Mode(context.Context) (Mode, error)
-  Size(context.Context) (int64, error)
-  List(context.Context, StorageResource) ([]objects.MAC, error)
-  Put(context.Context, StorageResource, objects.MAC, io.Reader) (int64, error)
-  Get(context.Context, StorageResource, objects.MAC, *Range) (io.ReadCloser, error)
-  Delete(context.Context, StorageResource, objects.MAC) error
+	Mode(context.Context) (Mode, error)
+	Size(context.Context) (int64, error)
+	List(context.Context, StorageResource) ([]objects.MAC, error)
+	Put(context.Context, StorageResource, objects.MAC, io.Reader) (int64, error)
+	Get(context.Context, StorageResource, objects.MAC, *Range) (io.ReadCloser, error)
+	Delete(context.Context, StorageResource, objects.MAC) error
 
-  Close(ctx context.Context) error
+	Close(ctx context.Context) error
 }
 ```
 
@@ -124,9 +124,9 @@ In your connector file, register your connector types in an `init()` function:
 
 ```go
 func init() {
-  importer.Register("example", location.FLAG_LOCALFS, NewImporter)
-  exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
-  storage.Register("example", location.FLAG_LOCALFS, NewStore)
+	importer.Register("example", location.FLAG_LOCALFS, NewImporter)
+	exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
+	storage.Register("example", location.FLAG_LOCALFS, NewStore)
 }
 ```
 
@@ -142,12 +142,13 @@ Flags describe the behavior and capabilities of your connector. They are set bot
 | `location.FLAG_FILE` | `file` | Storage | The storage backend stores the kloset in a single file. |
 | `location.FLAG_STREAM` | `stream` | Importer | Plakar can only call `Import()` once. This is used when consuming a resource that cannot be replayed (e.g., reading a tarball where you can't seek) or when `Import()` has side-effects that should not occur more than once. When set, plakar disables the progress bar. |
 | `location.FLAG_NEEDACK` | `needack` | Importer | The importer reads acknowledgments from the `results` channel during `Import()`. This is a niche flag — most integrations won't need it. |
+| `location.NOMERGE` | `nomerge` | Importer | The importer cannot be merged with others sharing the same type, origin and root |
 
-Flags can be combined with bitwise OR. For example, a streaming importer on the local filesystem:
+Flags can be combined with bitwise OR. For example, an importer on the local filesystem that needs acknowledgements:
 
 ```go
 func (f *myConnector) Flags() location.Flags {
-  return location.FLAG_LOCALFS | location.FLAG_STREAM
+	return location.FLAG_LOCALFS | location.FLAG_NEEDACK
 }
 ```
 
@@ -155,7 +156,7 @@ For remote or API-based connectors that don't deal with local paths, you can use
 
 ```go
 func (f *myConnector) Flags() location.Flags {
-  return 0
+	return 0
 }
 ```
 
@@ -169,13 +170,13 @@ Each connector type gets its own `main.go` in a separate directory. These are mi
 package main
 
 import (
-  "os"
-  sdk "github.com/PlakarKorp/go-kloset-sdk"
-  connector "github.com/tracepanic/plakar-integration"
+	"os"
+	"github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integrations/example"
 )
 
 func main() {
-  sdk.EntrypointImporter(os.Args, connector.NewImporter)
+	sdk.EntrypointImporter(os.Args, example.NewImporter)
 }
 ```
 
@@ -185,13 +186,13 @@ func main() {
 package main
 
 import (
-  "os"
-  sdk "github.com/PlakarKorp/go-kloset-sdk"
-  connector "github.com/tracepanic/plakar-integration"
+	"os"
+	"github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integrations/example"
 )
 
 func main() {
-  sdk.EntrypointExporter(os.Args, connector.NewExporter)
+	sdk.EntrypointExporter(os.Args, example.NewExporter)
 }
 ```
 
@@ -201,13 +202,13 @@ func main() {
 package main
 
 import (
-  "os"
-  sdk "github.com/PlakarKorp/go-kloset-sdk"
-  connector "github.com/tracepanic/plakar-integration"
+	"os"
+	"github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integrations/example"
 )
 
 func main() {
-  sdk.EntrypointStorage(os.Args, connector.NewStore)
+	sdk.EntrypointStorage(os.Args, example.NewStore)
 }
 ```
 
@@ -217,27 +218,28 @@ The `Import` method sends records into the `records` channel. Each record repres
 
 ```go
 func (e *example) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-  defer close(records)
+	defer close(records)
 
-  info, err := os.Stat(path)
-  if err != nil {
-      return err
-  }
+	for i := range 5 {
+		var (
+			base     = fmt.Sprintf("file-%d", i)
+			fullpath = fmt.Sprintf("/path/to/%s", base)
+			content  = fmt.Sprintf("content of the file %d\n", i)
+		)
 
-  fi := objects.FileInfo{
-      Lname:    filepath.Base(path),
-      Lsize:    info.Size(),
-      Lmode:    info.Mode(),
-      LmodTime: info.ModTime(),
-      Ldev:     1,
-  }
+		fi := objects.FileInfo{
+			Lname:    base,
+			Lsize:    int64(len(content)),
+			Lmode:    0x644,
+			LmodTime: time.Now(),
+		}
 
-  records <- connectors.NewRecord(path, "", fi, nil, func() (io.ReadCloser, error) {
-      return os.Open(path)
-  })
+		records <- connectors.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(content)), nil
+		})
+	}
 
-  return nil
-}
+	return nil}
 ```
 
 You **must** `close(records)` when done to signal that all records have been sent.
@@ -248,19 +250,19 @@ The `Export` method receives records from the `records` channel and processes th
 
 ```go
 func (e *example) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
-  defer close(results)
+	defer close(results)
 
-  for record := range records {
-    // Process the record...
+	for record := range records {
+		// Process the record...
 
-    if record.Reader != nil {
-        // Read the content from record.Reader
-    }
+		if record.Reader != nil {
+				// Read the content from record.Reader
+		}
 
-    results <- record.Ok()
-  }
+		results <- record.Ok()
+	}
 
-  return nil
+	return nil
 }
 ```
 
@@ -286,7 +288,7 @@ This runs the `build` target in the Makefile, which compiles the importer, expor
 ## Packaging
 
 ```sh
-make create
+make package
 ```
 
 This runs the `create` target in the Makefile, which creates a `.ptar` package file using the `plakar pkg create` command.
@@ -294,15 +296,14 @@ This runs the `create` target in the Makefile, which creates a `.ptar` package f
 ## Installing
 
 ```sh
-plakar pkg add example_*.ptar
+make install
 ```
 
 To verify the package was installed:
 
 ```sh
-$ plakar pkg show
-s3@v1.1.0-beta.2
-example@v1.1.0-beta.4
+$ plakar pkg show | grep example
+example@v1.1.0
 ```
 
 ## Usage
@@ -327,30 +328,30 @@ Instead of hardcoding paths, parse the location from config and walk the directo
 scanDir := strings.TrimPrefix(config["location"], proto+"://")
 
 func (f *fsConnector) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-  defer close(records)
+	defer close(records)
 
-  return filepath.WalkDir(f.scanDir, func(path string, d fs.DirEntry, err error) error {
-    // ... stat each file, build FileInfo, send record
-    records <- connectors.NewRecord(path, "", fi, nil, func() (io.ReadCloser, error) {
-        return os.Open(path)
-    })
-    return nil
-  })
+	return filepath.WalkDir(f.scanDir, func(path string, d fs.DirEntry, err error) error {
+		// ... stat each file, build FileInfo, send record
+		records <- connectors.NewRecord(path, "", fi, nil, func() (io.ReadCloser, error) {
+				return os.Open(path)
+		})
+		return nil
+	})
 }
 
 func (f *fsConnector) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
-  defer close(results)
+	defer close(results)
 
-  for record := range records {
-    // ... create file at filepath.Join(f.scanDir, record.Pathname)
-    // ... io.Copy(fp, record.Reader)
-    results <- record.Ok()
-  }
-  return nil
+	for record := range records {
+		// ... create file at filepath.Join(f.scanDir, record.Pathname)
+		// ... io.Copy(fp, record.Reader)
+		results <- record.Ok()
+	}
+	return nil
 }
 ```
 
-Usage: `plakar at $HOME/backups backup myfs:///home/tracepanic/Documents`
+Usage: `plakar at $HOME/backups backup ~/Documents`
 
 ### Remote Service (S3)
 
