@@ -1,4 +1,5 @@
 name: example
+display_name: Example
 description: Example integration with an importer, an exporter and a storage backend
 homepage: https://github.com/PlakarKorp/integrations/tree/main/example
 license: ISC
