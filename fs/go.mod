@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/fs
 go 1.25.0
 
 require (
-	github.com/PlakarKorp/kloset v1.1.0
+	github.com/PlakarKorp/kloset v1.1.1
 	github.com/pkg/xattr v0.4.12
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.45.0
