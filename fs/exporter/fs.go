@@ -166,7 +166,7 @@ loop:
 
 	for i := len(dirPerms) - 1; i >= 0; i-- {
 		if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
-			return err
+			return fmt.Errorf("failed to set permission: %w", err)
 		}
 	}
 
@@ -270,16 +270,16 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 		// Use the full mode which includes these special bits, not just Mode().Perm()
 		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 		if err := os.Chmod(pathname, mode); err != nil {
-			return err
+			return fmt.Errorf("chmod(%s): %w", pathname, err)
 		}
 	}
 	if os.Geteuid() == 0 {
 		if err := os.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
-			return err
+			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
 	}
 	if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-		return err
+		return fmt.Errorf("lutimes(%s): %w", pathname, err)
 	}
 	return nil
 }

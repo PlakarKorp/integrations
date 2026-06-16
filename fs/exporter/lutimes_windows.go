@@ -3,6 +3,7 @@
 package exporter
 
 import (
+	"fmt"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -24,7 +25,7 @@ func Lutimes(path string, atime time.Time, mtime time.Time) error {
 		0,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("CreateFile: %w", err)
 	}
 	defer windows.Close(handle)
 
