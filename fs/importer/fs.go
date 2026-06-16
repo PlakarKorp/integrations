@@ -34,10 +34,9 @@ import (
 )
 
 type FSImporter struct {
-	opts       *connectors.Options
-	rootDir    string
-	rootIsFile bool
-	realpath   string
+	opts     *connectors.Options
+	rootDir  string
+	realpath string
 
 	excludes *exclude.RuleSet
 
@@ -71,7 +70,7 @@ func NewFSImporter(appCtx context.Context, opts *connectors.Options, name string
 
 	nocrossfs, _ := strconv.ParseBool(config["dont_traverse_fs"])
 
-	realpath, wasFile, devno, err := realpathFollow(rootDir)
+	realpath, devno, err := realpathFollow(rootDir)
 	if err != nil {
 		return nil, err
 	}
@@ -82,16 +81,15 @@ func NewFSImporter(appCtx context.Context, opts *connectors.Options, name string
 	}
 
 	return &FSImporter{
-		opts:       opts,
-		rootDir:    rootDir,
-		rootIsFile: wasFile,
-		realpath:   realpath,
-		excludes:   excludes,
-		uidToName:  make(map[uint64]string),
-		gidToName:  make(map[uint64]string),
-		noxattr:    opts.NoXattr,
-		nocrossfs:  nocrossfs,
-		devno:      devno,
+		opts:      opts,
+		rootDir:   rootDir,
+		realpath:  realpath,
+		excludes:  excludes,
+		uidToName: make(map[uint64]string),
+		gidToName: make(map[uint64]string),
+		noxattr:   opts.NoXattr,
+		nocrossfs: nocrossfs,
+		devno:     devno,
 	}, nil
 }
 
@@ -205,7 +203,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 	return
 }
 
-func realpathFollow(path string) (resolved string, wasFile bool, dev uint64, err error) {
+func realpathFollow(path string) (resolved string, dev uint64, err error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return
@@ -213,14 +211,12 @@ func realpathFollow(path string) (resolved string, wasFile bool, dev uint64, err
 
 	if info.Mode()&os.ModeDir != 0 {
 		dev = dirDevice(info)
-	} else {
-		wasFile = true
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
 		realpath, err := os.Readlink(path)
 		if err != nil {
-			return "", false, 0, err
+			return "", 0, err
 		}
 
 		if !filepath.IsAbs(realpath) {
@@ -229,7 +225,7 @@ func realpathFollow(path string) (resolved string, wasFile bool, dev uint64, err
 		path = realpath
 	}
 
-	return path, wasFile, dev, nil
+	return path, dev, nil
 }
 
 func (p *FSImporter) Ping(ctx context.Context) error {
@@ -241,11 +237,7 @@ func (p *FSImporter) Close(ctx context.Context) error {
 }
 
 func (p *FSImporter) Root() string {
-	path := p.rootDir
-	if p.rootIsFile {
-		path = filepath.Dir(path)
-	}
-	return toslash(path)
+	return toslash(p.rootDir)
 }
 
 // convert paths to the internal format.  For unix nothing changes,
