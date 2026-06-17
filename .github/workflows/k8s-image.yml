@@ -34,7 +34,7 @@ jobs:
       - name: build and push the image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: k8s
           file: k8s/kubelet/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
