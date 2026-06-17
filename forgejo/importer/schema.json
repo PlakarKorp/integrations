@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": {
+      "type": "string",
+      "description": "Forgejo URI. A local path in forgejo:///path is treated as work_path."
+    },
+    "binary": {
+      "type": "string",
+      "description": "Path to the forgejo executable. Defaults to forgejo."
+    },
+    "work_path": {
+      "type": "string",
+      "description": "Forgejo work path, passed as --work-path."
+    },
+    "config": {
+      "type": "string",
+      "description": "Forgejo config file, passed as --config."
+    },
+    "custom_path": {
+      "type": "string",
+      "description": "Forgejo custom path, passed as --custom-path."
+    },
+    "tempdir": {
+      "type": "string",
+      "description": "Temporary directory passed to forgejo dump --tempdir."
+    },
+    "dump_type": {
+      "type": "string",
+      "enum": ["zip", "tar", "tar.sz", "tar.gz", "tar.xz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst"],
+      "description": "Dump archive type passed to forgejo dump --type. Defaults to zip."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["zip", "tar", "tar.sz", "tar.gz", "tar.xz", "tar.bz2", "tar.br", "tar.lz4", "tar.zst"],
+      "description": "Alias for dump_type."
+    }
+  },
+  "additionalProperties": true
+}
