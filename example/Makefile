@@ -29,6 +29,6 @@ test:
 check: test
 
 clean:
-	rm -f example-importer${EXT} example-exporter${EXT} example-storage${EXT} example_*.ptar
+	rm -f example-importer${EXT} example-exporter${EXT} example-storage${EXT} example_${VERSION}*.ptar
 
 .PHONY: all build package uninstall install reinstall test check clean
