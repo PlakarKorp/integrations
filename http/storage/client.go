@@ -18,6 +18,7 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ type Store struct {
 	Repository string
 	location   *url.URL
 	authToken  string
+	httpClient *http.Client
 }
 
 func init() {
@@ -48,9 +50,19 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("invalid URL %q: %w", storeConfig["location"], err)
 	}
 
+	httpClient := http.DefaultClient
+	if storeConfig["tls_no_verify"] == "true" {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
+
 	return &Store{
-		location:  location,
-		authToken: storeConfig["auth_token"],
+		location:   location,
+		authToken:  storeConfig["auth_token"],
+		httpClient: httpClient,
 	}, nil
 }
 
@@ -79,7 +91,7 @@ func (s *Store) sendRequest(method string, requestType string, payload io.Reader
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", rg.Offset, rg.Offset+uint64(rg.Length)))
 	}
 
-	return http.DefaultClient.Do(req)
+	return s.httpClient.Do(req)
 }
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
