@@ -96,11 +96,11 @@ If using [got](https://gameoftrees.org) the process is similar:
 Then, import it as a standalone branch:
 
 	$ cd /git/integrations.git
-	$ got import -m 'inital import of foo' /path/to/foo # NOT foo/foo !!
+	$ got import -b integration/foo -m 'inital import of foo' /path/to/foo # NOT foo/foo !!
 
-then, you can checkout it again (maybe with `-E`) to have the files
-tracked.
+Then, check out a fresh work tree as usual with the -p foo option:
 
+	$ got checkout -b integration/foo -p foo /git/integrations.git 
 
 ## Releasing an integration
 
@@ -131,10 +131,33 @@ Then, merge the stable release in main:
 	$ git merge foo/v1.1.0
 	$ git push
 
-or, if using [got](https://gameoftrees.org):
+If using [got](https://gameoftrees.org):
 
-	$ cd ../../integrations
-	$ got merge integration/foo # got doesn't allow to merge tags, but it's the same thing
+	$ cd path/to/foo
+	$ ed Makefile
+	... fix VERSION if needed
+	$ got commit -m 'bump version' Makefile # in case it was edited
+	$ make clean package install
+	$ plakar do stuff # test it one more time! ;-)
+	$ got tag foo/v1.1.0
+	... fill the release note, usually they are in the form:
+	foo v1.1.0
+
+	* fixed foobaring of foos
+	* introduced the ability to bar'ing the baaz
+	* etc...
+	$ got send -t v1.1.0
+
+In order to perform merges to the main branch separate a separate work tree
+is needed which contains the entire repository tree:
+
+	$ cd ~/w/pk  # workspace for plakar korp
+	$ got checkout -b main /git/integrations.git
+
+Then, merge the integration's release tag into the main branch:
+
+	$ cd integrations
+	$ got merge refs/tags/foo/v1.1.0 # got versions < 0.127 do not support merging of tags, try using the branch name integration/foo instead
 	$ got send
 
 Finally, don't forget to update
