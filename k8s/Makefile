@@ -1,11 +1,33 @@
-GO=go
-EXT=
+GO	= go
+EXT	=
+
+PLAKAR	= plakar
+VERSION	= v1.1.0
 
 all: build
 
 build:
-	${GO} build -v -o k8s-importer${EXT} ./importer
-	${GO} build -v -o k8s-exporter${EXT} ./exporter
+	${GO} build -v -o k8s-importer${EXT} ./plugin/importer
+	${GO} build -v -o k8s-exporter${EXT} ./plugin/exporter
+
+package: build
+	rm -f k8s_${VERSION}_*.ptar
+	${PLAKAR} pkg create ./manifest.yaml ${VERSION}
+
+uninstall:
+	-${PLAKAR} pkg rm k8s
+
+install: package
+	${PLAKAR} pkg add ./k8s_${VERSION}_*.ptar
+
+reinstall: uninstall install
+
+test:
+	${GO} test -v ./...
+
+check: test
 
 clean:
-	rm -f k8s-importer k8s-exporter k8s_*.ptar
+	rm -f k8s-importer${EXT} k8s-exporter${EXT} k8s_*.ptar
+
+.PHONY: all build package uninstall install reinstall test check clean
