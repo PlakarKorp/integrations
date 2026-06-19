@@ -210,7 +210,7 @@ func (p *RcloneImporter) scanFolder(results chan<- *connectors.Record, response 
 					},
 					nil,
 					func() (io.ReadCloser, error) {
-						return p.NewReader(file.Path)
+						return p.open(file.Path)
 					},
 				)
 			}
@@ -256,7 +256,7 @@ func (file *AutoremoveTmpFile) Close() error {
 	return file.File.Close()
 }
 
-func (p *RcloneImporter) NewReader(pathname string) (io.ReadCloser, error) {
+func (p *RcloneImporter) open(pathname string) (io.ReadCloser, error) {
 	// pathname is an absolute path within the backup. Let's convert it to a
 	// relative path to the base path.
 	relativePath := strings.TrimPrefix(pathname, p.GetPathInBackup(""))
