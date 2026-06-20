@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ type Rclone struct {
 	base        string
 	concurrency int
 	fs          rclonefs.Fs
+	spool       bool
 }
 
 func init() {
@@ -77,11 +79,19 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 		return nil, fmt.Errorf("failed to create rclone fs: %w", err)
 	}
 
+	var spool bool
+	if _, ok := f.(rclonefs.PutStreamer); !ok {
+		// this backend does not support uploading without
+		// knowing in advance the size.
+		spool = true
+	}
+
 	return &Rclone{
 		typ:         typ,
 		base:        base,
 		concurrency: opts.MaxConcurrency,
 		fs:          f,
+		spool:       spool,
 	}, nil
 }
 
@@ -279,7 +289,10 @@ func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objec
 }
 
 func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
-	var target string
+	var (
+		target string
+		size   int64 = -1
+	)
 
 	switch res {
 	case storage.StorageResourcePackfile:
@@ -292,11 +305,43 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 		return -1, errors.ErrUnsupported
 	}
 
+	if r.spool {
+		if res == storage.StorageResourceLock {
+			// locks are small enough that can fit in
+			// memory.
+			body, err := io.ReadAll(rd)
+			if err != nil {
+				return -1, fmt.Errorf("failed to read lock: %w", err)
+			}
+			size = int64(len(body))
+			rd = bytes.NewReader(body)
+		} else {
+			fp, err := os.CreateTemp("", "plakar-rclone-*")
+			if err != nil {
+				return -1, fmt.Errorf("failed to create temp file: %w", err)
+			}
+			defer os.Remove(fp.Name())
+			defer fp.Close()
+
+			n, err := io.Copy(fp, rd)
+			if err != nil {
+				return -1, fmt.Errorf("failed to write to temp file: %w", err)
+			}
+
+			if _, err := fp.Seek(0, io.SeekStart); err != nil {
+				return -1, fmt.Errorf("failed to seek: %w", err)
+			}
+
+			size = n
+			rd = fp
+		}
+	}
+
 	obj, err := r.fs.Put(ctx, rd, &objectinfo{&connectors.Record{
 		Pathname: target,
 		FileInfo: objects.FileInfo{
 			Lname:    path.Base(target),
-			Lsize:    -1,
+			Lsize:    size,
 			Lmode:    0600,
 			LmodTime: time.Now(),
 		},
