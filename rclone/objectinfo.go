@@ -30,16 +30,18 @@ type objectinfo struct {
 	record *connectors.Record
 }
 
-var _ rclonefs.ObjectInfo = &objectinfo{}
+type fakeinfo struct{}
 
-func (o *objectinfo) Fs() rclonefs.Info {
-	return nil
-}
+var (
+	_ rclonefs.ObjectInfo = &objectinfo{}
+	_ rclonefs.Info       = &fakeinfo{}
+)
 
-func (o *objectinfo) String() string { return o.record.Pathname }
-func (o *objectinfo) Remote() string { return o.record.Pathname }
-func (o *objectinfo) Size() int64    { return o.record.FileInfo.Lsize }
-func (o *objectinfo) Storable() bool { return true }
+func (o *objectinfo) Fs() rclonefs.Info { return &fakeinfo{} }
+func (o *objectinfo) String() string    { return o.record.Pathname }
+func (o *objectinfo) Remote() string    { return o.record.Pathname }
+func (o *objectinfo) Size() int64       { return o.record.FileInfo.Lsize }
+func (o *objectinfo) Storable() bool    { return true }
 
 func (o *objectinfo) ModTime(context.Context) time.Time {
 	return o.record.FileInfo.LmodTime
@@ -48,3 +50,10 @@ func (o *objectinfo) ModTime(context.Context) time.Time {
 func (o *objectinfo) Hash(context.Context, hash.Type) (string, error) {
 	return "", hash.ErrUnsupported
 }
+
+func (f *fakeinfo) Name() string                 { return "plakar" }
+func (f *fakeinfo) Root() string                 { return "/" }
+func (f *fakeinfo) String() string               { return "plakar" }
+func (f *fakeinfo) Precision() time.Duration     { return time.Nanosecond }
+func (f *fakeinfo) Hashes() hash.Set             { return 0 }
+func (f *fakeinfo) Features() *rclonefs.Features { return &rclonefs.Features{} }
