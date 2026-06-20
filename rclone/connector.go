@@ -175,6 +175,9 @@ func (r *Rclone) Create(ctx context.Context, conf []byte) error {
 	if err == nil {
 		return fmt.Errorf("kloset already initialized")
 	}
+	if err != nil && !errors.Is(err, rclonefs.ErrorObjectNotFound) {
+		return fmt.Errorf("failed to check whether CONFIG exists: %w", err)
+	}
 
 	obj, err := r.fs.Put(ctx, bytes.NewReader(conf), &objectinfo{&connectors.Record{
 		Pathname: "CONFIG",
