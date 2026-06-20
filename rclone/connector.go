@@ -20,7 +20,7 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	rclonefs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
-	"golang.org/x/sync/errgroup"
+	"github.com/rclone/rclone/fs/walk"
 
 	_ "github.com/rclone/rclone/backend/all" // register backends
 )
@@ -100,13 +100,9 @@ func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, 
 		return err
 	}
 
-	var wg errgroup.Group
-	wg.SetLimit(r.concurrency)
-
-	err = pwalk(ctx, f, &wg, "", func(p string, de rclonefs.DirEntry, err error) error {
-		realpath := path.Join(r.base, p)
-
+	return walk.Walk(ctx, f, "", true, -1, func(p string, des rclonefs.DirEntries, err error) error {
 		if err != nil {
+			realpath := path.Join(r.base, p)
 			err = fmt.Errorf("failed to walk %s: %w", realpath, err)
 			if p == "" {
 				return err
@@ -115,29 +111,32 @@ func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, 
 			return nil
 		}
 
-		finfo := objects.FileInfo{
-			Lname:    path.Base(realpath),
-			LmodTime: de.ModTime(ctx),
-		}
+		for _, de := range des {
+			realpath := path.Join(r.base, de.Remote())
 
-		var open func() (io.ReadCloser, error)
-
-		switch e := de.(type) {
-		case rclonefs.Object:
-			finfo.Lsize = e.Size()
-			finfo.Lmode = 0600
-			open = func() (io.ReadCloser, error) {
-				return e.Open(ctx)
+			finfo := objects.FileInfo{
+				Lname:    path.Base(realpath),
+				LmodTime: de.ModTime(ctx),
 			}
-		case rclonefs.Directory:
-			finfo.Lmode = 0700 | fs.ModeDir
+
+			var open func() (io.ReadCloser, error)
+
+			switch e := de.(type) {
+			case rclonefs.Object:
+				finfo.Lsize = e.Size()
+				finfo.Lmode = 0600
+				open = func() (io.ReadCloser, error) {
+					return e.Open(ctx)
+				}
+			case rclonefs.Directory:
+				finfo.Lmode = 0700 | fs.ModeDir
+			}
+
+			records <- connectors.NewRecord(realpath, "", finfo, nil, open)
 		}
 
-		records <- connectors.NewRecord(realpath, "", finfo, nil, open)
 		return nil
 	})
-	wg.Wait()
-	return err
 }
 
 func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
