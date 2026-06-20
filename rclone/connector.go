@@ -88,10 +88,7 @@ func (r *Rclone) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = f.NewObject(ctx, r.base)
-	if errors.Is(err, rclonefs.ErrorIsDir) {
-		err = nil
-	}
+	_, err = f.List(ctx, "")
 	return err
 }
 
