@@ -39,8 +39,12 @@ func init() {
 
 func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (*Rclone, error) {
 	location := params["location"]
-
 	base := path.Clean("/" + strings.TrimPrefix(location, name+"://"))
+
+	typ := params["rclone_type"]
+	if typ == "" {
+		return nil, fmt.Errorf("missing rclone_type")
+	}
 
 	rconfig := make(map[string]string, len(params)-1)
 	for k, v := range params {
@@ -49,10 +53,10 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 		}
 	}
 
-	config.SetData(&mapconfig{name: params["rclone_type"], data: rconfig})
+	config.SetData(&mapconfig{name: typ, data: rconfig})
 
 	return &Rclone{
-		typ:         params["rclone_type"],
+		typ:         typ,
 		base:        base,
 		concurrency: opts.MaxConcurrency,
 	}, nil
