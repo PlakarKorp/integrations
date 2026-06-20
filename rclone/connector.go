@@ -29,6 +29,7 @@ type Rclone struct {
 	typ         string
 	base        string
 	concurrency int
+	fs          rclonefs.Fs
 }
 
 func init() {
@@ -55,10 +56,16 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 
 	config.SetData(&mapconfig{name: typ, data: rconfig})
 
+	f, err := rclonefs.NewFs(ctx, fmt.Sprintf("%s:%s", typ, base))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rclone fs: %w", err)
+	}
+
 	return &Rclone{
 		typ:         typ,
 		base:        base,
 		concurrency: opts.MaxConcurrency,
+		fs:          f,
 	}, nil
 }
 
@@ -79,28 +86,15 @@ func (r *Rclone) Origin() string        { return "localhost" }
 func (r *Rclone) Root() string          { return r.base }
 func (r *Rclone) Flags() location.Flags { return 0 }
 
-func (r *Rclone) openfs(ctx context.Context) (rclonefs.Fs, error) {
-	return rclonefs.NewFs(ctx, fmt.Sprintf("%s:%s", r.typ, r.base))
-}
-
 func (r *Rclone) Ping(ctx context.Context) error {
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = f.List(ctx, "")
+	_, err := r.fs.List(ctx, "")
 	return err
 }
 
 func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return err
-	}
-
-	return walk.Walk(ctx, f, "", true, -1, func(p string, des rclonefs.DirEntries, err error) error {
+	return walk.Walk(ctx, r.fs, "", true, -1, func(p string, des rclonefs.DirEntries, err error) error {
 		if err != nil {
 			realpath := path.Join(r.base, p)
 			err = fmt.Errorf("failed to walk %s: %w", realpath, err)
@@ -142,11 +136,6 @@ func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, 
 func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return err
-	}
-
 	for record := range records {
 		if record.Err != nil || record.IsXattr || record.Pathname == "/" {
 			results <- record.Ok()
@@ -154,7 +143,7 @@ func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, 
 		}
 
 		if record.FileInfo.Mode().IsRegular() {
-			obj, err := f.Put(ctx, record.Reader, &objectinfo{record})
+			obj, err := r.fs.Put(ctx, record.Reader, &objectinfo{record})
 			if obj != nil && err != nil {
 				// put may fail to completely create the object
 				err = fmt.Errorf("failed to write %q: %w",
@@ -169,7 +158,7 @@ func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, 
 		}
 
 		if record.FileInfo.IsDir() {
-			err := f.Mkdir(ctx, record.Pathname)
+			err := r.fs.Mkdir(ctx, record.Pathname)
 			results <- record.Error(err)
 			continue
 		}
@@ -182,17 +171,12 @@ func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, 
 }
 
 func (r *Rclone) Create(ctx context.Context, conf []byte) error {
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return err
-	}
-
-	_, err = f.NewObject(ctx, "CONFIG")
+	_, err := r.fs.NewObject(ctx, "CONFIG")
 	if err == nil {
 		return fmt.Errorf("kloset already initialized")
 	}
 
-	obj, err := f.Put(ctx, bytes.NewReader(conf), &objectinfo{&connectors.Record{
+	obj, err := r.fs.Put(ctx, bytes.NewReader(conf), &objectinfo{&connectors.Record{
 		Pathname: "CONFIG",
 		FileInfo: objects.FileInfo{
 			Lname:    "CONFIG",
@@ -209,7 +193,7 @@ func (r *Rclone) Create(ctx context.Context, conf []byte) error {
 	}
 
 	for _, dir := range []string{"packfiles", "states", "locks"} {
-		if err := f.Mkdir(ctx, dir); err != nil {
+		if err := r.fs.Mkdir(ctx, dir); err != nil {
 			return fmt.Errorf("failed to mkdir %s: %w", dir, err)
 		}
 	}
@@ -218,12 +202,7 @@ func (r *Rclone) Create(ctx context.Context, conf []byte) error {
 }
 
 func (r *Rclone) Open(ctx context.Context) ([]byte, error) {
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	obj, err := f.NewObject(ctx, "CONFIG")
+	obj, err := r.fs.NewObject(ctx, "CONFIG")
 	if err != nil {
 		return nil, fmt.Errorf("can't open CONFIG: %w", err)
 	}
@@ -262,12 +241,7 @@ func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objec
 		return nil, errors.ErrUnsupported
 	}
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	dirents, err := f.List(ctx, dir)
+	dirents, err := r.fs.List(ctx, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list %s: %w", dir, err)
 	}
@@ -299,12 +273,7 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 		return -1, errors.ErrUnsupported
 	}
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return -1, err
-	}
-
-	obj, err := f.Put(ctx, rd, &objectinfo{&connectors.Record{
+	obj, err := r.fs.Put(ctx, rd, &objectinfo{&connectors.Record{
 		Pathname: target,
 		FileInfo: objects.FileInfo{
 			Lname:    path.Base(target),
@@ -336,12 +305,7 @@ func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objec
 		return nil, errors.ErrUnsupported
 	}
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	obj, err := f.NewObject(ctx, target)
+	obj, err := r.fs.NewObject(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("can't open %s: %w", target, err)
 	}
@@ -376,12 +340,7 @@ func (r *Rclone) Delete(ctx context.Context, res storage.StorageResource, mac ob
 		return errors.ErrUnsupported
 	}
 
-	f, err := r.openfs(ctx)
-	if err != nil {
-		return err
-	}
-
-	obj, err := f.NewObject(ctx, target)
+	obj, err := r.fs.NewObject(ctx, target)
 	if err != nil {
 		return fmt.Errorf("can't open %s: %w", target, err)
 	}
