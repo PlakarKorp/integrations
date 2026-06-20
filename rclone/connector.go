@@ -317,7 +317,7 @@ func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objec
 	if rg != nil {
 		oo = append(oo, &rclonefs.RangeOption{
 			Start: int64(rg.Offset),
-			End:   int64(rg.Offset) + int64(rg.Length),
+			End:   int64(rg.Offset) + int64(rg.Length) - 1,
 		})
 	}
 
