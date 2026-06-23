@@ -32,16 +32,19 @@ func init() {
 	exporter.Register("davs", 0, NewExporter)
 }
 
-func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (*WebDAV, error) {
-	var httpc webdav.HTTPClient
-
+func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string, baseClient webdav.HTTPClient) (*WebDAV, error) {
+	httpc := baseClient
 	if u, ok := params["username"]; ok {
-		httpc = webdav.HTTPClientWithBasicAuth(nil, u, params["password"])
+		httpc = webdav.HTTPClientWithBasicAuth(httpc, u, params["password"])
 	}
 
 	loc, err := url.Parse(params["location"])
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse location: %w", err)
+	}
+
+	if loc.Path == "" {
+		loc.Path = "/"
 	}
 
 	switch name {
@@ -52,6 +55,9 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 		loc.Scheme = "http"
 
 	case "davs":
+		if insecure, _ := strconv.ParseBool(params["insecure"]); insecure {
+			return nil, fmt.Errorf("cannot use davs:// with insecure=true")
+		}
 		loc.Scheme = "https"
 
 	default:
@@ -71,11 +77,11 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
-	return New(ctx, opts, name, params)
+	return New(ctx, opts, name, params, nil)
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
-	return New(ctx, opts, name, params)
+	return New(ctx, opts, name, params, nil)
 }
 
 func (w *WebDAV) Type() string          { return "webdav" }
@@ -95,6 +101,15 @@ func (w *WebDAV) Import(ctx context.Context, records chan<- *connectors.Record, 
 	wg.SetLimit(w.concurrency)
 
 	return w.walk(ctx, func(p string, sb *webdav.FileInfo, err error) error {
+		if err != nil {
+			err = fmt.Errorf("failed to walk %s: %w", p, err)
+			if p == w.location.Path {
+				return err
+			}
+			records <- connectors.NewError(p, err)
+			return nil
+		}
+
 		finfo := objects.FileInfo{
 			Lname:    path.Base(p),
 			Lsize:    sb.Size,
