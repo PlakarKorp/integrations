@@ -1,0 +1,23 @@
+name: rclone tests
+
+on:
+  push:
+    paths:
+      - 'rclone/**'
+  pull_request:
+    paths:
+      - 'rclone/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: rclone/go.mod
+
+      - name: test
+        working-directory: rclone
+        run: go test ./...
