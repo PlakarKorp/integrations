@@ -1,0 +1,20 @@
+name: forgejo
+display_name: Forgejo
+description: Back up Forgejo instances using the native forgejo dump command and restore dump contents to disk.
+homepage: https://github.com/PlakarKorp/integration-forgejo
+license: ISC
+api_version: v1.1.0
+connectors:
+  - type: importer
+    executable: forgejoImporter
+    protocols: [forgejo]
+    validator: ./importer/schema.json
+    class: scm
+    subclass: forgejo
+  - type: exporter
+    executable: forgejoExporter
+    protocols: [forgejo]
+    validator: ./exporter/schema.json
+    flags: [localfs]
+    class: scm
+    subclass: forgejo
