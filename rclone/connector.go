@@ -257,17 +257,31 @@ func (r *Rclone) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	var dir string
+func resdir(res storage.StorageResource) (string, error) {
 	switch res {
 	case storage.StorageResourcePackfile:
-		dir = "packfiles"
+		return "packfiles", nil
 	case storage.StorageResourceState:
-		dir = "states"
+		return "states", nil
 	case storage.StorageResourceLock:
-		dir = "locks"
+		return "locks", nil
 	default:
-		return nil, errors.ErrUnsupported
+		return "", errors.ErrUnsupported
+	}
+}
+
+func respath(res storage.StorageResource, mac objects.MAC) (string, error) {
+	dir, err := resdir(res)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%x", dir, mac), nil
+}
+
+func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	dir, err := resdir(res)
+	if err != nil {
+		return nil, err
 	}
 
 	dirents, err := r.fs.List(ctx, dir)
@@ -289,22 +303,12 @@ func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objec
 }
 
 func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
-	var (
-		target string
-		size   int64 = -1
-	)
-
-	switch res {
-	case storage.StorageResourcePackfile:
-		target = fmt.Sprintf("packfiles/%064x", mac)
-	case storage.StorageResourceState:
-		target = fmt.Sprintf("states/%064x", mac)
-	case storage.StorageResourceLock:
-		target = fmt.Sprintf("locks/%064x", mac)
-	default:
-		return -1, errors.ErrUnsupported
+	target, err := respath(res, mac)
+	if err != nil {
+		return -1, err
 	}
 
+	var size int64 = -1
 	if r.spool {
 		if res == storage.StorageResourceLock {
 			// locks are small enough that can fit in
@@ -356,17 +360,9 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 }
 
 func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
-	var target string
-
-	switch res {
-	case storage.StorageResourcePackfile:
-		target = fmt.Sprintf("packfiles/%064x", mac)
-	case storage.StorageResourceState:
-		target = fmt.Sprintf("states/%064x", mac)
-	case storage.StorageResourceLock:
-		target = fmt.Sprintf("locks/%064x", mac)
-	default:
-		return nil, errors.ErrUnsupported
+	target, err := respath(res, mac)
+	if err != nil {
+		return nil, err
 	}
 
 	obj, err := r.fs.NewObject(ctx, target)
@@ -391,17 +387,9 @@ func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objec
 }
 
 func (r *Rclone) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
-	var target string
-
-	switch res {
-	case storage.StorageResourcePackfile:
-		target = fmt.Sprintf("packfiles/%064x", mac)
-	case storage.StorageResourceState:
-		target = fmt.Sprintf("states/%064x", mac)
-	case storage.StorageResourceLock:
-		target = fmt.Sprintf("locks/%064x", mac)
-	default:
-		return errors.ErrUnsupported
+	target, err := respath(res, mac)
+	if err != nil {
+		return err
 	}
 
 	obj, err := r.fs.NewObject(ctx, target)
