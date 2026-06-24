@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"sync"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -70,37 +71,12 @@ func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors
 	}
 }
 
-func (imp *Importer) walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record) {
-	for {
-		var finfo objects.FileInfo
-
-		sb, err := imp.client.Lstat(root)
-		if err != nil {
-			records <- connectors.NewError(root, err)
-			finfo = objects.FileInfo{
-				Lname: path.Base(root),
-				Lmode: os.ModeDir | 0755,
-			}
-		} else {
-			finfo = objects.FileInfoFromStat(sb)
-		}
-
-		records <- connectors.NewRecord(root, "", finfo, nil, nil)
-
-		newroot := path.Dir(root)
-		if newroot == root { // base case for "/" or "C:\"
-			break
-		}
-		root = newroot
-	}
-}
-
-func walkdir(client *sftp.Client, info os.FileInfo, p string, walkFn func(string, os.FileInfo, error) error) error {
+func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, walkFn func(string, os.FileInfo, error) error) error {
 	if err := walkFn(p, info, nil); err != nil {
 		return err
 	}
 
-	if !info.IsDir() {
+	if mode&os.ModeDir == 0 {
 		return nil
 	}
 
@@ -111,7 +87,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, p string, walkFn func(string
 
 	for _, entry := range entries {
 		newPath := path.Join(p, entry.Name())
-		if err := walkdir(client, entry, newPath, walkFn); err != nil {
+		if err := walkdir(client, entry, entry.Mode(), newPath, walkFn); err != nil {
 			if err == SkipDir {
 				continue
 			}
@@ -122,13 +98,36 @@ func walkdir(client *sftp.Client, info os.FileInfo, p string, walkFn func(string
 }
 
 func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
+	var mode os.FileMode
+
 	info, err := client.Lstat(remotePath)
 	if err != nil {
 		err = walkFn(remotePath, nil, err)
 		goto done
 	}
 
-	err = walkdir(client, info, remotePath, walkFn)
+	mode = info.Mode()
+	if mode&os.ModeSymlink != 0 {
+		info2, err := client.Stat(remotePath)
+		if err == nil && info2.Mode()&os.ModeDir != 0 {
+			resolved, err := client.ReadLink(remotePath)
+			if err == nil &&
+			    strings.HasPrefix(resolved, "///?/GLOBALROOT/") {
+				/*
+				 * This should be a Windows Directory Symlink
+				 * since Lstat() reports a symlink, Stat()
+				 * reports a directory, and the resolved path
+				 * begins like a Windows Volume ID.
+				 * In regards to filesystem traversal we can
+				 * treat this path as a directory.
+				 */
+				mode &= ^os.ModeSymlink
+				mode |= os.ModeDir
+			}
+		}
+	}
+
+	err = walkdir(client, info, mode, remotePath, walkFn)
 done:
 	if err == SkipDir || err == SkipAll {
 		err = nil

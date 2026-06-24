@@ -1,14 +1,34 @@
+GO	= go
+EXT	=
+
+PLAKAR	= plakar
+VERSION	= v1.1.0
+
 all: build
 
 build:
-	go build -v -o test-importer ./importer
-	go build -v -o test-exporter ./exporter
-	go build -v -o test-storage ./storage
+	${GO} build -v -o example-importer${EXT} ./plugin/importer
+	${GO} build -v -o example-exporter${EXT} ./plugin/exporter
+	${GO} build -v -o example-storage${EXT} ./plugin/storage
 
-create:
-	plakar pkg create manifest.yaml v1.1.0-beta.4
+package: build
+	rm -f example_${VERSION}_*.ptar
+	${PLAKAR} pkg create ./manifest.yaml ${VERSION}
+
+uninstall:
+	-${PLAKAR} pkg rm example
+
+install: package
+	${PLAKAR} pkg add ./example_${VERSION}_*.ptar
+
+reinstall: uninstall install
+
+test:
+	${GO} test -v ./...
+
+check: test
 
 clean:
-	rm -f test-importer test-exporter test-storage test-integration_*.ptar
+	rm -f example-importer${EXT} example-exporter${EXT} example-storage${EXT} example_${VERSION}*.ptar
 
-.PHONY: all build create clean
+.PHONY: all build package uninstall install reinstall test check clean

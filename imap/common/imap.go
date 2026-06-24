@@ -2,17 +2,30 @@ package common
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
 const MB = 1048576
+
+// dialTimeout bounds the TCP/TLS connection setup.
+const dialTimeout = 30 * time.Second
+
+// defaultIOTimeout is the idle deadline applied to each socket read/write. A
+// server that stalls mid-response (e.g. Gmail under throttling) would otherwise
+// block a connection — and, once the pool is exhausted, the whole backup —
+// forever. The deadline turns such a stall into a connection error that the
+// pool treats as poisoned and recovers from.
+const defaultIOTimeout = 2 * time.Minute
 
 var ErrNotExist = fs.ErrNotExist
 
@@ -22,12 +35,55 @@ type ImapConnector struct {
 	Password    string
 	TlsMode     string
 	TlsNoVerify bool
+	// IOTimeout overrides the per-operation idle deadline (0 = default).
+	IOTimeout time.Duration
+	// MailboxPrefix is an optional decoded mailbox-name prefix taken from the
+	// location URL path (e.g. imap://host/Archive -> ["Archive"]). When set, the
+	// importer scopes the backup to that mailbox and its descendants. Each
+	// element is one already-decoded hierarchy segment; the native mailbox name
+	// is assembled with the server delimiter at connect time.
+	MailboxPrefix []string
+}
+
+// idleConn wraps a net.Conn and refreshes a read/write idle deadline on every
+// I/O operation, so a connection that goes silent eventually fails instead of
+// blocking forever.
+type idleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleConn) Read(b []byte) (int, error) {
+	if c.timeout > 0 {
+		_ = c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *idleConn) Write(b []byte) (int, error) {
+	if c.timeout > 0 {
+		_ = c.Conn.SetWriteDeadline(time.Now().Add(c.timeout))
+	}
+	return c.Conn.Write(b)
 }
 
 type ImapSession struct {
 	Client         *imapclient.Client
 	CurrentMailbox string
 	buf            []byte
+
+	// rawConn is the underlying socket. Closing it directly breaks a stalled
+	// connection without waiting on go-imap's graceful Close (which itself can
+	// block on the reader goroutine when the server has stalled mid-transfer).
+	rawConn net.Conn
+}
+
+// ForceClose closes the underlying socket immediately, unblocking any in-flight
+// IMAP operation. Safe to call concurrently with a blocked operation.
+func (s *ImapSession) ForceClose() {
+	if s != nil && s.rawConn != nil {
+		_ = s.rawConn.Close()
+	}
 }
 
 func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
@@ -41,6 +97,21 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	location = endpoint.Host
 	ic.Address = location
 
+	// An optional path scopes the backup to a mailbox subtree. Split the
+	// escaped path on "/" and decode each segment, so a mailbox name that
+	// itself contains "/" (percent-encoded as %2F in the URL) round-trips.
+	ic.MailboxPrefix = nil
+	for _, seg := range strings.Split(strings.Trim(endpoint.EscapedPath(), "/"), "/") {
+		if seg == "" {
+			continue
+		}
+		dec, derr := url.PathUnescape(seg)
+		if derr != nil {
+			return fmt.Errorf("invalid mailbox in location path %q: %w", seg, derr)
+		}
+		ic.MailboxPrefix = append(ic.MailboxPrefix, dec)
+	}
+
 	if endpoint.User != nil {
 		if endpoint.User.Username() != "" {
 			ic.Username = endpoint.User.Username()
@@ -48,16 +119,20 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 		if p, ok := endpoint.User.Password(); ok {
 			ic.Password = p
 		}
-	} else {
+	}
+
+	if ic.Username == "" {
 		v, ok := config["username"]
 		if !ok {
-			return fmt.Errorf("Missing username")
+			return fmt.Errorf("missing username")
 		}
 		ic.Username = v
+	}
 
-		v, ok = config["password"]
+	if ic.Password == "" {
+		v, ok := config["password"]
 		if !ok {
-			return fmt.Errorf("Missing password")
+			return fmt.Errorf("missing password")
 		}
 		ic.Password = v
 	}
@@ -68,49 +143,89 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	}
 	ic.TlsMode = v
 
-	v, ok = config["tls_no_verify"]
-	if v == "true" {
+	if config["tls_no_verify"] == "true" {
 		ic.TlsNoVerify = true
+	}
+
+	if v, ok := config["io_timeout"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid io_timeout %q: %w", v, err)
+		}
+		ic.IOTimeout = d
+	}
+
+	// Default ports when the location omits one.
+	if ic.Address != "" && !strings.Contains(ic.Address, ":") {
+		switch ic.TlsMode {
+		case "tls":
+			ic.Address += ":993"
+		default:
+			ic.Address += ":143"
+		}
 	}
 
 	return nil
 }
 
 func (imp *ImapConnector) Connect() (*ImapSession, error) {
-	dialer := imapclient.DialTLS
+	switch imp.TlsMode {
+	case "no-tls", "starttls", "tls":
+	default:
+		return nil, fmt.Errorf("invalid tls mode %q", imp.TlsMode)
+	}
+
+	timeout := imp.IOTimeout
+	if timeout == 0 {
+		timeout = defaultIOTimeout
+	}
+
+	// Dial the raw TCP connection ourselves so we can wrap it with an idle
+	// deadline. The deadline wraps the underlying socket, so it remains in
+	// effect even after a STARTTLS upgrade.
+	rawConn, err := net.DialTimeout("tcp", imp.Address, dialTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial IMAP server: %w", err)
+	}
+	conn := net.Conn(&idleConn{Conn: rawConn, timeout: timeout})
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: imp.TlsNoVerify}
+	if host, _, e := net.SplitHostPort(imp.Address); e == nil {
+		tlsCfg.ServerName = host
+	}
+	opts := &imapclient.Options{TLSConfig: tlsCfg}
+
+	var client *imapclient.Client
 	switch imp.TlsMode {
 	case "no-tls":
-		dialer = imapclient.DialInsecure
+		client = imapclient.New(conn, opts)
 	case "starttls":
-		dialer = imapclient.DialStartTLS
+		client, err = imapclient.NewStartTLS(conn, opts)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to start TLS: %w", err)
+		}
 	case "tls":
-		dialer = imapclient.DialTLS
-	default:
-		return nil, fmt.Errorf("Invalid tls mode %q", imp.TlsMode)
+		if tlsCfg.NextProtos == nil {
+			tlsCfg.NextProtos = []string{"imap"}
+		}
+		tlsConn := tls.Client(conn, tlsCfg)
+		if err := tlsConn.Handshake(); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("TLS handshake failed: %w", err)
+		}
+		client = imapclient.New(tlsConn, opts)
 	}
 
-	tlsCfg := &tls.Config{
-		InsecureSkipVerify: imp.TlsNoVerify,
-	}
-
-	opts := &imapclient.Options{
-		TLSConfig: tlsCfg,
-	}
-
-	client, err := dialer(imp.Address, opts)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to dial IMAP server: %w", err)
-	}
-
-	err = client.Login(imp.Username, imp.Password).Wait()
-	if err != nil {
+	if err := client.Login(imp.Username, imp.Password).Wait(); err != nil {
 		client.Close()
-		return nil, fmt.Errorf("Failed to login %w", err)
+		return nil, fmt.Errorf("failed to login: %w", err)
 	}
 
 	return &ImapSession{
-		Client: client,
-		buf:    make([]byte, 2*MB),
+		Client:  client,
+		buf:     make([]byte, 2*MB),
+		rawConn: conn,
 	}, nil
 }
 
@@ -128,8 +243,7 @@ func (session *ImapSession) Create(mailbox string, existOk bool) error {
 	opts := imap.CreateOptions{}
 	err := session.Client.Create(mailbox, &opts).Wait()
 	if err != nil {
-		e, ok := err.(*imap.Error)
-		if ok && e.Code == imap.ResponseCodeAlreadyExists && existOk {
+		if existOk && IsAlreadyExists(err) {
 			return nil
 		}
 		return err
@@ -169,7 +283,63 @@ func (session *ImapSession) Append(mailbox string, fp io.Reader, size int64) err
 }
 
 func (session *ImapSession) Logout() error {
+	if session == nil || session.Client == nil {
+		return nil
+	}
 	return session.Client.Logout().Wait()
+}
+
+// IsAlreadyExists reports whether err is an IMAP error indicating the mailbox
+// already exists (so CREATE can be treated as idempotent).
+func IsAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeAlreadyExists {
+		return true
+	}
+	up := strings.ToUpper(err.Error())
+	return strings.Contains(up, "ALREADYEXISTS") || strings.Contains(up, "ALREADY EXISTS")
+}
+
+// IsTryCreate reports whether an APPEND failed because the target mailbox does
+// not exist yet (RFC 3501 [TRYCREATE] response code).
+func IsTryCreate(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeTryCreate {
+		return true
+	}
+	return strings.Contains(strings.ToUpper(err.Error()), "TRYCREATE")
+}
+
+// IsRetryable reports whether err is a transient failure that a fresh
+// connection might overcome — a dropped/closed socket, an I/O timeout, or the
+// pool watchdog abandoning a stalled operation. A clean protocol-level NO/BAD
+// response (*imap.Error) is NOT retryable: the server has answered and the
+// answer will not change on retry.
+func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrOperationTimeout) {
+		return true
+	}
+	if _, ok := err.(*imap.Error); ok {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	msg := err.Error()
+	for _, s := range []string{"EOF", "broken pipe", "connection reset", "use of closed", "i/o timeout", "deadline exceeded"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func SafeName(s string) string {

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar IMAP Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "username",
+    "password"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP location URI: imap://<host>[:<port>]",
+      "pattern": "^imap://[^/]+(/.*)?$"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP username"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "IMAP password"
+    },
+    "root": {
+      "type": "string",
+      "default": "Plakar",
+      "description": "Root mailbox under which the repository's resource mailboxes are created"
+    },
+    "tls": {
+      "type": "string",
+      "default": "starttls",
+      "description": "TLS mode used to connect to the IMAP server",
+      "enum": [
+        "no-tls",
+        "starttls",
+        "tls"
+      ]
+    },
+    "tls_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "io_timeout": {
+      "type": "string",
+      "description": "Idle timeout for each IMAP socket operation as a Go duration (e.g. \"2m\", \"30s\"). A stalled server operation is aborted after this. Default 2m."
+    }
+  }
+}

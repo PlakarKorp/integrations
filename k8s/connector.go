@@ -152,12 +152,12 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		}
 
 	default:
-		return nil, fmt.Errorf("integration-k8s cannot handle protocol %s", proto)
+		return nil, fmt.Errorf("integrations/k8s cannot handle protocol %s", proto)
 	}
 
 	kubeletImage := params["kubelet_image"]
 	if kubeletImage == "" {
-		kubeletImage = "ghcr.io/plakarkorp/kubelet:c36dcf6f-202604161528"
+		kubeletImage = "ghcr.io/plakarkorp/kubelet:f8fa0047b039d458481f5a18681b7cd608260ccf-27747443337"
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)

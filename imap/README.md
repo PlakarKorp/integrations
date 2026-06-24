@@ -34,11 +34,25 @@ $ plakar pkg
 
 The configuration parameters are as follow:
 
-- `location`: The URL of the IMAP server in the form imap://<host>:<port>.
+- `location`: The URL of the IMAP server in the form `imap://<host>[:<port>][/<mailbox>]`. When the port is omitted it defaults to 993 for `tls` and 143 otherwise. Credentials may also be embedded as `imap://user:password@host`. An optional trailing path scopes a **backup** to a single mailbox and its sub-mailboxes — e.g. `imap://host/Archive` backs up `Archive` and everything nested under it, leaving the rest of the account untouched. Nested folders use `/` regardless of the server's hierarchy delimiter (`imap://host/Archive/2024`), and a mailbox name containing `/` must be percent-encoded (`%2F`). The path is honoured by the importer (source); the exporter/storage connectors ignore it.
 - `username`: Username to login.
 - `password`: Password for login.
-- `tls`:      TlS mode to use.  Possible values are tls (the default), starttls and no-tls.
-- `tls_no_verify`: If set to yes, the client will not verify the server certificate in tls mode.
+- `tls`:      TLS mode to use. Possible values are `starttls` (the default), `tls` and `no-tls`.
+- `tls_no_verify`: If set to `true`, the client will not verify the server certificate (dangerous; testing only).
+- `io_timeout`: Idle timeout for each IMAP socket operation, as a Go duration (e.g. `2m`, `30s`); default `2m`. If a server stalls mid-response (common with throttling providers), the affected operation is aborted after this timeout. A stalled or failed message-body fetch is retried once on a fresh connection — so a transient throttle is recovered transparently — and only a persistent failure is recorded as a per-message error. Either way the backup never hangs indefinitely.
+
+## Behavior
+
+- **Folder hierarchy** is preserved across servers even when source and
+  destination use different hierarchy delimiters (e.g. Dovecot's `.` vs `/`).
+  Each mailbox segment is percent-encoded into the snapshot path, so a folder
+  named `Work/Notes` or `Reçus` round-trips intact.
+- **Message flags** (`\Seen`, `\Answered`, `\Flagged`, `\Draft`, `\Deleted`,
+  and keywords such as `$Junk`) are encoded into each message's file name and
+  re-applied on restore. The session-only `\Recent` flag is intentionally
+  dropped. Messages are fetched with `BODY.PEEK`, so a backup never alters the
+  source mailbox.
+- On restore, missing mailboxes (and their parents) are created automatically.
 
 ## Examples
 
@@ -52,9 +66,42 @@ $ plakar source add myIMAPsrc imap://imap.mydomain.com:143 \
 # backup the mailbox
 $ plakar backup @myIMAPsrc
 
+# back up only a specific folder (and its sub-folders)
+$ plakar source add myArchive imap://imap.mydomain.com/Archive \
+    username=myuser password=mypassword tls=starttls
+$ plakar backup @myArchive
+
 # configure an IMAP destination connector
 $ plakar destination add myIMAPdst imap://imap.alsomydomain.com:143 username=alsomyuser password=alsomypassword tls=starttls
 
 # restore the snapshot to the destination
 $ plakar restore -to @myIMAPdst <snapid>
 ```
+
+## Using IMAP as a repository (storage)
+
+In addition to importing and exporting mail, this integration can use an IMAP
+account as a **kloset repository** — storing arbitrary backups *inside a
+mailbox*. Each repository resource (packfiles, states, locks, config) becomes a
+mailbox under a configurable root, and every blob is stored as one e-mail
+message: the content MAC goes into an `X-Plakar-Mac` header and the bytes are
+base64-encoded into the body.
+
+The store is selected by an `imap://` repository location and accepts the same
+connection parameters as the importer/exporter (`username`, `password`, `tls`,
+`tls_no_verify`) plus a `root` parameter. Point `plakar create` at an
+`imap://<host>` location with those parameters to initialize the repository,
+then `backup`/`restore` against it as with any other repository.
+
+Additional storage parameter:
+
+- `root`: root mailbox under which the repository's resource mailboxes are
+  created (default `Plakar`).
+
+**Caveats.** This is a deliberate (and fun) abuse of IMAP and inherits the
+protocol's limits. Bodies are base64-encoded (+33% size), and most servers cap
+message size — very large packfiles may be rejected (chunking blobs across
+multiple messages is not yet implemented). IMAP offers no atomic
+create-if-absent, so repository locking is best-effort; avoid concurrent writers
+to the same repository. Every operation is a round-trip, so it is far slower
+than the `fs`, `s3` or `sftp` stores. Verified end-to-end against Dovecot.

@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"sync"
 
-	plakarsftp "github.com/PlakarKorp/integration-sftp/common"
+	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/exclude"
@@ -141,12 +141,6 @@ func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connect
 		go imp.walkDir_worker(jobs, records, &wg)
 	}
 
-	// Add prefix directories first
-	imp.walkDir_addPrefixDirectories(path.Dir(imp.realpath), records)
-	if imp.realpath != imp.Root() {
-		imp.walkDir_addPrefixDirectories(imp.Root(), records)
-	}
-
 	err := SFTPWalk(imp.client, imp.rootDir, func(path string, info os.FileInfo, err error) error {
 		if ctx.Err() != nil {
 			return err
@@ -190,7 +184,7 @@ func (imp *Importer) realpathFollow(target string) (resolved string, dev uint64,
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
-		realpath, err := os.Readlink(target)
+		realpath, err := imp.client.ReadLink(target)
 		if err != nil {
 			return "", 0, err
 		}
@@ -210,5 +204,5 @@ func (p *Importer) Ping(ctx context.Context) error {
 }
 
 func (p *Importer) Close(ctx context.Context) error {
-	return nil
+	return p.client.Close()
 }

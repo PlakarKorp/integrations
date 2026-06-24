@@ -7,7 +7,8 @@ all: build
 
 build:
 	${GO} build -v -o imapImporter${EXT} ./plugin/importer
-	#${GO} build -v -o imapExporter${EXT} ./plugin/exporter
+	${GO} build -v -o imapExporter${EXT} ./plugin/exporter
+	${GO} build -v -o imapStorage${EXT} ./plugin/store
 
 create:
 	${PLAKAR} pkg create manifest.yaml
@@ -19,4 +20,4 @@ install:
 	${PLAKAR} pkg install imap-${VERSION}.ptar
 
 clean:
-	rm -f imapImporter imapExporter imap-*.ptar
+	rm -f imapImporter imapExporter imapStorage imap-*.ptar
