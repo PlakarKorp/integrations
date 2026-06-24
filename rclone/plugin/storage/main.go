@@ -4,9 +4,9 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integrations/rclone/storage"
+	"github.com/PlakarKorp/integrations/rclone"
 )
 
 func main() {
-	sdk.EntrypointStorage(os.Args, storage.NewRcloneStorage)
+	sdk.EntrypointStorage(os.Args, rclone.NewStorage)
 }
