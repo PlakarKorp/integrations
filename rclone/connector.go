@@ -275,7 +275,7 @@ func respath(res storage.StorageResource, mac objects.MAC) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/%x", dir, mac), nil
+	return fmt.Sprintf("%s/%064x", dir, mac), nil
 }
 
 func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
