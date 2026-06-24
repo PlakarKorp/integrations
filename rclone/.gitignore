@@ -2,3 +2,5 @@
 /rclone-importer*
 /rclone-storage*
 /rclone_*.ptar
+coverage.out
+coverage.html
