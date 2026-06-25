@@ -3,17 +3,17 @@
 # Each connector lives in its own top-level directory as an independent Go
 # module with its own Makefile. This root Makefile does not build anything
 # itself -- it discovers those connectors and fans a target out to one of them
-# (via C=<connector>) or to all of them (the *-all targets).
+# (via INTEGRATION=<connector>) or to all of them (the *-all targets).
 #
 # Examples:
-#   make list                 # list discovered connectors
-#   make build C=s3           # run `make build` inside s3/
-#   make test  C=imap         # run `make test`  inside imap/
-#   make tidy  C=fs           # run `go mod tidy` inside fs/
-#   make build-all            # build every connector
-#   make test-all             # test every connector (skips those w/o a test target)
-#   make build-changed        # build only connectors changed vs origin/main
-#   make help                 # show this help
+#   make list                          # list discovered connectors
+#   make build INTEGRATION=s3          # run `make build` inside s3/
+#   make test  INTEGRATION=imap        # run `make test`  inside imap/
+#   make tidy  INTEGRATION=fs          # run `go mod tidy` inside fs/
+#   make build-all                     # build every connector
+#   make test-all                      # test every connector (skips those w/o a test target)
+#   make build-changed                 # build only connectors changed vs origin/main
+#   make help                          # show this help
 
 GO  ?= go
 
@@ -29,37 +29,37 @@ DELEGATED := build test check clean package install uninstall
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
-# Single-connector targets: `make <target> C=<connector>`
+# Single-connector targets: `make <target> INTEGRATION=<connector>`
 # ---------------------------------------------------------------------------
 
 $(DELEGATED):
-	@if [ -z "$(C)" ]; then \
-		echo "error: set C=<connector> (e.g. make $@ C=s3), or use '$@-all'." >&2; \
+	@if [ -z "$(INTEGRATION)" ]; then \
+		echo "error: set INTEGRATION=<connector> (e.g. make $@ INTEGRATION=s3), or use '$@-all'." >&2; \
 		echo "       available connectors: $(CONNECTORS)" >&2; \
 		exit 2; \
 	fi
-	@if [ ! -d "$(C)" ] || [ ! -f "$(C)/go.mod" ]; then \
-		echo "error: '$(C)' is not a connector. available: $(CONNECTORS)" >&2; \
+	@if [ ! -d "$(INTEGRATION)" ] || [ ! -f "$(INTEGRATION)/go.mod" ]; then \
+		echo "error: '$(INTEGRATION)' is not a connector. available: $(CONNECTORS)" >&2; \
 		exit 2; \
 	fi
-	@if ! $(MAKE) -C "$(C)" -n $@ >/dev/null 2>&1; then \
-		echo "error: connector '$(C)' has no '$@' target." >&2; \
+	@if ! $(MAKE) -C "$(INTEGRATION)" -n $@ >/dev/null 2>&1; then \
+		echo "error: connector '$(INTEGRATION)' has no '$@' target." >&2; \
 		exit 2; \
 	fi
-	@$(MAKE) -C "$(C)" $@
+	@$(MAKE) -C "$(INTEGRATION)" $@
 
 # `go mod tidy` is useful per-module but not defined in the sub-Makefiles,
 # so the root drives it directly.
 tidy:
-	@if [ -z "$(C)" ]; then \
-		echo "error: set C=<connector> (e.g. make tidy C=s3), or use 'tidy-all'." >&2; \
+	@if [ -z "$(INTEGRATION)" ]; then \
+		echo "error: set INTEGRATION=<connector> (e.g. make tidy INTEGRATION=s3), or use 'tidy-all'." >&2; \
 		exit 2; \
 	fi
-	@if [ ! -f "$(C)/go.mod" ]; then \
-		echo "error: '$(C)' is not a connector. available: $(CONNECTORS)" >&2; \
+	@if [ ! -f "$(INTEGRATION)/go.mod" ]; then \
+		echo "error: '$(INTEGRATION)' is not a connector. available: $(CONNECTORS)" >&2; \
 		exit 2; \
 	fi
-	@cd "$(C)" && $(GO) mod tidy
+	@cd "$(INTEGRATION)" && $(GO) mod tidy
 
 # ---------------------------------------------------------------------------
 # All-connector targets: run across every connector, keep going on failure,
@@ -90,10 +90,10 @@ changed:
 help:
 	@echo "Integrations monorepo -- root Makefile"
 	@echo ""
-	@echo "Single connector (set C=<connector>):"
-	@echo "  make build C=s3        build one connector"
-	@echo "  make test  C=imap      test one connector"
-	@echo "  make tidy  C=fs        go mod tidy one connector"
+	@echo "Single connector (set INTEGRATION=<connector>):"
+	@echo "  make build INTEGRATION=s3     build one connector"
+	@echo "  make test  INTEGRATION=imap   test one connector"
+	@echo "  make tidy  INTEGRATION=fs     go mod tidy one connector"
 	@echo "  targets: $(DELEGATED) tidy"
 	@echo ""
 	@echo "All connectors (keep going, summary at end):"
