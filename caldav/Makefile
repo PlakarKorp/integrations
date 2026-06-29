@@ -7,8 +7,8 @@ VERSION	= v1.0.0-beta.8
 all: build
 
 build:
-	${GO} build -v -o caldav-importer${EXT} ./importer
-	${GO} build -v -o caldav-exporter${EXT} ./exporter
+	${GO} build -v -o caldav-importer${EXT} ./cmd/importer
+	${GO} build -v -o caldav-exporter${EXT} ./cmd/exporter
 
 package: build
 	rm -f caldav_${VERSION}_*.ptar
