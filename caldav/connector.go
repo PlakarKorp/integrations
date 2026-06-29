@@ -1,4 +1,4 @@
-package main
+package caldav
 
 import (
 	"bytes"
@@ -7,10 +7,11 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 
-	"github.com/PlakarKorp/integrations/caldav/oauth2utils"
 	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
@@ -18,14 +19,14 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type CaldavImporter struct {
+type CalDAV struct {
 	opts *connectors.Options
 
 	client   *gowebdav.Client
 	location *url.URL
 }
 
-func NewCaldavImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func New(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (*CalDAV, error) {
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
 
@@ -64,16 +65,16 @@ func NewCaldavImporter(ctx context.Context, opts *connectors.Options, name strin
 		if !ok {
 			return nil, fmt.Errorf("missing 'client_secret' in configuration")
 		}
-		serviceScopes, err := oauth2utils.GetOAuth2Scopes(name)
+		serviceScopes, err := GetOAuth2Scopes(name)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OAuth2 scopes for provider '%s': %w", name, err)
 		}
-		endpoint, err := oauth2utils.GetOAuth2Endpoint(name)
+		endpoint, err := GetOAuth2Endpoint(name)
 		if err != nil {
 			return nil, fmt.Errorf("error getting OAuth2 endpoint for provider '%s': %w", name, err)
 		}
 
-		calOAuthProvider := oauth2utils.OAuthProvider{
+		calOAuthProvider := OAuthProvider{
 			Name: name,
 			Config: &oauth2.Config{
 				ClientID:     clientID,     // client ID (provided by the plakar app (production) or by the user directly in a personal app)
@@ -84,12 +85,12 @@ func NewCaldavImporter(ctx context.Context, opts *connectors.Options, name strin
 			},
 		}
 
-		url = oauth2utils.GetOAuth2Url(name, username)
+		url = GetOAuth2Url(name, username)
 
 		client = calOAuthProvider.GetClient(url) // maybe not using the url directly... the url could be built from the username
 	}
 
-	return &CaldavImporter{
+	return &CalDAV{
 		opts: opts,
 
 		client:   client,
@@ -97,16 +98,24 @@ func NewCaldavImporter(ctx context.Context, opts *connectors.Options, name strin
 	}, nil
 }
 
-func (c *CaldavImporter) Origin() string        { return c.location.Host }
-func (c *CaldavImporter) Type() string          { return "caldav" }
-func (c *CaldavImporter) Root() string          { return c.location.Path }
-func (c *CaldavImporter) Flags() location.Flags { return 0 }
+func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+	return New(ctx, opts, name, config)
+}
 
-func (c *CaldavImporter) Ping(ctx context.Context) error {
+func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+	return New(ctx, opts, name, config)
+}
+
+func (c *CalDAV) Origin() string        { return c.location.Host }
+func (c *CalDAV) Type() string          { return "caldav" }
+func (c *CalDAV) Root() string          { return c.location.Path }
+func (c *CalDAV) Flags() location.Flags { return 0 }
+
+func (c *CalDAV) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *CaldavImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (c *CalDAV) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
 	entries, err := c.client.ReadDir("/")
@@ -144,6 +153,43 @@ func (c *CaldavImporter) Import(ctx context.Context, records chan<- *connectors.
 	return nil
 }
 
-func (c *CaldavImporter) Close(ctx context.Context) error {
+func (c *CalDAV) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
+
+	for record := range records {
+		if record.IsXattr || record.Err != nil || !record.FileInfo.Lmode.IsRegular() {
+			results <- record.Ok()
+			continue
+		}
+
+		pathname := path.Base(record.Pathname)
+		if path.Ext(pathname) != ".ics" {
+			err := fmt.Errorf("unsupported file type %s, only .ics files are supported",
+				pathname)
+			results <- record.Error(err)
+			continue
+		}
+
+		data, err := io.ReadAll(record.Reader)
+		if err != nil {
+			err := fmt.Errorf("failed to read file %s: %w", pathname, err)
+			results <- record.Error(err)
+			continue
+		}
+
+		//TODO: look at this, it returns an error, even if the file is written successfully
+		if c.client.Write(pathname, data, 0644) != nil {
+			err := fmt.Errorf("error writing %s: %w", pathname, err)
+			results <- record.Error(err)
+			continue
+		}
+
+		results <- record.Ok()
+	}
+
+	return nil
+}
+
+func (c *CalDAV) Close(ctx context.Context) error {
 	return nil
 }
