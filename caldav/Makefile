@@ -1,12 +1,33 @@
-GO=go
-EXT=
+GO	= go
+EXT	=
 
-all: importer exporter
+PLAKAR	= plakar
+VERSION	= v1.0.0-beta.8
 
-importer:
-	${GO} build -o importer-caldav${EXT} ./importer/caldav.go ./importer/main.go
+all: build
 
-exporter:
-	${GO} build -o exporter-caldav${EXT} ./exporter/caldav.go ./exporter/main.go
+build:
+	${GO} build -v -o caldav-importer${EXT} ./cmd/importer
+	${GO} build -v -o caldav-exporter${EXT} ./cmd/exporter
 
-.PHONY: all importer exporter
+package: build
+	rm -f caldav_${VERSION}_*.ptar
+	${PLAKAR} pkg create ./manifest.yaml ${VERSION}
+
+uninstall:
+	-${PLAKAR} pkg rm caldav
+
+install: package
+	${PLAKAR} pkg add ./caldav_${VERSION}_*.ptar
+
+reinstall: uninstall install
+
+test:
+	${GO} test -v ./...
+
+check: test
+
+clean:
+	rm -f caldav-importer${EXT} caldav-exporter${EXT} caldav-${VERSION}_*.ptar
+
+.PHONY: all build package uninstall install reinstall test check clean
