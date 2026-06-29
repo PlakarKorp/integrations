@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
 	github.com/PlakarKorp/kloset v1.1.0
-	github.com/studio-b12/gowebdav v0.10.0
+	github.com/studio-b12/gowebdav v0.12.0
 	golang.org/x/oauth2 v0.36.0
 )
 
