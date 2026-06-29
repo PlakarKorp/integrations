@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
+	urlpkg "net/url"
 	"os"
 	"path"
 	"strings"
@@ -23,7 +23,7 @@ type CalDAV struct {
 	opts *connectors.Options
 
 	client   *gowebdav.Client
-	location *url.URL
+	location *urlpkg.URL
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (*CalDAV, error) {
@@ -33,11 +33,6 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	location, found := config["location"]
 	if !found {
 		return nil, fmt.Errorf("missing 'location' in configuration")
-	}
-
-	loc, err := url.Parse(location)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse location: %w", err)
 	}
 
 	username, ok := config["username"]
@@ -53,7 +48,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		if !ok {
 			return nil, fmt.Errorf("missing 'password' in configuration")
 		}
-		url = strings.TrimPrefix(location, "caldav://")
+		url = "https://" + strings.TrimPrefix(location, name+"://")
 		client = gowebdav.NewClient(url, username, password)
 	} else { // OAuth2 client setup
 
@@ -88,6 +83,11 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		url = GetOAuth2Url(name, username)
 
 		client = calOAuthProvider.GetClient(url) // maybe not using the url directly... the url could be built from the username
+	}
+
+	loc, err := urlpkg.Parse(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	return &CalDAV{
