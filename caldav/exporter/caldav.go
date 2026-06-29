@@ -2,29 +2,29 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net/url"
 	"path"
 	"strings"
 
 	"golang.org/x/oauth2"
 
 	"github.com/PlakarKorp/integrations/caldav/oauth2utils"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/studio-b12/gowebdav"
 )
 
 type CaldavExporter struct {
-	opts *exporter.Options
+	opts *connectors.Options
 
-	client *gowebdav.Client
-	url    string // The URL of the CalDAV server
+	client   *gowebdav.Client
+	location *url.URL
 }
 
-func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewCaldavExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
@@ -32,6 +32,11 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 	location, found := config["location"]
 	if !found {
 		return nil, fmt.Errorf("missing 'location' in configuration")
+	}
+
+	loc, err := url.Parse(location)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse location: %w", err)
 	}
 
 	username, ok := config["username"]
@@ -87,44 +92,55 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 	return &CaldavExporter{
 		opts: opts,
 
-		client: client,
-		url:    url,
+		client:   client,
+		location: loc,
 	}, nil
 }
 
-func (c *CaldavExporter) Root(ctx context.Context) (string, error) {
-	return "/", nil
-}
+func (c *CaldavExporter) Origin() string        { return c.location.Host }
+func (c *CaldavExporter) Type() string          { return "caldav" }
+func (c *CaldavExporter) Root() string          { return c.location.Path }
+func (c *CaldavExporter) Flags() location.Flags { return 0 }
 
-func (c *CaldavExporter) CreateDirectory(ctx context.Context, pathname string) error {
+func (c *CaldavExporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *CaldavExporter) StoreFile(ctx context.Context, pathname string, fp io.Reader, size int64) error {
-	pathname = path.Base(pathname)
+func (c *CaldavExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
 
-	if path.Ext(pathname) != ".ics" {
-		return fmt.Errorf("unsupported file type %s, only .ics files are supported", pathname)
+	for record := range records {
+		if record.IsXattr || record.Err != nil || !record.FileInfo.Lmode.IsRegular() {
+			results <- record.Ok()
+			continue
+		}
+
+		pathname := path.Base(record.Pathname)
+		if path.Ext(pathname) != ".ics" {
+			err := fmt.Errorf("unsupported file type %s, only .ics files are supported",
+				pathname)
+			results <- record.Error(err)
+			continue
+		}
+
+		data, err := io.ReadAll(record.Reader)
+		if err != nil {
+			err := fmt.Errorf("failed to read file %s: %w", pathname, err)
+			results <- record.Error(err)
+			continue
+		}
+
+		//TODO: look at this, it returns an error, even if the file is written successfully
+		if c.client.Write(pathname, data, 0644) != nil {
+			err := fmt.Errorf("error writing %s: %w", pathname, err)
+			results <- record.Error(err)
+			continue
+		}
+
+		results <- record.Ok()
 	}
 
-	data, err := ioutil.ReadAll(fp)
-	if err != nil {
-		return fmt.Errorf("failed to read file %s: %w", pathname, err)
-	}
-
-	//TODO: look at this, it returns an error, even if the file is written successfully
-	if c.client.Write(pathname, data, 0644) != nil {
-		return fmt.Errorf("error writing %s: %w", pathname, err)
-	}
 	return nil
-}
-
-func (c *CaldavExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	return nil
-}
-
-func (c *CaldavExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
 }
 
 func (c *CaldavExporter) Close(ctx context.Context) error {

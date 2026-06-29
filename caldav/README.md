@@ -13,7 +13,7 @@ This integration allows:
 - Compatibility with any CalDAV-compliant server or service
 
 
---- 
+---
 
 ## Configuration
 
