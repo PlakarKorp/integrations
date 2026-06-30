@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integrations/sftp/exporter"
+	"github.com/PlakarKorp/integrations/smb/exporter"
 )
 
 func main() {

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar SMB Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMB location URI: smb://[<user>[:<password>]@]<host>[:<port>]/<share>[/<subpath>]",
+      "pattern": "^smb://[^/]+/.+"
+    },
+    "root": {
+      "type": "string",
+      "default": "/",
+      "pattern": "^/",
+      "description": "Destination path, relative to the share root (default: the share root)"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 445,
+      "description": "SMB TCP port"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMB username (cannot be used if location already includes user@host)"
+    },
+    "password": {
+      "type": "string",
+      "description": "SMB password (cannot be used if location already includes user:password@host)"
+    },
+    "domain": {
+      "type": "string",
+      "description": "NTLM authentication domain / workgroup"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "pattern": "^smb://[^/@]+@"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "username"
+          ]
+        }
+      }
+    }
+  ]
+}
