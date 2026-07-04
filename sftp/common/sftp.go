@@ -126,10 +126,6 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
 		}
 
-		if kh := params["known_hosts"]; kh != "" {
-			args = append(args, "-o", "UserKnownHostsFile="+kh)
-		}
-
 		if id := params["identity"]; id != "" {
 			args = append(args, "-i", id)
 		}
@@ -235,10 +231,6 @@ func connectOpenSSH(endpoint *url.URL, params map[string]string) (*sftp.Client, 
 
 	if params["insecure_ignore_host_key"] == "true" {
 		args = append(args, "-o", "StrictHostKeyChecking=no")
-	}
-
-	if kh := params["known_hosts"]; kh != "" {
-		args = append(args, "-o", "UserKnownHostsFile="+kh)
 	}
 
 	if id := params["identity"]; id != "" {

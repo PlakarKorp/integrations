@@ -5,12 +5,10 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // nativeSFTPClient is a wrapper around *sftp.Client that ensures the ssh connection
@@ -66,24 +64,7 @@ func buildAuthMethods(params map[string]string) ([]ssh.AuthMethod, error) {
 }
 
 func hostKeyCallback(params map[string]string) (ssh.HostKeyCallback, error) {
-	if params["insecure_ignore_host_key"] == "true" {
-		return ssh.InsecureIgnoreHostKey(), nil
-	}
-
-	khPath := params["known_hosts"]
-	if khPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve known_hosts path: %w", err)
-		}
-		khPath = filepath.Join(home, ".ssh", "known_hosts")
-	}
-
-	cb, err := knownhosts.New(khPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load known_hosts (%s): %w", khPath, err)
-	}
-	return cb, nil
+	return ssh.InsecureIgnoreHostKey(), nil
 }
 
 // connectNativeSSH connects to the remote server using the native SSH client

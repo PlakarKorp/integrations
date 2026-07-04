@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
-	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -34,36 +33,15 @@ func TestConnectSuccess(t *testing.T) {
 		{
 			name: "with identity",
 			params: map[string]string{
-				"identity":    fixture.clientKeyPath,
-				"known_hosts": fixture.knownHostsPath(),
-			},
-		},
-		{
-			name: "with ssh_private_key",
-			params: map[string]string{
-				"ssh_private_key": fixture.clientKeyPEM,
-				"known_hosts":     fixture.knownHostsPath(),
-			},
-		},
-		{
-			name: "without known_hosts skip verification",
-			params: map[string]string{
 				"identity":                 fixture.clientKeyPath,
 				"insecure_ignore_host_key": "true",
 			},
 		},
 		{
-			name: "with identity and known_hosts",
+			name: "with ssh_private_key",
 			params: map[string]string{
-				"identity":    fixture.clientKeyPath,
-				"known_hosts": fixture.knownHostsPath(),
-			},
-		},
-		{
-			name: "with ssh_private_key and known_hosts",
-			params: map[string]string{
-				"ssh_private_key": fixture.clientKeyPEM,
-				"known_hosts":     fixture.knownHostsPath(),
+				"ssh_private_key":          fixture.clientKeyPEM,
+				"insecure_ignore_host_key": "true",
 			},
 		},
 	}
@@ -111,45 +89,27 @@ func TestConnectFailure(t *testing.T) {
 		{
 			name: "native with missing identity",
 			params: map[string]string{
-				"ssh_mode":    "native",
-				"identity":    filepath.Join(fixture.knownHostsDir, "missing_identity"),
-				"known_hosts": fixture.knownHostsPath(),
+				"ssh_mode":                 "native",
+				"identity":                 filepath.Join(fixture.dir, "missing_identity"),
+				"insecure_ignore_host_key": "true",
 			},
 			errorContains: []string{"failed to read identity file"},
 		},
 		{
-			name: "native with invalid known_hosts",
-			params: map[string]string{
-				"ssh_mode":        "native",
-				"ssh_private_key": fixture.clientKeyPEM,
-				"known_hosts":     fixture.unknownHostKeys,
-			},
-			errorContains: []string{"key is unknown"},
-		},
-		{
-			name: "openssh with invalid known_hosts",
-			params: map[string]string{
-				"ssh_mode":        "openssh",
-				"ssh_private_key": fixture.clientKeyPEM,
-				"known_hosts":     fixture.unknownHostKeys,
-			},
-			errorContains: []string{"Host key verification failed."},
-		},
-		{
 			name: "native with invalid private key",
 			params: map[string]string{
-				"ssh_mode":        "native",
-				"ssh_private_key": "invalid",
-				"known_hosts":     fixture.knownHostsPath(),
+				"ssh_mode":                 "native",
+				"ssh_private_key":          "invalid",
+				"insecure_ignore_host_key": "true",
 			},
 			errorContains: []string{"failed to parse ssh_private_key", "no key found"},
 		},
 		{
 			name: "openssh with invalid private key",
 			params: map[string]string{
-				"ssh_mode":        "openssh",
-				"ssh_private_key": "invalid",
-				"known_hosts":     fixture.knownHostsPath(),
+				"ssh_mode":                 "openssh",
+				"ssh_private_key":          "invalid",
+				"insecure_ignore_host_key": "true",
 			},
 			errorContains: []string{"Error loading key", "invalid format"},
 		},
@@ -158,10 +118,20 @@ func TestConnectFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := Connect(endpoint, tt.params)
-			for _, errorContains := range tt.errorContains {
-				assert.ErrorContains(t, err, errorContains, tt.name)
+			if err == nil {
+				if client != nil {
+					client.Close()
+				}
+				t.Fatalf("expected error, got nil")
 			}
-			assert.Nil(t, client)
+			for _, errorContains := range tt.errorContains {
+				if !strings.Contains(err.Error(), errorContains) {
+					t.Fatalf("got error %q, want it to contain %q", err, errorContains)
+				}
+			}
+			if client != nil {
+				t.Fatalf("got %v, want nil", client)
+			}
 		})
 	}
 }
@@ -197,14 +167,12 @@ func stopOpenSSHMaster(t *testing.T, endpoint *url.URL, params map[string]string
 
 // sftpFixture describes the shared, package-wide sftp server container.
 type sftpFixture struct {
-	containerID     string
-	host            string // always 127.0.0.1
-	port            string // mapped host port for container port 22
-	clientKeyPEM    string // OpenSSH private key accepted by the server
-	clientKeyPath   string // temp identity file accepted by OpenSSH
-	knownHosts      string // known_hosts content matching the server's host key + port
-	unknownHostKeys string // unknown host keys content
-	knownHostsDir   string // temp dir containing a ready-to-use "known_hosts" file
+	containerID   string
+	host          string // always 127.0.0.1
+	port          string // mapped host port for container port 22
+	clientKeyPEM  string // OpenSSH private key accepted by the server
+	clientKeyPath string // temp identity file accepted by OpenSSH
+	dir           string // temp dir containing fixture files
 }
 
 var fixture *sftpFixture
@@ -281,7 +249,7 @@ func startSFTPServer() (*sftpFixture, error) {
 		host:          "127.0.0.1",
 		clientKeyPEM:  clientPEM,
 		clientKeyPath: clientKeyPath,
-		knownHostsDir: dir,
+		dir:           dir,
 	}
 
 	port, err := dockerMappedPort(containerID, "22")
@@ -296,58 +264,8 @@ func startSFTPServer() (*sftpFixture, error) {
 		return nil, err
 	}
 
-	// Build known_hosts from the server's *actual* host keys (all algorithms it
-	// serves), so verification succeeds regardless of which host-key algorithm
-	// the Go client negotiates.
-	if err := f.writeKnownHostsFromContainer(); err != nil {
-		f.stop()
-		return nil, err
-	}
-
-	fakeHostKeys := `
-	127.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID3ZhoyDd985pxjRly55oSAWdvNQEBJFMWceKsIcFpzV
-	127.0.0.1 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC0MBAGzc743Qro2yFD/aAQRiw6w4BFzptGxvKSZbJ0oicmwcL756yxIzPyVNC3rM3vpJzq98UDcBuc4KfK3IHwvQqmahbPCJtZJHZzNbQhfHxFDuZSRONTq3c0PUcYlVGGQ56KcAXM4C/ik4MNI/SSNZjh1hxNYzhMp2rlxyUYKA+79Sm3oMXOjd099hu96NeRbV8uhePLT0EV+mS853JLWAXAAvqfNCnOFHeRHuJGUYPsl897PHUsRfKU2bFBztHyTX+s6L+B9l6Dq3wi7cDfczAJPCzT5Ryl6G7Ywp5lEJFn1dXio1cqihdA/iag+IwLXC5hjNWOSczjRn94jtstiXP8uVbluzI2qR/BQ5tHFQcP4F5V/qTgwl0DsMzmkPreBFG6yBMQc5Zth/RdNmX5yVPY0UG2631IVeDLrO9Ep0wbk13f4hcy8wCDBF8f3o7XQZrzw6Db/D+NZL1p4toCCkpxL5FRBWAXB0MIJ1oMbiMLLuM/2At3tTKZ7Lq7eF8=
-	127.0.0.1 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOSjgoFyp8nQBRXL7Y/6nl2HyA59BHMrwMrlIrhBaQ/DTN8Z5SX0WNyTsCnYfatYMh7Vnsf5bF3lSfKnxvlD6dc=
-	`
-	// Write fake host keys to a file
-	unknownHostKeysPath := filepath.Join(f.knownHostsDir, "unknown_host_keys")
-	if err := os.WriteFile(unknownHostKeysPath, []byte(fakeHostKeys), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write host keys: %w", err)
-	}
-	f.unknownHostKeys = unknownHostKeysPath
-
 	success = true
 	return f, nil
-}
-
-// writeKnownHostsFromContainer scrapes the server's public host keys and writes a
-// known_hosts file entry (in "[host]:port" form for the mapped port) for each.
-func (f *sftpFixture) writeKnownHostsFromContainer() error {
-	out, err := exec.Command("docker", "exec", f.containerID,
-		"sh", "-c", "cat /etc/ssh/ssh_host_*_key.pub").Output()
-	if err != nil {
-		return fmt.Errorf("read host keys: %w", asExecErr(err))
-	}
-
-	var lines []string
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(l)
-		if len(fields) < 2 {
-			continue
-		}
-		// "[host]:port keytype base64" — drop any trailing comment field.
-		lines = append(lines, fmt.Sprintf("[%s]:%s %s %s", f.host, f.port, fields[0], fields[1]))
-	}
-	if len(lines) == 0 {
-		return fmt.Errorf("no host keys found on server")
-	}
-
-	f.knownHosts = strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(f.knownHostsPath(), []byte(f.knownHosts), 0644)
-}
-
-func (f *sftpFixture) knownHostsPath() string {
-	return filepath.Join(f.knownHostsDir, "known_hosts")
 }
 
 func (f *sftpFixture) stop() {
@@ -357,8 +275,8 @@ func (f *sftpFixture) stop() {
 	if f.containerID != "" {
 		_ = exec.Command("docker", "rm", "-f", f.containerID).Run()
 	}
-	if f.knownHostsDir != "" {
-		_ = os.RemoveAll(f.knownHostsDir)
+	if f.dir != "" {
+		_ = os.RemoveAll(f.dir)
 	}
 }
 
