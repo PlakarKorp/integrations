@@ -9,11 +9,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/pkg/sftp"
 )
+
+func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("nil endpoint")
+	}
+	if endpoint.Hostname() == "" {
+		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
+	}
+
+	switch mode := resolveSSHMode(params); mode {
+	case "openssh":
+		if runtime.GOOS == "windows" {
+			return nil, fmt.Errorf("ssh_mode=openssh is not supported on windows")
+		}
+		return connectOpenSSH(endpoint, params)
+	case "native":
+		return connectNativeSSH(endpoint, params)
+	default:
+		return nil, fmt.Errorf("unknown ssh_mode %q (want %q or %q)", mode, "openssh", "native")
+	}
+}
+
+func resolveSSHMode(params map[string]string) string {
+	if m := params["ssh_mode"]; m != "" {
+		return m
+	}
+	if runtime.GOOS == "windows" {
+		return "native"
+	}
+	return "openssh"
+}
 
 func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
 	if endpoint == nil {
@@ -27,6 +59,7 @@ func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
 
 // guard master creation per ControlPath
 var masterMu sync.Map // map[string]*sync.Mutex
+
 func lockFor(sock string) *sync.Mutex {
 	m, _ := masterMu.LoadOrStore(sock, &sync.Mutex{})
 	return m.(*sync.Mutex)
@@ -91,6 +124,10 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		if params["insecure_ignore_host_key"] == "true" {
 			args = append(args, "-o", "StrictHostKeyChecking=no")
 			// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
+		}
+
+		if kh := params["known_hosts"]; kh != "" {
+			args = append(args, "-o", "UserKnownHostsFile="+kh)
 		}
 
 		if id := params["identity"]; id != "" {
@@ -176,7 +213,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	return sock, nil
 }
 
-func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
+func connectOpenSSH(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
 	if endpoint == nil {
 		return nil, fmt.Errorf("nil endpoint")
 	}
@@ -200,18 +237,20 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		args = append(args, "-o", "StrictHostKeyChecking=no")
 	}
 
+	if kh := params["known_hosts"]; kh != "" {
+		args = append(args, "-o", "UserKnownHostsFile="+kh)
+	}
+
 	if id := params["identity"]; id != "" {
 		args = append(args, "-i", id)
 	}
 
-	// username resolution: forbid both user@host AND username param
-	if endpoint.User != nil && params["username"] != "" {
-		return nil, fmt.Errorf("can not use user@host foo syntax and username parameter")
-	} else if endpoint.User != nil {
-		args = append(args, "-l", endpoint.User.Username())
-	} else if params["username"] != "" {
-		args = append(args, "-l", params["username"])
+	username, err := resolveUsername(endpoint, params)
+	if err != nil {
+		return nil, err
 	}
+
+	args = append(args, "-l", username)
 
 	if p := endpoint.Port(); p != "" {
 		args = append(args, "-p", p)
@@ -266,4 +305,14 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	return client, nil
+}
+
+func resolveUsername(endpoint *url.URL, params map[string]string) (string, error) {
+	if endpoint.User != nil && params["username"] != "" {
+		return "", fmt.Errorf("can not use user@host syntax and username parameter")
+	}
+	if endpoint.User != nil {
+		return endpoint.User.Username(), nil
+	}
+	return params["username"], nil
 }
