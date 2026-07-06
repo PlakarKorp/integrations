@@ -130,7 +130,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connect
 		}
 
 		if err != nil {
-			records <- connectors.NewError(path, err)
+			records <- connectors.NewError(toslash(path), err)
 			return nil
 		}
 
@@ -148,7 +148,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connect
 
 		info, err := d.Info()
 		if err != nil {
-			records <- connectors.NewError(path, err)
+			records <- connectors.NewError(toslash(path), err)
 			return nil
 		}
 
