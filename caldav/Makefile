@@ -28,6 +28,6 @@ test:
 check: test
 
 clean:
-	rm -f caldav-importer${EXT} caldav-exporter${EXT} caldav-${VERSION}_*.ptar
+	rm -f caldav-importer${EXT} caldav-exporter${EXT} caldav_${VERSION}_*.ptar
 
 .PHONY: all build package uninstall install reinstall test check clean

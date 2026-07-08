@@ -1,10 +1,10 @@
 package caldav
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"log"
 	urlpkg "net/url"
 	"os"
 	"path"
@@ -48,7 +48,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		if !ok {
 			return nil, fmt.Errorf("missing 'password' in configuration")
 		}
-		url = "https://" + strings.TrimPrefix(location, name+"://")
+		url = "https://" + strings.TrimPrefix(location, "caldav://")
 		client = gowebdav.NewClient(url, username, password)
 	} else { // OAuth2 client setup
 
@@ -90,6 +90,10 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		return nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
+	if !strings.HasPrefix(loc.Path, "/") {
+		loc.Path = "/" + loc.Path
+	}
+
 	return &CalDAV{
 		opts: opts,
 
@@ -118,39 +122,36 @@ func (c *CalDAV) Ping(ctx context.Context) error {
 func (c *CalDAV) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	entries, err := c.client.ReadDir("/")
-	if err != nil {
-		return fmt.Errorf("error reading directory: %w", err)
-	}
-
-	records <- connectors.NewRecord("/", "", objects.FileInfo{
-		Lname:    "/",
-		Lsize:    0,
-		Lmode:    os.ModeDir | 0755,
-		LmodTime: entries[0].ModTime(),
-	}, nil, nil)
-
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".ics") {
-			data, err := c.client.Read(entry.Name())
-			if err != nil {
-				records <- connectors.NewError("/"+entry.Name(), fmt.Errorf("error reading file %s: %w", entry.Name(), err))
-				continue
+	return c.walk("/", func(p string, finfo os.FileInfo, err error) error {
+		if err != nil {
+			if p == "/" {
+				return err
 			}
-
-			rd := bytes.NewReader(data)
-			records <- connectors.NewRecord("/"+entry.Name(), "", objects.FileInfo{
-				Lname:    entry.Name(),
-				Lsize:    entry.Size(),
-				Lmode:    entry.Mode(),
-				LmodTime: entry.ModTime(),
-			}, nil, func() (io.ReadCloser, error) {
-				return io.NopCloser(rd), nil
-			})
+			records <- connectors.NewError(p, err)
+			return nil
 		}
-	}
 
-	return nil
+		p = path.Join(c.location.Path, finfo.Name())
+		if p == "/remote.php/dav/calendars/omar" {
+			return nil
+		}
+		log.Println(">>>", p)
+
+		if !finfo.Mode().IsRegular() || !strings.HasPrefix(p, ".ics") {
+			return nil
+		}
+
+		records <- connectors.NewRecord(p, "", objects.FileInfo{
+			Lname:    finfo.Name(),
+			Lsize:    finfo.Size(),
+			Lmode:    finfo.Mode(),
+			LmodTime: finfo.ModTime(),
+		}, nil, func() (io.ReadCloser, error) {
+			return c.client.ReadStream(p)
+		})
+
+		return nil
+	})
 }
 
 func (c *CalDAV) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
