@@ -16,10 +16,40 @@
 
 package exporter
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"io"
 
-// newIncusSink is a provisional stub; Task 7 replaces it with the real
-// Incus restore adapter.
+	incus "github.com/lxc/incus/v6/client"
+)
+
+type incusSink struct {
+	server incus.InstanceServer
+	pool   string
+}
+
 func newIncusSink(socket, pool string) (restoreSink, error) {
-	return nil, fmt.Errorf("incus: sink not implemented yet")
+	server, err := incus.ConnectIncusUnix(socket, nil)
+	if err != nil {
+		return nil, fmt.Errorf("incus: connect %s: %w", socket, err)
+	}
+	return &incusSink{server: server, pool: pool}, nil
+}
+
+func (s *incusSink) Ping(ctx context.Context) error {
+	_, _, err := s.server.GetServer()
+	return err
+}
+
+func (s *incusSink) Restore(ctx context.Context, instance string, tarStream io.Reader) error {
+	op, err := s.server.CreateInstanceFromBackup(incus.InstanceBackupArgs{
+		BackupFile: tarStream,
+		Name:       instance,
+		PoolName:   s.pool,
+	})
+	if err != nil {
+		return err
+	}
+	return op.WaitContext(ctx)
 }
