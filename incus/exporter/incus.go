@@ -19,6 +19,7 @@ package exporter
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -87,7 +88,15 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 
 	pr, pw := io.Pipe()
 	sinkDone := make(chan error, 1)
-	go func() { sinkDone <- p.sink.Restore(ctx, p.instance, pr) }()
+	go func() {
+		err := p.sink.Restore(ctx, p.instance, pr)
+		// Always close the read end, even when Restore returns early
+		// without draining the stream: otherwise the tar writer below
+		// stays blocked forever on pw.Write, deadlocking Export when
+		// the sink rejects the upload instead of consuming it fully.
+		pr.CloseWithError(err)
+		sinkDone <- err
+	}()
 
 	tw := tar.NewWriter(pw)
 
@@ -112,6 +121,14 @@ loop:
 			hdr, err := tarHeader(rec)
 			if err != nil {
 				results <- rec.Error(err)
+				continue
+			}
+			if hdr.Typeflag == tar.TypeReg && hdr.Size > 0 && rec.Reader == nil {
+				// Writing this header would promise hdr.Size bytes of
+				// body that we have nothing to supply, corrupting the
+				// tar stream for every entry that follows. Reject the
+				// record instead of emitting a header with no body.
+				results <- rec.Error(fmt.Errorf("incus: record %q has size %d but no reader", rec.Pathname, hdr.Size))
 				continue
 			}
 			if err := tw.WriteHeader(hdr); err != nil {
@@ -139,8 +156,12 @@ loop:
 		pw.Close()
 	}
 
-	if err := <-sinkDone; err != nil && ret == nil {
-		ret = fmt.Errorf("incus: restore %s: %w", p.instance, err)
+	// The sink's error is the actionable one: it explains *why* the pipe
+	// broke. When the write loop only observed the pipe closing (nil, or
+	// the unhelpful io.ErrClosedPipe), surface the sink's error instead of
+	// masking it.
+	if sinkErr := <-sinkDone; sinkErr != nil && (ret == nil || errors.Is(ret, io.ErrClosedPipe)) {
+		ret = fmt.Errorf("incus: restore %s: %w", p.instance, sinkErr)
 	}
 	return ret
 }

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"strings"
@@ -93,5 +94,178 @@ func TestExportRebuildsTar(t *testing.T) {
 	}
 	if hostname != "test\n" {
 		t.Fatalf("hostname content: %q", hostname)
+	}
+}
+
+// earlyFailSink emulates a real Incus rejecting an upload: it reads only a
+// small prefix of the tar stream (e.g. just enough to inspect a header or
+// fail an early sanity check) and returns without draining the rest.
+type earlyFailSink struct {
+	readN int64
+	err   error
+}
+
+func (s *earlyFailSink) Ping(ctx context.Context) error { return nil }
+
+func (s *earlyFailSink) Restore(ctx context.Context, instance string, tarStream io.Reader) error {
+	io.CopyN(io.Discard, tarStream, s.readN)
+	return s.err
+}
+
+// TestExportSinkFailsEarly reproduces the deadlock found in review: when the
+// restore sink returns before fully draining the tar stream, the io.Pipe
+// writer side must be unblocked (via pr.CloseWithError in the sink
+// goroutine), otherwise Export blocks forever on a pending pipe Write.
+func TestExportSinkFailsEarly(t *testing.T) {
+	wantErr := errors.New("sink rejected upload")
+	sink := &earlyFailSink{readN: 512, err: wantErr}
+	exp := newExporterWithSink("restored-2", sink)
+
+	records := make(chan *connectors.Record)
+	results := make(chan *connectors.Result, 16)
+	done := make(chan error, 1)
+	stop := make(chan struct{})
+	go func() {
+		err := exp.Export(context.Background(), records, results)
+		done <- err
+		close(stop)
+	}()
+
+	// Records large enough (128KiB each) to guarantee that, once the sink
+	// stops reading, a pending body write blocks on the (unbuffered)
+	// io.Pipe instead of completing instantly.
+	zeros := make([]byte, 128*1024)
+	feed := []*connectors.Record{
+		{Pathname: "/backup/container/rootfs/big1",
+			FileInfo: objects.FileInfo{Lname: "big1", Lsize: int64(len(zeros)), Lmode: 0644},
+			Reader:   io.NopCloser(bytes.NewReader(zeros))},
+		{Pathname: "/backup/container/rootfs/big2",
+			FileInfo: objects.FileInfo{Lname: "big2", Lsize: int64(len(zeros)), Lmode: 0644},
+			Reader:   io.NopCloser(bytes.NewReader(zeros))},
+		{Pathname: "/backup/container/rootfs/big3",
+			FileInfo: objects.FileInfo{Lname: "big3", Lsize: int64(len(zeros)), Lmode: 0644},
+			Reader:   io.NopCloser(bytes.NewReader(zeros))},
+	}
+
+	sent := 0
+	feedDone := make(chan struct{})
+	go func() {
+		defer close(feedDone)
+		for _, r := range feed {
+			select {
+			case records <- r:
+				sent++
+			case <-stop:
+				// Export gave up (already returned): stop feeding
+				// instead of blocking forever on a channel nobody
+				// reads from anymore.
+				return
+			}
+		}
+		close(records)
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Export: expected a non-nil error, got nil")
+		}
+		if !errors.Is(err, wantErr) && !strings.Contains(err.Error(), wantErr.Error()) {
+			t.Fatalf("Export error = %v, want it to contain %v", err, wantErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Export deadlocked: a sink failing early must not block forever")
+	}
+
+	select {
+	case <-feedDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the feeder goroutine to unblock")
+	}
+
+	got := 0
+	for range results {
+		got++
+	}
+	if got != sent {
+		t.Fatalf("results delivered = %d, want %d (one per record actually read by Export)", got, sent)
+	}
+	if sent == 0 {
+		t.Fatal("no record was ever handed to Export; test is not exercising the deadlock path")
+	}
+}
+
+// TestExportNilReaderRegular ensures a malformed record (a regular file
+// announcing a non-zero size but carrying no Reader) is rejected cleanly
+// instead of writing a tar header promising a body that never arrives -
+// which would silently corrupt every entry written after it.
+func TestExportNilReaderRegular(t *testing.T) {
+	sink := &fakeSink{}
+	exp := newExporterWithSink("restored-3", sink)
+
+	records := make(chan *connectors.Record)
+	results := make(chan *connectors.Result, 8)
+	done := make(chan error, 1)
+	go func() { done <- exp.Export(context.Background(), records, results) }()
+
+	feed := []*connectors.Record{
+		{Pathname: "/backup/index.yaml",
+			FileInfo: objects.FileInfo{Lname: "index.yaml", Lsize: 11, Lmode: 0644},
+			Reader:   io.NopCloser(strings.NewReader("name: test\n"))},
+		{Pathname: "/backup/container/rootfs/broken",
+			FileInfo: objects.FileInfo{Lname: "broken", Lsize: 42, Lmode: 0644},
+			Reader:   nil},
+		{Pathname: "/backup/container/rootfs/etc/hostname",
+			FileInfo: objects.FileInfo{Lname: "hostname", Lsize: 5, Lmode: 0644},
+			Reader:   io.NopCloser(strings.NewReader("test\n"))},
+	}
+	for _, r := range feed {
+		records <- r
+	}
+	close(records)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Export: unexpected error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Export deadlocked")
+	}
+
+	var gotErr, gotOk int
+	for range len(feed) {
+		res := <-results
+		if res.Record.Pathname == "/backup/container/rootfs/broken" {
+			if res.Err == nil {
+				t.Fatal("broken record: expected an Error result, got Ok")
+			}
+			gotErr++
+			continue
+		}
+		if res.Err != nil {
+			t.Fatalf("record %q: unexpected error result: %v", res.Record.Pathname, res.Err)
+		}
+		gotOk++
+	}
+	if gotErr != 1 || gotOk != 2 {
+		t.Fatalf("results: gotErr=%d gotOk=%d, want 1 and 2", gotErr, gotOk)
+	}
+
+	tr := tar.NewReader(bytes.NewReader(sink.tarball.Bytes()))
+	var names []string
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, hdr.Name)
+	}
+	want := []string{"backup/index.yaml", "backup/container/rootfs/etc/hostname"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("entries: %v, want %v (broken record must not appear)", names, want)
 	}
 }
