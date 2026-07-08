@@ -2,7 +2,7 @@ name: mysql
 display_name: MySQL / MariaDB
 description: Integration providing import and export capabilities for MySQL and MariaDB databases.
 api_version: v1.1.0
-homepage: https://github.com/PlakarKorp/integration-mysql
+homepage: https://github.com/PlakarKorp/integrations/tree/main/mysql
 license: ISC
 tier: official
 contact: mailto:help@plakar.io

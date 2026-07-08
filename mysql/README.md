@@ -47,8 +47,8 @@ plakar pkg add mysql_v1.0.0_linux_amd64.ptar
 Or build from source:
 
 ```sh
-git clone https://github.com/PlakarKorp/integration-mysql
-cd integration-mysql
+git clone -b integration/mysql https://github.com/PlakarKorp/integrations
+cd integrations/mysql
 make install
 ```
 

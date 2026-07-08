@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-mysql
+module github.com/PlakarKorp/integrations/mysql
 
 go 1.25.7
 
