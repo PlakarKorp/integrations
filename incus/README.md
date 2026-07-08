@@ -21,3 +21,13 @@ plakar restore -to incus://web-1-restored <snap>
 ## Notes
 
 This integration backs up containers only and runs on the Incus host using the local unix socket.
+
+## Validated
+
+2026-07-08, on the target infrastructure (plakar v1.1.3, Incus cluster, LINSTOR pool, Debian containers):
+
+- `plakar backup incus://<instance>` — 353 MiB container imported file-by-file in 18s; snapshot tree browsable down to individual rootfs files.
+- Deduplication — second backup of the same instance: **+0 MB** on-disk repository growth (3.2 MiB written), 2x faster (9s).
+- `plakar restore -to incus://<new-name> <snap>` — instance recreated natively by Incus in 19s, boots to `systemd running`; spot-check md5 diff of /etc/passwd, /etc/fstab, /usr/bin/env, /etc/os-release against the source: identical.
+
+Known v1 caveats: hardlinks are mapped to symlinks (kloset has no hardlink notion); extended attributes (e.g. file capabilities) are not preserved through restore.
