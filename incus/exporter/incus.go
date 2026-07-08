@@ -102,6 +102,11 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 
 	// The tar stream is sequential by nature: records are written in
 	// the order they arrive, one at a time.
+	//
+	// The rebuilt tar preserves record ARRIVAL ORDER, and Incus expects
+	// backup/index.yaml first. Correctness here relies on kloset replaying
+	// records in import order (true today, beta-validated); if kloset ever
+	// reorders records, this needs revisiting.
 loop:
 	for {
 		select {

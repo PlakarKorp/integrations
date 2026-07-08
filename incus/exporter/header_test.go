@@ -43,6 +43,18 @@ func TestTarHeaderDir(t *testing.T) {
 	}
 }
 
+func TestTarHeaderSpecialBits(t *testing.T) {
+	fi := objects.FileInfo{Lname: "sudo", Lsize: 3, Lmode: fs.FileMode(0o4755),
+		LmodTime: time.Unix(1750000000, 0), Luid: 0, Lgid: 0}
+	hdr, err := tarHeader(rec("/backup/container/rootfs/usr/bin/sudo", fi, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.Mode != 0o4755 {
+		t.Fatalf("setuid bit dropped: got mode %o, want %o", hdr.Mode, 0o4755)
+	}
+}
+
 func TestTarHeaderSymlink(t *testing.T) {
 	fi := objects.FileInfo{Lname: "bin", Lmode: fs.ModeSymlink | 0777}
 	hdr, err := tarHeader(rec("/backup/container/rootfs/bin", fi, "usr/bin"))

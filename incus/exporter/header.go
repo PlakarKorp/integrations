@@ -36,7 +36,7 @@ func tarHeader(rec *connectors.Record) (*tar.Header, error) {
 
 	hdr := &tar.Header{
 		Name:    name,
-		Mode:    int64(fi.Lmode & fs.ModePerm),
+		Mode:    int64(fi.Lmode) & 0o7777,
 		Uid:     int(fi.Luid),
 		Gid:     int(fi.Lgid),
 		ModTime: fi.LmodTime,

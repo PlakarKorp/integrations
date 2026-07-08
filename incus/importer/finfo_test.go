@@ -22,6 +22,17 @@ func TestFinfoRegular(t *testing.T) {
 	}
 }
 
+func TestFinfoSpecialBits(t *testing.T) {
+	hdr := &tar.Header{
+		Name: "backup/container/rootfs/usr/bin/sudo",
+		Size: 3, Mode: 0o4755, Typeflag: tar.TypeReg,
+	}
+	fi := finfo(hdr)
+	if fi.Lmode != fs.FileMode(0o4755) {
+		t.Fatalf("setuid bit dropped: got mode %o, want %o", fi.Lmode, 0o4755)
+	}
+}
+
 func TestFinfoDir(t *testing.T) {
 	hdr := &tar.Header{Name: "backup/container/rootfs/etc/", Mode: 0755, Typeflag: tar.TypeDir}
 	if fi := finfo(hdr); fi.Lmode&fs.ModeDir == 0 {
