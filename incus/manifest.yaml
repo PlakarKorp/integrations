@@ -1,0 +1,21 @@
+name: incus
+display_name: Incus
+description: Backup and restore Incus containers as browsable file-level snapshots.
+api_version: v1.1.0
+tier: community
+contact: mailto:antoine.dheygers@cryptoweb.fr
+connectors:
+- type: importer
+  executable: incusImporter
+  homepage: https://github.com/PlakarKorp/integration-incus
+  license: ISC
+  protocols: [incus]
+  validator: ./importer/schema.json
+  class: compute
+- type: exporter
+  executable: incusExporter
+  homepage: https://github.com/PlakarKorp/integration-incus
+  license: ISC
+  protocols: [incus]
+  validator: ./exporter/schema.json
+  class: compute

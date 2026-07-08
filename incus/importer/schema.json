@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Incus importer config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incus instance to back up: incus://<instance-name>",
+      "pattern": "^incus://[A-Za-z0-9][A-Za-z0-9-]*$"
+    },
+    "socket": {
+      "type": "string",
+      "default": "/var/lib/incus/unix.socket",
+      "description": "Path to the Incus unix socket"
+    }
+  }
+}
