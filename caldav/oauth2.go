@@ -1,4 +1,4 @@
-package oauth2utils
+package caldav
 
 import (
 	"context"

@@ -1,11 +1,13 @@
 name: caldav
 display_name: CalDAV
 description: Integration providing import and export capabilities to CalDAV servers.
-version: v1.0.0-beta.7
+homepage: https://github.com/PlakarKorp/integrations/tree/main/caldav
+license: ISC
+api_version: v1.1.0
 connectors:
   - type: importer
-    executable: importer-caldav
+    executable: caldav-importer
     protocols: [caldav]
   - type: exporter
-    executable: exporter-caldav
+    executable: caldav-exporter
     protocols: [caldav]
