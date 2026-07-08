@@ -24,6 +24,7 @@ import (
 
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/lxc/incus/v6/shared/cancel"
 )
 
 type incusSource struct {
@@ -56,16 +57,23 @@ func (s *incusSource) Open(ctx context.Context, instance string) (io.ReadCloser,
 	if err != nil {
 		return nil, nil, fmt.Errorf("incus: create backup: %w", err)
 	}
-	if err := op.WaitContext(ctx); err != nil {
-		return nil, nil, fmt.Errorf("incus: backup %s: %w", instance, err)
-	}
-
 	cleanup := func() error {
 		delOp, err := s.server.DeleteInstanceBackup(instance, backupName)
 		if err != nil {
 			return err
 		}
 		return delOp.Wait()
+	}
+
+	if err := op.WaitContext(ctx); err != nil {
+		// The POST was accepted, so the server-side backup object may
+		// already exist even though we're erroring out (e.g. ctx was
+		// cancelled while waiting). Best-effort delete it now instead
+		// of relying solely on the 6h ExpiresAt TTL; the contract is
+		// "error return => nil cleanup", so any delete failure here is
+		// deliberately swallowed.
+		_ = cleanup()
+		return nil, nil, fmt.Errorf("incus: backup %s: %w", instance, err)
 	}
 
 	// The InstanceServer interface exposed by github.com/lxc/incus/v6/client
@@ -78,10 +86,27 @@ func (s *incusSource) Open(ctx context.Context, instance string) (io.ReadCloser,
 	pr, pw := io.Pipe()
 	sink := &pipeWriteSeeker{w: pw}
 
+	// GetInstanceBackupFile blocks on a synchronous HTTP GET with no ctx
+	// parameter of its own; wire ctx cancellation through the request's
+	// Canceler so a caller-side cancel (or a stalled daemon connection)
+	// actually interrupts the download instead of hanging the goroutine
+	// below forever.
+	canceller := cancel.NewHTTPRequestCanceller()
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = canceller.Cancel()
+		case <-done:
+		}
+	}()
+
 	go func() {
 		_, err := s.server.GetInstanceBackupFile(instance, backupName, &incus.BackupFileRequest{
 			BackupFile: sink,
+			Canceler:   canceller,
 		})
+		close(done)
 		// CloseWithError(nil) is equivalent to a plain Close: the reader
 		// observes a clean io.EOF once buffered data is drained.
 		_ = pw.CloseWithError(err)
