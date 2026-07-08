@@ -16,7 +16,7 @@
     "host": {
       "type": "string",
       "minLength": 1,
-      "description": "Google Cloud SQL Connection name (required, e.g. project:region:instance). There is no usable default: without it the connector attempts to dial Cloud SQL using the literal string \"127.0.0.1\", which always fails."
+      "description": "Google Cloud SQL Connection name (required, e.g. project:region:instance)."
     },
     "username": {
       "type": "string",
