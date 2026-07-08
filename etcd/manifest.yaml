@@ -1,11 +1,11 @@
 name: etcd
 display_name: etcd
 description: take consistent snapshots of etcd for disaster recovery
-homepage: https://github.com/PlakarKorp/integration-etcd
+homepage: https://github.com/PlakarKorp/integrations/tree/main/etcd
 license: ISC
 api_version: v1.1.0
 connectors:
 - type: importer
-  executable: etcdImporter
+  executable: etcd-importer
   protocols: [etcd, etcd+http, etcd+https]
-  validator: ./importer/schema.json
+  validator: ./cmd/importer/schema.json
