@@ -3,6 +3,9 @@
   "title": "Plakar PostgreSQL AWS IAM Exporter Connector Config",
   "type": "object",
   "additionalProperties": false,
+  "required": [
+    "region"
+  ],
   "properties": {
     "location": {
       "type": "string",
