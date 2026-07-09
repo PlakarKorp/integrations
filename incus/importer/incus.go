@@ -121,11 +121,15 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 			return err
 		}
 
-		records <- &connectors.Record{
+		select {
+		case records <- &connectors.Record{
 			Pathname: recordPath(hdr),
 			Target:   linkTarget(hdr),
 			FileInfo: finfo(hdr),
 			Reader:   io.NopCloser(tr),
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 
 		select {
@@ -169,12 +173,16 @@ func (p *Importer) emitXattrs(ctx context.Context, hdr *tar.Header, records chan
 	path := recordPath(hdr)
 	for _, name := range names {
 		value := hdr.PAXRecords[paxXattrPrefix+name]
-		records <- &connectors.Record{
+		select {
+		case records <- &connectors.Record{
 			Pathname:  path,
 			IsXattr:   true,
 			XattrName: name,
 			XattrType: objects.AttributeExtended,
 			Reader:    io.NopCloser(strings.NewReader(value)),
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 
 		select {

@@ -153,7 +153,18 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 			return err
 		}
 		if hdr.Typeflag == tar.TypeReg && p.Reader != nil {
-			if _, err := io.Copy(tw, p.Reader); err != nil {
+			n, err := io.Copy(tw, p.Reader)
+			if err != nil {
+				results <- p.Error(err)
+				return err
+			}
+			if n != hdr.Size {
+				// The tar stream is already corrupted at this point (the
+				// header promised hdr.Size bytes of body): a short read
+				// here would otherwise surface as a cryptic error on the
+				// *next* WriteHeader call. Fail this record now with a
+				// clear message instead.
+				err := fmt.Errorf("incus: %s: short read: got %d bytes, want %d", p.Pathname, n, hdr.Size)
 				results <- p.Error(err)
 				return err
 			}

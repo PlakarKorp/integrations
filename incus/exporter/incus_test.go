@@ -270,6 +270,50 @@ func TestExportNilReaderRegular(t *testing.T) {
 	}
 }
 
+// TestExportShortReadDetected covers audit finding "Mineurs" #3: a record
+// whose Reader yields fewer bytes than its declared FileInfo.Lsize must be
+// reported as a clear, actionable error (naming the pathname and both byte
+// counts) instead of silently producing a truncated tar entry that would
+// only surface as a cryptic failure on a later WriteHeader call.
+func TestExportShortReadDetected(t *testing.T) {
+	sink := &fakeSink{}
+	exp := newExporterWithSink("restored-6", sink)
+
+	records := make(chan *connectors.Record)
+	results := make(chan *connectors.Result, 8)
+	done := make(chan error, 1)
+	go func() { done <- exp.Export(context.Background(), records, results) }()
+
+	feed := []*connectors.Record{
+		{Pathname: "/backup/container/rootfs/short",
+			FileInfo: objects.FileInfo{Lname: "short", Lsize: 10, Lmode: 0644},
+			Reader:   io.NopCloser(strings.NewReader("shrt"))}, // 4 bytes, declared 10
+	}
+	for _, r := range feed {
+		records <- r
+	}
+	close(records)
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Export: expected a non-nil error, got nil")
+		}
+		if !strings.Contains(err.Error(), "/backup/container/rootfs/short") ||
+			!strings.Contains(err.Error(), "got 4 bytes") ||
+			!strings.Contains(err.Error(), "want 10") {
+			t.Fatalf("Export error = %q, want it to mention the pathname, got count and want count", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Export deadlocked")
+	}
+
+	res := <-results
+	if res.Err == nil {
+		t.Fatal("short-read record: expected an Error result, got Ok")
+	}
+}
+
 // TestExportReinjectsXattrIntoPAXRecords covers audit finding #2: an
 // xattr record fed in protocol order (immediately after its owning file
 // record, same Pathname - see incus.go's Export doc comment) must be

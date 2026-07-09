@@ -40,6 +40,10 @@ func newIncusSource(socket string) (backupSource, error) {
 }
 
 func (s *incusSource) Ping(ctx context.Context) error {
+	// GetServer has no ctx-aware variant in the incus client (verified via
+	// `go doc`); a frozen daemon can therefore hang this call indefinitely.
+	// This is a limitation of the upstream client, not something callable
+	// from here.
 	_, _, err := s.server.GetServer()
 	return err
 }
@@ -62,7 +66,12 @@ func (s *incusSource) Open(ctx context.Context, instance string) (io.ReadCloser,
 		if err != nil {
 			return err
 		}
-		return delOp.Wait()
+		// cleanup has no caller-supplied ctx (it runs from a deferred
+		// closure after Open returns), so a frozen daemon must not be
+		// allowed to hang it forever: bound the wait with our own timeout.
+		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		return delOp.WaitContext(waitCtx)
 	}
 
 	if err := op.WaitContext(ctx); err != nil {
