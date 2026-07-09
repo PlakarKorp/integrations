@@ -30,4 +30,6 @@ This integration backs up containers only and runs on the Incus host using the l
 - Deduplication — second backup of the same instance: **+0 MB** on-disk repository growth (3.2 MiB written), 2x faster (9s).
 - `plakar restore -to incus://<new-name> <snap>` — instance recreated natively by Incus in 19s, boots to `systemd running`; spot-check md5 diff of /etc/passwd, /etc/fstab, /usr/bin/env, /etc/os-release against the source: identical.
 
-Known v1 caveats: hardlinks round-trip as true hardlinks incus-to-incus, but are materialized as relative symlinks on non-Incus restore destinations (true hardlink identity is not representable in the connector protocol); extended attributes (e.g. file capabilities) are not preserved through restore.
+Known v1 caveats: hardlinks round-trip as true hardlinks incus-to-incus, but are materialized as relative symlinks on non-Incus restore destinations (true hardlink identity is not representable in the connector protocol).
+
+Extended attributes and file capabilities (e.g. `security.capability`, needed for `ping`'s `cap_net_raw`) are preserved incus-to-incus: the importer replays each tar entry's PAX `SCHILY.xattr.*` records as kloset xattr records, and the exporter reinjects them into the rebuilt tar's PAX records. Restoring to a generic (non-tar-based) destination depends on that connector's own xattr handling to apply them.

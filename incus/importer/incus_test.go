@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/objects"
 )
 
 type fakeSource struct {
@@ -90,5 +91,88 @@ func TestImportEmitsRecords(t *testing.T) {
 	}
 	if !src.cleaned {
 		t.Fatal("incus backup not cleaned up")
+	}
+}
+
+// makeTarWithXattr builds a single-file tarball whose entry carries a
+// binary-ish PAX xattr record, as GNU/BSD tar would encode
+// security.capability.
+func makeTarWithXattr(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	body := "#!/bin/true\n"
+	hdr := tar.Header{
+		Name:     "backup/container/rootfs/bin/ping",
+		Mode:     0755,
+		Typeflag: tar.TypeReg,
+		Size:     int64(len(body)),
+		PAXRecords: map[string]string{
+			"SCHILY.xattr.security.capability": "\x01\x00\x00\x02\x00\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+		},
+	}
+	if err := tw.WriteHeader(&hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	return buf.Bytes()
+}
+
+// TestImportEmitsXattrRecord covers audit finding #2: a PAX
+// "SCHILY.xattr.*" record on a tar entry must be replayed as its own
+// kloset xattr Record, immediately after the owning file record and
+// sharing its Pathname (see emitXattrs's doc comment for why this
+// order is load-bearing).
+func TestImportEmitsXattrRecord(t *testing.T) {
+	src := &fakeSource{tarball: makeTarWithXattr(t)}
+	imp := newImporterWithSource("test", src)
+
+	records := make(chan *connectors.Record)
+	results := make(chan *connectors.Result)
+	done := make(chan error, 1)
+	go func() { done <- imp.Import(context.Background(), records, results) }()
+
+	var got []*connectors.Record
+	for rec := range records {
+		got = append(got, rec)
+		results <- rec.Ok()
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("want 2 records (file + xattr), got %d", len(got))
+	}
+
+	file, xattr := got[0], got[1]
+	if file.IsXattr {
+		t.Fatalf("first record must be the file record, got IsXattr=true: %+v", file)
+	}
+	if !xattr.IsXattr {
+		t.Fatalf("second record must be the xattr record, got IsXattr=false: %+v", xattr)
+	}
+	if xattr.Pathname != file.Pathname {
+		t.Fatalf("xattr record pathname %q != file record pathname %q", xattr.Pathname, file.Pathname)
+	}
+	if want := "/backup/container/rootfs/bin/ping"; file.Pathname != want {
+		t.Fatalf("file pathname: got %q, want %q", file.Pathname, want)
+	}
+	if xattr.XattrName != "security.capability" {
+		t.Fatalf("xattr name: got %q, want %q", xattr.XattrName, "security.capability")
+	}
+	if xattr.XattrType != objects.AttributeExtended {
+		t.Fatalf("xattr type: got %v, want AttributeExtended", xattr.XattrType)
+	}
+	value, err := io.ReadAll(xattr.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\x01\x00\x00\x02\x00\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+	if string(value) != want {
+		t.Fatalf("xattr value: got %q, want %q", value, want)
 	}
 }

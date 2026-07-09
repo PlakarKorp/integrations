@@ -102,48 +102,124 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 	// backup/index.yaml first. Correctness here relies on kloset replaying
 	// records in import order (true today, beta-validated); if kloset ever
 	// reorders records, this needs revisiting.
+	//
+	// xattr records (rec.IsXattr) arrive right after the file record they
+	// belong to (same Pathname) - that's the ordering the incus importer
+	// emits (mirroring plakar-integrations/fs/importer) and the one this
+	// exporter's "replay in import order" guarantee above depends on. So a
+	// file record can't be written immediately: it must be held ("pending")
+	// until either the next non-xattr record or end-of-stream tells us no
+	// more xattrs are coming for it, accumulating any xattrs seen in the
+	// meantime into its tar header's PAXRecords. Holding the record is
+	// cheap and safe: its Reader is repo-backed/lazy, not a live resource
+	// that needs immediate draining.
+	var (
+		pending       *connectors.Record
+		pendingXattrs map[string]string
+	)
+
+	// flushPending writes the held record (if any) as a tar entry, with
+	// any accumulated xattrs folded into its PAXRecords, and acks it.
+	// It returns a non-nil error only for failures that corrupt the tar
+	// stream itself (WriteHeader/body copy) - those abort Export. Header
+	// build errors and the nil-reader guard are per-record and reported
+	// via an Error result without aborting the rest of the stream, exactly
+	// as before this change.
+	flushPending := func() error {
+		if pending == nil {
+			return nil
+		}
+		p, xattrs := pending, pendingXattrs
+		pending, pendingXattrs = nil, nil
+
+		hdr, err := tarHeader(p)
+		if err != nil {
+			results <- p.Error(err)
+			return nil
+		}
+		if len(xattrs) > 0 {
+			hdr.PAXRecords = xattrs
+		}
+		if hdr.Typeflag == tar.TypeReg && hdr.Size > 0 && p.Reader == nil {
+			// Writing this header would promise hdr.Size bytes of
+			// body that we have nothing to supply, corrupting the
+			// tar stream for every entry that follows. Reject the
+			// record instead of emitting a header with no body.
+			results <- p.Error(fmt.Errorf("incus: record %q has size %d but no reader", p.Pathname, hdr.Size))
+			return nil
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			results <- p.Error(err)
+			return err
+		}
+		if hdr.Typeflag == tar.TypeReg && p.Reader != nil {
+			if _, err := io.Copy(tw, p.Reader); err != nil {
+				results <- p.Error(err)
+				return err
+			}
+		}
+		results <- p.Ok()
+		return nil
+	}
+
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			ret = ctx.Err()
+			if pending != nil {
+				results <- pending.Error(ret)
+				pending, pendingXattrs = nil, nil
+			}
 			break loop
 
 		case rec, ok := <-records:
 			if !ok {
 				break loop
 			}
-			if rec.Err != nil || rec.IsXattr {
-				results <- rec.Ok()
-				continue
-			}
-
-			hdr, err := tarHeader(rec)
-			if err != nil {
-				results <- rec.Error(err)
-				continue
-			}
-			if hdr.Typeflag == tar.TypeReg && hdr.Size > 0 && rec.Reader == nil {
-				// Writing this header would promise hdr.Size bytes of
-				// body that we have nothing to supply, corrupting the
-				// tar stream for every entry that follows. Reject the
-				// record instead of emitting a header with no body.
-				results <- rec.Error(fmt.Errorf("incus: record %q has size %d but no reader", rec.Pathname, hdr.Size))
-				continue
-			}
-			if err := tw.WriteHeader(hdr); err != nil {
-				results <- rec.Error(err)
-				ret = err
-				break loop
-			}
-			if hdr.Typeflag == tar.TypeReg && rec.Reader != nil {
-				if _, err := io.Copy(tw, rec.Reader); err != nil {
+			if rec.Err != nil {
+				if err := flushPending(); err != nil {
 					results <- rec.Error(err)
 					ret = err
 					break loop
 				}
+				results <- rec.Ok()
+				continue
 			}
-			results <- rec.Ok()
+			if rec.IsXattr {
+				if pending == nil || pending.Pathname != rec.Pathname {
+					// Protocol violation: an xattr record must follow
+					// its owning file record with the same Pathname.
+					results <- rec.Error(fmt.Errorf("incus: xattr record %q (%s) has no matching pending file record", rec.Pathname, rec.XattrName))
+					continue
+				}
+				value, err := io.ReadAll(rec.Reader)
+				if err != nil {
+					results <- rec.Error(err)
+					continue
+				}
+				if pendingXattrs == nil {
+					pendingXattrs = make(map[string]string)
+				}
+				pendingXattrs["SCHILY.xattr."+rec.XattrName] = string(value)
+				results <- rec.Ok()
+				continue
+			}
+
+			// A new file/dir/symlink record: whatever was pending has
+			// now seen all of its xattrs (if any), flush it.
+			if err := flushPending(); err != nil {
+				results <- rec.Error(err)
+				ret = err
+				break loop
+			}
+			pending = rec
+		}
+	}
+
+	if pending != nil {
+		if err := flushPending(); err != nil && ret == nil {
+			ret = err
 		}
 	}
 
