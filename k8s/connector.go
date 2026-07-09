@@ -91,13 +91,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 	}
 
 	var config *rest.Config
-	if u.Host != "" {
-		config = &rest.Config{
-			Host: u.Host,
-		}
-		host = u.Host
-		portForward = true
-	} else if kubeconf != nil {
+	if kubeconf != nil {
 		config, err = clientcmd.RESTConfigFromKubeConfig(kubeconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create config from kubeconfig: %w", err)
@@ -107,6 +101,12 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		if u, err := url.Parse(config.Host); err == nil {
 			host = u.Host
 		}
+	} else if u.Host != "" {
+		config = &rest.Config{
+			Host: u.Host,
+		}
+		host = u.Host
+		portForward = true
 	} else {
 		config, err = rest.InClusterConfig()
 		if err != nil {
