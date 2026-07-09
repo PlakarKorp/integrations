@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -80,11 +79,9 @@ func (p *Importer) Root() string          { return "/" }
 func (p *Importer) Flags() location.Flags { return flags }
 
 func (p *Importer) Origin() string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "incus"
-	}
-	return hostname
+	// The snapshot origin is the instance itself, not the node the
+	// plugin happens to run on: it names snapshots in listings/UI.
+	return p.instance
 }
 
 func (p *Importer) Ping(ctx context.Context) error { return p.src.Ping(ctx) }

@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -74,11 +73,7 @@ func (p *Exporter) Root() string          { return "/" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
 func (p *Exporter) Origin() string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "incus"
-	}
-	return hostname
+	return p.instance
 }
 
 func (p *Exporter) Ping(ctx context.Context) error { return p.sink.Ping(ctx) }
