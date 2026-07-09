@@ -39,17 +39,17 @@
     "insecure_ignore_host_key": {
       "type": "boolean",
       "default": false,
-      "description": "Disable host key verification (ssh StrictHostKeyChecking=no) (dangerous; use only for testing)"
+      "description": "Disable host key verification (ssh StrictHostKeyChecking=no) (dangerous; use only for testing) (not supported on Windows)"
     },
     "ssh_auth_sock": {
       "type": "string",
       "minLength": 1,
-      "description": "Path to SSH agent socket (exported as SSH_AUTH_SOCK for ssh/ssh-add)"
+      "description": "Path to SSH agent socket (exported as SSH_AUTH_SOCK for ssh/ssh-add) (not supported on Windows)"
     },
     "ssh_private_key": {
       "type": "string",
       "minLength": 1,
-      "description": "SSH private key material (PEM/OpenSSH) to load into ssh-agent via ssh-add -"
+      "description": "SSH private key material (PEM/OpenSSH) to load into ssh-agent via ssh-add - (not supported on Windows)"
     },
     "ssh_private_key_ttl": {
       "type": "string",
