@@ -47,7 +47,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 				if found {
 					errString = after
 				}
-				records <- connectors.NewError(p.path, fmt.Errorf("%s", errString))
+				records <- connectors.NewError(toslash(p.path), fmt.Errorf("%s", errString))
 
 				// continue handling the file if getxattr
 				// failed.  some sythetic filesystems (fuse)
@@ -63,7 +63,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 		if p.info.Mode()&os.ModeSymlink != 0 {
 			originFile, err = os.Readlink(p.path)
 			if err != nil {
-				records <- connectors.NewError(p.path, err)
+				records <- connectors.NewError(toslash(p.path), err)
 				continue
 			}
 		}
@@ -93,7 +93,7 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 
 		sb, err := os.Lstat(root)
 		if err != nil {
-			records <- connectors.NewError(root, err)
+			records <- connectors.NewError(toslash(root), err)
 			finfo = objects.FileInfo{
 				Lname: filepath.Base(root),
 				Lmode: os.ModeDir | 0755,
