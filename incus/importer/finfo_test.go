@@ -28,8 +28,9 @@ func TestFinfoSpecialBits(t *testing.T) {
 		Size: 3, Mode: 0o4755, Typeflag: tar.TypeReg,
 	}
 	fi := finfo(hdr)
-	if fi.Lmode != fs.FileMode(0o4755) {
-		t.Fatalf("setuid bit dropped: got mode %o, want %o", fi.Lmode, 0o4755)
+	want := fs.ModeSetuid | fs.FileMode(0o755)
+	if fi.Lmode != want {
+		t.Fatalf("setuid bit not converted: got mode %o (%v), want %o (%v)", fi.Lmode, fi.Lmode, want, want)
 	}
 }
 
@@ -42,8 +43,49 @@ func TestFinfoDir(t *testing.T) {
 
 func TestFinfoSymlink(t *testing.T) {
 	hdr := &tar.Header{Name: "backup/container/rootfs/bin", Linkname: "usr/bin", Typeflag: tar.TypeSymlink}
-	if fi := finfo(hdr); fi.Lmode&fs.ModeSymlink == 0 {
+	fi := finfo(hdr)
+	if fi.Lmode&fs.ModeSymlink == 0 {
 		t.Fatalf("symlink flag missing: %v", fi.Lmode)
+	}
+	if fi.Lnlink > 1 {
+		t.Fatalf("plain symlink must not be flagged as hardlink: Lnlink=%d", fi.Lnlink)
+	}
+	if got := linkTarget(hdr); got != "usr/bin" {
+		t.Fatalf("plain symlink target must stay untouched: got %q, want %q", got, "usr/bin")
+	}
+}
+
+func TestFinfoHardlink(t *testing.T) {
+	hdr := &tar.Header{
+		Typeflag: tar.TypeLink,
+		Name:     "backup/container/rootfs/bin/ls",
+		Linkname: "backup/container/rootfs/bin/busybox",
+	}
+	fi := finfo(hdr)
+	if fi.Lmode&fs.ModeSymlink == 0 {
+		t.Fatalf("hardlink must still map to fs.ModeSymlink: %v", fi.Lmode)
+	}
+	if fi.Lnlink != 2 {
+		t.Fatalf("hardlink must be flagged via Lnlink=2, got %d", fi.Lnlink)
+	}
+	want := "/backup/container/rootfs/bin/busybox"
+	if got := linkTarget(hdr); got != want {
+		t.Fatalf("hardlink target: got %q, want %q (tar-root-relative)", got, want)
+	}
+}
+
+func TestFinfoDevice(t *testing.T) {
+	hdr := &tar.Header{
+		Name: "backup/container/rootfs/dev/null", Typeflag: tar.TypeChar,
+		Mode: 0666, Devmajor: 1, Devminor: 3,
+	}
+	fi := finfo(hdr)
+	if fi.Lmode&fs.ModeCharDevice == 0 {
+		t.Fatalf("char device flag missing: %v", fi.Lmode)
+	}
+	wantDev := uint64(1)<<32 | 3
+	if fi.Ldev != wantDev {
+		t.Fatalf("device major/minor: got Ldev=%#x, want %#x", fi.Ldev, wantDev)
 	}
 }
 

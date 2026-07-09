@@ -112,7 +112,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 
 		records <- &connectors.Record{
 			Pathname: recordPath(hdr),
-			Target:   hdr.Linkname,
+			Target:   linkTarget(hdr),
 			FileInfo: finfo(hdr),
 			Reader:   io.NopCloser(tr),
 		}
