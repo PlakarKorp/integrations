@@ -68,9 +68,39 @@ func TestFinfoHardlink(t *testing.T) {
 	if fi.Lnlink != 2 {
 		t.Fatalf("hardlink must be flagged via Lnlink=2, got %d", fi.Lnlink)
 	}
-	want := "/backup/container/rootfs/bin/busybox"
+	// Target must be relative to the link's own directory so that any
+	// generic exporter materializes a symlink resolving inside the
+	// restored tree.
+	if got := linkTarget(hdr); got != "busybox" {
+		t.Fatalf("hardlink target: got %q, want %q (relative to link dir)", got, "busybox")
+	}
+}
+
+func TestFinfoHardlinkCrossDir(t *testing.T) {
+	hdr := &tar.Header{
+		Typeflag: tar.TypeLink,
+		Name:     "backup/container/rootfs/bin/ls",
+		Linkname: "backup/container/rootfs/sbin/tool",
+	}
+	want := "../sbin/tool"
 	if got := linkTarget(hdr); got != want {
-		t.Fatalf("hardlink target: got %q, want %q (tar-root-relative)", got, want)
+		t.Fatalf("cross-dir hardlink target: got %q, want %q", got, want)
+	}
+}
+
+func TestRelPath(t *testing.T) {
+	cases := []struct {
+		fromDir, to, want string
+	}{
+		{"/backup/container/rootfs/bin", "/backup/container/rootfs/bin/busybox", "busybox"},
+		{"/backup/container/rootfs/bin", "/backup/container/rootfs/sbin/tool", "../sbin/tool"},
+		{"/backup/container/rootfs/usr/bin", "/backup/container/rootfs/bin/sh", "../../bin/sh"},
+		{"/", "/backup/index.yaml", "backup/index.yaml"},
+	}
+	for _, c := range cases {
+		if got := relPath(c.fromDir, c.to); got != c.want {
+			t.Fatalf("relPath(%q, %q) = %q, want %q", c.fromDir, c.to, got, c.want)
+		}
 	}
 }
 

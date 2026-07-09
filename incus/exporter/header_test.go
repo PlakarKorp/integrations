@@ -85,11 +85,11 @@ func TestTarHeaderSymlink(t *testing.T) {
 
 // TestTarHeaderHardlink mirrors what importer.finfo/linkTarget produce for a
 // tar.TypeLink entry: Lmode has ModeSymlink set, Lnlink==2, and Target is
-// tar-root-relative. The exporter must re-emit tar.TypeLink with a
-// tar-root-relative Linkname, not a broken TypeSymlink.
+// RELATIVE to the record's own directory. The exporter must re-emit
+// tar.TypeLink with a tar-root-relative Linkname, not a broken TypeSymlink.
 func TestTarHeaderHardlink(t *testing.T) {
 	fi := objects.FileInfo{Lname: "ls", Lmode: fs.ModeSymlink | 0777, Lnlink: 2}
-	hdr, err := tarHeader(rec("/backup/container/rootfs/bin/ls", fi, "/backup/container/rootfs/bin/busybox"))
+	hdr, err := tarHeader(rec("/backup/container/rootfs/bin/ls", fi, "busybox"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +99,23 @@ func TestTarHeaderHardlink(t *testing.T) {
 	want := "backup/container/rootfs/bin/busybox"
 	if hdr.Linkname != want {
 		t.Fatalf("hardlink Linkname: got %q, want %q", hdr.Linkname, want)
+	}
+}
+
+// TestTarHeaderHardlinkCrossDir checks that a "../"-style relative Target is
+// resolved against the record's directory back to the exact tar-root path.
+func TestTarHeaderHardlinkCrossDir(t *testing.T) {
+	fi := objects.FileInfo{Lname: "ls", Lmode: fs.ModeSymlink | 0777, Lnlink: 2}
+	hdr, err := tarHeader(rec("/backup/container/rootfs/bin/ls", fi, "../sbin/tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.Typeflag != tar.TypeLink {
+		t.Fatalf("hardlink must round-trip as tar.TypeLink, got %v", hdr.Typeflag)
+	}
+	want := "backup/container/rootfs/sbin/tool"
+	if hdr.Linkname != want {
+		t.Fatalf("cross-dir hardlink Linkname: got %q, want %q", hdr.Linkname, want)
 	}
 }
 

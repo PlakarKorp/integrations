@@ -20,6 +20,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"io/fs"
+	"path"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -70,10 +71,15 @@ func tarHeader(rec *connectors.Record) (*tar.Header, error) {
 	case fi.Lmode&fs.ModeSymlink != 0:
 		if fi.Lnlink > 1 {
 			// Hardlink (see importer/finfo.go's linkTarget): Target
-			// was recorded tar-root-relative, matching how entry
-			// names are stored, so re-emit it the same way here.
+			// is the relative path from the link's own directory to
+			// the linked file, chosen so that generic exporters
+			// materialize a working relative symlink. Tar wants
+			// hardlink Linknames relative to the tar root instead:
+			// resolve Target against the record's directory
+			// (path.Join also collapses any "../") and drop the
+			// leading "/" to match how entry names are written.
 			hdr.Typeflag = tar.TypeLink
-			hdr.Linkname = strings.TrimPrefix(rec.Target, "/")
+			hdr.Linkname = strings.TrimPrefix(path.Join(path.Dir(rec.Pathname), rec.Target), "/")
 		} else {
 			hdr.Typeflag = tar.TypeSymlink
 			hdr.Linkname = rec.Target

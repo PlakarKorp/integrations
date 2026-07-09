@@ -30,4 +30,4 @@ This integration backs up containers only and runs on the Incus host using the l
 - Deduplication — second backup of the same instance: **+0 MB** on-disk repository growth (3.2 MiB written), 2x faster (9s).
 - `plakar restore -to incus://<new-name> <snap>` — instance recreated natively by Incus in 19s, boots to `systemd running`; spot-check md5 diff of /etc/passwd, /etc/fstab, /usr/bin/env, /etc/os-release against the source: identical.
 
-Known v1 caveats: hardlinks are mapped to symlinks (kloset has no hardlink notion); extended attributes (e.g. file capabilities) are not preserved through restore; device nodes lose their major/minor numbers on restore (kloset FileInfo carries none; low impact — Incus manages /dev for containers).
+Known v1 caveats: hardlinks round-trip as true hardlinks incus-to-incus, but are materialized as relative symlinks on non-Incus restore destinations (true hardlink identity is not representable in the connector protocol); extended attributes (e.g. file capabilities) are not preserved through restore.

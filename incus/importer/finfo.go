@@ -20,6 +20,7 @@ import (
 	"archive/tar"
 	"io/fs"
 	"path"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/objects"
 )
@@ -88,15 +89,51 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 // entry. Plain symlinks keep hdr.Linkname verbatim: it is resolved
 // relative to the entry's own directory at restore time. Hardlinks
 // (tar.TypeLink) encode Linkname relative to the tar root instead
-// (e.g. "backup/container/rootfs/bin/busybox"), so it is normalized
-// the same way recordPath() normalizes entry names, keeping both
-// sides comparable for the exporter to reconstruct a tar-root-relative
-// Linkname later.
+// (e.g. "backup/container/rootfs/bin/busybox"): recorded verbatim, a
+// generic exporter (e.g. kloset's fs exporter) would materialize a
+// symlink whose target never resolves. So the target is rewritten as
+// the RELATIVE path from the link's parent directory to the linked
+// file, computed in tar-name space. Any restore destination then
+// produces a relative symlink that resolves correctly inside the
+// restored tree, and the incus exporter can rebuild the
+// tar-root-relative Linkname by resolving Target against the record's
+// own directory.
 func linkTarget(hdr *tar.Header) string {
 	if hdr.Typeflag == tar.TypeLink {
-		return path.Join("/", hdr.Linkname)
+		name := path.Join("/", hdr.Name)
+		link := path.Join("/", hdr.Linkname)
+		return relPath(path.Dir(name), link)
 	}
 	return hdr.Linkname
+}
+
+// relPath computes the relative slash-path from directory fromDir to
+// the path to. Both arguments are absolute slash-paths in tar-name
+// space; this is deliberately pure string/slash logic, never OS
+// filepath semantics.
+func relPath(fromDir, to string) string {
+	from := splitPath(fromDir)
+	target := splitPath(to)
+	common := 0
+	for common < len(from) && common < len(target) && from[common] == target[common] {
+		common++
+	}
+	parts := make([]string, 0, len(from)-common+len(target)-common)
+	for range from[common:] {
+		parts = append(parts, "..")
+	}
+	parts = append(parts, target[common:]...)
+	return strings.Join(parts, "/")
+}
+
+// splitPath cleans an absolute slash-path and splits it into its
+// components; the root "/" yields nil.
+func splitPath(p string) []string {
+	p = strings.TrimPrefix(path.Clean(p), "/")
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
 }
 
 // recordPath normalizes a tar entry name into an absolute record path.
