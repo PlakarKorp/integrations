@@ -15,6 +15,22 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 )
 
+// A broken remote config (url without the client certificate pair, or
+// TLS options without url) must fail NewExporter with the config error,
+// before any connection is attempted.
+func TestNewExporterRejectsBadRemoteConfig(t *testing.T) {
+	for _, cfg := range []map[string]string{
+		{"location": "incus://web", "url": "https://incus.example:8443"},
+		{"location": "incus://web", "tls_client_cert": "/some/cert.pem"},
+	} {
+		if _, err := NewExporter(context.Background(), &connectors.Options{}, "incus", cfg); err == nil {
+			t.Fatalf("config %v: want error, got nil", cfg)
+		} else if !strings.Contains(err.Error(), "tls_client_cert") {
+			t.Fatalf("config %v: error should name the tls option, got %v", cfg, err)
+		}
+	}
+}
+
 type fakeSink struct {
 	instance string
 	tarball  bytes.Buffer
@@ -108,7 +124,7 @@ type earlyFailSink struct {
 func (s *earlyFailSink) Ping(ctx context.Context) error { return nil }
 
 func (s *earlyFailSink) Restore(ctx context.Context, instance string, tarStream io.Reader) error {
-	io.CopyN(io.Discard, tarStream, s.readN)
+	_, _ = io.CopyN(io.Discard, tarStream, s.readN)
 	return s.err
 }
 
@@ -396,7 +412,9 @@ func TestRoundtripXattrSurvivesImportExport(t *testing.T) {
 	if _, err := stw.Write([]byte(body)); err != nil {
 		t.Fatal(err)
 	}
-	stw.Close()
+	if err := stw.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Read it back as plain tar records + PAX-derived xattr record, the
 	// same shape the incus importer produces (see importer/incus.go).

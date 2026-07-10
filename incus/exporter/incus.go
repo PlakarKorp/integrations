@@ -29,10 +29,8 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 )
 
-const defaultSocket = "/var/lib/incus/unix.socket"
-
 func init() {
-	exporter.Register("incus", 0, NewExporter)
+	_ = exporter.Register("incus", 0, NewExporter)
 }
 
 // restoreSink abstracts the Incus restore API for testability.
@@ -45,6 +43,7 @@ type restoreSink interface {
 
 type Exporter struct {
 	instance string
+	project  string
 	sink     restoreSink
 }
 
@@ -53,15 +52,13 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, co
 	if instance == "" || strings.Contains(instance, "/") {
 		return nil, fmt.Errorf("incus: invalid instance name %q", instance)
 	}
-	socket := config["socket"]
-	if socket == "" {
-		socket = defaultSocket
-	}
-	sink, err := newIncusSink(socket, config["pool"])
+	sink, err := newIncusSink(config)
 	if err != nil {
 		return nil, err
 	}
-	return newExporterWithSink(instance, sink), nil
+	exp := newExporterWithSink(instance, sink)
+	exp.project = config["project"]
+	return exp, nil
 }
 
 func newExporterWithSink(instance string, sink restoreSink) *Exporter {
@@ -73,6 +70,12 @@ func (p *Exporter) Root() string          { return "/" }
 func (p *Exporter) Flags() location.Flags { return 0 }
 
 func (p *Exporter) Origin() string {
+	// Same qualification rule as the importer: instance names are only
+	// unique within a project, so a non-default project prefixes the
+	// origin to keep it unambiguous.
+	if p.project != "" {
+		return p.project + "/" + p.instance
+	}
 	return p.instance
 }
 
@@ -240,7 +243,7 @@ loop:
 	if ret != nil {
 		pw.CloseWithError(ret)
 	} else {
-		pw.Close()
+		_ = pw.Close()
 	}
 
 	// The sink's error is the actionable one: it explains *why* the pipe
