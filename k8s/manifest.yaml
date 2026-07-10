@@ -9,19 +9,29 @@ connectors:
   executable: k8s-importer
   protocols: [k8s]
   validator: ./plugin/importer/k8s.json
+  class: block-storage
+  subclass: pvc
 - type: importer
   executable: k8s-importer
   protocols: [k8s+csi]
   validator: ./plugin/importer/k8s+csi.json
+  class: block-storage
+  subclass: pvc
 - type: importer
   executable: k8s-importer
   protocols: [k8s+pvc]
   validator: ./plugin/importer/k8s+pvc.json
+  class: block-storage
+  subclass: pvc
 - type: exporter
   executable: k8s-exporter
   protocols: [k8s]
   validator: ./plugin/exporter/k8s.json
+  class: block-storage
+  subclass: pvc
 - type: exporter
   executable: k8s-exporter
   protocols: [k8s+pvc]
   validator: ./plugin/exporter/k8s+pvc.json
+  class: block-storage
+  subclass: pvc
