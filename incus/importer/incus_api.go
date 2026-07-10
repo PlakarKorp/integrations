@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-incus/internal/conn"
+	"github.com/PlakarKorp/integrations/incus/internal/conn"
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"github.com/lxc/incus/v6/shared/cancel"

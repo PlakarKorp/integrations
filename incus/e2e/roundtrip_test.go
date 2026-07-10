@@ -45,8 +45,8 @@ import (
 	incus "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 
-	pexporter "github.com/PlakarKorp/integration-incus/exporter"
-	pimporter "github.com/PlakarKorp/integration-incus/importer"
+	pexporter "github.com/PlakarKorp/integrations/incus/exporter"
+	pimporter "github.com/PlakarKorp/integrations/incus/importer"
 )
 
 const socketPath = "/var/lib/incus/unix.socket"

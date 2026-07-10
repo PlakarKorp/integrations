@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/PlakarKorp/integration-incus/internal/conn"
+	"github.com/PlakarKorp/integrations/incus/internal/conn"
 )
 
 func TestIncusSourcePing(t *testing.T) {

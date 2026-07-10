@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/PlakarKorp/integration-incus/internal/conn"
+	"github.com/PlakarKorp/integrations/incus/internal/conn"
 	incus "github.com/lxc/incus/v6/client"
 )
 

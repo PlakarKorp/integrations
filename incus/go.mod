@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-incus
+module github.com/PlakarKorp/integrations/incus
 
 go 1.25.6
 
