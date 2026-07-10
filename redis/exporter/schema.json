@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Redis File Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis RDB file destination URI: redis+file:///path/to/dump.rdb.",
+      "pattern": "^redis\\+file://.*$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Output file or directory for dump.rdb. Overrides the location URI."
+    },
+    "output": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Alias for path."
+    }
+  }
+}
