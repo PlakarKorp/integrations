@@ -14,7 +14,49 @@
     "socket": {
       "type": "string",
       "default": "/var/lib/incus/unix.socket",
-      "description": "Path to the Incus unix socket"
+      "description": "Path to the Incus unix socket (mutually exclusive with url)"
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https://.+",
+      "description": "Remote Incus server URL (https://host:8443); requires tls_client_cert and tls_client_key, mutually exclusive with socket"
+    },
+    "tls_client_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM client certificate trusted by the remote server (remote only)"
+    },
+    "tls_client_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM client key matching tls_client_cert (remote only)"
+    },
+    "tls_server_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the remote server's PEM certificate to pin a self-signed server; without it the system CA store must trust the server (remote only)"
+    },
+    "tls_ca": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM CA certificate for servers running in PKI mode (remote only)"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incus project the instance lives in (defaults to \"default\")"
+    },
+    "backup_ttl": {
+      "type": "string",
+      "default": "6h",
+      "description": "Expiry (Go duration) of the temporary server-side backup, a safety net if cleanup never runs",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+    },
+    "cleanup_timeout": {
+      "type": "string",
+      "default": "2m",
+      "description": "Maximum wait (Go duration) for the server-side backup deletion after the export",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
     }
   }
 }

@@ -21,11 +21,11 @@ func newTestPipeWriteSeeker(t *testing.T) (sink *pipeWriteSeeker, got *bytes.Buf
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		io.Copy(got, pr)
+		_, _ = io.Copy(got, pr)
 	}()
 
 	closeAndWait = func() {
-		pw.Close()
+		_ = pw.Close()
 		<-done
 	}
 	t.Cleanup(closeAndWait)
