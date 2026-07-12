@@ -20,7 +20,9 @@ import (
 	"bytes"
 	"io"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -35,6 +37,42 @@ import (
 
 	_ "github.com/rclone/rclone/backend/memory" // register memory backend
 )
+
+func TestMapConfigLoadsDependentSections(t *testing.T) {
+	dir := t.TempDir()
+	sourceConfig := filepath.Join(dir, "rclone.conf")
+	err := os.WriteFile(sourceConfig, []byte(
+		"[gdrive]\n"+
+			"type = drive\n"+
+			"token = redacted\n\n"+
+			"[crypt]\n"+
+			"type = crypt\n"+
+			"remote = stale:path\n",
+	), 0o600)
+	require.NoError(t, err)
+
+	configMap, err := newMapConfig("crypt", map[string]string{
+		"type":     "crypt",
+		"remote":   "gdrive:Workspace/Backups",
+		"password": "redacted",
+	}, sourceConfig)
+	require.NoError(t, err)
+
+	require.True(t, configMap.HasSection("gdrive"))
+	require.True(t, configMap.HasSection("crypt"))
+	require.False(t, configMap.HasSection("missing"))
+
+	remote, ok := configMap.GetValue("crypt", "remote")
+	require.True(t, ok)
+	assert.Equal(t, "gdrive:Workspace/Backups", remote)
+
+	token, ok := configMap.GetValue("gdrive", "token")
+	require.True(t, ok)
+	assert.Equal(t, "redacted", token)
+
+	_, ok = configMap.GetValue("crypt", "config_file")
+	assert.False(t, ok)
+}
 
 func newRclone(t *testing.T) *Rclone {
 	t.Helper()
