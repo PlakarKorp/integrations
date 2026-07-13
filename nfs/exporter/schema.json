@@ -10,8 +10,13 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "NFS location URI: nfs://<host>[:<port>]/<export>[/<subpath>]",
-      "pattern": "^nfs://[^/]+/.+"
+      "description": "NFS location URI: nfs://<host>[:<port>][/<export>[/<subpath>]]",
+      "pattern": "^nfs://[^/]+(/.*)?$"
+    },
+    "export": {
+      "type": "string",
+      "pattern": "^/",
+      "description": "Server export to mount, e.g. /exports/data (takes precedence over the export in the location URL)"
     },
     "root": {
       "type": "string",

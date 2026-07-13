@@ -175,6 +175,11 @@ type Config struct {
 // parameter (or a deeper subpath) narrows the walk within that export. This
 // matches mount.nfs semantics, where the server hands out a filehandle for a
 // path it explicitly exports.
+//
+// The export to mount can also be given out-of-band through the "export"
+// parameter, which takes precedence over the URL path. This lets a UI expose
+// the mountpoint as its own field instead of burying it in the location URL;
+// when it is set the location may be a bare nfs://<host>[:<port>].
 func ParseConfig(config map[string]string) (*Config, error) {
 	target := config["location"]
 	if target == "" {
@@ -199,9 +204,13 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		port = config["port"]
 	}
 
+	// The export field, when set, takes precedence over the URL path.
 	export := cleanAbs(parsed.Path)
+	if e := config["export"]; e != "" {
+		export = cleanAbs(e)
+	}
 	if export == "/" || export == "" {
-		return nil, fmt.Errorf("missing export path in location %q (expected nfs://host/export)", target)
+		return nil, fmt.Errorf("missing export path: set it in the location (nfs://host/export) or the export parameter")
 	}
 
 	root := "/"

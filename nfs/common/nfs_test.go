@@ -57,6 +57,27 @@ func TestParseConfig(t *testing.T) {
 			config:   map[string]string{"location": "nfs://host/export", "port": "20490"},
 			wantPort: "20490",
 		},
+		{
+			name: "export param supplies mountpoint with bare location",
+			config: map[string]string{
+				"location": "nfs://nas.example.com",
+				"export":   "/exports/data",
+			},
+			wantHost:   "nas.example.com",
+			wantExport: "/exports/data",
+			wantRoot:   "/",
+			wantOrigin: "nas.example.com",
+		},
+		{
+			name: "export param takes precedence over url path",
+			config: map[string]string{
+				"location": "nfs://host/ignored/path",
+				"export":   "srv/share",
+			},
+			wantHost:   "host",
+			wantExport: "/srv/share",
+			wantRoot:   "/",
+		},
 		{name: "missing location", config: map[string]string{}, wantErr: true},
 		{name: "wrong scheme", config: map[string]string{"location": "sftp://host/export"}, wantErr: true},
 		{name: "missing export", config: map[string]string{"location": "nfs://host"}, wantErr: true},
