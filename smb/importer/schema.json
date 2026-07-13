@@ -10,8 +10,13 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "SMB location URI: smb://[<user>[:<password>]@]<host>[:<port>]/<share>[/<subpath>]",
-      "pattern": "^smb://[^/]+/.+"
+      "description": "SMB location URI: smb://[<user>[:<password>]@]<host>[:<port>][/<share>[/<subpath>]]",
+      "pattern": "^smb://[^/]+(/.*)?$"
+    },
+    "share": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SMB share (tree) to mount, e.g. data (takes precedence over the share in the location URL)"
     },
     "root": {
       "type": "string",

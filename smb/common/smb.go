@@ -71,6 +71,12 @@ type Config struct {
 // The first path segment is the SMB share to mount; any deeper subpath (or the
 // "root" option) narrows the walk within that share. Credentials may be given
 // in the URL userinfo or via the username/password options (but not both).
+//
+// The share to mount can also be given out-of-band through the "share"
+// parameter, which takes precedence over the first path segment. This lets a
+// UI expose the share as its own field instead of burying it in the location
+// URL; when it is set the location may be a bare smb://<host>[:<port>], and any
+// URL subpath still narrows the walk.
 func ParseConfig(config map[string]string) (*Config, error) {
 	target := config["location"]
 	if target == "" {
@@ -99,8 +105,13 @@ func ParseConfig(config map[string]string) (*Config, error) {
 	}
 
 	share, sub := splitShare(parsed.Path)
+	// The share field, when set, takes precedence over the URL's first path
+	// segment; any URL subpath still narrows the walk.
+	if s := config["share"]; s != "" {
+		share = strings.Trim(s, "/")
+	}
 	if share == "" {
-		return nil, fmt.Errorf("missing share in location %q (expected smb://host/share)", target)
+		return nil, fmt.Errorf("missing share: set it in the location (smb://host/share) or the share parameter")
 	}
 
 	root := sub
