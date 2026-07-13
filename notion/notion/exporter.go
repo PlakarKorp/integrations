@@ -91,7 +91,7 @@ func (n *NotionExporter) CreateDirectory(ctx context.Context, pathname string) e
 }
 
 func (p *NotionExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
-	// Lifted straight from importer-fs, wihtout symlinks and all the bell and
+	// Lifted straight from importer-fs, without symlinks and all the bell and
 	// whistles
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)

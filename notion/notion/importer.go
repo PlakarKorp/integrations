@@ -95,7 +95,7 @@ func (p *NotionImporter) Import(ctx context.Context, records chan<- *connectors.
 	// this is a bit tricky because we don't know how many readers there will be,
 	// because:
 	// 1. the scan records above should finish to be processed first.
-	// 2. the routine below coould create new readers too, reapeating the problem.
+	// 2. the routine below could create new readers too, repeating the problem.
 	// main question is:
 	// 1. how do we know when all readers are done? (p.nReader == 0 is not enough,
 	//	  is the last reader done, or not even started?)
