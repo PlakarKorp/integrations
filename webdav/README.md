@@ -23,7 +23,7 @@ To install the webdav connector:
 ## Protocols
 
 This integrations supports the unencrypted `dav://` and TLS-encrypted
-`davs://` protocols.  `davs://` is reccomended.
+`davs://` protocols.  `davs://` is recommended.
 
 To use the `dav://` protocol, the `insecure` options must be turned on.
 
