@@ -36,6 +36,11 @@
       "minLength": 1,
       "description": "Path to SSH private key file (passed to ssh -i)"
     },
+    "trust_host_key_on_first_use": {
+      "type": "boolean",
+      "default": true,
+      "description": "Trust host key on initial connection (ssh StrictHostKeyChecking=accept-new)"
+    },
     "insecure_ignore_host_key": {
       "type": "boolean",
       "default": false,

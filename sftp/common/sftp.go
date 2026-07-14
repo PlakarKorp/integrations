@@ -88,9 +88,10 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		// Non-interactive: fail fast instead of hanging on passphrase/host-key prompt
 		args = append(args, "-o", "BatchMode=yes")
 
-		if params["insecure_ignore_host_key"] == "true" {
+		if params["trust_host_key_on_first_use"] == "true" {
+			args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+		} else if params["insecure_ignore_host_key"] == "true" {
 			args = append(args, "-o", "StrictHostKeyChecking=no")
-			// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
 		}
 
 		if id := params["identity"]; id != "" {
@@ -196,7 +197,9 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 
 	args = append(args, "-o", "BatchMode=yes")
 
-	if params["insecure_ignore_host_key"] == "true" {
+	if params["trust_host_key_on_first_use"] == "true" {
+		args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+	} else if params["insecure_ignore_host_key"] == "true" {
 		args = append(args, "-o", "StrictHostKeyChecking=no")
 	}
 
