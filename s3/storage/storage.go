@@ -28,6 +28,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -48,6 +49,8 @@ type Store struct {
 	storageClass string
 	ssec         encrypt.ServerSide
 	isGlacier    bool
+
+	bufPool sync.Pool
 }
 
 func init() {
@@ -206,6 +209,12 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		storageClass: storageClass,
 		ssec:         ssec,
 		isGlacier:    storageClass == "GLACIER" || storageClass == "DEEP_ARCHIVE",
+
+		bufPool: sync.Pool{
+			New: func() any {
+				return &bytes.Buffer{}
+			},
+		},
 	}, nil
 }
 
@@ -359,12 +368,6 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		StorageClass:         s.storageClass,
 		SendContentMd5:       true,
 		ServerSideEncryption: s.ssec,
-
-		// Without a part size, minio assumes a 5TiB object and allocates
-		// a ~500MiB part buffer *per concurrent* Put which makes memory
-		// balloon on large repositories. Cap so each Put buffers 16MiB
-		// at most.
-		PartSize: 16 << 20,
 	}
 
 	copyToGlacier := func(name string) error {
@@ -394,6 +397,12 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 
 	switch res {
 	case storage.StorageResourcePackfile:
+		buf := s.bufPool.Get().(*bytes.Buffer)
+		copied, err := io.Copy(buf, rd)
+		if err != nil {
+			return 0, fmt.Errorf("read %s object: %w", res, err)
+		}
+
 		hot := storage.Flag(ctx) == storage.StorageHot
 		name := s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac))
 
@@ -411,13 +420,13 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 			}
 		}
 
-		// Stream the packfile straight to S3 with an unknown length.
-		// With PartSize set above, minio only buffers one part at a time,
-		// removing the whole rationale for using buffer pools...
-		info, err := s.minioClient.PutObject(ctx, s.bucket, name, rd, -1, putObjectOptions)
+		info, err := s.minioClient.PutObject(ctx, s.bucket, name, buf, copied, putObjectOptions)
 		if err != nil {
 			return 0, fmt.Errorf("put %s object: %w", res, err)
 		}
+
+		buf.Reset()
+		s.bufPool.Put(buf)
 
 		if s.isGlacier && hot {
 			if err := copyToGlacier(name); err != nil {
