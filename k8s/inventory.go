@@ -88,6 +88,10 @@ func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.Invento
 				SubClass: pkg.ResourceSubClassPVC,
 				URN:      "k8s:" + pvc.Namespace + ":" + pvc.Name,
 				Name:     pvc.Name,
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: pvc.Namespace + "/" + pvc.Name,
+				}},
 			}
 		}
 
