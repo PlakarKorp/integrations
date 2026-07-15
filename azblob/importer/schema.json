@@ -37,6 +37,16 @@
       "type": "boolean",
       "default": false,
       "description": "Disable authentication, useful for public blobs or specific emulator/test setups"
+    },
+    "use_managed_identity": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable Azure AD authentication via DefaultAzureCredential (supports system-assigned and user-assigned managed identity)"
+    },
+    "managed_identity_client_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional client ID for user-assigned managed identity"
     }
   },
   "oneOf": [
@@ -44,14 +54,28 @@
       "required": [
         "location",
         "connection_string"
-      ]
+      ],
+      "not": {
+        "properties": {
+          "use_managed_identity": {
+            "const": true
+          }
+        }
+      }
     },
     {
       "required": [
         "location",
         "account_name",
         "account_key"
-      ]
+      ],
+      "not": {
+        "properties": {
+          "use_managed_identity": {
+            "const": true
+          }
+        }
+      }
     },
     {
       "required": [
@@ -61,6 +85,37 @@
       ],
       "properties": {
         "no_auth": {
+          "const": true
+        }
+      },
+      "not": {
+        "properties": {
+          "use_managed_identity": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "required": [
+        "location",
+        "use_managed_identity",
+        "account_name"
+      ],
+      "properties": {
+        "use_managed_identity": {
+          "const": true
+        }
+      }
+    },
+    {
+      "required": [
+        "location",
+        "use_managed_identity",
+        "endpoint"
+      ],
+      "properties": {
+        "use_managed_identity": {
           "const": true
         }
       }

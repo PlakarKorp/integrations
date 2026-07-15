@@ -3,6 +3,7 @@ module github.com/PlakarKorp/integrations/azblob
 go 1.24.0
 
 require (
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1
 	github.com/PlakarKorp/kloset v1.1.0-beta.2
@@ -11,15 +12,19 @@ require (
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
 	github.com/PlakarKorp/integration-grpc v1.1.0-beta.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/nickball/go-aes-key-wrap v0.0.0-20170929221519-1c3aa3e4dfc5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
+	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/tink-crypto/tink-go/v2 v2.6.0 // indirect

@@ -29,12 +29,22 @@ The supported configuration options are:
 * `account_key`: Azure Storage account key
 * `endpoint`: custom endpoint (e.g. Azurite or non-standard Azure environments)
 * `no_auth`: disable authentication (useful for public containers or testing)
+* `use_managed_identity`: enable Azure AD authentication through `DefaultAzureCredential`
+* `managed_identity_client_id`: optional client ID for user-assigned managed identity
 
 At least one authentication method must be provided:
 
 * `connection_string`
 * OR `account_name` + `account_key`
 * OR `no_auth=true` with a valid `endpoint`
+* OR `use_managed_identity=true` with:
+  * `account_name` (service URL inferred as `https://<account_name>.blob.core.windows.net`)
+  * or `endpoint`
+
+Managed identity notes:
+
+* System-assigned identity: set `use_managed_identity=true`.
+* User-assigned identity: set `use_managed_identity=true` and `managed_identity_client_id=<client-id>`.
 
 ---
 
