@@ -31,3 +31,7 @@ connectors:
   validator: ./plugin/exporter/k8s+pvc.json
   class: block-storage
   subclass: pvc
+- type: inventory
+  executable: k8s-inventory
+  validator: ./plugin/inventory/k8s.json
+  protocols: [k8s]
