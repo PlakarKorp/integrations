@@ -20,7 +20,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-inventory-sdk/sdk/server"
-	k8s "github.com/PlakarKorp/integrations-private/k8s-inventory"
+	k8s "github.com/PlakarKorp/integrations/k8s"
 )
 
 func main() {
