@@ -51,6 +51,11 @@ Managed identity notes:
 ## Examples
 
 ```sh
+# add a store
+$ plakar add store azblob://container_name --connection-string "DefaultEndpointsProtocol=https;AccountName=account_name;AccountKey=account_key;EndpointSuffix=core.windows.net"
+$ plakar add store azblob://container_name --account-name account_name --account-key account_key
+$ plakar add store azblob://container_name --use-managed-identity=true account_name=account_name
+
 # back up a container
 $ plakar at /tmp/store backup azblob://container_name
 
