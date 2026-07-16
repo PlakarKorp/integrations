@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Incus exporter config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incus instance to create on restore: incus://<new-instance-name>",
+      "pattern": "^incus://[A-Za-z]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"
+    },
+    "socket": {
+      "type": "string",
+      "default": "/var/lib/incus/unix.socket",
+      "description": "Path to the Incus unix socket (mutually exclusive with url)"
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https://.+",
+      "description": "Remote Incus server URL (https://host:8443); requires tls_client_cert and tls_client_key, mutually exclusive with socket"
+    },
+    "tls_client_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM client certificate trusted by the remote server (remote only)"
+    },
+    "tls_client_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM client key matching tls_client_cert (remote only)"
+    },
+    "tls_server_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the remote server's PEM certificate to pin a self-signed server; without it the system CA store must trust the server (remote only)"
+    },
+    "tls_ca": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the PEM CA certificate for servers running in PKI mode (remote only)"
+    },
+    "pool": {
+      "type": "string",
+      "description": "Target storage pool (defaults to the pool referenced by the backup)"
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incus project to create the instance in (defaults to \"default\")"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Cluster member to create the instance on (clusters only; defaults to scheduler placement)"
+    }
+  }
+}
