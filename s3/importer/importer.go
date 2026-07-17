@@ -19,6 +19,7 @@ package importer
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -245,8 +246,19 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			Ldev:     1,
 		}
 
-		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
-			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
+		var xattr []string
+		obj, err := p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
+		if err == nil {
+			if stat, err := obj.Stat(); err == nil {
+				xattrStr, err := json.Marshal(stat)
+				if err == nil {
+					xattr = append(xattr, string(xattrStr))
+				}
+			}
+		}
+
+		records <- connectors.NewRecord("/"+object.Key, "", fi, xattr, func() (io.ReadCloser, error) {
+			return obj, err
 		})
 	}
 
