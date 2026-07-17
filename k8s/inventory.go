@@ -15,6 +15,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+//go:embed plugin/inventory/k8s.json
+var Schema []byte
+
 type inventory struct {
 	config    *rest.Config
 	clientset *kubernetes.Clientset
