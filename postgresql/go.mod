@@ -1,10 +1,13 @@
-module github.com/PlakarKorp/integration-postgresql
+module github.com/PlakarKorp/integrations/postgresql
 
 go 1.25.0
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1
 	github.com/PlakarKorp/kloset v1.1.0-beta.2
+	github.com/aws/aws-sdk-go-v2/config v1.32.17
+	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.23
+	github.com/jackc/pgx/v5 v5.9.1
 	github.com/testcontainers/testcontainers-go v0.41.0
 )
 
@@ -14,10 +17,8 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/PlakarKorp/integration-grpc v1.1.0-beta.3 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.7 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.17 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.23 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24 // indirect
@@ -51,7 +52,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.9.1 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect

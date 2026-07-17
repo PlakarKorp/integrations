@@ -87,7 +87,8 @@ type dirPerm struct {
 
 func (p *FSExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
-	g, ctx := errgroup.WithContext(ctx)
+
+	var g errgroup.Group
 	g.SetLimit(p.opts.MaxConcurrency)
 
 	dirPerms := make([]dirPerm, 0, 1024)

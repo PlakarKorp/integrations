@@ -2,14 +2,14 @@ name: postgresql
 display_name: PostgreSQL
 description: Integration providing import and export capabilities for PostgreSQL databases.
 api_version: v1.1.0
-homepage: https://github.com/PlakarKorp/integration-postgresql
+homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
 license: ISC
 tier: official
 contact: mailto:help@plakar.io
 connectors:
   - type: importer
     executable: postgresqlImporter
-    homepage: https://github.com/PlakarKorp/integration-postgresql
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
     license: ISC
     protocols: [postgres]
     validator: ./importer/schema.json
@@ -17,7 +17,7 @@ connectors:
     subclass: postgresql
   - type: importer
     executable: postgresqlBinImporter
-    homepage: https://github.com/PlakarKorp/integration-postgresql
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
     license: ISC
     protocols: [postgres+bin]
     validator: ./binimporter/schema.json
@@ -25,7 +25,7 @@ connectors:
     subclass: postgresql
   - type: importer
     executable: postgresqlAWSImporter
-    homepage: https://github.com/PlakarKorp/integration-postgresql
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
     license: ISC
     protocols: [postgres+aws]
     validator: ./awsimporter/schema.json
@@ -33,7 +33,7 @@ connectors:
     subclass: postgresql
   - type: exporter
     executable: postgresqlExporter
-    homepage: https://github.com/PlakarKorp/integration-postgresql
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
     license: ISC
     protocols: [postgres]
     validator: ./exporter/schema.json
@@ -41,7 +41,7 @@ connectors:
     subclass: postgresql
   - type: exporter
     executable: postgresqlAWSExporter
-    homepage: https://github.com/PlakarKorp/integration-postgresql
+    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
     license: ISC
     protocols: [postgres+aws]
     validator: ./awsexporter/schema.json

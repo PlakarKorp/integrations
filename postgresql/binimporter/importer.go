@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PlakarKorp/integration-postgresql/manifest"
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/manifest"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -133,7 +133,7 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	}
 }
 
-// finfo has been copied from integration-tar.
+// finfo has been copied from integrations/tar.
 func finfo(hdr *tar.Header) objects.FileInfo {
 	f := objects.FileInfo{
 		Lname:      path.Base(hdr.Name),

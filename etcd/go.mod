@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integration-etcd
+module github.com/PlakarKorp/integrations/etcd
 
 go 1.25.5
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 )

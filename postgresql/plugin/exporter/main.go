@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-postgresql/exporter"
+	"github.com/PlakarKorp/integrations/postgresql/exporter"
 )
 
 func main() {

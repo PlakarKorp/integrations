@@ -4,21 +4,18 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "location"
+    "location",
+    "kubeconfig"
   ],
   "properties": {
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "optional endpoint"
-    },
-    "kubeconfig_file": {
-      "type": "string",
-      "description": "optional path to a kube config file"
+      "description": "endpoint"
     },
     "kubeconfig": {
       "type": "string",
-      "description": "optional kube config content to use"
+      "description": "Kube config content to use"
     }
   }
 }

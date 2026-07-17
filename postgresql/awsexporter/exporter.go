@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/PlakarKorp/integration-postgresql/awsauth"
-	pqexporter "github.com/PlakarKorp/integration-postgresql/exporter"
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/awsauth"
+	pqexporter "github.com/PlakarKorp/integrations/postgresql/exporter"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 )

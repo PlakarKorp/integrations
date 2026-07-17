@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/integration-postgresql/pgconn"
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 )
 
 // arraySep delimits elements within a single field that holds a PostgreSQL

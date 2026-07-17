@@ -91,13 +91,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 	}
 
 	var config *rest.Config
-	if u.Host != "" {
-		config = &rest.Config{
-			Host: u.Host,
-		}
-		host = u.Host
-		portForward = true
-	} else if kubeconf != nil {
+	if kubeconf != nil {
 		config, err = clientcmd.RESTConfigFromKubeConfig(kubeconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create config from kubeconfig: %w", err)
@@ -107,6 +101,12 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		if u, err := url.Parse(config.Host); err == nil {
 			host = u.Host
 		}
+	} else if u.Host != "" {
+		config = &rest.Config{
+			Host: u.Host,
+		}
+		host = u.Host
+		portForward = true
 	} else {
 		config, err = rest.InClusterConfig()
 		if err != nil {
@@ -157,7 +157,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 	kubeletImage := params["kubelet_image"]
 	if kubeletImage == "" {
-		kubeletImage = "ghcr.io/plakarkorp/kubelet:f8fa0047b039d458481f5a18681b7cd608260ccf-27747443337"
+		kubeletImage = "ghcr.io/plakarkorp/kubelet:a754b2ad5012fe3cdbaae4475fa5ce64d1de99de-29421960168"
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)

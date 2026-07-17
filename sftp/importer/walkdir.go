@@ -49,8 +49,21 @@ func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors
 			imp.rootDir = path.Dir(imp.Root())
 		}
 
-		fileinfo := objects.FileInfoFromStat(p.info)
-		//fileinfo.Lusername, fileinfo.Lgroupname = imp.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
+		var uid, gid uint64
+
+		if sb, ok := p.info.Sys().(*sftp.FileStat); ok {
+			uid = uint64(sb.UID)
+			gid = uint64(sb.GID)
+		}
+
+		fileinfo := objects.FileInfo{
+			Lname:    p.info.Name(),
+			Lsize:    p.info.Size(),
+			Lmode:    p.info.Mode(),
+			LmodTime: p.info.ModTime(),
+			Luid:     uid,
+			Lgid:     gid,
+		}
 
 		var originFile string
 		var err error
@@ -112,7 +125,7 @@ func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, i
 		if err == nil && info2.Mode()&os.ModeDir != 0 {
 			resolved, err := client.ReadLink(remotePath)
 			if err == nil &&
-			    strings.HasPrefix(resolved, "///?/GLOBALROOT/") {
+				strings.HasPrefix(resolved, "///?/GLOBALROOT/") {
 				/*
 				 * This should be a Windows Directory Symlink
 				 * since Lstat() reports a symlink, Stat()

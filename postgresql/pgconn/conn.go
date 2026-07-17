@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -232,4 +233,16 @@ func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
 		return fmt.Errorf("ping: %w", err)
 	}
 	return nil
+}
+
+// TruncateOutput caps subprocess output embedded in error messages. gRPC
+// rejects messages that exceed its maximum frame size, so we keep only the
+// first and last 1000 bytes, which contain the most useful diagnostic context.
+func TruncateOutput(out []byte) string {
+	const window = 1000
+	s := strings.TrimSpace(string(out))
+	if len(s) <= window*2 {
+		return s
+	}
+	return s[:window] + "\n[output truncated]\n" + s[len(s)-window:]
 }

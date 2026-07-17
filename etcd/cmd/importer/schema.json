@@ -4,9 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "location",
-    "username",
-    "password"
+    "location"
   ],
   "properties": {
     "location": {

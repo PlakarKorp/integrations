@@ -5,8 +5,8 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-mysql/exporter"
-	"github.com/PlakarKorp/integration-mysql/mysqlconn"
+	"github.com/PlakarKorp/integrations/mysql/exporter"
+	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
 	"github.com/PlakarKorp/kloset/connectors"
 	iexporter "github.com/PlakarKorp/kloset/connectors/exporter"
 )

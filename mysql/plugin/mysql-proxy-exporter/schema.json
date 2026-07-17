@@ -3,6 +3,9 @@
   "title": "Plakar MySQL Exporter Connector Config (Google SQL Proxy)",
   "type": "object",
   "additionalProperties": false,
+  "required": [
+    "host"
+  ],
   "properties": {
     "location": {
       "type": "string",
@@ -13,7 +16,7 @@
     "host": {
       "type": "string",
       "minLength": 1,
-      "description": "Google Cloud SQL Connection name"
+      "description": "Google Cloud SQL Connection name (required, e.g. project:region:instance)."
     },
     "username": {
       "type": "string",

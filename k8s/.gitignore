@@ -1,2 +1,4 @@
-k8s-exporter
-k8s-importer
+/k8s-exporter
+/k8s-importer
+/k8s-inventory
+/k8s_*.ptar

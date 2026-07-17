@@ -2,6 +2,12 @@
 
 This repository holds all the official Plakar integrations.
 
+Community-maintained integrations don't need to live in this
+repository, you're free to host them on any git repository
+(does not even need to be GitHub!) and open a pull request
+on [hub.git](https://github.com/PlakarKorp/hub.git) with the
+recipe for inclusion.
+
 ## Contributing
 
 PRs are welcome!  Each integration has its own branch, so for e.g. if
