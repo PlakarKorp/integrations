@@ -93,7 +93,7 @@ func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.Invento
 				Name:     pvc.Name,
 				Endpoints: []sdk.HostEndpoint{{
 					Type:     sdk.EndpointIdentifier,
-					Endpoint: pvc.Namespace + "/" + pvc.Name,
+					Endpoint: "/" + pvc.Namespace + "/" + pvc.Name,
 				}},
 			}
 		}

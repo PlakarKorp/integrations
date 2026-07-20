@@ -204,7 +204,7 @@ func (k *k8s) Type() string   { return k.proto }
 func (k *k8s) Origin() string { return k.host }
 
 func (k *k8s) Root() string {
-	if k.proto == "k8s+csi" {
+	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" {
 		return "/"
 	}
 	return "/" + k.namespace
@@ -218,9 +218,17 @@ func (k *k8s) Flags() location.Flags {
 }
 
 func (k *k8s) Ping(ctx context.Context) error {
-	ns := k.clientset.CoreV1().Namespaces()
-	_, err := ns.Get(ctx, "default", metav1.GetOptions{})
-	return err
+	switch k.proto {
+	case "k8s":
+		ns := k.clientset.CoreV1().Namespaces()
+		_, err := ns.Get(ctx, "default", metav1.GetOptions{})
+		return err
+	case "k8s+csi", "k8s+pvc":
+		_, err := k.getpvc(ctx, k.namespace, k.pvcName)
+		return err
+	default:
+		return errors.ErrUnsupported
+	}
 }
 
 func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
