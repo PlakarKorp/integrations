@@ -204,7 +204,7 @@ func (k *k8s) Type() string   { return k.proto }
 func (k *k8s) Origin() string { return k.host }
 
 func (k *k8s) Root() string {
-	if k.proto == "k8s+csi" {
+	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" {
 		return "/"
 	}
 	return "/" + k.namespace
