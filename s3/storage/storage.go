@@ -105,6 +105,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	endpoint := storeConfig["endpoint"]
+	region := storeConfig["region"]
 
 	var port string
 	if tmp, ok := storeConfig["port"]; ok {
@@ -191,6 +192,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		Creds:     credentials.NewStaticV4(accessKey, secretAccessKey, ""),
 		Secure:    useSsl,
 		Transport: transport,
+		Region:    region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create minio client: %w", err)
