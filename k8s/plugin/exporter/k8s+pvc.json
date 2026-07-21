@@ -4,8 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "location",
-    "kubeconfig"
+    "location"
   ],
   "properties": {
     "location": {
