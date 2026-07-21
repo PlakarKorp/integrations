@@ -30,7 +30,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 
-	"github.com/PlakarKorp/integration-s3/common"
+	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -50,7 +50,7 @@ func init() {
 	importer.Register("s3", 0, NewS3Importer)
 }
 
-func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
+func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
 	transport, err := minio.DefaultTransport(useSsl)
 	if err != nil {
 		return nil, err
@@ -64,6 +64,7 @@ func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKe
 		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure:    useSsl,
 		Transport: transport,
+		Region:    region,
 	})
 	if err != nil {
 		return nil, err
@@ -119,6 +120,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	endpoint := config["endpoint"]
+	region := config["region"]
 
 	var port string
 	if tmp, ok := config["port"]; ok {
@@ -187,7 +189,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		scanDir = "/" + scanDir
 	}
 
-	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
+	conn, err := connect(host, region, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
