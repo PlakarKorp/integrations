@@ -208,7 +208,9 @@ func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	if err := p.client.Symlink(record.Target, pathname); err != nil {
 		return fmt.Errorf("could not create symlink")
 	}
-	return p.setPerms(pathname, record.FileInfo)
+	// don't attempt to p.setPerms in here, sftp lacks a lchown(2)
+	// thingy.
+	return nil
 }
 
 func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
