@@ -55,6 +55,11 @@
       "type": "string",
       "default": "5s",
       "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h) (not supported on Windows)"
+    },
+    "set_owner": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set the owner and group for restored files, needs super user permissions."
     }
   },
   "allOf": [
