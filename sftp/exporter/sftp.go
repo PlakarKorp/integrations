@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 
 	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
@@ -46,6 +47,8 @@ type Exporter struct {
 	client   *sftp.Client
 	endpoint *url.URL
 
+	setOwner bool
+
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
 	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
@@ -63,6 +66,14 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 	var root string
 	if tmp, ok := config["root"]; ok {
 		root = tmp
+	}
+
+	var setOwner bool
+	if tmp, ok := config["set_owner"]; ok {
+		setOwner, err = strconv.ParseBool(tmp)
+		if err != nil {
+			return nil, fmt.Errorf("set_owner: bad value: %w", err)
+		}
 	}
 
 	parsed, err := url.Parse(target)
@@ -92,6 +103,7 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 		opts:     opt,
 		endpoint: parsed,
 		client:   client,
+		setOwner: setOwner,
 	}, nil
 }
 
@@ -196,6 +208,8 @@ func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	if err := p.client.Symlink(record.Target, pathname); err != nil {
 		return fmt.Errorf("could not create symlink")
 	}
+	// don't attempt to p.setPerms in here, sftp lacks a lchown(2)
+	// thingy.
 	return nil
 }
 
@@ -223,6 +237,10 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 		if err := p.client.Link(canonPath, pathname); err != nil {
 			return fmt.Errorf("could not create hardink")
 		}
+	} else {
+		if err := p.chown(canonPath, record.FileInfo); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -232,7 +250,11 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return p.hardlink(record, pathname)
 	}
-	return p.writeAtomic(record, pathname)
+	if err := p.writeAtomic(record, pathname); err != nil {
+		return err
+	}
+
+	return p.chown(pathname, record.FileInfo)
 }
 
 func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
@@ -281,6 +303,19 @@ func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error
 		if err := p.client.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("could not chmod")
 		}
+	}
+	return p.chown(pathname, fileinfo)
+}
+
+func (p *Exporter) chown(pathname string, fileinfo objects.FileInfo) error {
+	if !p.setOwner {
+		return nil
+	}
+
+	err := p.client.Chown(pathname, int(fileinfo.Luid), int(fileinfo.Lgid))
+	if err != nil {
+		return fmt.Errorf("failed to set owner/group on %s: %w",
+			pathname, err)
 	}
 	return nil
 }
