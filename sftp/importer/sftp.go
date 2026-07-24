@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"strconv"
 	"sync"
 
 	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
@@ -43,11 +42,9 @@ type Importer struct {
 	client   *sftp.Client
 	endpoint *url.URL
 
-	rootDir   string
-	realpath  string
-	excludes  *exclude.RuleSet
-	nocrossfs bool
-	devno     uint64
+	rootDir  string
+	realpath string
+	excludes *exclude.RuleSet
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -81,8 +78,6 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		parsed.Host = fmt.Sprintf("%s:%s", parsed.Host, port)
 	}
 
-	nocrossfs, _ := strconv.ParseBool(config["dont_traverse_fs"])
-
 	excludes := exclude.NewRuleSet()
 	if err := excludes.AddRulesFromArray(opts.Excludes); err != nil {
 		return nil, fmt.Errorf("failed to setup exclude rules: %w", err)
@@ -94,20 +89,18 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}
 
 	imp := &Importer{
-		opts:      opts,
-		endpoint:  parsed,
-		client:    client,
-		nocrossfs: nocrossfs,
-		rootDir:   rootDir,
-		excludes:  excludes,
+		opts:     opts,
+		endpoint: parsed,
+		client:   client,
+		rootDir:  rootDir,
+		excludes: excludes,
 	}
 
-	realpath, devno, err := imp.realpathFollow(rootDir)
+	realpath, err := imp.realpathFollow(rootDir)
 	if err != nil {
 		return nil, err
 	}
 	imp.realpath = realpath
-	imp.devno = devno
 
 	return imp, nil
 }
@@ -157,13 +150,6 @@ func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connect
 			}
 		}
 
-		if info.IsDir() && imp.nocrossfs {
-			same := isSameFs(imp.devno, info)
-			if !same {
-				return SkipDir
-			}
-		}
-
 		jobs <- file{path: path, info: info}
 		return nil
 	})
@@ -173,20 +159,16 @@ func (imp *Importer) walkDir_walker(ctx context.Context, records chan<- *connect
 	return err
 }
 
-func (imp *Importer) realpathFollow(target string) (resolved string, dev uint64, err error) {
+func (imp *Importer) realpathFollow(target string) (resolved string, err error) {
 	info, err := imp.client.Lstat(target)
 	if err != nil {
 		return
 	}
 
-	if info.Mode()&os.ModeDir != 0 {
-		dev = dirDevice(info)
-	}
-
 	if info.Mode()&os.ModeSymlink != 0 {
 		realpath, err := imp.client.ReadLink(target)
 		if err != nil {
-			return "", 0, err
+			return "", err
 		}
 
 		if !path.IsAbs(realpath) {
@@ -195,7 +177,7 @@ func (imp *Importer) realpathFollow(target string) (resolved string, dev uint64,
 		target = realpath
 	}
 
-	return target, dev, nil
+	return target, nil
 }
 
 func (p *Importer) Ping(ctx context.Context) error {
