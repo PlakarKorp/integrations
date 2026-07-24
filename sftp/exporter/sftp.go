@@ -237,6 +237,10 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 		if err := p.client.Link(canonPath, pathname); err != nil {
 			return fmt.Errorf("could not create hardink")
 		}
+	} else {
+		if err := p.chown(canonPath, record.FileInfo); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -250,7 +254,7 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 		return err
 	}
 
-	return p.setPerms(pathname, record.FileInfo)
+	return p.chown(pathname, record.FileInfo)
 }
 
 func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
@@ -300,10 +304,10 @@ func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error
 			return fmt.Errorf("could not chmod")
 		}
 	}
-	return p.setPerms(pathname, fileinfo)
+	return p.chown(pathname, fileinfo)
 }
 
-func (p *Exporter) setPerms(pathname string, fileinfo objects.FileInfo) error {
+func (p *Exporter) chown(pathname string, fileinfo objects.FileInfo) error {
 	if !p.setOwner {
 		return nil
 	}
