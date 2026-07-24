@@ -224,7 +224,7 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 		if err := p.writeAtomic(record, pathname); err != nil {
 			return "", err
 		}
-		p.hlCanon.Store(key, path.Join(p.Root(), pathname))
+		p.hlCanon.Store(key, pathname)
 		return pathname, nil
 	})
 	if err != nil {
@@ -235,7 +235,7 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 	// If we are not the canonical path, create a hardlink
 	if canonPath != pathname {
 		if err := p.client.Link(canonPath, pathname); err != nil {
-			return fmt.Errorf("could not create hardink")
+			return fmt.Errorf("could not create hardink %s -> %s", canonPath, pathname)
 		}
 	} else {
 		if err := p.chown(canonPath, record.FileInfo); err != nil {
