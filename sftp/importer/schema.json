@@ -44,17 +44,17 @@
     "ssh_auth_sock": {
       "type": "string",
       "minLength": 1,
-      "description": "Path to SSH agent socket (exported as SSH_AUTH_SOCK for ssh/ssh-add)"
+      "description": "Path to SSH agent socket (exported as SSH_AUTH_SOCK for ssh/ssh-add) (not supported on Windows)"
     },
     "ssh_private_key": {
       "type": "string",
       "minLength": 1,
-      "description": "SSH private key material (PEM/OpenSSH) to load into ssh-agent via ssh-add -"
+      "description": "SSH private key material (PEM/OpenSSH) to load into ssh-agent via ssh-add - (not supported on Windows)"
     },
     "ssh_private_key_ttl": {
       "type": "string",
       "default": "5s",
-      "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h)"
+      "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h) (not supported on Windows)"
     }
   },
   "allOf": [
