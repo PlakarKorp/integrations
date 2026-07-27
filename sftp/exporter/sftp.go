@@ -157,11 +157,8 @@ loop:
 
 			pathname := path.Join(p.Root(), record.Pathname)
 			if record.FileInfo.Lmode.IsDir() {
-				if err := p.client.Mkdir(pathname); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
+				err := p.directory(record, pathname)
+				results <- record.Error(err)
 
 				// later patching
 				dirPerms = append(dirPerms, dirPerm{
@@ -202,6 +199,36 @@ loop:
 	}
 
 	return ret
+}
+
+func (p *Exporter) directory(record *connectors.Record, pathname string) error {
+	var err error
+	if record.Pathname == "/" {
+		// special case for the root directory of the restore,
+		// we optionally create it, but only it, not the whole
+		// structure up to it.
+		err = p.client.Mkdir(pathname)
+		if err != nil {
+			dir, serr := p.client.Stat(pathname)
+			if serr != nil {
+				// nothing, leave err to the original value
+			} else {
+				if !dir.IsDir() {
+					return fmt.Errorf("failed to mkdir %s: not a directory",
+						pathname)
+				}
+				// it already exists, nothing to do.
+				err = nil
+			}
+		}
+	} else {
+		err = p.client.Mkdir(pathname)
+	}
+
+	if err != nil {
+		return fmt.Errorf("mkdir %s failed: %w", pathname, err)
+	}
+	return nil
 }
 
 func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
