@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 
 	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
@@ -46,6 +47,8 @@ type Exporter struct {
 	client   *sftp.Client
 	endpoint *url.URL
 
+	setOwner bool
+
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
 	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
@@ -63,6 +66,14 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 	var root string
 	if tmp, ok := config["root"]; ok {
 		root = tmp
+	}
+
+	var setOwner bool
+	if tmp, ok := config["set_owner"]; ok {
+		setOwner, err = strconv.ParseBool(tmp)
+		if err != nil {
+			return nil, fmt.Errorf("set_owner: bad value: %w", err)
+		}
 	}
 
 	parsed, err := url.Parse(target)
@@ -92,6 +103,7 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 		opts:     opt,
 		endpoint: parsed,
 		client:   client,
+		setOwner: setOwner,
 	}, nil
 }
 
@@ -145,11 +157,8 @@ loop:
 
 			pathname := path.Join(p.Root(), record.Pathname)
 			if record.FileInfo.Lmode.IsDir() {
-				if err := p.client.Mkdir(pathname); err != nil {
-					results <- record.Error(err)
-				} else {
-					results <- record.Ok()
-				}
+				err := p.directory(record, pathname)
+				results <- record.Error(err)
 
 				// later patching
 				dirPerms = append(dirPerms, dirPerm{
@@ -192,10 +201,42 @@ loop:
 	return ret
 }
 
+func (p *Exporter) directory(record *connectors.Record, pathname string) error {
+	var err error
+	if record.Pathname == "/" {
+		// special case for the root directory of the restore,
+		// we optionally create it, but only it, not the whole
+		// structure up to it.
+		err = p.client.Mkdir(pathname)
+		if err != nil {
+			dir, serr := p.client.Stat(pathname)
+			if serr != nil {
+				// nothing, leave err to the original value
+			} else {
+				if !dir.IsDir() {
+					return fmt.Errorf("failed to mkdir %s: not a directory",
+						pathname)
+				}
+				// it already exists, nothing to do.
+				err = nil
+			}
+		}
+	} else {
+		err = p.client.Mkdir(pathname)
+	}
+
+	if err != nil {
+		return fmt.Errorf("mkdir %s failed: %w", pathname, err)
+	}
+	return nil
+}
+
 func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	if err := p.client.Symlink(record.Target, pathname); err != nil {
 		return fmt.Errorf("could not create symlink")
 	}
+	// don't attempt to p.setPerms in here, sftp lacks a lchown(2)
+	// thingy.
 	return nil
 }
 
@@ -210,7 +251,7 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 		if err := p.writeAtomic(record, pathname); err != nil {
 			return "", err
 		}
-		p.hlCanon.Store(key, path.Join(p.Root(), pathname))
+		p.hlCanon.Store(key, pathname)
 		return pathname, nil
 	})
 	if err != nil {
@@ -221,7 +262,11 @@ func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
 	// If we are not the canonical path, create a hardlink
 	if canonPath != pathname {
 		if err := p.client.Link(canonPath, pathname); err != nil {
-			return fmt.Errorf("could not create hardink")
+			return fmt.Errorf("could not create hardink %s -> %s", canonPath, pathname)
+		}
+	} else {
+		if err := p.chown(canonPath, record.FileInfo); err != nil {
+			return err
 		}
 	}
 
@@ -232,7 +277,11 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return p.hardlink(record, pathname)
 	}
-	return p.writeAtomic(record, pathname)
+	if err := p.writeAtomic(record, pathname); err != nil {
+		return err
+	}
+
+	return p.chown(pathname, record.FileInfo)
 }
 
 func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
@@ -281,6 +330,19 @@ func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error
 		if err := p.client.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("could not chmod")
 		}
+	}
+	return p.chown(pathname, fileinfo)
+}
+
+func (p *Exporter) chown(pathname string, fileinfo objects.FileInfo) error {
+	if !p.setOwner {
+		return nil
+	}
+
+	err := p.client.Chown(pathname, int(fileinfo.Luid), int(fileinfo.Lgid))
+	if err != nil {
+		return fmt.Errorf("failed to set owner/group on %s: %w",
+			pathname, err)
 	}
 	return nil
 }
