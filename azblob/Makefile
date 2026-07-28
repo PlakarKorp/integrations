@@ -1,12 +1,8 @@
-GO=go
-EXT=
+GO	= go
+EXT	=
 
-PLAKAR  = plakar
+PLAKAR	= plakar
 VERSION = v1.1.0-beta.2
-
-GOOS   := $(shell go env GOOS)
-GOARCH := $(shell go env GOARCH)
-PTAR   := azblob_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 
 all: build
 
@@ -16,16 +12,23 @@ build:
 	${GO} build -v -o azblob-storage${EXT}  ./storage
 
 package: build
-	rm -f $(PTAR)
-	$(PLAKAR) pkg create ./manifest.yaml $(VERSION)
+	rm -f azblob_${VERSION}_*.ptar
+	${PLAKAR} pkg create ./manifest.yaml ${VERSION}
 
 uninstall:
 	-$(PLAKAR) pkg rm azblob
 
 install: package
-	$(PLAKAR) pkg add ./$(PTAR)
+	$(PLAKAR) pkg add ./azblob_${VERSION}_*.ptar
 
 reinstall: uninstall install
 
+test:
+	${GO} test -v ./...
+
+check: test
+
 clean:
-	rm -f azblob-importer azblob-exporter azblob-storage azblob_*.ptar
+	rm -f azblob-importer${EXT} azblob-exporter${EXT} azblob-storage${EXT} azblob_*.ptar
+
+.PHONY: all build package uninstall install reinstall test check clean
