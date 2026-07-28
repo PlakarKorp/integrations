@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
@@ -27,15 +28,17 @@ type azblobStore struct {
 	path          string
 	endpoint      string
 
-	accountName      string
-	accountKey       string
-	connectionString string
-	noAuth           bool
+	accountName             string
+	accountKey              string
+	connectionString        string
+	noAuth                  bool
+	useManagedIdentity      bool
+	managedIdentityClientID string
 
 	client *azblob.Client
 }
 
-func parse(params map[string]string, proto string) (container, prefix, endpoint, accountName, accountKey, connectionString string, noAuth bool, err error) {
+func parse(params map[string]string, proto string) (container, prefix, endpoint, accountName, accountKey, connectionString string, noAuth, useManagedIdentity bool, managedIdentityClientID string, err error) {
 	for k, v := range params {
 		switch k {
 		case "connection_string":
@@ -56,8 +59,17 @@ func parse(params map[string]string, proto string) (container, prefix, endpoint,
 		case "no_auth":
 			noAuth, err = strconv.ParseBool(v)
 			if err != nil {
-				return "", "", "", "", "", "", false, fmt.Errorf("unknown value for no_auth %q: %w", v, err)
+				return "", "", "", "", "", "", false, false, "", fmt.Errorf("unknown value for no_auth %q: %w", v, err)
 			}
+
+		case "use_managed_identity":
+			useManagedIdentity, err = strconv.ParseBool(v)
+			if err != nil {
+				return "", "", "", "", "", "", false, false, "", fmt.Errorf("unknown value for use_managed_identity %q: %w", v, err)
+			}
+
+		case "managed_identity_client_id":
+			managedIdentityClientID = v
 
 		case "location":
 			// azblob://container/prefix
@@ -65,31 +77,33 @@ func parse(params map[string]string, proto string) (container, prefix, endpoint,
 			prefix = strings.Trim(prefix, "/")
 
 		default:
-			return "", "", "", "", "", "", false, fmt.Errorf("unknown option: %s", k)
+			return "", "", "", "", "", "", false, false, "", fmt.Errorf("unknown option: %s", k)
 		}
 	}
 
 	if container == "" {
-		return "", "", "", "", "", "", false, fmt.Errorf("missing container in location")
+		return "", "", "", "", "", "", false, false, "", fmt.Errorf("missing container in location")
 	}
 
 	return
 }
 
 func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
-	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, err := parse(params, proto)
+	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
 	}
 
 	return &azblobStore{
-		containerName:    container,
-		path:             prefix,
-		endpoint:         endpoint,
-		accountName:      accountName,
-		accountKey:       accountKey,
-		connectionString: connectionString,
-		noAuth:           noAuth,
+		containerName:           container,
+		path:                    prefix,
+		endpoint:                endpoint,
+		accountName:             accountName,
+		accountKey:              accountKey,
+		connectionString:        connectionString,
+		noAuth:                  noAuth,
+		useManagedIdentity:      useManagedIdentity,
+		managedIdentityClientID: managedIdentityClientID,
 	}, nil
 }
 
@@ -136,8 +150,34 @@ func (g *azblobStore) connect(ctx context.Context) error {
 		g.client = client
 		return nil
 
+	case g.useManagedIdentity:
+		serviceURL := g.endpoint
+		if serviceURL == "" {
+			if g.accountName == "" {
+				return fmt.Errorf("managed identity requires endpoint or account_name")
+			}
+			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
+		}
+
+		opts := &azidentity.ManagedIdentityCredentialOptions{}
+		if g.managedIdentityClientID != "" {
+			opts.ID = azidentity.ClientID(g.managedIdentityClientID)
+		}
+
+		cred, err := azidentity.NewManagedIdentityCredential(opts)
+		if err != nil {
+			return err
+		}
+
+		client, err := azblob.NewClient(strings.TrimRight(serviceURL, "/")+"/", cred, nil)
+		if err != nil {
+			return err
+		}
+		g.client = client
+		return nil
+
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint")
+		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -25,29 +26,33 @@ type azblobImporter struct {
 	base          string
 	endpoint      string
 
-	accountName      string
-	accountKey       string
-	connectionString string
-	noAuth           bool
+	accountName             string
+	accountKey              string
+	connectionString        string
+	noAuth                  bool
+	useManagedIdentity      bool
+	managedIdentityClientID string
 
 	client *azblob.Client
 }
 
 func NewImporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
-	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, err := parse(params, proto)
+	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
 	}
 
 	imp := &azblobImporter{
-		containerName:    container,
-		path:             prefix,
-		base:             "/" + prefix,
-		endpoint:         endpoint,
-		accountName:      accountName,
-		accountKey:       accountKey,
-		connectionString: connectionString,
-		noAuth:           noAuth,
+		containerName:           container,
+		path:                    prefix,
+		base:                    "/" + prefix,
+		endpoint:                endpoint,
+		accountName:             accountName,
+		accountKey:              accountKey,
+		connectionString:        connectionString,
+		noAuth:                  noAuth,
+		useManagedIdentity:      useManagedIdentity,
+		managedIdentityClientID: managedIdentityClientID,
 	}
 
 	if err := imp.connect(ctx); err != nil {
@@ -100,8 +105,34 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 		g.client = client
 		return nil
 
+	case g.useManagedIdentity:
+		serviceURL := g.endpoint
+		if serviceURL == "" {
+			if g.accountName == "" {
+				return fmt.Errorf("managed identity requires endpoint or account_name")
+			}
+			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
+		}
+
+		opts := &azidentity.ManagedIdentityCredentialOptions{}
+		if g.managedIdentityClientID != "" {
+			opts.ID = azidentity.ClientID(g.managedIdentityClientID)
+		}
+
+		cred, err := azidentity.NewManagedIdentityCredential(opts)
+		if err != nil {
+			return err
+		}
+
+		client, err := azblob.NewClient(strings.TrimRight(serviceURL, "/")+"/", cred, nil)
+		if err != nil {
+			return err
+		}
+		g.client = client
+		return nil
+
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint")
+		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
