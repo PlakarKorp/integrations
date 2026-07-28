@@ -85,6 +85,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 	client, err := plakarsftp.Connect(parsed, config)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "SSH connection to %s failed: %s\n", parsed.Host, err)
 		return nil, err
 	}
 
