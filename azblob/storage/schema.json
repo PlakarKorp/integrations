@@ -41,7 +41,7 @@
     "use_managed_identity": {
       "type": "boolean",
       "default": false,
-      "description": "Enable Azure AD authentication via DefaultAzureCredential (supports system-assigned and user-assigned managed identity)"
+      "description": "Enable Azure managed identity authentication, both system-assigned and user-assigned"
     },
     "managed_identity_client_id": {
       "type": "string",
