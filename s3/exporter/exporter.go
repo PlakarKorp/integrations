@@ -49,7 +49,7 @@ func init() {
 	exporter.Register("s3", 0, NewS3Exporter)
 }
 
-func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
+func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
 	transport, err := minio.DefaultTransport(useSsl)
 	if err != nil {
 		return nil, err
@@ -66,6 +66,7 @@ func connect(endpoint string, useSsl, insecure bool, accessKeyID, secretAccessKe
 		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure:    useSsl,
 		Transport: transport,
+		Region:    region,
 	})
 	if err != nil {
 		return nil, err
@@ -120,6 +121,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	endpoint := config["endpoint"]
+	region := config["region"]
 
 	var port string
 	if tmp, ok := config["port"]; ok {
@@ -188,7 +190,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		restoreDir = "/" + restoreDir
 	}
 
-	conn, err := connect(host, useSsl, insecure, accessKey, secretAccessKey)
+	conn, err := connect(host, region, useSsl, insecure, accessKey, secretAccessKey)
 	if err != nil {
 		return nil, err
 	}
