@@ -1,6 +1,8 @@
 name: rclone
+display_name: RClone
 description: A plugin for Rclone integration with various cloud storage services.
-version: v1.0.0-beta.5
+homepage: https://github.com/PlakarKorp/integrations/tree/main/rclone
+license: isc
 connectors:
   - type: importer
     executable: rclone-importer
