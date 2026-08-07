@@ -1,0 +1,14 @@
+name: routeros
+display_name: RouterOS
+description: Backup and restore configurations on RouterOS
+homepage: https://github.com/tracepanic/plakar-integration
+license: ISC
+connectors:
+  - type: importer
+    executable: ./routeros-importer
+    protocols: [routeros+export, routeros+backup]
+    flags: [needack]
+  - type: exporter
+    executable: ./routeros-exporter
+    protocols: [routeros]
+    flags: [needack]
