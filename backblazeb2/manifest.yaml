@@ -1,0 +1,17 @@
+name: backblazeb2
+display_name: Backblaze B2
+description: Integration providing a storage backend on Backblaze B2 buckets via the native B2 API.
+homepage: https://github.com/PlakarKorp/integration-backblazeb2
+license: ISC
+api_version: v1.1.0
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+- type: storage
+  executable: b2Storage
+  homepage: https://github.com/PlakarKorp/integration-backblazeb2
+  license: ISC
+  protocols: [b2]
+  validator: ./storage/schema.json
+  class: object-storage
+  subclass: b2

@@ -1,0 +1,5 @@
+/b2Storage
+/backblazeb2_*.ptar
+/vendor
+/.bin
+/scripts/b2-creds.env
