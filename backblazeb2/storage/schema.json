@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Backblaze B2 Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "access_key",
+    "secret_access_key"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "B2 location URI: b2://<endpoint>/<bucket>/<optional-prefix>, e.g. b2://s3.us-west-004.backblazeb2.com/mybucket",
+      "pattern": "^b2://[^/]+/[^/]+(/.*)?$"
+    },
+    "access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "B2 application key ID"
+    },
+    "secret_access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "B2 application key"
+    },
+    "sse_customer_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base64-encoded 256-bit (32-byte) customer-provided AES-256 key for SSE-C server-side encryption"
+    }
+  }
+}
