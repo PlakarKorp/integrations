@@ -1,0 +1,498 @@
+/*
+ * Copyright (c) 2021 Gilles Chehade <gilles@poolp.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package storage
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+
+	"github.com/PlakarKorp/kloset/connectors/storage"
+	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/kloset/repository"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+)
+
+func init() {
+	storage.Register("sqlite", 0, NewStore)
+}
+
+type Store struct {
+	backend string
+
+	conn    *sql.DB
+	wrMutex sync.Mutex
+
+	Repository string
+	location   string
+}
+
+func init() {
+	storage.Register("sqlite", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
+}
+
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+	if proto != "sqlite" {
+		return nil, fmt.Errorf("unsupported database backend: %s", proto)
+	}
+
+	location := storeConfig["location"]
+	return &Store{
+		backend:  proto,
+		location: location,
+	}, nil
+}
+
+func (s *Store) Location(context context.Context) (string, error) {
+	return s.location, nil
+}
+
+func (s *Store) connect(addr string) error {
+	conn, err := sql.Open(s.backend, addr)
+	if err != nil {
+		return err
+	}
+	s.conn = conn
+
+	if s.backend == "sqlite" {
+		_, err = s.conn.Exec("PRAGMA journal_mode=WAL;")
+		if err != nil {
+			return nil
+		}
+		_, err = s.conn.Exec("PRAGMA busy_timeout=2000;")
+		if err != nil {
+			return nil
+		}
+
+	}
+
+	return nil
+}
+
+func (s *Store) Create(ctx context.Context, config []byte) error {
+	location := strings.TrimPrefix(s.location, "sqlite://")
+	err := s.connect(location)
+	if err != nil {
+		return err
+	}
+
+	statement, err := s.conn.Prepare(`CREATE TABLE IF NOT EXISTS configuration (
+		value	BLOB
+	);`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	statement.Exec()
+
+	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS states (
+		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
+		data		BLOB
+	);`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	statement.Exec()
+
+	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS packfiles (
+		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
+		data		BLOB
+	);`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	statement.Exec()
+
+	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS locks (
+		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
+		data		BLOB
+	);`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	statement.Exec()
+
+	statement, err = s.conn.Prepare(`INSERT INTO configuration(value) VALUES(?)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	_, err = statement.Exec(config)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Store) Open(ctx context.Context) ([]byte, error) {
+	location := strings.TrimPrefix(s.location, "sqlite://")
+	err := s.connect(location)
+	if err != nil {
+		return nil, err
+	}
+
+	var buffer []byte
+
+	err = s.conn.QueryRow(`SELECT value FROM configuration`).Scan(&buffer)
+	if err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+func (s *Store) Origin() string        { return "localhost" }
+func (s *Store) Root() string          { return s.location }
+func (s *Store) Type() string          { return "sqlite" }
+func (s *Store) Flags() location.Flags { return 0 }
+
+func (s *Store) Mode(context context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
+}
+
+func (s *Store) Size(context context.Context) (int64, error) {
+	return -1, nil
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (s *Store) Close(ctx context.Context) error {
+	return s.conn.Close()
+}
+
+func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.getPackfiles(ctx)
+	case storage.StorageResourceState:
+		return s.getStates(ctx)
+	case storage.StorageResourceLock:
+		return s.getLocks(ctx)
+	default:
+		return nil, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.putPackfile(ctx, mac, rd)
+	case storage.StorageResourceState:
+		return s.putState(ctx, mac, rd)
+	case storage.StorageResourceLock:
+		return s.putLock(ctx, mac, rd)
+	default:
+		return -1, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+	switch res {
+	case storage.StorageResourcePackfile:
+		if rg != nil {
+			return s.getPackfileBlob(ctx, mac, rg.Offset, rg.Length)
+		}
+		return s.getPackfile(ctx, mac)
+	case storage.StorageResourceState:
+		if rg != nil {
+			return nil, errors.ErrUnsupported
+		}
+		return s.getState(ctx, mac)
+	case storage.StorageResourceLock:
+		if rg != nil {
+			return nil, errors.ErrUnsupported
+		}
+		return s.getLock(ctx, mac)
+	default:
+		return nil, errors.ErrUnsupported
+	}
+}
+
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+	switch res {
+	case storage.StorageResourcePackfile:
+		return s.deletePackfile(ctx, mac)
+	case storage.StorageResourceState:
+		return s.deleteState(ctx, mac)
+	case storage.StorageResourceLock:
+		return s.deleteLock(ctx, mac)
+	default:
+		return errors.ErrUnsupported
+	}
+}
+
+// states
+func (s *Store) getStates(context context.Context) ([]objects.MAC, error) {
+	rows, err := s.conn.Query("SELECT mac FROM states")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	macs := make([]objects.MAC, 0)
+	for rows.Next() {
+		var mac []byte
+		err = rows.Scan(&mac)
+		if err != nil {
+			return nil, err
+		}
+		var mac32 objects.MAC
+		copy(mac32[:], mac)
+		macs = append(macs, mac32)
+	}
+	return macs, nil
+}
+
+func (s *Store) putState(context context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		return 0, err
+	}
+
+	statement, err := s.conn.Prepare(`INSERT INTO states (mac, data) VALUES(?, ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(mac[:], data)
+	s.wrMutex.Unlock()
+	if err != nil {
+		var sqliteErr *sqlite.Error
+		if !errors.As(err, &sqliteErr) {
+			return 0, err
+		}
+		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
+			return 0, err
+		}
+	}
+
+	return int64(len(data)), nil
+}
+
+func (s *Store) getState(context context.Context, mac objects.MAC) (io.ReadCloser, error) {
+	var data []byte
+	err := s.conn.QueryRow(`SELECT data FROM states WHERE mac=?`, mac[:]).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(data)), nil
+}
+
+func (s *Store) deleteState(context context.Context, mac objects.MAC) error {
+	statement, err := s.conn.Prepare(`DELETE FROM states WHERE mac=?`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(mac[:])
+	s.wrMutex.Unlock()
+	if err != nil {
+		// if err is that it's already present, we should discard err and assume a concurrent write
+		return err
+	}
+	return nil
+}
+
+// packfiles
+func (s *Store) getPackfiles(context context.Context) ([]objects.MAC, error) {
+	rows, err := s.conn.Query("SELECT mac FROM packfiles")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	macs := make([]objects.MAC, 0)
+	for rows.Next() {
+		var mac []byte
+		err = rows.Scan(&mac)
+		if err != nil {
+			return nil, err
+		}
+		var mac32 objects.MAC
+		copy(mac32[:], mac)
+		macs = append(macs, mac32)
+	}
+	return macs, nil
+}
+
+func (s *Store) putPackfile(context context.Context, mac objects.MAC, rd io.Reader) (int64, error) {
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		return 0, err
+	}
+
+	statement, err := s.conn.Prepare(`INSERT INTO packfiles (mac, data) VALUES(?, ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(mac[:], data)
+	s.wrMutex.Unlock()
+	if err != nil {
+		var sqliteErr *sqlite.Error
+		if !errors.As(err, &sqliteErr) {
+			return 0, err
+		}
+		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
+			return 0, err
+		}
+	}
+
+	return int64(len(data)), nil
+}
+
+func (s *Store) getPackfile(context context.Context, mac objects.MAC) (io.ReadCloser, error) {
+	var data []byte
+	err := s.conn.QueryRow(`SELECT data FROM packfiles WHERE mac=?`, mac[:]).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (s *Store) getPackfileBlob(context context.Context, mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
+	var data []byte
+	err := s.conn.QueryRow(`SELECT substr(data, ?, ?) FROM packfiles WHERE mac=?`, offset+1, length, mac[:]).Scan(&data)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err = repository.ErrBlobNotFound
+		}
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(data)), nil
+}
+
+func (s *Store) deletePackfile(context context.Context, mac objects.MAC) error {
+	statement, err := s.conn.Prepare(`DELETE FROM packfiles WHERE mac=?`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(mac[:])
+	s.wrMutex.Unlock()
+	if err != nil {
+		// if err is that it's already present, we should discard err and assume a concurrent write
+		return err
+	}
+	return nil
+}
+
+func (s *Store) getLocks(context context.Context) ([]objects.MAC, error) {
+	rows, err := s.conn.Query("SELECT mac FROM locks")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ret := make([]objects.MAC, 0)
+	for rows.Next() {
+		var mac string
+		err = rows.Scan(&mac)
+		if err != nil {
+			return nil, err
+		}
+
+		lockID, err := hex.DecodeString(mac)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(lockID) != 32 {
+			continue
+		}
+
+		ret = append(ret, objects.MAC(lockID))
+	}
+
+	return ret, nil
+}
+
+func (s *Store) putLock(context context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		return 0, err
+	}
+
+	statement, err := s.conn.Prepare(`INSERT INTO locks (mac, data) VALUES(?, ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(hex.EncodeToString(lockID[:]), data)
+	s.wrMutex.Unlock()
+	if err != nil {
+		var sqliteErr *sqlite.Error
+		if !errors.As(err, &sqliteErr) {
+			return 0, err
+		}
+		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
+			return 0, err
+		}
+	}
+
+	return int64(len(data)), nil
+}
+
+func (s *Store) getLock(context context.Context, lockID objects.MAC) (io.ReadCloser, error) {
+	var data []byte
+	err := s.conn.QueryRow(`SELECT data FROM locks WHERE mac=?`, hex.EncodeToString(lockID[:])).Scan(&data)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewBuffer(data)), nil
+}
+
+func (s *Store) deleteLock(context context.Context, lockID objects.MAC) error {
+	statement, err := s.conn.Prepare(`DELETE FROM locks WHERE mac=?`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+
+	s.wrMutex.Lock()
+	_, err = statement.Exec(hex.EncodeToString(lockID[:]))
+	s.wrMutex.Unlock()
+	if err != nil {
+		// if err is that it's already present, we should discard err and assume a concurrent write
+		return err
+	}
+	return nil
+}

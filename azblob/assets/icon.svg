@@ -1,0 +1,25 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect x="0" y="0" width="256" height="256" rx="32" fill="#F3F2F1"></rect>
+
+  <!-- Azure hexagon -->
+  <polygon points="128,40 200,88 200,168 128,216 56,168 56,88" fill="#0078D4"></polygon>
+
+  <!-- Document shape -->
+  <path d="M92 92
+           C92 82 100 74 110 74
+           L150 74
+           L174 98
+           L174 150
+           C174 160 166 168 156 168
+           L110 168
+           C100 168 92 160 92 150 Z" fill="none" stroke="white" stroke-width="8" stroke-linejoin="round"></path>
+
+  <!-- Fold corner -->
+  <path d="M150 74 L150 98 L174 98" fill="none" stroke="white" stroke-width="8" stroke-linejoin="round"></path>
+
+  <!-- Binary text -->
+  <text x="128" y="120" text-anchor="middle" font-size="32" font-family="Segoe UI, Arial, sans-serif" fill="white">10</text>
+
+  <text x="128" y="155" text-anchor="middle" font-size="32" font-family="Segoe UI, Arial, sans-serif" fill="white">01</text>
+</svg>

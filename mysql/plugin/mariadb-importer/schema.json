@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar MariaDB Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MariaDB connection URI: mysql+mariadb://[user[:password]@]host[:port][/database]. If a database path is included, only that database is backed up; otherwise all databases are backed up with --all-databases.",
+      "pattern": "^mysql\\+mariadb://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MariaDB server hostname (default: 127.0.0.1). Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MariaDB server port (default: 3306). Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MariaDB username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MariaDB password. Overrides the password in the location URI. Never appears on the command line; passed via MYSQL_PWD."
+    },
+    "database": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name of the database to back up. If omitted, all non-system databases are backed up using --all-databases. Overrides the database in the location URI."
+    },
+    "single_transaction": {
+      "type": "boolean",
+      "description": "Use --single-transaction for a consistent InnoDB snapshot without locking tables (default: true). Strongly recommended for production InnoDB databases."
+    },
+    "routines": {
+      "type": "boolean",
+      "description": "Include stored procedures and functions via --routines (default: true)."
+    },
+    "events": {
+      "type": "boolean",
+      "description": "Include event scheduler events via --events (default: true)."
+    },
+    "triggers": {
+      "type": "boolean",
+      "description": "Include triggers (default: true). Set to false to pass --skip-triggers."
+    },
+    "no_data": {
+      "type": "boolean",
+      "description": "When true, passes --no-data so only DDL statements are dumped (no INSERT rows). Mutually exclusive with no_create_info."
+    },
+    "no_create_info": {
+      "type": "boolean",
+      "description": "When true, passes --no-create-info so only INSERT statements are dumped (no DDL). Mutually exclusive with no_data."
+    },
+    "no_tablespaces": {
+      "type": "boolean",
+      "description": "Suppress CREATE LOGFILE GROUP and CREATE TABLESPACE statements (--no-tablespaces, default: true). Recommended for restoring to managed MariaDB instances."
+    },
+    "hex_blob": {
+      "type": "boolean",
+      "description": "Dump BINARY, VARBINARY, BLOB, and BIT columns using hexadecimal notation (--hex-blob). Useful when the dump may be loaded on a system with different character set settings."
+    },
+    "mariadb_bin_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing the MariaDB client binaries (mariadb-dump, mariadb). When omitted, binaries are resolved via $PATH."
+    },
+    "ssl_mode": {
+      "type": "string",
+      "enum": ["disabled", "preferred", "required", "verify_ca", "verify_identity"],
+      "description": "SSL/TLS mode for the connection (--ssl-mode). Default: not set (server decides)."
+    },
+    "ssl_cert": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL certificate file (PEM format), passed via --ssl-cert."
+    },
+    "ssl_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the client SSL private key file (PEM format), passed via --ssl-key."
+    },
+    "ssl_ca": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the CA certificate used to verify the server (PEM format), passed via --ssl-ca."
+    }
+  }
+}

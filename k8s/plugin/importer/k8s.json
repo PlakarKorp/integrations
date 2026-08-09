@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar K8S Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "kubeconfig"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Endpoint with optional namespace"
+    },
+    "kubeconfig": {
+      "type": "string",
+      "description": "Kube config content to use"
+    },
+    "labels": {
+      "type": "string",
+      "description": "Optional kubernetes label selector"
+    }
+  }
+}

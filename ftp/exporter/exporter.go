@@ -1,0 +1,235 @@
+/*
+ * Copyright (c) 2025 Gilles Chehade <gilles@plakar.io>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package exporter
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand/v2"
+	"net/url"
+	"os"
+	"path/filepath"
+
+	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/secsy/goftp"
+	"golang.org/x/sync/errgroup"
+)
+
+func init() {
+	exporter.Register("ftp", 0, NewExporter)
+}
+
+type Exporter struct {
+	opts *connectors.Options
+
+	host    string
+	rootDir string
+	client  *goftp.Client
+}
+
+func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+	target := config["location"]
+
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return nil, err
+	}
+
+	var username string
+	if tmp, ok := config["username"]; ok {
+		username = tmp
+	}
+	var password string
+	if tmp, ok := config["password"]; ok {
+		password = tmp
+	}
+	var port string
+	if tmp, ok := config["port"]; ok {
+		port = tmp
+	}
+	var root string
+	if tmp, ok := config["root"]; ok {
+		root = tmp
+	}
+
+	if parsed.User != nil {
+		if parsed.User.Username() != "" {
+			username = parsed.User.Username()
+		}
+		if p, ok := parsed.User.Password(); ok {
+			password = p
+		}
+	}
+
+	rootDir := parsed.Path
+	if root != "" {
+		rootDir = root
+	}
+	if rootDir == "" {
+		rootDir = "/"
+	}
+
+	host := parsed.Host
+	if parsed.Port() == "" && port != "" {
+		host = fmt.Sprintf("%s:%s", parsed.Host, port)
+	}
+
+	client, err := common.ConnectToFTP(host, username, password)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Exporter{
+		opts: opts,
+		//endpoint: parsed,
+		client:  client,
+		rootDir: rootDir,
+	}, nil
+}
+
+func (p *Exporter) Root() string {
+	return p.rootDir
+}
+
+func (p *Exporter) Origin() string        { return p.host }
+func (p *Exporter) Type() string          { return "ftp" }
+func (p *Exporter) Flags() location.Flags { return 0 }
+
+func (p *Exporter) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (p *Exporter) Close(ctx context.Context) error {
+	return nil
+}
+
+type dirPerm struct {
+	Pathname string
+	Fileinfo objects.FileInfo
+}
+
+func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+	defer close(results)
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.opts.MaxConcurrency)
+
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			ret = ctx.Err()
+			break loop
+
+		case record, ok := <-records:
+			if !ok {
+				break loop
+			}
+
+			if record.Err != nil {
+				results <- record.Ok()
+				continue
+			}
+
+			if record.IsXattr {
+				results <- record.Ok()
+				continue
+			}
+
+			pathname := filepath.Join(p.Root(), record.Pathname)
+			if record.FileInfo.Lmode.IsDir() {
+				if pathname == p.Root() {
+					results <- record.Ok()
+				} else {
+					if _, err := p.client.Mkdir(pathname); err != nil {
+						results <- record.Error(err)
+					} else {
+						results <- record.Ok()
+					}
+				}
+				continue
+			}
+
+			g.Go(func() error {
+				var err error
+				if record.FileInfo.Lmode&os.ModeSymlink != 0 {
+					err = p.symlink(record, pathname)
+				} else if record.FileInfo.Lmode.IsRegular() {
+					err = p.file(record, pathname)
+				}
+
+				if err != nil {
+					results <- record.Error(err)
+				} else {
+					results <- record.Ok()
+				}
+				return nil
+			})
+
+		}
+	}
+
+	if err := g.Wait(); err != nil && ret == nil {
+		ret = err
+	}
+
+	/*
+		for i := len(dirPerms) - 1; i >= 0; i-- {
+			if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
+				return err
+			}
+		}
+	*/
+
+	return ret
+}
+
+func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
+	return errors.ErrUnsupported
+}
+
+func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
+	return errors.ErrUnsupported
+}
+
+func (p *Exporter) file(record *connectors.Record, pathname string) error {
+	if record.FileInfo.Lnlink > 1 {
+		return p.hardlink(record, pathname)
+	}
+	return p.writeAtomic(record, pathname)
+}
+
+func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+
+	err := p.client.Store(tmpName, record.Reader)
+	if err != nil {
+		return err
+	}
+	if err := p.client.Rename(tmpName, pathname); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+	return errors.ErrUnsupported
+}

@@ -1,0 +1,51 @@
+.Dd July 2, 2025
+.Dt PLAKAR-IMAP 1
+.Os
+.Sh NAME
+.Nm plakar-imap
+.Sh DESCRIPTION
+The
+.Nm
+integration package provides source and destination connectors
+that allows backup and restoration of an IMAP mail folders.
+.Sh CONFIGURATION
+The configuration parameters are as follow:
+.Bl -tag -width Ds
+.It Ar location
+The URL of the IMAP server in the form
+.Li imap://<host>:<port> .
+.It Ar username
+Username to login.
+.It Ar password
+Password for login
+.It Ar tls
+TlS mode to use.
+Possible values are
+.Li tls
+(the default),
+.Li starttls
+and
+.Li no-tls .
+.It Ar tls_no_verify
+If set to
+.Li yes ,
+the client will not verify the server certificate in tls mode.
+.El
+.Sh EXAMPLES
+The following example shows how to configure a source called
+.Li mymail
+for an IMAP mailbox to backup:
+.Bd -literal -offset indent
+$ plakar source add mymail imap://my.imap.server.com:143 username=foo password=bar tls=starttls
+.Ed
+.Pp
+Supposing that a Kloset store named
+.Li mystore
+is already configured,
+the following command will backup the above mailbox to this store:
+.Bd -literal -offset indent
+$ plakar at @mystore backup @mymail
+.Ed
+.Pp
+.Sh LIMITATIONS
+The current implementation is currently very simple and lacks many features.

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Kubernetes Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [],
+  "properties": {
+    "k8s_kubeconf": {
+      "type": "string",
+      "description": "Kube config content to use, leave empty if running inside a kubernetes cluster."
+    }
+  }
+}

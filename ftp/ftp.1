@@ -1,0 +1,35 @@
+.Dd July 2, 2025
+.Dt PLAKAR-FTP 1
+.Os
+.Sh NAME
+.Nm plakar-ftp
+.Sh DESCRIPTION
+The
+.Nm
+integration package provides source and destination connectors
+that allows backup and restoration of a remote filesystem over FTP.
+.Sh CONFIGURATION
+The configuration parameters are as follow:
+.Bl -tag -width Ds
+.It Ar location
+The URL of the FTP server in the form
+.Li ftp://<host>:<port> .
+.El
+.Sh EXAMPLES
+The following example shows how to configure a source called
+.Li myftp
+for an FTP account to backup:
+.Bd -literal -offset indent
+$ plakar source add myftp ftp://my.ftp.server.com
+.Ed
+.Pp
+Supposing that a Kloset store named
+.Li mystore
+is already configured,
+the following command will backup the above FTP account to this store:
+.Bd -literal -offset indent
+$ plakar at @mystore backup @myftp
+.Ed
+.Pp
+.Sh LIMITATIONS
+The current implementation is currently very simple and lacks many features.

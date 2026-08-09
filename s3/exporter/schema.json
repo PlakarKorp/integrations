@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar S3 Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "access_key",
+    "secret_access_key"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 location URI: s3://<endpoint>/<bucket>/<optional-prefix>",
+      "pattern": "^s3://[^/]+/[^/]+(/.*)?$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "TCP/UDP port number"
+    },
+    "root": {
+      "type": "string",
+      "default": "/",
+      "pattern": "^/",
+      "description": "bucket path prefix to use"
+    },
+    "endpoint": {
+      "type": "string",
+      "default": "",
+      "description": "S3 endpoint URL"
+    },
+    "access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 access key"
+    },
+    "secret_access_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "S3 secret access key"
+    },
+    "use_tls": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable TLS when talking to the S3 endpoint"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "virtual_host": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hostname in location includes the bucket name as well."
+    },
+    "sse_customer_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base64-encoded 256-bit (32-byte) customer-provided AES-256 key for SSE-C server-side encryption"
+    }
+  }
+}

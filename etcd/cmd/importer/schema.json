@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar ETCD Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ETCD server url"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ETCD username"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ETCD password"
+    },
+    "endpoints": {
+      "type": "string",
+      "description": "Comma-separated list of endpoints"
+    }
+  }
+}
