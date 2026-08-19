@@ -18,7 +18,7 @@ uninstall:
 	-${PLAKAR} pkg rm routeros
 
 install: package
-	${PLAKAR} pkg add ./routeros_${VERSION}_*.ptar
+	${PLAKAR} pkg add -allow-unsigned ./routeros_${VERSION}_*.ptar
 
 reinstall: uninstall install
 
