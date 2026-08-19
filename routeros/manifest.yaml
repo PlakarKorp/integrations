@@ -11,4 +11,3 @@ connectors:
   - type: exporter
     executable: ./routeros-exporter
     protocols: [routeros]
-    flags: [needack]
