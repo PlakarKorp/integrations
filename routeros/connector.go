@@ -2,10 +2,13 @@ package routeros
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
+	"path"
+	"strconv"
 	"sync"
 	"time"
 
@@ -25,12 +28,16 @@ const (
 	ModeBackup Mode = "backup"
 )
 
+var ErrAlreadyDone = errors.New("restore already done")
+
 type Routeros struct {
 	addr       string
 	user       string
 	authMethod ssh.AuthMethod
 
 	mode Mode // for backup
+
+	dryRun bool // for export
 
 	client *ssh.Client
 	mtx    sync.Mutex
@@ -39,7 +46,7 @@ type Routeros struct {
 func init() {
 	importer.Register("routeros+export", 0, NewImporter)
 	importer.Register("routeros+backup", 0, NewImporter)
-	// exporter.Register("routeros", 0, NewExporter)
+	exporter.Register("routeros", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
@@ -96,6 +103,8 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}
 
 	var mode Mode
+	var dryrun bool
+
 	if importerp {
 		switch proto {
 		case "routeros+export":
@@ -106,7 +115,16 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 			return nil, fmt.Errorf("invalid protocol %q for importer", proto)
 		}
 	} else {
-		// XXX fix for exporter
+		if proto != "routeros" {
+			return nil, fmt.Errorf("invalid protocol %q for exporter", proto)
+		}
+
+		if p, ok := config["dry_run"]; ok {
+			dryrun, err = strconv.ParseBool(p)
+			if err != nil {
+				return nil, fmt.Errorf("invalid dry_run option: %w", err)
+			}
+		}
 	}
 
 	host := loc.Host
@@ -119,6 +137,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		user:       user,
 		authMethod: authm,
 		mode:       mode,
+		dryRun:     dryrun,
 	}, nil
 }
 
@@ -242,10 +261,77 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 	return (<-results).Err
 }
 
+func (m *Routeros) restoreRsc(src io.Reader) error {
+	remoteName := "plakar-restore.rsc"
+
+	sftpClient, err := sftp.NewClient(m.client)
+	if err != nil {
+		return fmt.Errorf("sftp client: %w", err)
+	}
+	defer sftpClient.Close()
+
+	dst, err := sftpClient.Create(remoteName)
+	if err != nil {
+		return fmt.Errorf("create remote file: %w", err)
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return fmt.Errorf("upload: %w", err)
+	}
+
+	if err := dst.Close(); err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+
+	cmd := "import" // add verbose=yes?
+	if m.dryRun {
+		cmd += " dry-run=yes"
+	}
+	cmd += fmt.Sprintf(" file=%s", remoteName)
+
+	if err := m.exec(cmd); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Routeros) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
-	// XXX implement
+	if err := m.connect(); err != nil {
+		return err
+	}
+
+	/* we expect just one .rsc or .backup file */
+
+	done := false
+	for record := range records {
+		if record.Err != nil || !record.FileInfo.Lmode.IsRegular() {
+			results <- record.Ok()
+			continue
+		}
+
+		switch path.Ext(record.FileInfo.Lname) {
+		case ".rsc":
+			if done {
+				results <- record.Error(ErrAlreadyDone)
+				continue
+			}
+			done = true
+			results <- record.Error(m.restoreRsc(record.Reader))
+		case ".backup":
+			if done {
+				results <- record.Error(ErrAlreadyDone)
+				continue
+			}
+			done = true
+			results <- record.Error(errors.ErrUnsupported)
+		default:
+			results <- record.Ok()
+		}
+	}
 
 	return nil
 }
