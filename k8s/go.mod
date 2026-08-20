@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/k8s
 go 1.25.5
 
 require (
-	github.com/PlakarKorp/go-inventory-sdk v1.1.1
+	github.com/PlakarKorp/go-inventory-sdk v1.1.2
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260213124244-86554ea13bd5
 	github.com/PlakarKorp/integration-grpc v1.1.0
 	github.com/PlakarKorp/integrations/fs v1.1.2
