@@ -5,6 +5,10 @@ import (
 	"os"
 )
 
+func open(p string) (*os.File, error) {
+	return os.Open(p)
+}
+
 func dirDevice(info os.FileInfo) uint64 {
 	return 0
 }

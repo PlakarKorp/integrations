@@ -72,7 +72,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 
 		records <- connectors.NewRecord(entrypath, originFile, fileinfo, extendedAttributes,
 			func() (io.ReadCloser, error) {
-				return os.Open(p.path)
+				return open(p.path)
 			})
 		for _, attr := range extendedAttributes {
 			records <- connectors.NewXattr(entrypath, attr, objects.AttributeExtended,
