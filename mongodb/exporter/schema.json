@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar MongoDB Exporter Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location", "username", "password" ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MongoDB server hostname or IP address",
+      "pattern": "^[a-zA-Z0-9.:-\\]+$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "MongoDB server port number. Defaults to 27017."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Username",
+      "pattern": ".*"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Password",
+      "pattern": ".*"
+    },
+    "use_tls": {
+      "type": "boolean",
+      "default": true,
+      "description": "Use an encrypted TLS/SSL connection."
+    }
+  }
+}
