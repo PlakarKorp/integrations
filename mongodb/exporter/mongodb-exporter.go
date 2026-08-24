@@ -151,25 +151,6 @@ type commandResult struct {
 	exit   bool
 }
 
-func readStream(c chan (commandResult), stream io.ReadCloser) {
-	rd := bufio.NewReader(stream)
-
-	for {
-		buf, err := rd.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			c <- commandResult{err: fmt.Errorf("%s", buf)}
-			return
-		}
-
-		if len(buf) > 0 {
-			c <- commandResult{stdout: buf}
-		}
-	}
-}
-
 func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 	var args []string
@@ -207,7 +188,22 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	}
 
 	read_stdout := func(c chan (commandResult)) {
-		readStream(c, stdout)
+		rd := bufio.NewReader(stdout)
+
+		for {
+			buf, err := rd.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				c <- commandResult{err: fmt.Errorf("%s", buf)}
+				return
+			}
+
+			if len(buf) > 0 {
+				c <- commandResult{stdout: buf}
+			}
+		}
 	}
 
 	stderr, err := cmd.StderrPipe()
@@ -216,7 +212,22 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	}
 
 	read_stderr := func(c chan (commandResult)) {
-		readStream(c, stderr)
+		rd := bufio.NewReader(stderr)
+
+		for {
+			buf, err := rd.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				c <- commandResult{err: fmt.Errorf("%s", buf)}
+				return
+			}
+
+			if len(buf) > 0 {
+				c <- commandResult{stderr: buf}
+			}
+		}
 	}
 
 	if err := cmd.Start(); err != nil {
