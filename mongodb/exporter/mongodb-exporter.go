@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -35,6 +36,8 @@ import (
 )
 
 const defaultMongoDBPort = 27017
+const backupFilename = "mongodb-backup.bson"
+const debug = false
 
 type mongodbExporter struct {
 	url     *url.URL
@@ -42,6 +45,8 @@ type mongodbExporter struct {
 	options *connectors.Options
 	use_tls	bool
 	stdin	io.WriteCloser
+	stdout	io.ReadCloser
+	stderr	io.ReadCloser
 }
 
 func init() {
@@ -142,8 +147,34 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
 }
 
-func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+type commandResult struct {
+	stdout []byte
+	stderr []byte
+	err    error
+	exit   bool
+}
 
+func readStream(c chan (commandResult), stream io.ReadCloser) {
+	rd := bufio.NewReader(stream)
+
+	for {
+		buf, err := rd.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			c <- commandResult{err: fmt.Errorf("%s", buf)}
+			return
+		}
+
+		if len(buf) > 0 {
+			c <- commandResult{stdout: buf}
+		}
+	}
+}
+
+func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	defer close(results)
 	var args []string
 
 	args = append(args, "--host")
@@ -175,28 +206,90 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	}
 	e.stdin = stdin
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	read_stdout := func(c chan (commandResult)) {
+		readStream(c, stdout)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	read_stderr := func(c chan (commandResult)) {
+		readStream(c, stderr)
+	}
+
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	// reap process
-	go func() { _ = cmd.Wait() }()
+	c := make(chan commandResult, 1)
 
-	for record := range records {
-		if record.Err != nil || !record.FileInfo.Mode().IsRegular() {
-			results <- record.Ok()
-			continue
+	// reap process
+	go func() { _ = cmd.Wait(); c <- commandResult{exit: true} }()
+
+	go func() {
+		read_stdout(c)
+	}()
+
+	go func() {
+		read_stderr(c)
+	}()
+
+	go func() {
+		for record := range records {
+			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
+			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+				results <- record.Ok()
+				continue
+			}
+
+			if _, err := io.Copy(e.stdin, record.Reader); err != nil {
+				results <- record.Error(err)
+			} else {
+				results <- record.Ok()
+			}
 		}
 
-		if _, err := io.Copy(e.stdin, record.Reader); err != nil {
-			results <- record.Error(err)
-		} else {
-			results <- record.Ok()
-			break // There should only be one record
+		e.stdin.Close()
+		e.stdin = nil
+	}()
+
+	var res commandResult
+	for err == nil && res.exit == false {
+		select {
+		case r := <-c:
+			if len(r.stdout) > 0 {
+				res.stdout = append(res.stdout, r.stdout...)
+			}
+			if len(r.stderr) > 0 {
+				res.stderr = append(res.stderr, r.stderr...)
+			}
+			if res.exit == false {
+				res.exit = r.exit
+			}
+			if res.err != nil {
+				err = r.err
+			}
 		}
 	}
 
-	return nil
+	if debug && len(res.stdout) > 0 {
+		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
+	}
+	if err == nil && len(res.stderr) > 0 {
+		if debug {
+			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
+		}
+		err = fmt.Errorf("%s", res.stderr)
+	}
+
+	return err
 }
 
 func (e *mongodbExporter) Close(ctx context.Context) error {
