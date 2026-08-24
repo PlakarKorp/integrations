@@ -13,8 +13,17 @@ This integration allows:
 This integration uses the mongosh, mongodump, and mongorestore utlities.
 
 ## Configuration
+\
+The required configuration parameters are as follows:
 
-TODO
+- `location`: A URL to the MongoDB server. On the command line this URL must begin with mongodb://`
+
+The optional configuration parameters are as follows:
+
+- `port`: The MongoDB server port. The default port is 27017.
+- `username`: The username for authentication to MongoDB.
+- `password`: The password for authentication to MongoDB.
+- `use_tls`: Indicates Whether to use an encrypted TLS/SSL connection. Defaults to true.
 
 ## Tests
 
