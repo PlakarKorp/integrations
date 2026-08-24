@@ -156,7 +156,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return "", fmt.Errorf("failed to start ssh master: %w: %s", err, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf("failed to start ssh master: %s: %w: %s", cmd, err, strings.TrimSpace(string(out)))
 		}
 	}
 
