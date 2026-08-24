@@ -1,0 +1,17 @@
+name: openwrt
+display_name: OpenWRT
+description: Backup and Restore OpenWRT Devices.
+homepage: https://github.com/PlakarKorp/integrations/openwrt
+license: ISC
+api_version: v1.1.0
+connectors:
+  - type: importer
+    executable: ./openwrt-importer
+    protocols: [openwrt]
+    validator: ./plugin/importer/schema.json
+    class: network
+  - type: exporter
+    executable: ./openwrt-exporter
+    protocols: [openwrt]
+    validator: ./plugin/exporter/schema.json
+    class: network

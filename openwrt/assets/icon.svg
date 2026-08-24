@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OpenWRT integration icon.
+
+  Original artwork created for the Plakar OpenWRT integration and released
+  under the same ISC license as the rest of this repository. It is not the
+  official OpenWrt logo and carries no trademark.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="OpenWRT">
+  <title>OpenWRT</title>
+  <g fill="none" stroke="#00a3d1" stroke-width="26" stroke-linecap="round">
+    <!-- wireless waves -->
+    <path d="M199.6 275.5a60 60 0 0 1 112.8 0"/>
+    <path d="M152.6 258.4a110 110 0 0 1 206.8 0" opacity=".75"/>
+    <path d="M105.6 241.3a160 160 0 0 1 300.8 0" opacity=".5"/>
+    <!-- antennas -->
+    <path d="M120 306 60 196"/>
+    <path d="M392 306 452 196"/>
+  </g>
+  <!-- router body -->
+  <rect x="64" y="306" width="384" height="140" rx="30" fill="#0b4f6c"/>
+  <g fill="#8fe3f5">
+    <!-- status leds -->
+    <circle cx="118" cy="352" r="14"/>
+    <circle cx="170" cy="352" r="14"/>
+    <circle cx="222" cy="352" r="14" opacity=".55"/>
+    <!-- ethernet ports -->
+    <rect x="104" y="396" width="60" height="22" rx="8" opacity=".7"/>
+    <rect x="180" y="396" width="60" height="22" rx="8" opacity=".7"/>
+    <rect x="256" y="396" width="60" height="22" rx="8" opacity=".7"/>
+    <rect x="332" y="396" width="60" height="22" rx="8" opacity=".7"/>
+  </g>
+</svg>
