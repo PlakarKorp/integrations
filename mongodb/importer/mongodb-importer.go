@@ -40,7 +40,9 @@ const backupFilename = "mongodb-backup.bson"
 
 type mongodbImporter struct {
 	url     *url.URL
-	params  map[string]string
+	port	string
+	username string
+	password string
 	options *connectors.Options
 	use_tls	bool
 }
@@ -70,28 +72,26 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		use_tls = true
 	}
 
-	i := &mongodbImporter{
-		url:     parsed,
-		params:  params,
-		options: opts,
-		use_tls: use_tls,
-	}
-
-	return i, nil
-}
-
-func (i *mongodbImporter) getPort() string {
-	port := i.params["port"]
+	port := params["port"]
 
 	if len(port) == 0 {
-		port = i.url.Port()
+		port = parsed.Port()
 	}
 
 	if len(port) == 0 {
 		port = fmt.Sprintf("%d", defaultMongoDBPort)
 	}
 
-	return port
+	i := &mongodbImporter{
+		url:     parsed,
+		port:  port,
+		username: params["username"],
+		password: params["password"],
+		options: opts,
+		use_tls: use_tls,
+	}
+
+	return i, nil
 }
 
 func (i *mongodbImporter) Ping(ctx context.Context) error {
@@ -100,19 +100,17 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	args = append(args, "--host")
 	args = append(args, i.url.Hostname())
 	args = append(args, "--port")
-	args = append(args, i.getPort())
+	args = append(args, i.port)
 	if i.use_tls {
 		args = append(args, "--tls")
 	}
-	username := i.params["username"]
-	if len(username) > 0 {
+	if len(i.username) > 0 {
 		args = append(args, "--username")
-		args = append(args, username)
+		args = append(args, i.username)
 	}
-	password := i.params["password"]
-	if len(password) > 0 {
+	if len(i.password) > 0 {
 		args = append(args, "--password")
-		args = append(args, password)
+		args = append(args, i.password)
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
@@ -154,19 +152,17 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	args = append(args, "--host")
 	args = append(args, i.url.Hostname())
 	args = append(args, "--port")
-	args = append(args, i.getPort())
+	args = append(args, i.port)
 	if i.use_tls {
 		args = append(args, "--ssl")
 	}
-	username := i.params["username"]
-	if len(username) > 0 {
+	if len(i.username) > 0 {
 		args = append(args, "--username")
-		args = append(args, username)
+		args = append(args, i.username)
 	}
-	password := i.params["password"]
-	if len(password) > 0 {
+	if len(i.password) > 0 {
 		args = append(args, "--password")
-		args = append(args, password)
+		args = append(args, i.password)
 	}
 	args = append(args, "--archive")
 
