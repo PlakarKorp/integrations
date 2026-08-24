@@ -163,6 +163,8 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 		args = append(args, "--password")
 		args = append(args, password)
 	}
+	args = append(args, "--drop")
+	args = append(args, "--objcheck")
 	args = append(args, "--archive")
 
 	cmd := exec.Command("mongorestore", args...)
