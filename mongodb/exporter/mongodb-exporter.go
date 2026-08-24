@@ -279,7 +279,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 			if res.exit == false {
 				res.exit = r.exit
 			}
-			if res.err != nil {
+			if r.err != nil {
 				err = r.err
 			}
 		}
