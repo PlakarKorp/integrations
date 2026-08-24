@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -131,7 +130,7 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	// reap process
 	go func() { _ = cmd.Wait() }()
 
-	buf, err := ioutil.ReadAll(stdout)
+	buf, err := io.ReadAll(stdout)
 	if err != nil {
 		return err
 	}
