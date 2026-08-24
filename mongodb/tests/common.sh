@@ -54,6 +54,11 @@ test_init()
 
 	mkdir $testroot/cfg
 
+	run_mongosh "db.collection.drop()" > /dev/null
+
+	testdata=$(cat $TEST_DATA_FILE)
+	run_mongosh "db.collection.insertOne($testdata)" > /dev/null
+
 	echo "$testroot"
 }
 

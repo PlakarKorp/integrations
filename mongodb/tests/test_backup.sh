@@ -22,10 +22,12 @@ test_backup_basic() {
 	local testname="backup_basic"
 	local testroot=`test_init "$testname"`
 
-	testdata=$(cat $TEST_DATA_FILE)
-	run_mongosh "db.collection.insertOne($testdata)" > $testroot/stdout
+	run_mongosh "db.collection.updateOne( \
+		{ name: 'Nestor' }, \
+		{ \$set: { catchphrase: 'No Backups? Are you really nuts?' } } \
+		)" > $testroot/stdout
 
-	grep -v 'insertedId:' $testroot/stdout > $testroot/stdout.filtered
+	egrep -v '(insertedId|Count):' $testroot/stdout > $testroot/stdout.filtered
 
 	cat > $testroot/stdout.expected <<EOF
 {
