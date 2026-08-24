@@ -40,7 +40,9 @@ const debug = false
 
 type mongodbExporter struct {
 	url     *url.URL
-	params  map[string]string
+	port	string
+	username string
+	password string
 	options *connectors.Options
 	use_tls	bool
 	stdin	io.WriteCloser
@@ -70,28 +72,26 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		use_tls = true
 	}
 
-	e := &mongodbExporter{
-		url:     parsed,
-		params:  params,
-		options: opts,
-		use_tls: use_tls,
-	}
-
-	return e, nil
-}
-
-func (e *mongodbExporter) getPort() string {
-	port := e.params["port"]
+	port := params["port"]
 
 	if len(port) == 0 {
-		port = e.url.Port()
+		port = parsed.Port()
 	}
 
 	if len(port) == 0 {
 		port = fmt.Sprintf("%d", defaultMongoDBPort)
 	}
 
-	return port
+	e := &mongodbExporter{
+		url:     parsed,
+		port:    port,
+		username: params["username"],
+		password: params["password"],
+		options: opts,
+		use_tls: use_tls,
+	}
+
+	return e, nil
 }
 
 func (e *mongodbExporter) Ping(ctx context.Context) error {
@@ -100,19 +100,17 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 	args = append(args, "--host")
 	args = append(args, e.url.Hostname())
 	args = append(args, "--port")
-	args = append(args, e.getPort())
+	args = append(args, e.port)
 	if e.use_tls {
 		args = append(args, "--tls")
 	}
-	username := e.params["username"]
-	if len(username) > 0 {
+	if len(e.username) > 0 {
 		args = append(args, "--username")
-		args = append(args, username)
+		args = append(args, e.username)
 	}
-	password := e.params["password"]
-	if len(password) > 0 {
+	if len(e.password) > 0 {
 		args = append(args, "--password")
-		args = append(args, password)
+		args = append(args, e.password)
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
@@ -179,19 +177,17 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	args = append(args, "--host")
 	args = append(args, e.url.Hostname())
 	args = append(args, "--port")
-	args = append(args, e.getPort())
+	args = append(args, e.port)
 	if e.use_tls {
 		args = append(args, "--ssl")
 	}
-	username := e.params["username"]
-	if len(username) > 0 {
+	if len(e.username) > 0 {
 		args = append(args, "--username")
-		args = append(args, username)
+		args = append(args, e.username)
 	}
-	password := e.params["password"]
-	if len(password) > 0 {
+	if len(e.password) > 0 {
 		args = append(args, "--password")
-		args = append(args, password)
+		args = append(args, e.password)
 	}
 	args = append(args, "--drop")
 	args = append(args, "--objcheck")
