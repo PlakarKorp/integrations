@@ -94,7 +94,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	return e, nil
 }
 
-func (e *mongodbExporter) Ping(ctx context.Context) error {
+func (e *mongodbExporter) commonArgs() []string {
 	var args []string
 
 	args = append(args, "--host")
@@ -112,6 +112,12 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		args = append(args, "--password")
 		args = append(args, e.password)
 	}
+
+	return args;
+}
+
+func (e *mongodbExporter) Ping(ctx context.Context) error {
+	args := e.commonArgs()
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
 	cmd := exec.Command("mongosh", args...)
@@ -153,23 +159,8 @@ type commandResult struct {
 
 func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
-	var args []string
 
-	args = append(args, "--host")
-	args = append(args, e.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, e.port)
-	if e.use_tls {
-		args = append(args, "--ssl")
-	}
-	if len(e.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, e.username)
-	}
-	if len(e.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, e.password)
-	}
+	args := e.commonArgs()
 	args = append(args, "--drop")
 	args = append(args, "--objcheck")
 	args = append(args, "--archive")
