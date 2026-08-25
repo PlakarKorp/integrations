@@ -293,7 +293,8 @@ func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objec
 	for _, dirent := range dirents {
 		mac, err := hex.DecodeString(path.Base(dirent.Remote()))
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode MAC %s: %w", dirent.Remote(), err)
+			// rclone might create ".partial" files
+			continue
 		}
 
 		macs = append(macs, objects.MAC(mac))
