@@ -28,7 +28,7 @@ fclean: clean
 re: clean build
 
 install: package
-	${PLAKAR} pkg add ./openwrt_${VERSION}_*.ptar
+	${PLAKAR} pkg add -allow-unsigned ./openwrt_${VERSION}_*.ptar
 
 uninstall:
 	${PLAKAR} pkg rm openwrt
