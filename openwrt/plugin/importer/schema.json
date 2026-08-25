@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar OpenWRT Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "login"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OpenWRT device URI: openwrt://<ip-address-or-hostname>[:<port>]",
+      "pattern": "^openwrt://[^/?#\\s]+$"
+    },
+    "login": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Login used to perform the backup on the device"
+    },
+    "password": {
+      "type": "string",
+      "default": "",
+      "description": "Password of the login user; optional, a fresh install has none"
+    },
+    "use_ssl": {
+      "type": "boolean",
+      "default": true,
+      "description": "Use https to talk to the OpenWRT device"
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 30,
+      "description": "Time in seconds to wait for the device to respond"
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; OpenWRT ships a self-signed certificate)"
+    }
+  }
+}
