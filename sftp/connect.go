@@ -31,14 +31,10 @@ import (
 	"github.com/pkg/sftp"
 )
 
-func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
-	if endpoint == nil {
-		return "", fmt.Errorf("nil endpoint")
-	}
-
+func controlSock(endpoint *url.URL, params map[string]string) string {
 	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
 	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("plakar-ssh-%x.sock", sum[:8])), nil
+	return filepath.Join(os.TempDir(), fmt.Sprintf("plakar-ssh-%x.sock", sum[:8]))
 }
 
 // guard master creation per ControlPath
@@ -139,10 +135,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		return "", fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
 	}
 
-	sock, err := controlSock(endpoint, params)
-	if err != nil {
-		return "", err
-	}
+	sock := controlSock(endpoint, params)
 
 	// Serialize master startup per socket
 	mu := lockFor(sock)
