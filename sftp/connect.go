@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -65,15 +64,7 @@ func setupPrivateKey(params map[string]string) error {
 		cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
 	}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		defer stdin.Close()
-		io.WriteString(stdin, key+"\n")
-	}()
+	cmd.Stdin = strings.NewReader(key + "\n")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
