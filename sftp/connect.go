@@ -111,6 +111,28 @@ func checkMaster(endpoint *url.URL, params map[string]string, host, sock string)
 	return nil
 }
 
+func startMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
+	args := sshArgs(endpoint, params)
+	args = append(args,
+		"-N", "-f",
+		"-o", "ControlMaster=yes",
+		"-o", "ControlPersist=10m",
+		"-o", "ControlPath="+sock,
+		host,
+	)
+
+	cmd := exec.Command("ssh", args...)
+	if sshAuthSock := params["ssh_auth_sock"]; sshAuthSock != "" {
+		cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to start ssh master: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	host := endpoint.Hostname()
 	if host == "" {
@@ -136,25 +158,8 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		return "", fmt.Errorf("failed to set private key: %w", err)
 	}
 
-	// start master
-	{
-		args := append(sshArgs(endpoint, params),
-			"-M", "-N", "-f",
-			"-o", "ControlMaster=yes",
-			"-o", "ControlPersist=10m",
-			"-o", "ControlPath="+sock,
-			host,
-		)
-
-		cmd := exec.Command("ssh", args...)
-		if sshAuthSock := params["ssh_auth_sock"]; sshAuthSock != "" {
-			cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
-		}
-
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("failed to start ssh master: %w: %s", err, strings.TrimSpace(string(out)))
-		}
+	if err := startMaster(endpoint, params, host, sock); err != nil {
+		return "", err
 	}
 
 	if err := checkMaster(endpoint, params, host, sock); err != nil {
