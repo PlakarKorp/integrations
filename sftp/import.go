@@ -45,27 +45,6 @@ func (s *Sftp) Import(ctx context.Context, records chan<- *connectors.Record, re
 	return s.walkDir_walker(ctx, records, s.opts.MaxConcurrency)
 }
 
-func (s *Sftp) realpathFollow(target string) (resolved string, err error) {
-	info, err := s.client.Lstat(target)
-	if err != nil {
-		return
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		realpath, err := s.client.ReadLink(target)
-		if err != nil {
-			return "", err
-		}
-
-		if !path.IsAbs(realpath) {
-			realpath = path.Join(path.Dir(target), realpath)
-		}
-		target = realpath
-	}
-
-	return target, nil
-}
-
 // Worker pool to handle file scanning in parallel
 func (s *Sftp) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
