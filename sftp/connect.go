@@ -17,7 +17,7 @@
 package sftp
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"net/url"
@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/sftp"
 )
@@ -165,22 +166,14 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 func dial(args []string) (*sftp.Client, error) {
 	cmd := exec.Command("ssh", args...)
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
-	var sshErr error
-	go func() {
-		sc := bufio.NewScanner(stderr)
-		for sc.Scan() {
-			line := sc.Text()
-			if strings.HasPrefix(line, "Warning:") {
-				continue
-			}
-			sshErr = fmt.Errorf("ssh command error: %q", line)
-		}
-	}()
+	// misleading name: Wait() still waits for the process to
+	// exit, but then it puts a 2 seconds limit for grandchildren
+	// processes to close the pipes etc... that otherwise would
+	// block.  think of a proxycommand for example.
+	cmd.WaitDelay = 2 * time.Second
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -195,15 +188,21 @@ func dial(args []string) (*sftp.Client, error) {
 		return nil, err
 	}
 
-	// reap process
-	go func() { _ = cmd.Wait() }()
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
 
 	client, err := sftp.NewClientPipe(stdout, stdin)
 	if err != nil {
-		if sshErr != nil {
-			return nil, sshErr
+		// ssh should already be dead, but make sure it is
+		// anyway.
+		if cmd.Process != nil {
+			cmd.Process.Kill()
 		}
-		return nil, err
+		<-done
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("ssh failed: %w: %s", err, msg)
+		}
+		return nil, fmt.Errorf("ssh failed: %w", err)
 	}
 
 	return client, nil
