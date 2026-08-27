@@ -88,6 +88,9 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 
 	if opts != nil {
 		sftp.maxConcurrency = opts.MaxConcurrency
+		if sftp.maxConcurrency <= 0 {
+			return nil, fmt.Errorf("invalid MaxConcurrency: %d", opts.MaxConcurrency)
+		}
 
 		excludes := exclude.NewRuleSet()
 		if err := excludes.AddRulesFromArray(opts.Excludes); err != nil {
