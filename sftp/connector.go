@@ -71,6 +71,10 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		return nil, err
 	}
 
+	if parsed.User != nil && config["username"] != "" {
+		return nil, fmt.Errorf("cannot use user@host syntax and username parameter")
+	}
+
 	rootDir := parsed.Path
 	if root != "" {
 		rootDir = root
