@@ -109,6 +109,17 @@ func sshArgs(endpoint *url.URL, params map[string]string) []string {
 	return args
 }
 
+func checkMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
+	args := sshArgs(endpoint, params)
+	args = append(args, "-S", sock, "-O", "check", host)
+
+	out, err := exec.Command("ssh", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ssh master not up: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	host := endpoint.Hostname()
 	if host == "" {
@@ -125,12 +136,8 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// check existing master
-	{
-		args := append(sshArgs(endpoint, params), "-S", sock, "-O", "check", host)
-		if err := exec.Command("ssh", args...).Run(); err == nil {
-			return sock, nil
-		}
+	if err := checkMaster(endpoint, params, host, sock); err == nil {
+		return sock, nil
 	}
 
 	// add the private key to the agent if necessary
@@ -159,14 +166,8 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 		}
 	}
 
-	// verify
-	{
-		args := append(sshArgs(endpoint, params), "-S", sock, "-O", "check", host)
-
-		out, err := exec.Command("ssh", args...).CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("ssh master did not come up: %w: %s", err, strings.TrimSpace(string(out)))
-		}
+	if err := checkMaster(endpoint, params, host, sock); err != nil {
+		return "", err
 	}
 
 	return sock, nil
