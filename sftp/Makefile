@@ -19,7 +19,7 @@ uninstall:
 	-$(PLAKAR) pkg rm sftp
 
 install: package
-	$(PLAKAR) pkg add ./sftp_${VERSION}_*.ptar
+	$(PLAKAR) pkg add -allow-unsigned ./sftp_${VERSION}_*.ptar
 
 reinstall: uninstall install
 
