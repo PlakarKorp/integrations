@@ -40,7 +40,6 @@ type Sftp struct {
 	endpoint *url.URL
 
 	rootDir  string
-	realpath string
 	excludes *exclude.RuleSet
 
 	setOwner bool
@@ -108,13 +107,6 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	sftp.client, err = connect(sftp.endpoint, config)
 	if err != nil {
 		return nil, err
-	}
-
-	if kind == "importer" {
-		sftp.realpath, err = sftp.realpathFollow(rootDir)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return &sftp, nil
