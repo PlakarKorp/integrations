@@ -1,5 +1,3 @@
-//go:build !windows
-
 /*
  * Copyright (c) 2025 Gilles Chehade <gilles@poolp.org>
  *
@@ -27,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -84,6 +83,32 @@ func setupPrivateKey(params map[string]string) error {
 	return nil
 }
 
+func sshArgs(endpoint *url.URL, params map[string]string) []string {
+	// Non-interactive: fail fast instead of hanging on passphrase/host-key prompt
+	args := []string{"-o", "BatchMode=yes"}
+
+	if params["insecure_ignore_host_key"] == "true" {
+		args = append(args, "-o", "StrictHostKeyChecking=no")
+		// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
+	}
+
+	if id := params["identity"]; id != "" {
+		args = append(args, "-i", id)
+	}
+
+	if endpoint.User != nil {
+		args = append(args, "-l", endpoint.User.Username())
+	} else if params["username"] != "" {
+		args = append(args, "-l", params["username"])
+	}
+
+	if p := endpoint.Port(); p != "" {
+		args = append(args, "-p", p)
+	}
+
+	return args
+}
+
 func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	host := endpoint.Hostname()
 	if host == "" {
@@ -100,40 +125,9 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	commonArgs := func() []string {
-		var args []string
-
-		// Non-interactive: fail fast instead of hanging on passphrase/host-key prompt
-		args = append(args, "-o", "BatchMode=yes")
-
-		if params["insecure_ignore_host_key"] == "true" {
-			args = append(args, "-o", "StrictHostKeyChecking=no")
-			// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
-		}
-
-		if id := params["identity"]; id != "" {
-			args = append(args, "-i", id)
-		}
-
-		if endpoint.User != nil {
-			args = append(args, "-l", endpoint.User.Username())
-		} else if params["username"] != "" {
-			args = append(args, "-l", params["username"])
-		}
-
-		if p := endpoint.Port(); p != "" {
-			args = append(args, "-p", p)
-		}
-
-		return args
-	}
-
 	// check existing master
 	{
-		args := commonArgs()
-		checkArgs := append([]string{}, args...)
-		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
-
+		args := append(sshArgs(endpoint, params), "-S", sock, "-O", "check", host)
 		if err := exec.Command("ssh", args...).Run(); err == nil {
 			return sock, nil
 		}
@@ -146,9 +140,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 
 	// start master
 	{
-		args := commonArgs()
-		startArgs := append([]string{}, args...)
-		startArgs = append(startArgs,
+		args := append(sshArgs(endpoint, params),
 			"-M", "-N", "-f",
 			"-o", "ControlMaster=yes",
 			"-o", "ControlPersist=10m",
@@ -169,9 +161,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 
 	// verify
 	{
-		args := commonArgs()
-		checkArgs := append([]string{}, args...)
-		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
+		args := append(sshArgs(endpoint, params), "-S", sock, "-O", "check", host)
 
 		out, err := exec.Command("ssh", args...).CombinedOutput()
 		if err != nil {
@@ -182,49 +172,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	return sock, nil
 }
 
-func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
-	if endpoint == nil {
-		return nil, fmt.Errorf("nil endpoint")
-	}
-
-	host := endpoint.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
-	}
-
-	// ensure the master exists (idempotent) and get the control socket path.
-	sock, err := ensureMaster(endpoint, params)
-	if err != nil {
-		return nil, err
-	}
-
-	var args []string
-
-	args = append(args, "-o", "BatchMode=yes")
-
-	if params["insecure_ignore_host_key"] == "true" {
-		args = append(args, "-o", "StrictHostKeyChecking=no")
-	}
-
-	if id := params["identity"]; id != "" {
-		args = append(args, "-i", id)
-	}
-
-	if endpoint.User != nil {
-		args = append(args, "-l", endpoint.User.Username())
-	} else if params["username"] != "" {
-		args = append(args, "-l", params["username"])
-	}
-
-	if p := endpoint.Port(); p != "" {
-		args = append(args, "-p", p)
-	}
-
-	// reuse the master
-	args = append(args, "-S", sock)
-	args = append(args, host)
-	args = append(args, "-s", "sftp")
-
+func dial(args []string) (*sftp.Client, error) {
 	cmd := exec.Command("ssh", args...)
 
 	stderr, err := cmd.StderrPipe()
@@ -269,4 +217,52 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	return client, nil
+}
+
+func checkParamSupportForWindows(params map[string]string) error {
+	for _, key := range []string{"ssh_auth_sock", "ssh_private_key", "ssh_private_key_ttl"} {
+		if _, exists := params[key]; exists {
+			return fmt.Errorf("%q not supported on Windows", key)
+		}
+	}
+
+	return nil
+}
+
+func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
+	if endpoint == nil {
+		return nil, fmt.Errorf("nil endpoint")
+	}
+
+	host := endpoint.Hostname()
+	if host == "" {
+		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
+	}
+
+	args := sshArgs(endpoint, params)
+
+	// don't use the ControlMaster on windows
+	if runtime.GOOS == "windows" {
+		if err := checkParamSupportForWindows(params); err != nil {
+			return nil, err
+		}
+
+		args = append(args, host)
+		args = append(args, "-s", "sftp")
+
+		return dial(args)
+	}
+
+	// ensure the master exists (idempotent) and get the control socket path.
+	sock, err := ensureMaster(endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// reuse the master
+	args = append(args, "-S", sock)
+	args = append(args, host)
+	args = append(args, "-s", "sftp")
+
+	return dial(args)
 }
