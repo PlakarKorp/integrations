@@ -34,7 +34,7 @@ import (
 )
 
 type Sftp struct {
-	opts *connectors.Options
+	maxConcurrency int
 
 	client   *sftp.Client
 	endpoint *url.URL
@@ -54,7 +54,7 @@ type Sftp struct {
 
 func New(ctx context.Context, opts *connectors.Options, name string, config map[string]string, kind string) (*Sftp, error) {
 	sftp := Sftp{
-		opts: opts,
+		maxConcurrency: 1,
 	}
 
 	var port string
@@ -87,6 +87,8 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	sftp.endpoint = parsed
 
 	if opts != nil {
+		sftp.maxConcurrency = opts.MaxConcurrency
+
 		excludes := exclude.NewRuleSet()
 		if err := excludes.AddRulesFromArray(opts.Excludes); err != nil {
 			return nil, fmt.Errorf("failed to setup exclude rules: %w", err)
