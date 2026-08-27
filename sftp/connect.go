@@ -111,10 +111,9 @@ func checkMaster(endpoint *url.URL, params map[string]string, host, sock string)
 func startMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
 	args := sshArgs(endpoint, params)
 	args = append(args,
-		"-N", "-f",
+		"-N", "-f", "-S", sock,
 		"-o", "ControlMaster=yes",
 		"-o", "ControlPersist=10m",
-		"-o", "ControlPath="+sock,
 		host,
 	)
 
