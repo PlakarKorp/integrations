@@ -39,7 +39,7 @@
     "insecure_ignore_host_key": {
       "type": "boolean",
       "default": false,
-      "description": "Disable host key verification (ssh StrictHostKeyChecking=no) (dangerous; use only for testing) (not supported on Windows)"
+      "description": "Disable host key verification (ssh StrictHostKeyChecking=no) (dangerous; use only for testing)"
     },
     "ssh_auth_sock": {
       "type": "string",
