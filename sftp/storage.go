@@ -82,12 +82,12 @@ func (s *Sftp) Create(ctx context.Context, config []byte) error {
 			return fmt.Errorf("directory %s is not empty", s.rootDir)
 		}
 	}
-	s.packfiles = NewBuckets(s.client, s.path("packfiles"))
+	s.packfiles = newBuckets(s.client, s.path("packfiles"))
 	if err := s.packfiles.Create(); err != nil {
 		return err
 	}
 
-	s.states = NewBuckets(s.client, s.path("states"))
+	s.states = newBuckets(s.client, s.path("states"))
 	if err := s.states.Create(); err != nil {
 		return err
 	}
@@ -113,9 +113,9 @@ func (s *Sftp) Open(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 
-	s.packfiles = NewBuckets(s.client, s.path("packfiles"))
+	s.packfiles = newBuckets(s.client, s.path("packfiles"))
 
-	s.states = NewBuckets(s.client, s.path("states"))
+	s.states = newBuckets(s.client, s.path("states"))
 
 	return data, nil
 }

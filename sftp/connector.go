@@ -48,8 +48,8 @@ type Sftp struct {
 	hlCanon  sync.Map           // key -> canonical abs path string
 	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
 
-	packfiles Buckets
-	states    Buckets
+	packfiles buckets
+	states    buckets
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, config map[string]string, kind string) (*Sftp, error) {
