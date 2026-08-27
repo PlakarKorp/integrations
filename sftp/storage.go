@@ -25,26 +25,13 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
 )
 
 func (s *Sftp) path(args ...string) string {
-	root := s.rootDir
-	atoms := strings.Split(s.rootDir, "/")
-	if len(atoms) == 0 {
-		return "/"
-	} else {
-		root = "/" + strings.Join(atoms[1:], "/")
-	}
-
-	args = append(args, "")
-	copy(args[1:], args)
-	args[0] = root
-
-	return path.Join(args...)
+	return path.Join(s.rootDir, path.Join(args...))
 }
 
 func (s *Sftp) getLocks() (ret []objects.MAC, err error) {
