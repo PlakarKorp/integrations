@@ -36,8 +36,8 @@ type file struct {
 }
 
 var (
-	SkipDir = errors.New("skip this directory")
-	SkipAll = errors.New("skip everything and stop the walk")
+	skipDir = errors.New("skip this directory")
+	skipAll = errors.New("skip everything and stop the walk")
 )
 
 func (s *Sftp) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
@@ -98,7 +98,7 @@ func (s *Sftp) walkDir_walker(ctx context.Context, records chan<- *connectors.Re
 		go s.walkDir_worker(jobs, records, &wg)
 	}
 
-	err := SFTPWalk(s.client, s.rootDir, func(path string, info os.FileInfo, err error) error {
+	err := walk(s.client, s.rootDir, func(path string, info os.FileInfo, err error) error {
 		if ctx.Err() != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func (s *Sftp) walkDir_walker(ctx context.Context, records chan<- *connectors.Re
 
 		if path != "/" {
 			if s.excludes.IsExcluded(path, info.IsDir()) {
-				return SkipDir
+				return skipDir
 			}
 		}
 
@@ -140,7 +140,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, 
 	for _, entry := range entries {
 		newPath := path.Join(p, entry.Name())
 		if err := walkdir(client, entry, entry.Mode(), newPath, walkFn); err != nil {
-			if err == SkipDir {
+			if err == skipDir {
 				continue
 			}
 			return err
@@ -149,7 +149,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, 
 	return nil
 }
 
-func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
+func walk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
 	var mode os.FileMode
 
 	info, err := client.Lstat(remotePath)
@@ -181,7 +181,7 @@ func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, i
 
 	err = walkdir(client, info, mode, remotePath, walkFn)
 done:
-	if err == SkipDir || err == SkipAll {
+	if err == skipDir || err == skipAll {
 		err = nil
 	}
 	return err
