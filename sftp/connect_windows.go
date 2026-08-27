@@ -62,10 +62,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		args = append(args, "-i", id)
 	}
 
-	// username resolution: forbid both user@host AND username param
-	if endpoint.User != nil && params["username"] != "" {
-		return nil, fmt.Errorf("can not use user@host foo syntax and username parameter")
-	} else if endpoint.User != nil {
+	if endpoint.User != nil {
 		args = append(args, "-l", endpoint.User.Username())
 	} else if params["username"] != "" {
 		args = append(args, "-l", params["username"])

@@ -100,7 +100,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	commonArgs := func() ([]string, error) {
+	commonArgs := func() []string {
 		var args []string
 
 		// Non-interactive: fail fast instead of hanging on passphrase/host-key prompt
@@ -115,10 +115,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			args = append(args, "-i", id)
 		}
 
-		// Username resolution: forbid user@host + username param
-		if endpoint.User != nil && params["username"] != "" {
-			return nil, fmt.Errorf("can not use user@host syntax and username parameter")
-		} else if endpoint.User != nil {
+		if endpoint.User != nil {
 			args = append(args, "-l", endpoint.User.Username())
 		} else if params["username"] != "" {
 			args = append(args, "-l", params["username"])
@@ -128,19 +125,16 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			args = append(args, "-p", p)
 		}
 
-		return args, nil
+		return args
 	}
 
 	// check existing master
 	{
-		args, err := commonArgs()
-		if err != nil {
-			return "", err
-		}
+		args := commonArgs()
 		checkArgs := append([]string{}, args...)
 		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
 
-		if err := exec.Command("ssh", checkArgs...).Run(); err == nil {
+		if err := exec.Command("ssh", args...).Run(); err == nil {
 			return sock, nil
 		}
 	}
@@ -152,10 +146,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 
 	// start master
 	{
-		args, err := commonArgs()
-		if err != nil {
-			return "", err
-		}
+		args := commonArgs()
 		startArgs := append([]string{}, args...)
 		startArgs = append(startArgs,
 			"-M", "-N", "-f",
@@ -165,7 +156,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			host,
 		)
 
-		cmd := exec.Command("ssh", startArgs...)
+		cmd := exec.Command("ssh", args...)
 		if sshAuthSock := params["ssh_auth_sock"]; sshAuthSock != "" {
 			cmd.Env = append(cmd.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
 		}
@@ -178,14 +169,11 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 
 	// verify
 	{
-		args, err := commonArgs()
-		if err != nil {
-			return "", err
-		}
+		args := commonArgs()
 		checkArgs := append([]string{}, args...)
 		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
 
-		out, err := exec.Command("ssh", checkArgs...).CombinedOutput()
+		out, err := exec.Command("ssh", args...).CombinedOutput()
 		if err != nil {
 			return "", fmt.Errorf("ssh master did not come up: %w: %s", err, strings.TrimSpace(string(out)))
 		}
@@ -222,10 +210,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		args = append(args, "-i", id)
 	}
 
-	// username resolution: forbid both user@host AND username param
-	if endpoint.User != nil && params["username"] != "" {
-		return nil, fmt.Errorf("can not use user@host foo syntax and username parameter")
-	} else if endpoint.User != nil {
+	if endpoint.User != nil {
 		args = append(args, "-l", endpoint.User.Username())
 	} else if params["username"] != "" {
 		args = append(args, "-l", params["username"])
