@@ -42,7 +42,7 @@ var (
 
 func (s *Sftp) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
-	return s.walkDir_walker(ctx, records, s.opts.MaxConcurrency)
+	return s.walkDir_walker(ctx, records, s.maxConcurrency)
 }
 
 // Worker pool to handle file scanning in parallel

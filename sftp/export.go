@@ -37,7 +37,7 @@ type dirPerm struct {
 func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(s.opts.MaxConcurrency)
+	g.SetLimit(s.maxConcurrency)
 
 	dirPerms := make([]dirPerm, 0, 1024)
 
