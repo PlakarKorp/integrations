@@ -19,8 +19,6 @@ package sftp
 import (
 	"context"
 	"fmt"
-	"io"
-	"math/rand/v2"
 	"os"
 	"path"
 
@@ -193,34 +191,10 @@ func (s *Sftp) file(record *connectors.Record, pathname string) error {
 }
 
 func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
-	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
-
-	tmp, err := s.client.Create(tmpName)
+	_, err := writeFileAtomic(s.client, pathname, record.Reader)
 	if err != nil {
-		return fmt.Errorf("could not create temporary file")
+		return err
 	}
-
-	ok := false
-	defer func() {
-		if !ok {
-			s.client.Remove(tmpName)
-		}
-	}()
-
-	if _, err := io.Copy(tmp, record.Reader); err != nil {
-		tmp.Close()
-		return fmt.Errorf("could not write")
-	}
-
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("could not close")
-	}
-
-	if err := s.client.Rename(tmpName, pathname); err != nil {
-		return fmt.Errorf("could not create")
-	}
-
-	ok = true
 
 	fileinfo := record.FileInfo
 	mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)

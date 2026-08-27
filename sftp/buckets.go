@@ -127,5 +127,5 @@ func (buckets *Buckets) Remove(mac objects.MAC) error {
 }
 
 func (buckets *Buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
-	return WriteToFileAtomicTempDir(buckets.client, buckets.Path(mac), rd, buckets.path)
+	return writeFileAtomic(buckets.client, buckets.Path(mac), rd)
 }

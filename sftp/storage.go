@@ -97,7 +97,7 @@ func (s *Sftp) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 
-	_, err = WriteToFileAtomic(s.client, s.path("CONFIG"), bytes.NewReader(config))
+	_, err = writeFileAtomic(s.client, s.path("CONFIG"), bytes.NewReader(config))
 	return err
 }
 
@@ -167,7 +167,7 @@ func (s *Sftp) Put(ctx context.Context, res storage.StorageResource, mac objects
 	case storage.StorageResourceState:
 		return s.states.Put(mac, rd)
 	case storage.StorageResourceLock:
-		return WriteToFileAtomicTempDir(s.client, path.Join(s.path("locks"), hex.EncodeToString(mac[:])), rd, s.path(""))
+		return writeFileAtomic(s.client, path.Join(s.path("locks"), hex.EncodeToString(mac[:])), rd)
 	default:
 		return -1, errors.ErrUnsupported
 	}
