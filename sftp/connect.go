@@ -129,12 +129,7 @@ func startMaster(endpoint *url.URL, params map[string]string, host, sock string)
 	return nil
 }
 
-func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
-	host := endpoint.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
-	}
-
+func ensureMaster(endpoint *url.URL, params map[string]string, host string) (string, error) {
 	sock := controlSock(endpoint, params)
 
 	// Serialize master startup per socket
@@ -242,7 +237,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	// ensure the master exists (idempotent) and get the control socket path.
-	sock, err := ensureMaster(endpoint, params)
+	sock, err := ensureMaster(endpoint, params, host)
 	if err != nil {
 		return nil, err
 	}
