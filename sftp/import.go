@@ -50,11 +50,6 @@ func (s *Sftp) walkDir_worker(jobs <-chan file, records chan<- *connectors.Recor
 	defer wg.Done()
 
 	for p := range jobs {
-		// fixup the rootdir if it happened to be a file
-		if !p.info.IsDir() && p.path == s.Root() {
-			s.rootDir = path.Dir(s.Root())
-		}
-
 		var uid, gid uint64
 
 		if sb, ok := p.info.Sys().(*sftp.FileStat); ok {
