@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"runtime"
 	"strings"
@@ -40,6 +41,13 @@ var fatalWaiting = map[string]bool{
 	"InvalidImageName":           true,
 	"CreateContainerConfigError": true,
 	"CreateContainerError":       true,
+}
+
+// detached detach the given ctx so it's not immediately expired.
+// intended for cleanups where we want to at least attempt to delete
+// resources and not fail immediately.
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
 
 func snapshotReady(evt watch.Event) (bool, error) {
@@ -151,9 +159,16 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 	return ready, nil
 }
 
-func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) error {
-	return k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
+func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
+
+	err := k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
 		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete volumesnapshot %s/%s: %s",
+			snap.Namespace, snap.Name, err)
+	}
 }
 
 func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapshot, orig *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error) {
@@ -188,9 +203,16 @@ func (k *k8s) getpvc(ctx context.Context, ns, name string) (*corev1.PersistentVo
 		Get(ctx, name, metav1.GetOptions{})
 }
 
-func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) error {
-	return k.clientset.CoreV1().PersistentVolumeClaims(pvc.ObjectMeta.Namespace).
+func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
+
+	err := k.clientset.CoreV1().PersistentVolumeClaims(pvc.ObjectMeta.Namespace).
 		Delete(ctx, pvc.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete pvc %s/%s: %s",
+			pvc.Namespace, pvc.Name, err)
+	}
 }
 
 func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*tls.Certificate, *corev1.Pod, error) {
@@ -223,6 +245,10 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 				Name:  kubeletContainer,
 				Image: k.kubeletImage,
 				Args:  args,
+
+				// use the tail of stderr in the container status
+				TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+
 				Ports: []corev1.ContainerPort{{
 					Name:          "grpc",
 					Protocol:      "TCP",
@@ -272,8 +298,16 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 	return &cert, ready, nil
 }
 
-func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) error {
-	return k.clientset.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
+
+	err := k.clientset.CoreV1().Pods(pod.Namespace).
+		Delete(ctx, pod.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete pod %s/%s: %s",
+			pod.Namespace, pod.Name, err)
+	}
 }
 
 func (k *k8s) serviceFor(ctx context.Context, pod *corev1.Pod) (*corev1.Service, error) {
@@ -304,8 +338,16 @@ func (k *k8s) serviceFor(ctx context.Context, pod *corev1.Pod) (*corev1.Service,
 	return svc, nil
 }
 
-func (k *k8s) delservice(ctx context.Context, svc *corev1.Service) error {
-	return k.clientset.CoreV1().Services(svc.Namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
+func (k *k8s) delservice(ctx context.Context, svc *corev1.Service) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
+
+	err := k.clientset.CoreV1().Services(svc.Namespace).
+		Delete(ctx, svc.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete service %s/%s: %s",
+			svc.Namespace, svc.Name, err)
+	}
 }
 
 func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connectors.Record, chan<- *connectors.Result)) error {
