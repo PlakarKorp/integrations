@@ -59,7 +59,7 @@ func main() {
 	listener, err := tls.Listen("tcp", fmt.Sprintf(":%d", port),
 		mtls.ServerTlsConfig(cert, clientfp))
 	if err != nil {
-		fatal("failed to listen on port %s: %s", port, err)
+		fatal("failed to listen on port %d: %s", port, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "listening on :%d\n", port)
