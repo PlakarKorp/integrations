@@ -32,6 +32,16 @@ import (
 	"k8s.io/client-go/transport/spdy"
 )
 
+const kubeletContainer = "kubelet"
+
+var fatalWaiting = map[string]bool{
+	"CrashLoopBackOff":           true,
+	"ImagePullBackOff":           true,
+	"InvalidImageName":           true,
+	"CreateContainerConfigError": true,
+	"CreateContainerError":       true,
+}
+
 func snapshotReady(evt watch.Event) (bool, error) {
 	if evt.Type == watch.Error {
 		return false, apierrors.FromObject(evt.Object)
@@ -59,7 +69,38 @@ func podReady(evt watch.Event) (bool, error) {
 		return false, nil
 	}
 
-	return len(p.Status.ContainerStatuses) > 0 && p.Status.ContainerStatuses[0].Ready, nil
+	if evt.Type == watch.Deleted {
+		return false, fmt.Errorf("pod %s/%s was deleted while starting",
+			p.Namespace, p.Name)
+	}
+
+	if p.Status.Phase == corev1.PodFailed {
+		return false, fmt.Errorf("pod %s/%s failed: %s %s", p.Namespace, p.Name,
+			p.Status.Reason, p.Status.Message)
+	}
+
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Name != kubeletContainer {
+			continue
+		}
+
+		if t := cs.State.Terminated; t != nil && t.ExitCode != 0 {
+			msg := strings.TrimSpace(t.Message)
+			if msg == "" {
+				msg = t.Reason
+			}
+			return false, fmt.Errorf("container %s exited with status %d: %s",
+				cs.Name, t.ExitCode, msg)
+		}
+
+		if w := cs.State.Waiting; w != nil && fatalWaiting[w.Reason] {
+			return false, fmt.Errorf("container %s is not starting: %s: %s",
+				cs.Name, w.Reason, w.Message)
+		}
+
+		return cs.Ready, nil
+	}
+	return false, nil
 }
 
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
@@ -179,7 +220,7 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 				},
 			}},
 			Containers: []corev1.Container{{
-				Name:  "kubelet",
+				Name:  kubeletContainer,
 				Image: k.kubeletImage,
 				Args:  args,
 				Ports: []corev1.ContainerPort{{
