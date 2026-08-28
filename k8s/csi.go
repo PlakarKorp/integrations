@@ -22,12 +22,45 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/portforward"
+	watchtools "k8s.io/client-go/tools/watch"
 	"k8s.io/client-go/transport/spdy"
 )
+
+func snapshotReady(evt watch.Event) (bool, error) {
+	if evt.Type == watch.Error {
+		return false, apierrors.FromObject(evt.Object)
+	}
+
+	s, ok := evt.Object.(*vs.VolumeSnapshot)
+	if !ok {
+		return false, nil
+	}
+
+	if s.Status != nil && s.Status.Error != nil && s.Status.Error.Message != nil {
+		return false, fmt.Errorf("%s", *s.Status.Error.Message)
+	}
+
+	return s.Status != nil && s.Status.ReadyToUse != nil && *s.Status.ReadyToUse, nil
+}
+
+func podReady(evt watch.Event) (bool, error) {
+	if evt.Type == watch.Error {
+		return false, apierrors.FromObject(evt.Object)
+	}
+
+	p, ok := evt.Object.(*corev1.Pod)
+	if !ok {
+		return false, nil
+	}
+
+	return len(p.Status.ContainerStatuses) > 0 && p.Status.ContainerStatuses[0].Ready, nil
+}
 
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
 	snap := &vs.VolumeSnapshot{
@@ -52,53 +85,29 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		return nil, err
 	}
 
-	w, err := k.snapClient.SnapshotV1().VolumeSnapshots(ns).Watch(ctx, metav1.ListOptions{})
+	lw := &cache.ListWatch{
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = "metadata.name=" + snap.Name
+			return k.snapClient.SnapshotV1().VolumeSnapshots(snap.Namespace).Watch(ctx, opts)
+		},
+	}
+
+	evt, err := watchtools.Until(ctx, snap.ResourceVersion, lw, snapshotReady)
 	if err != nil {
 		k.delsnap(ctx, snap)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		return nil, err
 	}
 
-	defer w.Stop()
-	for {
-		var evt watch.Event
-		var ok bool
-		select {
-		case evt, ok = <-w.ResultChan():
-			if !ok {
-				return snap, nil
-			}
-		case <-ctx.Done():
-			k.delsnap(ctx, snap)
-			return nil, ctx.Err()
-		}
-
-		if evt.Type == watch.Error {
-			k.delsnap(ctx, snap)
-			return nil, fmt.Errorf("watch failed")
-		}
-
-		if evt.Type != watch.Modified && evt.Type != watch.Added {
-			continue
-		}
-
-		s, ok := evt.Object.(*vs.VolumeSnapshot)
-		if !ok {
-			continue
-		}
-
-		if s.Name != snap.Name {
-			continue
-		}
-
-		if s.Status != nil && s.Status.Error != nil && s.Status.Error.Message != nil {
-			k.delsnap(ctx, s)
-			return nil, fmt.Errorf("%s", *s.Status.Error.Message)
-		}
-
-		if s.Status != nil && s.Status.ReadyToUse != nil && *s.Status.ReadyToUse {
-			return s, nil
-		}
+	ready, ok := evt.Object.(*vs.VolumeSnapshot)
+	if !ok {
+		k.delsnap(ctx, snap)
+		return nil, fmt.Errorf("unexpected object %T from the snapshot watch", evt.Object)
 	}
+
+	return ready, nil
 }
 
 func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) error {
@@ -197,47 +206,29 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 		return nil, nil, err
 	}
 
-	w, err := k.clientset.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{})
+	lw := &cache.ListWatch{
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = "metadata.name=" + pod.Name
+			return k.clientset.CoreV1().Pods(pod.Namespace).Watch(ctx, opts)
+		},
+	}
+
+	evt, err := watchtools.Until(ctx, pod.ResourceVersion, lw, podReady)
 	if err != nil {
 		k.delpod(ctx, pod)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, nil, cerr
+		}
 		return nil, nil, err
 	}
 
-	defer w.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			k.delpod(ctx, pod)
-			return nil, nil, ctx.Err()
-
-		case evt, ok := <-w.ResultChan():
-			if !ok {
-				return &cert, pod, nil
-			}
-
-			if evt.Type == watch.Error {
-				k.delpod(ctx, pod)
-				return nil, nil, fmt.Errorf("watch failed")
-			}
-
-			if evt.Type != watch.Modified && evt.Type != watch.Added {
-				continue
-			}
-
-			p, ok := evt.Object.(*corev1.Pod)
-			if !ok {
-				continue
-			}
-
-			if p.Name != pod.Name {
-				continue
-			}
-
-			if len(p.Status.ContainerStatuses) > 0 && p.Status.ContainerStatuses[0].Ready {
-				return &cert, p, nil
-			}
-		}
+	ready, ok := evt.Object.(*corev1.Pod)
+	if !ok {
+		k.delpod(ctx, pod)
+		return nil, nil, fmt.Errorf("unexpected object %T from the pod watch", evt.Object)
 	}
+
+	return &cert, ready, nil
 }
 
 func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) error {
