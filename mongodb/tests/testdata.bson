@@ -1,0 +1,7 @@
+{
+	name: 'Nestor',
+	class: 'Mascot',
+	species: 'Squirrel',
+	likes: 'Nuts',
+	catchphrase: 'No backups? Are you nuts?'
+}

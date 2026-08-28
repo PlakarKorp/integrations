@@ -1,0 +1,17 @@
+name: mongodb
+description: Plakar integration for MongoDB
+display_name: MongoDB
+api_version: v1.1.0
+homepage: https://github.com/PlakarKorp/integrations-private
+license: ISC
+connectors:
+  - type: importer
+    executable: ./mongodb-importer
+    protocols: [mongodb]
+    validator: ./importer/schema.json
+    class: database
+  - type: exporter
+    executable: ./mongodb-exporter
+    validator: ./exporter/schema.json
+    protocols: [mongodb]
+    class: database
