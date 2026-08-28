@@ -153,6 +153,10 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			},
 		},
 		Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: new(false),
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: new(true),
+			},
 			Volumes: []corev1.Volume{{
 				Name: "snap",
 				VolumeSource: corev1.VolumeSource{

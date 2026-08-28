@@ -10,5 +10,7 @@ run cd kubelet && go build -v ./
 
 from alpine
 copy --from=builder /go/src/kubelet/kubelet /bin/kubelet
+run adduser -D nestor
+user nestor
 entrypoint ["/bin/kubelet"]
 cmd ["-p", "8080"]
