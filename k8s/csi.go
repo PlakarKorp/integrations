@@ -182,6 +182,12 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					Name:      "snap",
 					MountPath: "/data",
 				}},
+				ReadinessProbe: &corev1.Probe{
+					PeriodSeconds: 1,
+					ProbeHandler: corev1.ProbeHandler{
+						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
+					},
+				},
 			}},
 		},
 	}
