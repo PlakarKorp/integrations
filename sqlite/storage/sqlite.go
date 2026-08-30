@@ -70,21 +70,19 @@ func (s *Store) connect(addr string) error {
 	if err != nil {
 		return err
 	}
-	s.conn = conn
 
 	if s.backend == "sqlite" {
-		if _, err := s.conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 			conn.Close()
-			s.conn = nil
 			return fmt.Errorf("setting journal_mode=WAL: %w", err)
 		}
-		if _, err := s.conn.Exec("PRAGMA busy_timeout=2000;"); err != nil {
+		if _, err := conn.Exec("PRAGMA busy_timeout=2000;"); err != nil {
 			conn.Close()
-			s.conn = nil
 			return fmt.Errorf("setting busy_timeout: %w", err)
 		}
 	}
 
+	s.conn = conn
 	return nil
 }
 
