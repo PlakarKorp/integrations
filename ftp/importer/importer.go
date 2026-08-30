@@ -25,8 +25,7 @@ func init() {
 type Importer struct {
 	host     string
 	rootDir  string
-	username string
-	password string
+	connOpts common.Options
 	port     string
 
 	client *goftp.Client
@@ -39,14 +38,11 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		return nil, err
 	}
 
-	var username string
-	if tmp, ok := config["username"]; ok {
-		username = tmp
+	connOpts, err := common.ParseOptions(config)
+	if err != nil {
+		return nil, err
 	}
-	var password string
-	if tmp, ok := config["password"]; ok {
-		password = tmp
-	}
+
 	var port string
 	if tmp, ok := config["port"]; ok {
 		port = tmp
@@ -58,10 +54,10 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
-			username = parsed.User.Username()
+			connOpts.Username = parsed.User.Username()
 		}
 		if p, ok := parsed.User.Password(); ok {
-			password = p
+			connOpts.Password = p
 		}
 	}
 
@@ -81,8 +77,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return &Importer{
 		host:     host,
 		rootDir:  rootDir,
-		username: username,
-		password: password,
+		connOpts: connOpts,
 		port:     port,
 	}, nil
 }
@@ -160,7 +155,7 @@ func (rc readerCloser) Close() error {
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
-	client, err := common.ConnectToFTP(p.host, p.username, p.password)
+	client, err := common.ConnectToFTP(p.host, p.connOpts)
 	if err != nil {
 		return err
 	}
