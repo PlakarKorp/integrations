@@ -19,7 +19,7 @@ uninstall:
 	-${PLAKAR} pkg rm k8s
 
 install: package
-	${PLAKAR} pkg add ./k8s_${VERSION}_*.ptar
+	${PLAKAR} pkg add --allow-unsigned ./k8s_${VERSION}_*.ptar
 
 reinstall: uninstall install
 
