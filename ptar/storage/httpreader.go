@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,25 +26,42 @@ type HTTPReader struct {
 	size   int64
 }
 
-func NewHTTPReader(url string) (*HTTPReader, error) {
-	var resp *http.Response
-	var err error
+// defaultTimeout bounds a whole request.  http.Head and a zero-value
+// http.Client have no timeout at all, so an unresponsive server hung the
+// caller with nothing to cancel.
+const defaultTimeout = 5 * time.Minute
 
-	resp, err = http.Head(url)
+func NewHTTPReader(url string) (*HTTPReader, error) {
+	client := &http.Client{Timeout: defaultTimeout}
+
+	resp, err := client.Head(url)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("could not open ptar: %s", resp.Status)
 	}
 
 	contentLength, err := strconv.Atoi(resp.Header.Get("Content-Length"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not determine ptar size: %w", err)
+	}
+	if contentLength < 0 {
+		return nil, fmt.Errorf("negative Content-Length %d", contentLength)
+	}
+
+	// Range requests are what every read below depends on.  A server that
+	// ignores them answers 200 with the whole body, which would then be
+	// treated as though it were the requested window.
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Accept-Ranges")), "bytes") {
+		return nil, fmt.Errorf("server does not advertise byte ranges for %s; "+
+			"a ptar over HTTP needs Range support", url)
 	}
 
 	hr := HTTPReader{
-		client: &http.Client{},
+		client: client,
 		url:    url,
 		offset: 0,
 		size:   int64(contentLength),
@@ -51,24 +69,60 @@ func NewHTTPReader(url string) (*HTTPReader, error) {
 	return &hr, nil
 }
 
-func (hr *HTTPReader) Read(buf []byte) (int, error) {
+// rangeRequest issues a GET for [off, end] and returns the body, having
+// checked that the server actually honoured the range.
+func (hr *HTTPReader) rangeRequest(off, end int64) (*http.Response, error) {
 	req, err := http.NewRequest("GET", hr.url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", off, end))
+
+	resp, err := hr.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// 206 is the only answer that means "here is the window you asked for".
+	// A 200 is the whole file, and reading the head of it as though it were
+	// the range silently returns the wrong bytes.
+	if resp.StatusCode != http.StatusPartialContent {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil, fmt.Errorf("server ignored the Range header and returned the whole body")
+		}
+		return nil, fmt.Errorf("HTTP status %s", resp.Status)
+	}
+
+	return resp, nil
+}
+
+func (hr *HTTPReader) Read(buf []byte) (int, error) {
+	if len(buf) == 0 {
+		return 0, nil
+	}
+	if hr.offset >= hr.size {
+		return 0, io.EOF
+	}
+
+	end := hr.offset + int64(len(buf)) - 1
+	if end >= hr.size {
+		end = hr.size - 1
+	}
+
+	resp, err := hr.rangeRequest(hr.offset, end)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", hr.offset, hr.offset+int64(len(buf))))
-	resp, err := hr.client.Do(req)
-	if err != nil {
-		return -1, err
-	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("NOT OK")
-	}
-
-	n, err := resp.Body.Read(buf)
+	// A single Body.Read returned whatever the first packet happened to
+	// carry and reported it as the whole read.  Fill the window.
+	n, err := io.ReadFull(resp.Body, buf[:end-hr.offset+1])
 	hr.offset += int64(n)
+	if err == io.ErrUnexpectedEOF {
+		err = nil
+	}
 	return n, err
 }
 
@@ -103,21 +157,11 @@ func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
 		end = hr.size - 1
 	}
 
-	req, err := http.NewRequest("GET", hr.url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", off, end))
-
-	resp, err := hr.client.Do(req)
+	resp, err := hr.rangeRequest(off, end)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("HTTP status %d", resp.StatusCode)
-	}
 
 	n, err := io.ReadFull(resp.Body, buf[:end-off+1])
 	if err != nil && err != io.ErrUnexpectedEOF {
