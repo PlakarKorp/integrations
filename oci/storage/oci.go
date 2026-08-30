@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -31,7 +32,39 @@ type ociStore struct {
 
 func New(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
 	loc := strings.TrimPrefix(config["location"], "oci://")
-	u, err := url.Parse("http://" + loc)
+
+	insecure := false
+	if v, ok := config["insecure"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid insecure value %q", v)
+		}
+		insecure = b
+	}
+
+	noVerify := false
+	if v, ok := config["tls_insecure_no_verify"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tls_insecure_no_verify value %q", v)
+		}
+		noVerify = b
+	}
+
+	// The scheme used to be hardcoded to http and certificate verification
+	// disabled unconditionally, so every registry request -- credentials
+	// included -- went out in cleartext with no way to change it.  TLS is now
+	// the default and cleartext has to be asked for, the same way the webdav
+	// connector gates dav://.
+	scheme := "https"
+	if insecure {
+		scheme = "http"
+	}
+	if noVerify && insecure {
+		return nil, fmt.Errorf("tls_insecure_no_verify is meaningless with insecure=true (no TLS to verify)")
+	}
+
+	u, err := url.Parse(scheme + "://" + loc)
 	if err != nil {
 		return nil, err
 	}
@@ -44,9 +77,14 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 	u.Path = ""
 	base := strings.TrimRight(u.String(), "/")
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if !insecure {
+		tr.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: noVerify, //nolint:gosec // opt-in, see above
+		}
 	}
+
 	return &ociStore{
 		base: base,
 		repo: repo,
