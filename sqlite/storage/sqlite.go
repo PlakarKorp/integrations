@@ -35,10 +35,6 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-func init() {
-	storage.Register("sqlite", 0, NewStore)
-}
-
 type Store struct {
 	backend string
 
@@ -77,15 +73,16 @@ func (s *Store) connect(addr string) error {
 	s.conn = conn
 
 	if s.backend == "sqlite" {
-		_, err = s.conn.Exec("PRAGMA journal_mode=WAL;")
-		if err != nil {
-			return nil
+		if _, err := s.conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+			conn.Close()
+			s.conn = nil
+			return fmt.Errorf("setting journal_mode=WAL: %w", err)
 		}
-		_, err = s.conn.Exec("PRAGMA busy_timeout=2000;")
-		if err != nil {
-			return nil
+		if _, err := s.conn.Exec("PRAGMA busy_timeout=2000;"); err != nil {
+			conn.Close()
+			s.conn = nil
+			return fmt.Errorf("setting busy_timeout: %w", err)
 		}
-
 	}
 
 	return nil
