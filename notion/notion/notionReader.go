@@ -34,7 +34,7 @@ func fetchFromURL(url, token string) (map[string]any, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Notion-Version", NotionVersionHeader)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}

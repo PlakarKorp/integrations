@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integrations/notion
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1
