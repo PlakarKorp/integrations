@@ -31,9 +31,10 @@ const (
 var ErrAlreadyDone = errors.New("restore already done")
 
 type Routeros struct {
-	addr       string
-	user       string
-	authMethod ssh.AuthMethod
+	addr        string
+	user        string
+	authMethod  ssh.AuthMethod
+	hostKeyCall ssh.HostKeyCallback
 
 	mode Mode // for backup
 
@@ -90,7 +91,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 
 		var signer ssh.Signer
 		if pass != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(p))
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(pass))
 		} else {
 			signer, err = ssh.ParsePrivateKey(c)
 		}
@@ -127,17 +128,23 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		}
 	}
 
+	hostKeyCall, err := hostKeyCallback(config)
+	if err != nil {
+		return nil, err
+	}
+
 	host := loc.Host
 	if loc.Port() == "" {
 		host += ":22"
 	}
 
 	return &Routeros{
-		addr:       host,
-		user:       user,
-		authMethod: authm,
-		mode:       mode,
-		dryRun:     dryrun,
+		addr:        host,
+		user:        user,
+		authMethod:  authm,
+		hostKeyCall: hostKeyCall,
+		mode:        mode,
+		dryRun:      dryrun,
 	}, nil
 }
 
@@ -157,7 +164,7 @@ func (m *Routeros) connect() error {
 	client, err := ssh.Dial("tcp", m.addr, &ssh.ClientConfig{
 		User:            m.user,
 		Auth:            []ssh.AuthMethod{m.authMethod},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // XXX
+		HostKeyCallback: m.hostKeyCall,
 		Timeout:         10 * time.Second,
 		AuthCallback:    nil,
 	})
