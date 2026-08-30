@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -33,7 +34,10 @@ import (
 	"k8s.io/client-go/transport/spdy"
 )
 
-const kubeletContainer = "kubelet"
+const (
+	kubeletContainer = "kubelet"
+	pubkeyPrefix     = "plakar-pubkey: "
+)
 
 var fatalWaiting = map[string]bool{
 	"CrashLoopBackOff":           true,
@@ -109,6 +113,40 @@ func podReady(evt watch.Event) (bool, error) {
 		return cs.Ready, nil
 	}
 	return false, nil
+}
+
+// peerFingerprint reads the pod's log until it announces the public key it is
+// serving with.  Call once the pod is ready.
+func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	rc, err := k.clientset.CoreV1().Pods(pod.Namespace).
+		GetLogs(pod.Name, &corev1.PodLogOptions{
+			Container: kubeletContainer,
+			Follow:    true,
+		}).Stream(ctx)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to read logs of %s/%s: %w",
+			pod.Namespace, pod.Name, err)
+	}
+	defer rc.Close() // aborts the stream once we have what we came for
+
+	scanner := bufio.NewScanner(io.LimitReader(rc, 64*1024))
+	for scanner.Scan() {
+		line, ok := strings.CutPrefix(scanner.Text(), pubkeyPrefix)
+		if !ok {
+			continue
+		}
+		return mtls.ParseFingerprint(strings.TrimSpace(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return [32]byte{}, fmt.Errorf("failed to scan logs of %s/%s: %w",
+			pod.Namespace, pod.Name, err)
+	}
+
+	return [32]byte{}, fmt.Errorf("pod %s/%s never announced its public key",
+		pod.Namespace, pod.Name)
 }
 
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
@@ -215,10 +253,16 @@ func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
 	}
 }
 
-func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*tls.Certificate, *corev1.Pod, error) {
+type fspod struct {
+	cert *tls.Certificate
+	peer [32]byte
+	pod  *corev1.Pod
+}
+
+func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*fspod, error) {
 	cert, fp, err := mtls.Gencert()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate a certificate: %w", err)
+		return nil, fmt.Errorf("failed to generate a certificate: %w", err)
 	}
 
 	args = append(args, "-p", "8080", "-peer", mtls.Fingerprint(fp))
@@ -270,7 +314,7 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 
 	pod, err = k.clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	lw := &cache.ListWatch{
@@ -284,18 +328,28 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 	if err != nil {
 		k.delpod(ctx, pod)
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, nil, cerr
+			return nil, cerr
 		}
-		return nil, nil, err
+		return nil, err
 	}
 
 	ready, ok := evt.Object.(*corev1.Pod)
 	if !ok {
 		k.delpod(ctx, pod)
-		return nil, nil, fmt.Errorf("unexpected object %T from the pod watch", evt.Object)
+		return nil, fmt.Errorf("unexpected object %T from the pod watch", evt.Object)
 	}
 
-	return &cert, ready, nil
+	peer, err := k.peerFingerprint(ctx, ready)
+	if err != nil {
+		k.delpod(ctx, pod)
+		return nil, err
+	}
+
+	return &fspod{
+		cert: &cert,
+		peer: peer,
+		pod:  ready,
+	}, nil
 }
 
 func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
@@ -375,8 +429,8 @@ func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connec
 	return err
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert))
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
 	if err != nil {
@@ -487,8 +541,8 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 		svc.Spec.Ports[0].Port), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, cert *tls.Certificate, pod *corev1.Pod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, pod, svc)
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod, svc)
 	if err != nil {
 		return err
 	}
@@ -496,11 +550,11 @@ func (k *k8s) podBackup(ctx context.Context, cert *tls.Certificate, pod *corev1.
 		defer close(stop)
 	}
 
-	return k.consume(ctx, cert, url, "/data", records, results)
+	return k.consume(ctx, fp.cert, fp.peer, url, "/data", records, results)
 }
 
-func (k *k8s) podRestore(ctx context.Context, cert *tls.Certificate, pod *corev1.Pod, svc *corev1.Service, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, pod, svc)
+func (k *k8s) podRestore(ctx context.Context, fp *fspod, svc *corev1.Service, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod, svc)
 	if err != nil {
 		return err
 	}
@@ -508,7 +562,7 @@ func (k *k8s) podRestore(ctx context.Context, cert *tls.Certificate, pod *corev1
 		defer close(stop)
 	}
 
-	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert))
+	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
 	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
@@ -570,19 +624,19 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 		return fmt.Errorf("unexpected protocol %q", k.proto)
 	}
 
-	cert, pod, err := k.fsServer(ctx, "backup", ns, pvc, true)
+	fp, err := k.fsServer(ctx, "backup", ns, pvc, true)
 	if err != nil {
 		return fmt.Errorf("failed to create the pod: %w", err)
 	}
-	defer k.delpod(ctx, pod)
+	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, pod)
+	svc, err := k.serviceFor(ctx, fp.pod)
 	if err != nil {
 		return fmt.Errorf("failed to create the service: %w", err)
 	}
 	defer k.delservice(ctx, svc)
 
-	return k.podBackup(ctx, cert, pod, svc, records, results)
+	return k.podBackup(ctx, fp, svc, records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -591,17 +645,17 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
 	}
 
-	cert, pod, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
+	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
 	if err != nil {
 		return fmt.Errorf("failed to run the pod: %w", err)
 	}
-	defer k.delpod(ctx, pod)
+	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, pod)
+	svc, err := k.serviceFor(ctx, fp.pod)
 	if err != nil {
 		return fmt.Errorf("failed to create the service: %w", err)
 	}
 	defer k.delservice(ctx, svc)
 
-	return k.podRestore(ctx, cert, pod, svc, records, results)
+	return k.podRestore(ctx, fp, svc, records, results)
 }

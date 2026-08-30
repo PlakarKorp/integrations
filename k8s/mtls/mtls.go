@@ -93,10 +93,11 @@ func ServerTlsConfig(cert tls.Certificate, peer [32]byte) *tls.Config {
 	}
 }
 
-func ClientTlsConfig(cert *tls.Certificate) *tls.Config {
+func ClientTlsConfig(cert *tls.Certificate, peer [32]byte) *tls.Config {
 	cfg := &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify:    true,
+		VerifyPeerCertificate: Pinned(peer),
+		MinVersion:            tls.VersionTLS13,
 	}
 	if cert != nil {
 		cfg.Certificates = []tls.Certificate{*cert}
