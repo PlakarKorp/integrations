@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/pkg/sftp"
 )
@@ -26,8 +27,8 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	host := endpoint.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
+	if err := checkHost(host); err != nil {
+		return nil, fmt.Errorf("%w: %q", err, endpoint.String())
 	}
 
 	if err := CheckParamSupport(params); err != nil {
@@ -59,7 +60,7 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		args = append(args, "-p", p)
 	}
 
-	args = append(args, host)
+	args = append(args, "--", host)
 	args = append(args, "-s", "sftp")
 
 	cmd := exec.Command("ssh", args...)
@@ -69,7 +70,10 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		return nil, err
 	}
 
-	var sshErr error
+	var (
+		sshErrMu sync.Mutex
+		sshErr   error
+	)
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
@@ -77,7 +81,9 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 			if strings.HasPrefix(line, "Warning:") {
 				continue
 			}
+			sshErrMu.Lock()
 			sshErr = fmt.Errorf("ssh command error: %q", line)
+			sshErrMu.Unlock()
 		}
 	}()
 
@@ -99,6 +105,8 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 
 	client, err := sftp.NewClientPipe(stdout, stdin)
 	if err != nil {
+		sshErrMu.Lock()
+		defer sshErrMu.Unlock()
 		if sshErr != nil {
 			return nil, sshErr
 		}

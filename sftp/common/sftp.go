@@ -17,14 +17,48 @@ import (
 	"github.com/pkg/sftp"
 )
 
+// controlDir returns a directory only this user can write to, in which the
+// multiplexing sockets live.
+//
+// The socket path used to be derived from os.TempDir(), which is world
+// writable and shared: every input to the name (endpoint, username, identity
+// path) is knowable, so another local user could compute it and bind a socket
+// there first.  ssh does not check who owns a control socket, so "-O check"
+// would succeed against the squatter and every subsequent SFTP operation would
+// be multiplexed through their process.
+func controlDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate a private cache directory: %w", err)
+	}
+
+	dir := filepath.Join(base, "plakar", "ssh")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+
+	// MkdirAll is happy with a directory that already exists, whoever owns
+	// it and whatever its mode is, so check what we ended up with.
+	if err := checkPrivateDir(dir); err != nil {
+		return "", err
+	}
+
+	return dir, nil
+}
+
 func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
 	if endpoint == nil {
 		return "", fmt.Errorf("nil endpoint")
 	}
 
+	dir, err := controlDir()
+	if err != nil {
+		return "", err
+	}
+
 	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
 	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("plakar-ssh-%x.sock", sum[:8])), nil
+	return filepath.Join(dir, fmt.Sprintf("%x.sock", sum[:8])), nil
 }
 
 // guard master creation per ControlPath
@@ -70,8 +104,8 @@ func setupPrivateKey(params map[string]string) error {
 
 func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 	host := endpoint.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
+	if err := checkHost(host); err != nil {
+		return "", fmt.Errorf("%w: %q", err, endpoint.String())
 	}
 
 	sock, err := controlSock(endpoint, params)
@@ -122,7 +156,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			return "", err
 		}
 		checkArgs := append([]string{}, args...)
-		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
+		checkArgs = append(checkArgs, "-S", sock, "-O", "check", "--", host)
 
 		if err := exec.Command("ssh", checkArgs...).Run(); err == nil {
 			return sock, nil
@@ -146,7 +180,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			"-o", "ControlMaster=yes",
 			"-o", "ControlPersist=10m",
 			"-o", "ControlPath="+sock,
-			host,
+			"--", host,
 		)
 
 		cmd := exec.Command("ssh", startArgs...)
@@ -167,7 +201,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string) (string, error) {
 			return "", err
 		}
 		checkArgs := append([]string{}, args...)
-		checkArgs = append(checkArgs, "-S", sock, "-O", "check", host)
+		checkArgs = append(checkArgs, "-S", sock, "-O", "check", "--", host)
 
 		out, err := exec.Command("ssh", checkArgs...).CombinedOutput()
 		if err != nil {
@@ -184,8 +218,8 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	host := endpoint.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("missing hostname in endpoint: %q", endpoint.String())
+	if err := checkHost(host); err != nil {
+		return nil, fmt.Errorf("%w: %q", err, endpoint.String())
 	}
 
 	// ensure the master exists (idempotent) and get the control socket path.
@@ -221,7 +255,7 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 
 	// reuse the master
 	args = append(args, "-S", sock)
-	args = append(args, host)
+	args = append(args, "--", host)
 	args = append(args, "-s", "sftp")
 
 	cmd := exec.Command("ssh", args...)
@@ -231,7 +265,10 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		return nil, err
 	}
 
-	var sshErr error
+	var (
+		sshErrMu sync.Mutex
+		sshErr   error
+	)
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
@@ -239,7 +276,9 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 			if strings.HasPrefix(line, "Warning:") {
 				continue
 			}
+			sshErrMu.Lock()
 			sshErr = fmt.Errorf("ssh command error: %q", line)
+			sshErrMu.Unlock()
 		}
 	}()
 
@@ -261,6 +300,8 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 
 	client, err := sftp.NewClientPipe(stdout, stdin)
 	if err != nil {
+		sshErrMu.Lock()
+		defer sshErrMu.Unlock()
 		if sshErr != nil {
 			return nil, sshErr
 		}

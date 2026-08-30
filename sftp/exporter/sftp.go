@@ -18,13 +18,15 @@ package exporter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/url"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 
 	plakarsftp "github.com/PlakarKorp/integrations/sftp/common"
@@ -107,6 +109,22 @@ func NewExporter(ctx context.Context, opt *connectors.Options, name string, conf
 	}, nil
 }
 
+// contained joins a record pathname onto root and refuses anything that would
+// land outside of it.
+//
+// path.Join cleans as it goes, so a record pathname of "/../../etc/x" would
+// otherwise resolve above root and be written there.  The remote server is
+// free to confine us further; this makes sure we never ask it not to.
+func contained(root, pathname string) (string, error) {
+	joined := path.Join(root, pathname)
+	cleanRoot := path.Clean(root)
+
+	if joined != cleanRoot && !strings.HasPrefix(joined, strings.TrimSuffix(cleanRoot, "/")+"/") {
+		return "", fmt.Errorf("path %q escapes the restore root %q", pathname, cleanRoot)
+	}
+	return joined, nil
+}
+
 func (p *Exporter) Root() string          { return p.endpoint.Path }
 func (p *Exporter) Origin() string        { return p.endpoint.Host }
 func (p *Exporter) Type() string          { return "sftp" }
@@ -155,7 +173,12 @@ loop:
 				continue
 			}
 
-			pathname := path.Join(p.Root(), record.Pathname)
+			pathname, err := contained(p.Root(), record.Pathname)
+			if err != nil {
+				results <- record.Error(err)
+				continue
+			}
+
 			if record.FileInfo.Lmode.IsDir() {
 				err := p.directory(record, pathname)
 				results <- record.Error(err)
@@ -284,12 +307,29 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 	return p.chown(pathname, record.FileInfo)
 }
 
-func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
-	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+// tempName returns a sibling name for pathname with an unpredictable suffix.
+//
+// math/rand/v2 was predictable enough that another user on a shared remote
+// could precompute the name and pre-create it as a symlink, which Create would
+// then follow.
+func tempName(pathname string) (string, error) {
+	var buf [10]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
+	return pathname + ".tmp." + suffix, nil
+}
 
-	tmp, err := p.client.Create(tmpName)
+func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+	tmpName, err := tempName(pathname)
 	if err != nil {
-		return fmt.Errorf("could not create temporary file")
+		return err
+	}
+
+	tmp, err := p.client.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		return fmt.Errorf("could not create temporary file %s: %w", tmpName, err)
 	}
 
 	ok := false
