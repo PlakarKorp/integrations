@@ -18,9 +18,12 @@ package exporter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -37,8 +40,10 @@ type FSExporter struct {
 	opts    *connectors.Options
 	rootDir string
 
-	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
-	hlCanon  sync.Map           // key -> canonical abs path string
+	root *os.Root
+
+	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
+	hlCanon  sync.Map           // key -> canonical root-relative path string
 }
 
 func init() {
@@ -54,16 +59,42 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 		return nil, fmt.Errorf("failed to absolutify root: %w", err)
 	}
 
+	// The restore target has to exist before it can be opened as a root.
+	// Records restore into it, they no longer create it.
+	if err := os.MkdirAll(absRoot, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create restore root %s: %w", absRoot, err)
+	}
+
+	root, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open restore root %s: %w", absRoot, err)
+	}
+
 	return &FSExporter{
 		opts:    opts,
 		rootDir: absRoot,
+		root:    root,
 	}, nil
 }
 
-// isContained reports whether path is rooted within root (or is root itself).
-// Both arguments must be clean absolute paths.
-func isContained(root, path string) bool {
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+func relative(pathname string) (string, error) {
+	p := path.Clean("/" + pathname)
+
+	if p != pathname {
+		return "", fmt.Errorf("record path is not clean %q", pathname)
+	}
+
+	if p == "/" {
+		return ".", nil
+	}
+
+	// Strip the leading / so that it's relative to the root
+	path, err := filepath.Localize(p[1:])
+	if err != nil {
+		return "", fmt.Errorf("localize: %q: %w", pathname, err)
+	}
+
+	return path, nil
 }
 
 func (p *FSExporter) Root() string          { return p.rootDir }
@@ -76,7 +107,7 @@ func (p *FSExporter) Ping(ctx context.Context) error {
 }
 
 func (p *FSExporter) Close(ctx context.Context) error {
-	return nil
+	return p.root.Close()
 }
 
 type dirPerm struct {
@@ -114,18 +145,18 @@ loop:
 				continue
 			}
 
-			pathname := filepath.Join(p.rootDir, record.Pathname)
-			if !isContained(p.rootDir, pathname) {
-				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
+			pathname, err := relative(record.Pathname)
+			if err != nil {
+				results <- record.Error(err)
 				continue
 			}
 
 			if record.FileInfo.Lmode.IsDir() {
-				if err := os.Mkdir(pathname, 0700); err != nil {
+				if err := p.root.Mkdir(pathname, 0700); err != nil {
 					if !os.IsExist(err) {
 						results <- record.Error(err)
 					} else {
-						_ = os.Chmod(pathname, 0700)
+						_ = p.root.Chmod(pathname, 0700)
 						results <- record.Ok()
 					}
 				} else {
@@ -174,20 +205,23 @@ loop:
 }
 
 func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
-	if err := os.Symlink(record.Target, pathname); err != nil {
+	if err := p.root.Symlink(record.Target, pathname); err != nil {
 		return err
 	}
 
 	fileinfo := record.FileInfo
 
 	if os.Geteuid() == 0 {
-		err := os.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid()))
+		err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid()))
 		if err != nil {
 			return err
 		}
 	}
 
-	return Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime())
+	// This is safe to do through the real filesystem because pathname has been
+	// validated already through root.Symlink()
+	realpath := filepath.Join(p.root.Name(), pathname)
+	return Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime())
 }
 
 func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error {
@@ -211,7 +245,7 @@ func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error 
 
 	// If we are not the canonical path, create a hardlink
 	if canonPath != pathname {
-		if err := os.Link(canonPath, pathname); err != nil {
+		if err := p.root.Link(canonPath, pathname); err != nil {
 			return err
 		}
 	}
@@ -226,17 +260,41 @@ func (p *FSExporter) file(record *connectors.Record, pathname string) error {
 	return p.writeAtomic(record, pathname)
 }
 
+// createTemp is os.CreateTemp confined to the restore root.  The name is drawn
+// from crypto/rand so a concurrent writer on the same directory cannot predict
+// and pre-create it; O_EXCL means we lose the race loudly rather than silently
+// writing into someone else's file.
+func (p *FSExporter) createTemp(dir string) (*os.File, string, error) {
+	var buf [10]byte
+	for range 1000 {
+		if _, err := rand.Read(buf[:]); err != nil {
+			return nil, "", err
+		}
+		suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
+		name := filepath.Join(dir, ".plakar-"+suffix)
+
+		f, err := p.root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		return f, name, nil
+	}
+	return nil, "", fmt.Errorf("could not create a temporary file in %s", dir)
+}
+
 func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(pathname), ".plakar-*")
+	tmp, tmpName, err := p.createTemp(filepath.Dir(pathname))
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
 
 	ok := false
 	defer func() {
 		if !ok {
-			os.Remove(tmpName)
+			p.root.Remove(tmpName)
 		}
 	}()
 
@@ -249,7 +307,7 @@ func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) err
 		return err
 	}
 
-	if err := os.Rename(tmpName, pathname); err != nil {
+	if err := p.root.Rename(tmpName, pathname); err != nil {
 		return err
 	}
 
@@ -263,16 +321,21 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
 		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
-		if err := os.Chmod(pathname, mode); err != nil {
+		if err := p.root.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("chmod(%s): %w", pathname, err)
 		}
 	}
 	if os.Geteuid() == 0 {
-		if err := os.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
+		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
 			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
 	}
-	if err := Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+
+	// This is safe to do through the real filesystem because pathname has been
+	// validated already through either through Mkdir for a directory or Rename
+	// for a file or an hardlink.
+	realpath := filepath.Join(p.root.Name(), pathname)
+	if err := Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
 		return fmt.Errorf("lutimes(%s): %w", pathname, err)
 	}
 	return nil
