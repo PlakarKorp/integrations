@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"unicode"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -26,12 +27,20 @@ type sslFileParam struct {
 }
 
 // writeTempFile writes content to a temporary PEM file and returns its path.
+//
+// The mode is set explicitly rather than left to CreateTemp's default: libpq
+// refuses to use a client key file that is group or world readable, and this
+// is also where an inline ssl_key_data ends up on disk.
 func writeTempFile(label, content string) (string, error) {
 	f, err := os.CreateTemp("", "plakar-pg-"+label+"-*")
 	if err != nil {
 		return "", fmt.Errorf("%s_data: create temp file: %w", label, err)
 	}
 	defer f.Close()
+	if err := f.Chmod(0600); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%s_data: chmod temp file: %w", label, err)
+	}
 	if _, err := f.WriteString(content); err != nil {
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("%s_data: write temp file: %w", label, err)
@@ -245,4 +254,28 @@ func TruncateOutput(out []byte) string {
 		return s
 	}
 	return s[:window] + "\n[output truncated]\n" + s[len(s)-window:]
+}
+
+// ValidDatabaseName reports whether name is safe to hand to a libpq client
+// tool as a database name.
+//
+// libpq treats a dbname containing "=" as a full conninfo string, so a value
+// like `host=attacker.example dbname=x` redirects the connection -- and
+// PGPASSWORD is already in the child's environment.  A leading dash would be
+// parsed as an option instead of an operand.  Neither can appear in a real
+// database name, so both are refused outright.
+func ValidDatabaseName(name string) error {
+	if name == "" {
+		return fmt.Errorf("empty database name")
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("invalid database name %q: may not start with a dash", name)
+	}
+	if strings.ContainsAny(name, "=\x00") {
+		return fmt.Errorf("invalid database name %q: may not contain '=' or NUL", name)
+	}
+	if strings.ContainsFunc(name, unicode.IsSpace) {
+		return fmt.Errorf("invalid database name %q: may not contain whitespace", name)
+	}
+	return nil
 }
