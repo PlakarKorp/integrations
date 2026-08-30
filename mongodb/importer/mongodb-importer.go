@@ -23,10 +23,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integrations-private/mongodb/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -40,11 +41,8 @@ const backupFilename = "mongodb-backup.bson"
 
 type mongodbImporter struct {
 	url     *url.URL
-	port	string
-	username string
-	password string
+	creds   common.Credentials
 	options *connectors.Options
-	use_tls	bool
 }
 
 func init() {
@@ -83,102 +81,74 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	i := &mongodbImporter{
-		url:     parsed,
-		port:  port,
-		username: params["username"],
-		password: params["password"],
+		url: parsed,
+		creds: common.Credentials{
+			Host:     parsed.Hostname(),
+			Port:     port,
+			Username: params["username"],
+			Password: params["password"],
+			TLS:      use_tls,
+		},
 		options: opts,
-		use_tls: use_tls,
 	}
 
 	return i, nil
 }
 
 func (i *mongodbImporter) Ping(ctx context.Context) error {
-	var args []string
+	// The script is fed over stdin rather than --eval so the credentials in
+	// the connection URI never appear in argv, where any local user could
+	// read them out of ps.
+	cmd := exec.CommandContext(ctx, "mongosh", "--quiet", "--nodb")
+	cmd.Stdin = strings.NewReader(i.creds.PingScript())
 
-	args = append(args, "--host")
-	args = append(args, i.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, i.port)
-	if i.use_tls {
-		args = append(args, "--tls")
-	}
-	if len(i.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, i.username)
-	}
-	if len(i.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, i.password)
-	}
-	args = append(args, "--eval")
-	args = append(args, "db.runCommand({ hello: 1 })")
-	cmd := exec.Command("mongosh", args...)
-
-	stdout, err := cmd.StdoutPipe()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("mongosh: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	if err := cmd.Start(); err != nil {
-		return err
+	if strings.Contains(string(out), common.PingOK) {
+		return nil
 	}
 
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
+	return fmt.Errorf("unexpected output from mongosh: %q", string(out))
 }
 
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	var args []string
-
-	args = append(args, "--host")
-	args = append(args, i.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, i.port)
-	if i.use_tls {
-		args = append(args, "--ssl")
-	}
-	if len(i.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, i.username)
-	}
-	if len(i.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, i.password)
-	}
-	args = append(args, "--archive")
-
-	cmd := exec.Command("mongodump", args...)
-
-	stdout, err := cmd.StdoutPipe()
+	// mongodump reads "password:" from the file named by --config, so the
+	// password stays out of argv.
+	cfgArg, cleanup, err := i.creds.ConfigFile()
 	if err != nil {
 		return err
 	}
 
-	if err := cmd.Start(); err != nil {
+	args := i.creds.Args()
+	if cfgArg != "" {
+		args = append(args, cfgArg)
+	}
+	args = append(args, "--archive")
+
+	cmd := exec.CommandContext(ctx, "mongodump", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cleanup()
 		return err
 	}
 
-	// reap process
-	go func() { _ = cmd.Wait() }()
+	if err := cmd.Start(); err != nil {
+		cleanup()
+		return err
+	}
+
+	// reap process, and only drop the credentials file once mongodump has
+	// finished reading it
+	go func() {
+		_ = cmd.Wait()
+		cleanup()
+	}()
 
 	fi := objects.FileInfo{
 		Lname:      backupFilename,

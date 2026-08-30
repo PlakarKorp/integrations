@@ -24,9 +24,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 
+	"github.com/PlakarKorp/integrations-private/mongodb/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -40,14 +41,15 @@ const debug = false
 
 type mongodbExporter struct {
 	url     *url.URL
-	port	string
-	username string
-	password string
+	creds   common.Credentials
 	options *connectors.Options
-	use_tls	bool
-	stdin	io.WriteCloser
-	stdout	io.ReadCloser
-	stderr	io.ReadCloser
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
+
+	// cleanup removes the credentials file once mongorestore has finished
+	// with it.
+	cleanup func()
 }
 
 func init() {
@@ -83,71 +85,37 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	e := &mongodbExporter{
-		url:     parsed,
-		port:    port,
-		username: params["username"],
-		password: params["password"],
+		url: parsed,
+		creds: common.Credentials{
+			Host:     parsed.Hostname(),
+			Port:     port,
+			Username: params["username"],
+			Password: params["password"],
+			TLS:      use_tls,
+		},
 		options: opts,
-		use_tls: use_tls,
+		cleanup: func() {},
 	}
 
 	return e, nil
 }
 
-func (e *mongodbExporter) commonArgs() []string {
-	var args []string
-
-	args = append(args, "--host")
-	args = append(args, e.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, e.port)
-	if e.use_tls {
-		args = append(args, "--tls")
-	}
-	if len(e.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, e.username)
-	}
-	if len(e.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, e.password)
-	}
-
-	return args;
-}
-
 func (e *mongodbExporter) Ping(ctx context.Context) error {
-	args := e.commonArgs()
-	args = append(args, "--eval")
-	args = append(args, "db.runCommand({ hello: 1 })")
-	cmd := exec.Command("mongosh", args...)
+	// Fed over stdin rather than --eval so the credentials in the connection
+	// URI never appear in argv.
+	cmd := exec.CommandContext(ctx, "mongosh", "--quiet", "--nodb")
+	cmd.Stdin = strings.NewReader(e.creds.PingScript())
 
-	stdout, err := cmd.StdoutPipe()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("mongosh: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	if err := cmd.Start(); err != nil {
-		return err
+	if strings.Contains(string(out), common.PingOK) {
+		return nil
 	}
 
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
+	return fmt.Errorf("unexpected output from mongosh: %q", string(out))
 }
 
 type commandResult struct {
@@ -160,15 +128,27 @@ type commandResult struct {
 func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
-	args := e.commonArgs()
+	// mongorestore reads "password:" from the file named by --config, so the
+	// password stays out of argv.
+	cfgArg, cleanup, err := e.creds.ConfigFile()
+	if err != nil {
+		return err
+	}
+	e.cleanup = cleanup
+
+	args := e.creds.Args()
+	if cfgArg != "" {
+		args = append(args, cfgArg)
+	}
 	args = append(args, "--drop")
 	args = append(args, "--objcheck")
 	args = append(args, "--archive")
 
-	cmd := exec.Command("mongorestore", args...)
+	cmd := exec.CommandContext(ctx, "mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		cleanup()
 		return err
 	}
 	e.stdin = stdin
@@ -241,7 +221,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	go func() {
 		for record := range records {
 			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+				strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
 				results <- record.Ok()
 				continue
 			}
@@ -292,6 +272,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 func (e *mongodbExporter) Close(ctx context.Context) error {
 	if e.stdin != nil {
 		e.stdin.Close()
+	}
+
+	if e.cleanup != nil {
+		e.cleanup()
 	}
 
 	return nil
