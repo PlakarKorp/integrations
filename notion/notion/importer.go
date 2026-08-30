@@ -162,7 +162,7 @@ func (p *NotionImporter) Import(ctx context.Context, records chan<- *connectors.
 				}
 
 				imageURL := ib.Image.File.URL
-				resp, err := http.Get(imageURL) // imageURL from Notion's response
+				resp, err := fetchAttachment(imageURL) // URL chosen by whoever can add a block
 				if err != nil {
 					records <- connectors.NewError("", fmt.Errorf("failed to fetch image: %w", err))
 					continue

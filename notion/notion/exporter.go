@@ -37,12 +37,22 @@ func DebugResponse(resp *http.Response) {
 	// end
 }
 
-const tempDir = "/tmp/plakar-notion-restore"
-
 type NotionExporter struct {
 	token  string
 	rootID string //TODO : change this to a user friendly name (e.g. "My Notion Page" instead of "1234567890abcdef")
 	opts   *connectors.Options
+
+	// tempDir is where records are staged before being pushed to Notion.
+	// It used to be the fixed path /tmp/plakar-notion-restore: predictable,
+	// in a world-writable directory, and created with MkdirAll, which
+	// succeeds on a path that already exists whoever owns it.  A local user
+	// could therefore pre-create it as a symlink and have every restored
+	// file written through it.
+	tempDir string
+
+	// root confines record writes to tempDir, so a record pathname cannot
+	// climb out of the staging area.
+	root *os.Root
 }
 
 func normalizeUUID(id string) string {
@@ -70,11 +80,36 @@ func NewNotionExporter(ctx context.Context, options *connectors.Options, name st
 	}
 	rootID = normalizeUUID(rootID)
 
+	tempDir, err := os.MkdirTemp("", "plakar-notion-restore-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create staging directory: %w", err)
+	}
+
+	root, err := os.OpenRoot(tempDir)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to open staging directory: %w", err)
+	}
+
 	return &NotionExporter{
-		token:  token,
-		rootID: rootID, //rootID must be an existing page ID, this is the page where the files will be exported
-		opts:   options,
+		token:   token,
+		rootID:  rootID, //rootID must be an existing page ID, this is the page where the files will be exported
+		opts:    options,
+		tempDir: tempDir,
+		root:    root,
 	}, nil
+}
+
+// relative turns a record pathname ("/a/b") into a path relative to the
+// staging directory.  path.Clean absorbs "..", filepath.Localize rejects
+// whatever is left that is not a plain relative path, and *os.Root then keeps
+// symlinks from being traversed out.
+func relative(pathname string) (string, error) {
+	p := strings.TrimPrefix(path.Clean("/"+pathname), "/")
+	if p == "" {
+		return ".", nil
+	}
+	return filepath.Localize(p)
 }
 
 func (p *NotionExporter) Root() string          { return "" }
@@ -87,7 +122,11 @@ func (p *NotionExporter) Ping(ctx context.Context) error {
 }
 
 func (n *NotionExporter) CreateDirectory(ctx context.Context, pathname string) error {
-	return os.MkdirAll(path.Join(tempDir, pathname), 0700)
+	rel, err := relative(pathname)
+	if err != nil {
+		return err
+	}
+	return n.root.MkdirAll(rel, 0700)
 }
 
 func (p *NotionExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
@@ -119,10 +158,14 @@ loop:
 				continue
 			}
 
-			pathname := filepath.Join(tempDir, record.Pathname)
+			pathname, err := relative(record.Pathname)
+			if err != nil {
+				results <- record.Error(err)
+				continue
+			}
 
 			if record.FileInfo.Lmode.IsDir() {
-				if err := os.Mkdir(pathname, 0700); err != nil {
+				if err := p.root.Mkdir(pathname, 0700); err != nil {
 					results <- record.Error(err)
 				} else {
 					results <- record.Ok()
@@ -156,12 +199,14 @@ loop:
 }
 
 func (n *NotionExporter) storeFile(dest string, fp io.Reader) error {
-	f, err := os.Create(dest)
-	defer f.Close()
-
+	// The deferred Close used to be registered before this error check, so a
+	// failed create nil-dereferenced on the way out.
+	f, err := n.root.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", dest, err)
 	}
+	defer f.Close()
+
 	if _, err := io.Copy(f, fp); err != nil {
 		return fmt.Errorf("failed to copy data to file %s: %w", dest, err)
 	}
@@ -172,7 +217,11 @@ func (n *NotionExporter) storeFile(dest string, fp io.Reader) error {
 }
 
 func (n *NotionExporter) Close(ctx context.Context) error {
-	return os.RemoveAll(tempDir)
+	err := n.root.Close()
+	if rerr := os.RemoveAll(n.tempDir); err == nil {
+		err = rerr
+	}
+	return err
 }
 
 func (n *NotionExporter) makeRequest(method, url string, payload []byte) (map[string]any, error) {
@@ -184,7 +233,7 @@ func (n *NotionExporter) makeRequest(method, url string, payload []byte) (map[st
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Notion-Version", NotionVersionHeader)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -399,7 +448,7 @@ func (n *NotionExporter) addEntries(newID, pathTo string) error {
 }
 
 func (n *NotionExporter) export() error {
-	pathname := path.Join(tempDir, "content.json")
+	pathname := path.Join(n.tempDir, "content.json")
 	file, err := os.Open(pathname)
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", pathname, err)
@@ -412,7 +461,7 @@ func (n *NotionExporter) export() error {
 	}
 
 	for _, entry := range jsonData {
-		dir := path.Join(tempDir, entry["id"].(string))
+		dir := path.Join(n.tempDir, entry["id"].(string))
 
 		if entry["object"] == "page" {
 			err := n.exportPageFromFile(path.Join(dir, "page.json"), "page_id", n.rootID)
