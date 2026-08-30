@@ -119,7 +119,7 @@ func TestPinnedRejectsUnparseableCertificate(t *testing.T) {
 func handshake(t *testing.T, peer [32]byte, client *tls.Certificate) error {
 	t.Helper()
 
-	srvCert, _ := gencert(t)
+	srvCert, srvFP := gencert(t)
 
 	cconn, sconn := net.Pipe()
 	defer cconn.Close()
@@ -134,7 +134,7 @@ func handshake(t *testing.T, peer [32]byte, client *tls.Certificate) error {
 	}()
 
 	go func() {
-		c := tls.Client(cconn, ClientTlsConfig(client))
+		c := tls.Client(cconn, ClientTlsConfig(client, srvFP))
 		if err := c.HandshakeContext(ctx); err != nil {
 			return
 		}
@@ -181,7 +181,7 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 		{"without", nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			srvCert, _ := gencert(t)
+			srvCert, srvFP := gencert(t)
 			cliCert, cliFP := gencert(t)
 
 			cfg := ServerTlsConfig(srvCert, cliFP)
@@ -204,7 +204,7 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 				c.Read(b[:])
 			}()
 
-			creds := credentials.NewTLS(ClientTlsConfig(&cliCert))
+			creds := credentials.NewTLS(ClientTlsConfig(&cliCert, srvFP))
 			_, _, err := creds.ClientHandshake(ctx, "plakar-pod", cconn)
 
 			if tt.wantErr {
