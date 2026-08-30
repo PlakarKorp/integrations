@@ -81,7 +81,11 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 
 		url = oauth2utils.GetOAuth2Url(name, username)
 
-		client = calOAuthProvider.GetClient(url) // maybe not using the url directly... the url could be built from the username
+		// maybe not using the url directly... the url could be built from the username
+		client, err = calOAuthProvider.GetClient(url)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &CaldavExporter{
