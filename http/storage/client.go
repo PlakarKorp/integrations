@@ -25,6 +25,10 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
@@ -44,26 +48,82 @@ func init() {
 	storage.Register("https", 0, NewStore)
 }
 
+// maxErrorBody caps how much of a non-200 response body is read back into an
+// error.  io.ReadAll on a hostile server's body is unbounded.
+const maxErrorBody = 64 << 10
+
+// defaultTimeout bounds a whole request/response.  http.DefaultClient has no
+// timeout at all, so a hung repository server stalled the caller forever.
+const defaultTimeout = 5 * time.Minute
+
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
 	location, err := url.Parse(storeConfig["location"])
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL %q: %w", storeConfig["location"], err)
 	}
 
-	httpClient := http.DefaultClient
-	if storeConfig["tls_no_verify"] == "true" {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+	authToken := storeConfig["auth_token"]
+
+	// The auth token is a bearer credential: over http:// it is readable by
+	// anyone on path.  Both schemes are registered here, so make the
+	// cleartext one deliberate rather than incidental, the way the webdav
+	// connector gates dav://.
+	if location.Scheme == "http" && authToken != "" {
+		insecure, _ := strconv.ParseBool(storeConfig["insecure"])
+		if !insecure {
+			return nil, fmt.Errorf("auth_token would be sent in cleartext over http://; " +
+				"use https:// or set insecure=true to acknowledge it")
 		}
 	}
 
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if storeConfig["tls_no_verify"] == "true" {
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec // opt-in
+		}
+	}
+
+	timeout := defaultTimeout
+	if v, ok := storeConfig["timeout"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timeout %q: %w", v, err)
+		}
+		timeout = d
+	}
+
 	return &Store{
-		location:   location,
-		authToken:  storeConfig["auth_token"],
-		httpClient: httpClient,
+		location:  location,
+		authToken: authToken,
+		httpClient: &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+		},
 	}, nil
+}
+
+// errorBody reads back a bounded amount of a failed response for the error
+// message, with control characters stripped so a hostile server cannot inject
+// escape sequences into a terminal or a log.
+func errorBody(r *http.Response) string {
+	b, err := io.ReadAll(io.LimitReader(r.Body, maxErrorBody))
+	if err != nil {
+		return r.Status
+	}
+
+	msg := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || unicode.IsGraphic(r) {
+			return r
+		}
+		return -1
+	}, string(b))
+
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return r.Status
+	}
+	return msg
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -75,10 +135,10 @@ func (s *Store) Root() string          { return s.location.Path }
 func (s *Store) Type() string          { return "http" }
 func (s *Store) Flags() location.Flags { return 0 }
 
-func (s *Store) sendRequest(method string, requestType string, payload io.Reader, rg *storage.Range) (*http.Response, error) {
+func (s *Store) sendRequest(ctx context.Context, method string, requestType string, payload io.Reader, rg *storage.Range) (*http.Response, error) {
 	u := *s.location
 	u.Path = path.Join(u.Path, requestType)
-	req, err := http.NewRequest(method, u.String(), payload)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -99,18 +159,14 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	r, err := s.sendRequest("GET", "/", nil, nil)
+	r, err := s.sendRequest(ctx, "GET", "/", nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 
 	return io.ReadAll(r.Body)
@@ -130,17 +186,13 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 
 func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
 	uri := "/resources/" + strres(res)
-	r, err := s.sendRequest("GET", uri, nil, nil)
+	r, err := s.sendRequest(ctx, "GET", uri, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 
 	var ret []objects.MAC
@@ -154,18 +206,14 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	cr := &countingReader{rc: rd}
-	r, err := s.sendRequest("PUT", uri, cr, nil)
+	r, err := s.sendRequest(ctx, "PUT", uri, cr, nil)
 	if err != nil {
 		return -1, err
 	}
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return -1, err
-		}
-		return -1, fmt.Errorf("%s", errmsg)
+		return -1, fmt.Errorf("%s", errorBody(r))
 	}
 
 	return cr.n, nil
@@ -173,35 +221,27 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
-	r, err := s.sendRequest("GET", uri, nil, rg)
+	r, err := s.sendRequest(ctx, "GET", uri, nil, rg)
 	if err != nil {
 		return nil, err
 	}
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 	return r.Body, nil
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
-	r, err := s.sendRequest("DELETE", uri, nil, nil)
+	r, err := s.sendRequest(ctx, "DELETE", uri, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("%s", errmsg)
+		return fmt.Errorf("%s", errorBody(r))
 	}
 	return nil
 }
