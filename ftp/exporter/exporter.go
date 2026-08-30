@@ -18,12 +18,14 @@ package exporter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net/url"
 	"os"
-	"path/filepath"
+	"path"
+	"strings"
 
 	"github.com/PlakarKorp/integrations/ftp/common"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -54,14 +56,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		return nil, err
 	}
 
-	var username string
-	if tmp, ok := config["username"]; ok {
-		username = tmp
+	connOpts, err := common.ParseOptions(config)
+	if err != nil {
+		return nil, err
 	}
-	var password string
-	if tmp, ok := config["password"]; ok {
-		password = tmp
-	}
+
 	var port string
 	if tmp, ok := config["port"]; ok {
 		port = tmp
@@ -73,10 +72,10 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
-			username = parsed.User.Username()
+			connOpts.Username = parsed.User.Username()
 		}
 		if p, ok := parsed.User.Password(); ok {
-			password = p
+			connOpts.Password = p
 		}
 	}
 
@@ -93,7 +92,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		host = fmt.Sprintf("%s:%s", parsed.Host, port)
 	}
 
-	client, err := common.ConnectToFTP(host, username, password)
+	client, err := common.ConnectToFTP(host, connOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +103,22 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		client:  client,
 		rootDir: rootDir,
 	}, nil
+}
+
+// contained joins a record pathname onto root and refuses anything that would
+// land outside of it.  path.Join cleans as it goes, so a record pathname of
+// "/../../etc/x" would otherwise resolve above root and be written there.
+//
+// FTP paths are always slash-separated, whatever the client platform, so this
+// uses path rather than filepath.
+func contained(root, pathname string) (string, error) {
+	joined := path.Join(root, pathname)
+	cleanRoot := path.Clean(root)
+
+	if joined != cleanRoot && !strings.HasPrefix(joined, strings.TrimSuffix(cleanRoot, "/")+"/") {
+		return "", fmt.Errorf("path %q escapes the restore root %q", pathname, cleanRoot)
+	}
+	return joined, nil
 }
 
 func (p *Exporter) Root() string {
@@ -154,7 +169,12 @@ loop:
 				continue
 			}
 
-			pathname := filepath.Join(p.Root(), record.Pathname)
+			pathname, err := contained(p.Root(), record.Pathname)
+			if err != nil {
+				results <- record.Error(err)
+				continue
+			}
+
 			if record.FileInfo.Lmode.IsDir() {
 				if pathname == p.Root() {
 					results <- record.Ok()
@@ -217,11 +237,26 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 	return p.writeAtomic(record, pathname)
 }
 
-func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
-	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+// tempName returns a sibling name for pathname with an unpredictable suffix.
+//
+// math/rand/v2 was predictable enough that another user on a shared server
+// could precompute the name and pre-create it.
+func tempName(pathname string) (string, error) {
+	var buf [10]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
+	return pathname + ".tmp." + suffix, nil
+}
 
-	err := p.client.Store(tmpName, record.Reader)
+func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+	tmpName, err := tempName(pathname)
 	if err != nil {
+		return err
+	}
+
+	if err := p.client.Store(tmpName, record.Reader); err != nil {
 		return err
 	}
 	if err := p.client.Rename(tmpName, pathname); err != nil {
