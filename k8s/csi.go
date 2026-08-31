@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -19,7 +21,6 @@ import (
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
-	"github.com/google/uuid"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -272,7 +273,6 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			Namespace:    ns,
 			Labels: map[string]string{
 				"plakar.io/generated-resource": "true",
-				"plakar.io/service":            uuid.NewString(),
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -361,46 +361,6 @@ func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
 	if err != nil {
 		log.Printf("failed to delete pod %s/%s: %s",
 			pod.Namespace, pod.Name, err)
-	}
-}
-
-func (k *k8s) serviceFor(ctx context.Context, pod *corev1.Pod) (*corev1.Service, error) {
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: pod.Name + "-",
-			Namespace:    pod.Namespace,
-			Labels: map[string]string{
-				"plakar.io/generated-resource": "true",
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{{
-				Name:       pod.Spec.Containers[0].Ports[0].Name,
-				Protocol:   pod.Spec.Containers[0].Ports[0].Protocol,
-				Port:       pod.Spec.Containers[0].Ports[0].ContainerPort,
-				TargetPort: intstr.FromInt32(pod.Spec.Containers[0].Ports[0].ContainerPort),
-			}},
-			Selector: pod.ObjectMeta.Labels,
-		},
-	}
-
-	svc, err := k.clientset.CoreV1().Services(pod.Namespace).Create(ctx, svc, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create service: %w", err)
-	}
-
-	return svc, nil
-}
-
-func (k *k8s) delservice(ctx context.Context, svc *corev1.Service) {
-	ctx, cancel := detached(ctx)
-	defer cancel()
-
-	err := k.clientset.CoreV1().Services(svc.Namespace).
-		Delete(ctx, svc.Name, metav1.DeleteOptions{})
-	if err != nil {
-		log.Printf("failed to delete service %s/%s: %s",
-			svc.Namespace, svc.Name, err)
 	}
 }
 
@@ -498,7 +458,9 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	}
 }
 
-func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) (string, chan struct{}, error) {
+func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{}, error) {
+	port := pod.Spec.Containers[0].Ports[0].ContainerPort
+
 	if k.portForward {
 		u := k.clientset.CoreV1().RESTClient().Post().
 			Resource("pods").
@@ -518,7 +480,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 			readyChan = make(chan struct{}, 1)
 		)
 
-		p := fmt.Sprintf(":%d", svc.Spec.Ports[0].Port)
+		p := fmt.Sprintf(":%d", port)
 		pf, err := portforward.New(dialer, []string{p}, stopChan, readyChan, io.Discard, io.Discard)
 		if err != nil {
 			close(stopChan)
@@ -537,12 +499,14 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 		return fmt.Sprintf("localhost:%d", ports[0].Local), stopChan, nil
 	}
 
-	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace,
-		svc.Spec.Ports[0].Port), nil, nil
+	if pod.Status.PodIP == "" {
+		return "", nil, fmt.Errorf("pod %s/%s has no IP", pod.Namespace, pod.Name)
+	}
+	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, fp.pod, svc)
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
 	}
@@ -553,8 +517,8 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, svc *corev1.Service, rec
 	return k.consume(ctx, fp.cert, fp.peer, url, "/data", records, results)
 }
 
-func (k *k8s) podRestore(ctx context.Context, fp *fspod, svc *corev1.Service, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, fp.pod, svc)
+func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
 	}
@@ -630,13 +594,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, fp.pod)
-	if err != nil {
-		return fmt.Errorf("failed to create the service: %w", err)
-	}
-	defer k.delservice(ctx, svc)
-
-	return k.podBackup(ctx, fp, svc, records, results)
+	return k.podBackup(ctx, fp, records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -651,11 +609,5 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, fp.pod)
-	if err != nil {
-		return fmt.Errorf("failed to create the service: %w", err)
-	}
-	defer k.delservice(ctx, svc)
-
-	return k.podRestore(ctx, fp, svc, records, results)
+	return k.podRestore(ctx, fp, records, results)
 }
