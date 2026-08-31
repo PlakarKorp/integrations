@@ -41,7 +41,12 @@ test_restore_basic() {
 	run_mongosh "db.collection.find()" > $testroot/collection.before
 
 	run_mongosh "db.collection.drop()" > $testroot/stdout
-	echo "true" > $testroot/stdout.expected
+	cat > $testroot/stdout.expected <<EOF
+switched to db admin
+{ ok: 1 }
+switched to db test
+true
+EOF
 	cmp -s $testroot/stdout.expected $testroot/stdout
 	ret=$?
 	if [ $ret -ne 0 ]; then

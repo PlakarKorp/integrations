@@ -30,6 +30,9 @@ test_backup_basic() {
 	egrep -v '(insertedId|Count):' $testroot/stdout > $testroot/stdout.filtered
 
 	cat > $testroot/stdout.expected <<EOF
+switched to db admin
+{ ok: 1 }
+switched to db test
 {
   acknowledged: true,
 }
