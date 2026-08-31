@@ -11,6 +11,7 @@ prepare:
 	docker pull ${MONGODB_DOCKER_IMAGE}
 	docker container create --name ${MONGODB_DOCKER_NAME} \
 		-p ${MONGODB_PORT}:${MONGODB_PORT} \
+		--env-file mongo-test-authdata \
 		${MONGODB_DOCKER_IMAGE}
 
 clean: stop

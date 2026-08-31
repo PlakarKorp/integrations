@@ -32,6 +32,8 @@ test_restore_basic() {
 	run_plakar at "$testroot/backups" backup \
 		-o use_tls=false \
 		-force-timestamp "$timestamp" \
+		-o username="$MONGODB_INITDB_ROOT_USERNAME" \
+		-o password="$MONGODB_INITDB_ROOT_PASSWORD" \
 		"@mongodb_src" > $testroot/stdout
 
 	snapshot=$(cat $testroot/stdout | cut -d : -f1)
@@ -53,6 +55,8 @@ test_restore_basic() {
 
 	run_plakar at "$testroot/backups" restore -to @mongodb_dst \
 		-o use_tls=false \
+		-o username="$MONGODB_INITDB_ROOT_USERNAME" \
+		-o password="$MONGODB_INITDB_ROOT_PASSWORD" \
 		$snapshot
 
 	run_mongosh "db.collection.find()" > $testroot/collection.after

@@ -18,6 +18,11 @@ export LC_ALL=C
 
 export TEST_TMPDIR="/tmp"
 export TEST_DATA_FILE="testdata.bson"
+export AUTH_DATA_FILE="mongo-test-authdata"
+
+. ./"$AUTH_DATA_FILE"
+export MONGODB_INITDB_ROOT_USERNAME
+export MONGODB_INITDB_ROOT_PASSWORD
 
 test_status=0
 
@@ -119,5 +124,7 @@ run_mongosh()
 {
 	docker exec ${MONGODB_DOCKER_NAME} mongosh \
 		--port ${MONGODB_PORT} \
+		-u "${MONGODB_INITDB_ROOT_USERNAME}" \
+		-p "${MONGODB_INITDB_ROOT_PASSWORD}" \
 		--eval "$*"
 }
