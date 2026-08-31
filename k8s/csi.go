@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/portforward"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -39,6 +41,10 @@ import (
 const (
 	kubeletContainer = "kubelet"
 	pubkeyPrefix     = "plakar-pubkey: "
+
+	// heuristic to stop waiting indefinitely if there are issues
+	// mounting the pvc (e.g. ReadWriteOnce already mounted.)
+	podStartTimeout = 10 * time.Minute
 )
 
 var fatalWaiting = map[string]bool{
@@ -277,6 +283,35 @@ func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
 	}
 }
 
+// podTrouble tries to guess why the pod didn't start in time.  In
+// various cases (e.g. PVC ReadWriteOnce already mounted, or a volume
+// mode that the mount cannot handle), these issues are below the pod,
+// and can be retrieved only via events.
+func (k *k8s) podTrouble(ctx context.Context, pod *corev1.Pod) string {
+	events, err := k.clientset.CoreV1().Events(pod.Namespace).
+		SearchWithContext(ctx, scheme.Scheme, pod)
+	if err != nil {
+		return fmt.Sprintf("phase %s (failed to read events: %s)",
+			pod.Status.Phase, err)
+	}
+
+	var msgs []string
+	for _, e := range events.Items {
+		if e.Type != corev1.EventTypeWarning {
+			continue
+		}
+		msg := strings.TrimSpace(e.Reason + ": " + e.Message)
+		if !slices.Contains(msgs, msg) {
+			msgs = append(msgs, msg)
+		}
+	}
+
+	if len(msgs) == 0 {
+		return fmt.Sprintf("phase %s, no warnings", pod.Status.Phase)
+	}
+	return strings.Join(msgs, "; ")
+}
+
 type fspod struct {
 	cert *tls.Certificate
 	peer [32]byte
@@ -353,11 +388,21 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 		},
 	}
 
-	evt, err := watchtools.Until(ctx, pod.ResourceVersion, lw, podReady)
+	// don't wait indefinitely for the pod to be ready: there are
+	// cases where the pod might be stuck on creation and its
+	// status not updated.
+	wctx, cancel := context.WithTimeout(ctx, podStartTimeout)
+	defer cancel()
+
+	evt, err := watchtools.Until(wctx, pod.ResourceVersion, lw, podReady)
 	if err != nil {
 		k.delpod(ctx, pod)
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
+		}
+		if wctx.Err() != nil {
+			return nil, fmt.Errorf("pod %s/%s did not start within %s: %s",
+				pod.Namespace, pod.Name, podStartTimeout, k.podTrouble(ctx, pod))
 		}
 		return nil, err
 	}

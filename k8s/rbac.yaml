@@ -63,6 +63,14 @@ rules:
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshots"]
     verbs: ["create", "get", "list", "watch", "delete"]
+
+  # Diagnostics only.  Improves error messages when a pod never
+  # becomes ready: the reason could be below the container, like a PVC
+  # that never binds, and it's exposed in the events rather than in
+  # the pod status.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
