@@ -10,10 +10,41 @@ import (
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 	"golang.org/x/sync/errgroup"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 )
+
+type walkAction int
+
+const (
+	walkRecord walkAction = iota // report the type as failed in the snapshot
+	walkSkip                     // resource deleted concurrently; safe to skip
+	walkAbort                    // stop the world
+)
+
+func classifyListError(ctx context.Context, err error) walkAction {
+	// let's first handle the context cancelled / deadline case.
+	if ctx.Err() != nil {
+		return walkAbort
+	}
+
+	switch {
+	// lost the race, got something during the resource list that
+	// disappearead afterward.  safe to skip, nothing much to do.
+	case apierrors.IsNotFound(err), apierrors.IsMethodNotSupported(err):
+		return walkSkip
+
+	// our authentication got revoked, so every other call will
+	// likely fail the same.
+	case apierrors.IsUnauthorized(err):
+		return walkAbort
+	}
+
+	// forbidden, etc ..., these needs to be recorded.
+	return walkRecord
+}
 
 func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Record) error {
 	resources, err := k.discover.ServerPreferredResources()
@@ -51,17 +82,32 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 					LabelSelector: k.labels,
 				})
 				if err != nil {
-					return err
+					switch classifyListError(ctx, err) {
+					case walkRecord:
+						var (
+							ns    = "_"
+							group = "_"
+						)
+						if k.namespace != "" {
+							ns = k.namespace
+						}
+						if groupVersion.Group != "" {
+							group = groupVersion.Group
+						}
+						p := path.Join("/", ns, group, res.Kind,
+							groupVersion.Version)
+						records <- connectors.NewError(p, err)
+						return nil
+					case walkSkip:
+						return nil
+					default:
+						return err
+					}
 				}
 
 				for _, item := range list.Items {
 					if item.GetLabels()["plakar.io/generated-resource"] == "true" {
 						continue
-					}
-
-					byte, err := yaml.Marshal(item.Object)
-					if err != nil {
-						return err
 					}
 
 					var (
@@ -84,6 +130,12 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 					}
 
 					p := path.Join("/", ns, group, gvk.Kind, gvk.Version, name)
+
+					byte, err := yaml.Marshal(item.Object)
+					if err != nil {
+						records <- connectors.NewError(p, err)
+						continue
+					}
 
 					finfo := objects.FileInfo{
 						Lname:    name,
