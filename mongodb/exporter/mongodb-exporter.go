@@ -94,6 +94,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	return e, nil
 }
 
+func cleanupTempFile(f *os.File) {
+	os.Remove(f.Name())
+	f.Close()
+}
+
 func (e *mongodbExporter) commonArgs() []string {
 	var args []string
 
@@ -108,16 +113,16 @@ func (e *mongodbExporter) commonArgs() []string {
 		args = append(args, "--username")
 		args = append(args, e.username)
 	}
-	if len(e.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, e.password)
-	}
 
 	return args;
 }
 
 func (e *mongodbExporter) Ping(ctx context.Context) error {
 	args := e.commonArgs()
+	if len(e.password) > 0 {
+		args = append(args, "--password")
+		args = append(args, e.password)
+	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
 	cmd := exec.Command("mongosh", args...)
@@ -170,7 +175,23 @@ type commandResult struct {
 func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
+	var f *os.File
+	var err error
+
 	args := e.commonArgs()
+	if len(e.password) > 0 {
+		f, err = os.CreateTemp("", "plakar-mongodb")
+		if err != nil {
+			return err
+		}
+		defer cleanupTempFile(f)
+
+		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", e.password); err != nil {
+			return err
+		}
+		args = append(args, "--config")
+		args = append(args, f.Name())
+	}
 	args = append(args, "--drop")
 	args = append(args, "--objcheck")
 	args = append(args, "--archive")
