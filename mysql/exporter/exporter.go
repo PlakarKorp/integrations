@@ -154,10 +154,6 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 }
 
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	if err := mysqlconn.ValidDatabaseName(database); err != nil {
-		return err
-	}
-
 	pwArg, cleanup, err := e.conn.PasswordFileArg()
 	if err != nil {
 		return err
