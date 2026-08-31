@@ -14,6 +14,7 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	authv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
@@ -31,6 +32,7 @@ type k8s struct {
 	discover   *discovery.DiscoveryClient
 	snapClient *versioned.Clientset
 	opts       *connectors.Options
+	export     bool
 
 	host      string
 	namespace string
@@ -188,6 +190,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		discover:   discover,
 		snapClient: snapClient,
 		opts:       opts,
+		export:     export,
 		host:       host,
 		namespace:  namespace,
 		labels:     matchLabels,
@@ -220,9 +223,32 @@ func (k *k8s) Flags() location.Flags {
 func (k *k8s) Ping(ctx context.Context) error {
 	switch k.proto {
 	case "k8s":
-		ns := k.clientset.CoreV1().Namespaces()
-		_, err := ns.Get(ctx, "default", metav1.GetOptions{})
-		return err
+		verb := "list"
+		if k.export {
+			verb = "patch"
+		}
+
+		ssar := &authv1.SelfSubjectAccessReview{
+			Spec: authv1.SelfSubjectAccessReviewSpec{
+				ResourceAttributes: &authv1.ResourceAttributes{
+					// if "" it's cluster-wide, which is intended
+					Namespace: k.namespace,
+					Verb:      verb,
+					Group:     "apps",
+					Resource:  "deployments",
+				},
+			},
+		}
+		res, err := k.clientset.AuthorizationV1().SelfSubjectAccessReviews().
+			Create(ctx, ssar, metav1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+		if !res.Status.Allowed {
+			return fmt.Errorf("not allowed to %s deployments in %q: %s",
+				verb, k.namespace, res.Status.Reason)
+		}
+		return nil
 	case "k8s+csi", "k8s+pvc":
 		_, err := k.getpvc(ctx, k.namespace, k.pvcName)
 		return err
