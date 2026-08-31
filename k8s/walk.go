@@ -47,7 +47,7 @@ func classifyListError(ctx context.Context, err error) walkAction {
 }
 
 func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Record) error {
-	resources, err := k.discover.ServerPreferredResources()
+	resources, err := k.discover.ServerPreferredResourcesWithContext(ctx)
 	if err != nil {
 		return err
 	}
