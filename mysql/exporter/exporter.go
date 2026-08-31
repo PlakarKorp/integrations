@@ -108,13 +108,13 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 	// credentials from --defaults-extra-file.
 	if targetDB != "" {
 		if err := mysqlconn.ValidDatabaseName(targetDB); err != nil {
-			return fmt.Errorf("validating db name %s: %w", targetDB, err)
+			return fmt.Errorf("validating db name %q: %w", targetDB, err)
 		}
 	}
 
 	if e.createDB && targetDB != "" {
 		if err := e.createDatabase(ctx, targetDB); err != nil {
-			return fmt.Errorf("creating database %s: %w", targetDB, err)
+			return fmt.Errorf("creating database %q: %w", targetDB, err)
 		}
 	}
 
