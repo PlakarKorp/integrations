@@ -238,8 +238,16 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 }
 
 func (k *k8s) getpvc(ctx context.Context, ns, name string) (*corev1.PersistentVolumeClaim, error) {
-	return k.clientset.CoreV1().PersistentVolumeClaims(ns).
+	pvc, err := k.clientset.CoreV1().PersistentVolumeClaims(ns).
 		Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock {
+		return nil, fmt.Errorf("PVC %s/%s is a raw block volume, which is not supported", ns, name)
+	}
+	return pvc, nil
 }
 
 func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
