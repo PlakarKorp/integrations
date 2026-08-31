@@ -48,12 +48,12 @@ EOF
 	run_plakar source add mongodb_src "$PLAKAR_MONGODB_ADDR" \
 		> /dev/null
 
+	get_auth_creds_yml >> $testroot/cfg/sources.yml
+
 	timestamp="2026-08-16T14:27:24Z"
 	run_plakar at "$testroot/backups" backup \
 		-o use_tls=false \
 		-force-timestamp "$timestamp" \
-		-o username="$MONGODB_INITDB_ROOT_USERNAME" \
-		-o password="$MONGODB_INITDB_ROOT_PASSWORD" \
 		"@mongodb_src" > $testroot/stdout
 
 	snapshot=$(cat $testroot/stdout | cut -d : -f1)

@@ -128,3 +128,10 @@ run_mongosh()
 		-p "${MONGODB_INITDB_ROOT_PASSWORD}" \
 		--eval "$*"
 }
+
+get_auth_creds_yml()
+{
+	cat ./"$AUTH_DATA_FILE" | sed \
+		-e 's/^MONGODB_INITDB_ROOT_USERNAME=/        username: /' \
+		-e 's/^MONGODB_INITDB_ROOT_PASSWORD=/        password: /'
+}
