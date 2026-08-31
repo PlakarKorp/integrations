@@ -59,6 +59,11 @@ func New(proto string, conn mysqlconn.ConnConfig, config map[string]string) (*Im
 		Conn:     conn,
 		Database: mysqlconn.DatabaseFromConfig(config),
 	}
+	if imp.Database != "" {
+		if err := mysqlconn.ValidDatabaseName(imp.Database); err != nil {
+			return nil, err
+		}
+	}
 	var err error
 	if imp.SingleTransaction, err = boolOpt("single_transaction", true); err != nil {
 		return nil, err

@@ -1,13 +1,15 @@
 package mysqlconn
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestValidDatabaseName(t *testing.T) {
 	ok := []string{"myapp", "my_app", "my-app", "MyApp", "db123", "mysql"}
 	for _, name := range ok {
-		if err := ValidDatabaseName(name); err != nil {
-			t.Errorf("ValidDatabaseName(%q) = %v, want nil", name, err)
-		}
+		require.NoErrorf(t, ValidDatabaseName(name), "ValidDatabaseName(%q)", name)
 	}
 
 	// The mysql client parses options anywhere in argv, so a trailing
@@ -23,8 +25,6 @@ func TestValidDatabaseName(t *testing.T) {
 		"my\x00app",
 	}
 	for _, name := range bad {
-		if err := ValidDatabaseName(name); err == nil {
-			t.Errorf("ValidDatabaseName(%q) = nil, want an error", name)
-		}
+		require.Errorf(t, ValidDatabaseName(name), "ValidDatabaseName(%q)", name)
 	}
 }
