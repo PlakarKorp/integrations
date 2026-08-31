@@ -49,6 +49,18 @@ $ rclone config show | plakar store import configname
 
 > *Note:* The `configname` is the name of the Rclone remote you configured in `rclone config`.
 
+For wrapper remotes such as `crypt`, `alias`, or `chunker`, the imported remote
+may depend on another remote section from your Rclone configuration. The
+integration loads the local Rclone config into its runtime config when available,
+so dependent sections can be resolved.
+
+If the Rclone config is not in the default location, pass it explicitly:
+
+```bash
+$ rclone config show | plakar store import myCryptRemote
+$ plakar store set myCryptRemote rclone_config_file=/path/to/rclone.conf
+```
+
 ## Supported Providers
 
 Plakar supports the following Rclone providers for backup and restore operations:
