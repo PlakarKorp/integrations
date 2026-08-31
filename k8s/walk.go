@@ -52,7 +52,7 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
-	var wg errgroup.Group
+	wg, ctx := errgroup.WithContext(ctx)
 	wg.SetLimit(k.opts.MaxConcurrency)
 
 	for _, resource := range resources {
