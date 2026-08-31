@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
@@ -210,6 +211,16 @@ func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) {
 	}
 }
 
+func cloneSize(orig *corev1.PersistentVolumeClaim, snap *vs.VolumeSnapshot) resource.Quantity {
+	size := orig.Spec.Resources.Requests[corev1.ResourceStorage]
+
+	if snap.Status != nil && snap.Status.RestoreSize != nil && size.Cmp(*snap.Status.RestoreSize) < 0 {
+		size = *snap.Status.RestoreSize
+	}
+
+	return size.DeepCopy()
+}
+
 func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapshot, orig *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error) {
 	apiGroup := "snapshot.storage.k8s.io"
 	pvc := &corev1.PersistentVolumeClaim{
@@ -226,10 +237,14 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 				Kind:     "VolumeSnapshot",
 				Name:     snap.Name,
 			},
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: cloneSize(orig, snap),
+				},
 			},
-			Resources: orig.Spec.Resources,
+			AccessModes:      orig.Spec.AccessModes,
+			StorageClassName: orig.Spec.StorageClassName,
+			VolumeMode:       orig.Spec.VolumeMode,
 		},
 	}
 
