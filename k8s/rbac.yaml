@@ -1,0 +1,220 @@
+# RBAC for the plakar kubernetes integration.
+#
+# Four independent roles, one per thing the integration does.  Apply only the
+# ones you need: they differ enormously in power, and a single ServiceAccount
+# holding all of them is equivalent to a cluster-admin.
+#
+#   k8s+csi / k8s+pvc   PVC data      namespaced, small
+#   k8s: (backup)       manifests     cluster-wide read, INCLUDING SECRETS
+#   k8s: (restore)      manifests     cluster-wide write
+#   inventory           PVC discovery cluster-wide read of PVCs only
+#
+# Two placeholders to replace:
+#   plakar             the namespace plakar runs in (in-cluster deployments)
+#   target-namespace   the namespace whose PVCs you back up
+#
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: plakar
+---
+# ---------------------------------------------------------------------------
+# PVC data: k8s+csi and k8s+pvc
+#
+# One Role per target namespace.  This is the only role that stays genuinely
+# small, and the one to reach for if all you do is back up volumes.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-pvc
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plakar-pvc
+  namespace: target-namespace
+rules:
+  # get: read the PVC being backed up or restored into.
+  # create + delete: k8s+csi only, for the temporary PVC cloned from the
+  # snapshot.  Drop them if you only ever use k8s+pvc.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "create", "delete"]
+
+  # The pod serving the volume over mTLS.  create/watch/delete are what the
+  # code uses; list comes with watch because the wait is built on a
+  # ListWatch, and get is worth having so a human can inspect a stuck pod
+  # with the same credentials.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+  # The pod prints the public key it serves with; the integration reads it
+  # from the log and pins it.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # k8s+csi only: the CSI snapshot taken before cloning.  Drop this rule
+  # entirely for k8s+pvc.
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: plakar-pvc
+  namespace: target-namespace
+subjects:
+  - kind: ServiceAccount
+    name: plakar-pvc
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plakar-pvc
+---
+# ---------------------------------------------------------------------------
+# PVC data, out-of-cluster only.
+#
+# A kubeconfig-based run tunnels through the apiserver's portforward
+# subresource.  An in-cluster run dials the pod IP directly and does NOT need
+# this: leave it unapplied there.
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plakar-pvc-portforward
+  namespace: target-namespace
+rules:
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: plakar-pvc-portforward
+  namespace: target-namespace
+subjects:
+  - kind: ServiceAccount
+    name: plakar-pvc
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plakar-pvc-portforward
+---
+# ---------------------------------------------------------------------------
+# Manifest backup: k8s:
+#
+# READ THIS BEFORE APPLYING.  The walk asks the discovery API for every
+# listable resource type and lists them all, so the grant is genuinely
+# cluster-wide read -- Secrets included.  Anyone who can trigger a backup
+# with this ServiceAccount can read every Secret in the cluster, and so can
+# anyone who can read the resulting snapshot.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-resources-backup
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: plakar-resources-backup
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: plakar-resources-backup
+subjects:
+  - kind: ServiceAccount
+    name: plakar-resources-backup
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: plakar-resources-backup
+---
+# ---------------------------------------------------------------------------
+# Manifest restore: k8s: as an exporter
+#
+# Restore does a server-side Apply against whatever kind each record resolves
+# to, so this is cluster-wide write.  Keep it on a separate ServiceAccount
+# from backup: a scheduled backup has no business holding it.
+#
+# patch is the verb server-side apply is authorized as; create is needed for
+# objects that do not exist yet.  update is deliberately absent -- apply
+# never uses it.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-resources-restore
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: plakar-resources-restore
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: plakar-resources-restore
+subjects:
+  - kind: ServiceAccount
+    name: plakar-resources-restore
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: plakar-resources-restore
+---
+# ---------------------------------------------------------------------------
+# Inventory
+#
+# Lists PVCs across all namespaces to report what is backupable.  Reads
+# metadata only, never volume contents.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-inventory
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: plakar-inventory
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: plakar-inventory
+subjects:
+  - kind: ServiceAccount
+    name: plakar-inventory
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: plakar-inventory
