@@ -285,6 +285,12 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					},
 				},
 			}},
+
+			// we don't need to access the cluster from
+			// this pod at all, it's there just to serve
+			// grpc and read volumes.
+			AutomountServiceAccountToken: new(false),
+
 			Containers: []corev1.Container{{
 				Name:  kubeletContainer,
 				Image: k.kubeletImage,
