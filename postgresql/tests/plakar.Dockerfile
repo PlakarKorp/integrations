@@ -20,11 +20,6 @@ RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
 
 COPY . /src
 
-# Package from /src so validator paths in manifest.yaml (e.g.
-# ./importer/schema.json) resolve. Staging only the binaries + manifest
-# in /tmp/pgpkg leaves those files behind and `plakar pkg create` fails.
-# --allow-unsigned is required because locally built packages have no
-# release signature.
 RUN set -e && \
     cd /src && \
     go build -o postgresqlImporter    ./plugin/importer && \
