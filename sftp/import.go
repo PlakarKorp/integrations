@@ -94,7 +94,7 @@ func (s *Sftp) walkDir_walker(ctx context.Context, records chan<- *connectors.Re
 	}
 
 	err := walk(s.client, s.rootDir, func(path string, info os.FileInfo, err error) error {
-		if ctx.Err() != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 
