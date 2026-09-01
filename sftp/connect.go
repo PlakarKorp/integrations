@@ -204,7 +204,7 @@ func dial(args []string) (*sftp.Client, error) {
 
 func checkParamSupportForWindows(params map[string]string) error {
 	for _, key := range []string{"ssh_auth_sock", "ssh_private_key", "ssh_private_key_ttl"} {
-		if _, exists := params[key]; exists {
+		if val := params[key]; val != "" {
 			return fmt.Errorf("%q not supported on Windows", key)
 		}
 	}
