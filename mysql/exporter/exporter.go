@@ -101,9 +101,15 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
+	if targetDB != "" {
+		if err := mysqlconn.ValidDatabaseName(targetDB); err != nil {
+			return fmt.Errorf("validating db name: %w", err)
+		}
+	}
+
 	if e.createDB && targetDB != "" {
 		if err := e.createDatabase(ctx, targetDB); err != nil {
-			return fmt.Errorf("creating database %s: %w", targetDB, err)
+			return fmt.Errorf("creating database %q: %w", targetDB, err)
 		}
 	}
 
@@ -143,10 +149,6 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 }
 
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	if strings.ContainsAny(database, "`\x00") { // prevent injection via backtick or NUL
-		return fmt.Errorf("invalid database name: %q", database)
-	}
-
 	pwArg, cleanup, err := e.conn.PasswordFileArg()
 	if err != nil {
 		return err
