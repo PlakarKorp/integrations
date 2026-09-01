@@ -14,9 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package importer
+package sftp
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -35,20 +36,20 @@ type file struct {
 }
 
 var (
-	SkipDir = errors.New("skip this directory")
-	SkipAll = errors.New("skip everything and stop the walk")
+	skipDir = errors.New("skip this directory")
+	skipAll = errors.New("skip everything and stop the walk")
 )
 
+func (s *Sftp) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	defer close(records)
+	return s.walkDir_walker(ctx, records, s.maxConcurrency)
+}
+
 // Worker pool to handle file scanning in parallel
-func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (s *Sftp) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for p := range jobs {
-		// fixup the rootdir if it happened to be a file
-		if !p.info.IsDir() && p.path == imp.Root() {
-			imp.rootDir = path.Dir(imp.Root())
-		}
-
 		var uid, gid uint64
 
 		if sb, ok := p.info.Sys().(*sftp.FileStat); ok {
@@ -68,7 +69,7 @@ func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors
 		var originFile string
 		var err error
 		if p.info.Mode()&os.ModeSymlink != 0 {
-			originFile, err = imp.client.ReadLink(p.path)
+			originFile, err = s.client.ReadLink(p.path)
 			if err != nil {
 				records <- connectors.NewError(p.path, err)
 				continue
@@ -79,9 +80,42 @@ func (imp *Importer) walkDir_worker(jobs <-chan file, records chan<- *connectors
 
 		records <- connectors.NewRecord(entrypath, originFile, fileinfo, []string{},
 			func() (io.ReadCloser, error) {
-				return imp.client.Open(p.path)
+				return s.client.Open(p.path)
 			})
 	}
+}
+
+func (s *Sftp) walkDir_walker(ctx context.Context, records chan<- *connectors.Record, numWorkers int) error {
+	jobs := make(chan file, numWorkers*4) // Buffered channel to feed paths to workers
+	var wg sync.WaitGroup
+	for range numWorkers {
+		wg.Add(1)
+		go s.walkDir_worker(jobs, records, &wg)
+	}
+
+	err := walk(s.client, s.rootDir, func(path string, info os.FileInfo, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if err != nil {
+			records <- connectors.NewError(path, err)
+			return nil
+		}
+
+		if path != "/" {
+			if s.excludes.IsExcluded(path, info.IsDir()) {
+				return skipDir
+			}
+		}
+
+		jobs <- file{path: path, info: info}
+		return nil
+	})
+
+	close(jobs)
+	wg.Wait()
+	return err
 }
 
 func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, walkFn func(string, os.FileInfo, error) error) error {
@@ -101,7 +135,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, 
 	for _, entry := range entries {
 		newPath := path.Join(p, entry.Name())
 		if err := walkdir(client, entry, entry.Mode(), newPath, walkFn); err != nil {
-			if err == SkipDir {
+			if err == skipDir {
 				continue
 			}
 			return err
@@ -110,7 +144,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, 
 	return nil
 }
 
-func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
+func walk(client *sftp.Client, remotePath string, walkFn func(path string, info os.FileInfo, err error) error) error {
 	var mode os.FileMode
 
 	info, err := client.Lstat(remotePath)
@@ -142,7 +176,7 @@ func SFTPWalk(client *sftp.Client, remotePath string, walkFn func(path string, i
 
 	err = walkdir(client, info, mode, remotePath, walkFn)
 done:
-	if err == SkipDir || err == SkipAll {
+	if err == skipDir || err == skipAll {
 		err = nil
 	}
 	return err

@@ -6,26 +6,26 @@ tier: official
 contact: mailto:help@plakar.io
 connectors:
 - type: importer
-  executable: sftpImporter
+  executable: sftp-importer
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
-  validator: ./importer/schema.json
+  validator: ./cmd/importer/schema.json
 - type: exporter
-  executable: sftpExporter
+  executable: sftp-exporter
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
-  validator: ./exporter/schema.json
+  validator: ./cmd/exporter/schema.json
 - type: storage
-  executable: sftpStorage
+  executable: sftp-storage
   homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
   license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
-  validator: ./storage/schema.json
+  validator: ./cmd/storage/schema.json

@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package storage
+package sftp
 
 import (
 	"encoding/hex"
@@ -30,23 +30,22 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type Buckets struct {
+type buckets struct {
 	client *sftp.Client
 	path   string
 }
 
-func NewBuckets(sftpClient *sftp.Client, path string) Buckets {
-	return Buckets{
+func newBuckets(sftpClient *sftp.Client, path string) buckets {
+	return buckets{
 		client: sftpClient,
 		path:   path,
 	}
 }
 
-func (buckets *Buckets) Create() error {
+func (buckets *buckets) Create() error {
 	var g errgroup.Group
 
-	for i := 0; i < 256; i++ {
-		i := i // capture the current value of i
+	for i := range 256 {
 		g.Go(func() error {
 			dir := path.Join(buckets.path, fmt.Sprintf("%02x", i))
 			if err := buckets.client.MkdirAll(dir); err != nil {
@@ -62,12 +61,12 @@ func (buckets *Buckets) Create() error {
 	return g.Wait()
 }
 
-func (buckets *Buckets) List() ([]objects.MAC, error) {
+func (buckets *buckets) List() ([]objects.MAC, error) {
 	ret := make([]objects.MAC, 0)
 	var mu sync.Mutex
 
 	wg := sync.WaitGroup{}
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
 		wg.Add(1)
 		go func(path string) {
@@ -103,13 +102,13 @@ func (buckets *Buckets) List() ([]objects.MAC, error) {
 	return ret, nil
 }
 
-func (buckets *Buckets) Path(mac objects.MAC) string {
+func (buckets *buckets) Path(mac objects.MAC) string {
 	return path.Join(buckets.path,
 		fmt.Sprintf("%02x", mac[0]),
 		fmt.Sprintf("%064x", mac))
 }
 
-func (buckets *Buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (buckets *buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	fp, err := buckets.client.Open(buckets.Path(mac))
 	if err != nil {
 		return nil, err
@@ -122,10 +121,10 @@ func (buckets *Buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, 
 	return reading.NewSectionReadCloser(fp, int64(rg.Offset), int64(rg.Length)), nil
 }
 
-func (buckets *Buckets) Remove(mac objects.MAC) error {
+func (buckets *buckets) Remove(mac objects.MAC) error {
 	return buckets.client.Remove(buckets.Path(mac))
 }
 
-func (buckets *Buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
-	return WriteToFileAtomicTempDir(buckets.client, buckets.Path(mac), rd, buckets.path)
+func (buckets *buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
+	return writeFileAtomic(buckets.client, buckets.Path(mac), rd)
 }

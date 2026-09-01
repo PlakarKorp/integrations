@@ -14,44 +14,46 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package storage
+package sftp
 
 import (
 	"fmt"
 	"io"
-	"path"
+	"math/rand/v2"
 
 	"github.com/pkg/sftp"
 )
 
-func WriteToFileAtomic(sftpClient *sftp.Client, filename string, rd io.Reader) (int64, error) {
-	return WriteToFileAtomicTempDir(sftpClient, filename, rd, path.Dir(filename))
-}
+func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader) (int64, error) {
+	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
 
-func WriteToFileAtomicTempDir(sftpClient *sftp.Client, filename string, rd io.Reader, tmpdir string) (int64, error) {
-	tmp := fmt.Sprintf("%s.tmp", filename)
-	f, err := sftpClient.Create(tmp)
+	tmp, err := sftpClient.Create(tmpName)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("could not create temporary file %s: %w", tmpName, err)
 	}
+
+	ok := false
+	defer func() {
+		if !ok {
+			sftpClient.Remove(tmpName)
+		}
+	}()
 
 	var nbytes int64
-	if nbytes, err = f.ReadFromWithConcurrency(rd, 0); err != nil {
-		f.Close()
-		sftpClient.Remove(f.Name())
-		return 0, err
+	if nbytes, err = tmp.ReadFromWithConcurrency(rd, 0); err != nil {
+		tmp.Close()
+		return 0, fmt.Errorf("failed to write %s: %w", pathname, err)
 	}
 
-	if err = f.Close(); err != nil {
-		sftpClient.Remove(f.Name())
-		return 0, err
+	if err := tmp.Close(); err != nil {
+		return 0, fmt.Errorf("could not close %s: %w", pathname, err)
 	}
 
-	err = sftpClient.Rename(f.Name(), filename)
-	if err != nil {
-		sftpClient.Remove(f.Name())
-		return 0, err
+	if err := sftpClient.Rename(tmpName, pathname); err != nil {
+		return 0, fmt.Errorf("could not create %s: %w", pathname, err)
 	}
+
+	ok = true
 
 	return nbytes, nil
 }
