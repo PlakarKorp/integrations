@@ -124,7 +124,7 @@ func sshArgs(endpoint *url.URL, params map[string]string) []string {
 
 func checkMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
 	args := sshArgs(endpoint, params)
-	args = append(args, "-S", sock, "-O", "check", host)
+	args = append(args, "-S", sock, "-O", "check", "--", host)
 
 	out, err := exec.Command("ssh", args...).CombinedOutput()
 	if err != nil {
@@ -139,7 +139,7 @@ func startMaster(endpoint *url.URL, params map[string]string, host, sock string)
 		"-N", "-f", "-S", sock,
 		"-o", "ControlMaster=yes",
 		"-o", "ControlPersist=10m",
-		host,
+		"--", host,
 	)
 
 	cmd := exec.Command("ssh", args...)
@@ -258,8 +258,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 			return nil, err
 		}
 
-		args = append(args, host)
-		args = append(args, "-s", "sftp")
+		args = append(args, "-s", "--", host, "sftp")
 
 		return dial(args)
 	}
@@ -271,9 +270,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	// reuse the master
-	args = append(args, "-S", sock)
-	args = append(args, host)
-	args = append(args, "-s", "sftp")
+	args = append(args, "-S", sock, "-s", "--", host, "sftp")
 
 	return dial(args)
 }
