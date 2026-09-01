@@ -27,10 +27,10 @@ import (
 type k8s struct {
 	proto      string
 	config     *rest.Config
-	clientset  *kubernetes.Clientset
-	dclient    *dynamic.DynamicClient
-	discover   *discovery.DiscoveryClient
-	snapClient *versioned.Clientset
+	clientset  kubernetes.Interface
+	dclient    dynamic.Interface
+	discover   discovery.DiscoveryInterfaceWithContext
+	snapClient versioned.Interface
 	opts       *connectors.Options
 	export     bool
 
