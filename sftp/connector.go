@@ -46,7 +46,6 @@ type Sftp struct {
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
-	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
 
 	packfiles buckets
 	states    buckets
