@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -68,6 +69,15 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	parsed, err := url.Parse(config["location"])
 	if err != nil {
 		return nil, err
+	}
+
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("hostname is empty")
+	}
+
+	if strings.HasPrefix(parsed.Hostname(), "-") {
+		return nil, fmt.Errorf("invalid hostname %q: may not start with `-'",
+			parsed.Host)
 	}
 
 	if parsed.User != nil && config["username"] != "" {
