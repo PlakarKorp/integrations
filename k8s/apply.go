@@ -7,15 +7,15 @@ import (
 	yamlv3 "go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	memory "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 )
 
 func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	var (
-		discovery = memory.NewMemCacheClient(k.discover)
-		mapper    = restmapper.NewDeferredDiscoveryRESTMapper(discovery)
+		discovery = memory.NewMemCacheClientWithContext(k.discover)
+		mapper    = restmapper.NewDeferredDiscoveryRESTMapperWithContext(discovery)
 	)
 
 	for record := range records {
