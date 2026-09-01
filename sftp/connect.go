@@ -32,10 +32,35 @@ import (
 	"github.com/pkg/sftp"
 )
 
-func controlSock(endpoint *url.URL, params map[string]string) string {
+func controlDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate a private cache directory: %w", err)
+	}
+
+	dir := filepath.Join(base, "plakar", "ssh")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+
+	// MkdirAll is happy with a directory that already exists, whoever owns
+	// it and whatever its mode is, so check what we ended up with.
+	if err := checkPrivateDir(dir); err != nil {
+		return "", err
+	}
+
+	return dir, nil
+}
+
+func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
+	dir, err := controlDir()
+	if err != nil {
+		return "", err
+	}
+
 	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
 	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("plakar-ssh-%x.sock", sum[:8]))
+	return filepath.Join(dir, fmt.Sprintf("%x.sock", sum[:8])), nil
 }
 
 // guard master creation per ControlPath
@@ -130,7 +155,10 @@ func startMaster(endpoint *url.URL, params map[string]string, host, sock string)
 }
 
 func ensureMaster(endpoint *url.URL, params map[string]string, host string) (string, error) {
-	sock := controlSock(endpoint, params)
+	sock, err := controlSock(endpoint, params)
+	if err != nil {
+		return "", err
+	}
 
 	// Serialize master startup per socket
 	mu := lockFor(sock)
