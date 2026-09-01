@@ -21,16 +21,13 @@ RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
 COPY . /src
 
 RUN set -e && \
-    mkdir -p /tmp/pgpkg && \
     cd /src && \
-    go build -o /tmp/pgpkg/postgresqlImporter    ./plugin/importer && \
-    go build -o /tmp/pgpkg/postgresqlExporter    ./plugin/exporter && \
-    go build -o /tmp/pgpkg/postgresqlBinImporter ./plugin/binimporter && \
-    go build -o /tmp/pgpkg/postgresqlAWSImporter ./plugin/awsimporter && \
-    go build -o /tmp/pgpkg/postgresqlAWSExporter ./plugin/awsexporter && \
-    cp /src/manifest.yaml /tmp/pgpkg/ && \
-    cd /tmp/pgpkg && \
+    go build -o postgresqlImporter    ./plugin/importer && \
+    go build -o postgresqlExporter    ./plugin/exporter && \
+    go build -o postgresqlBinImporter ./plugin/binimporter && \
+    go build -o postgresqlAWSImporter ./plugin/awsimporter && \
+    go build -o postgresqlAWSExporter ./plugin/awsexporter && \
     PTAR="postgresql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \
     plakar pkg create ./manifest.yaml v0.0.1 && \
-    plakar pkg add "./${PTAR}" && \
-    rm -rf /tmp/pgpkg /src
+    plakar pkg add --allow-unsigned "./${PTAR}" && \
+    rm -rf /src
