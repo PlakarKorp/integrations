@@ -17,17 +17,18 @@
 package sftp
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	"os"
 
 	"github.com/pkg/sftp"
 )
 
 func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader) (int64, error) {
-	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+	tmpName := fmt.Sprintf("%s.tmp.%s", pathname, rand.Text())
 
-	tmp, err := sftpClient.Create(tmpName)
+	tmp, err := sftpClient.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
 		return 0, fmt.Errorf("could not create temporary file %s: %w", tmpName, err)
 	}
