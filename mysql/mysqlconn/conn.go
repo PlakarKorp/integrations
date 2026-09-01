@@ -72,22 +72,31 @@ func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
 		Port: "3306",
 	}
 
-	if location, ok := config["location"]; ok && location != "" {
-		if err := parseURI(location, &cc); err != nil {
-			return cc, fmt.Errorf("parsing location URI: %w", err)
+	if proxy {
+		_, host, ok := strings.Cut(config["location"], "://")
+		if !ok {
+			return cc, fmt.Errorf("failed to parse location URI: expected protocol://identifier")
+		}
+		cc.Host = host
+	} else {
+		if location, ok := config["location"]; ok && location != "" {
+			if err := parseURI(location, &cc); err != nil {
+				return cc, fmt.Errorf("parsing location URI: %w", err)
+			}
+		}
+
+		if v := config["host"]; v != "" {
+			cc.Host = v
+		}
+		if v := config["port"]; v != "" {
+			p, err := strconv.Atoi(v)
+			if err != nil || p < 1 || p > 65535 {
+				return cc, fmt.Errorf("invalid port %q: must be an integer between 1 and 65535", v)
+			}
+			cc.Port = v
 		}
 	}
 
-	if v := config["host"]; v != "" {
-		cc.Host = v
-	}
-	if v := config["port"]; v != "" {
-		p, err := strconv.Atoi(v)
-		if err != nil || p < 1 || p > 65535 {
-			return cc, fmt.Errorf("invalid port %q: must be an integer between 1 and 65535", v)
-		}
-		cc.Port = v
-	}
 	if v := config["username"]; v != "" {
 		cc.Username = v
 	}
