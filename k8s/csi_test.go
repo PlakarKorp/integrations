@@ -3,6 +3,7 @@ package k8s
 import (
 	"testing"
 
+	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,86 @@ func terminated(code int32, reason, message string) corev1.ContainerState {
 
 func running() corev1.ContainerState {
 	return corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+}
+
+func volumesnap(status *vs.VolumeSnapshotStatus) *vs.VolumeSnapshot {
+	return &vs.VolumeSnapshot{
+		Status: status,
+	}
+}
+
+func readyToUse(x bool) *vs.VolumeSnapshotStatus {
+	return &vs.VolumeSnapshotStatus{
+		ReadyToUse: new(x),
+	}
+}
+
+func volfailed(msg string) *vs.VolumeSnapshotStatus {
+	return &vs.VolumeSnapshotStatus{
+		Error: &vs.VolumeSnapshotError{
+			Message: new(msg),
+		},
+	}
+}
+
+func TestSnapshotReady(t *testing.T) {
+	suite := []struct {
+		name    string
+		evt     watch.Event
+		want    bool
+		wantErr string
+	}{
+		{
+			name: "ready",
+			evt: watch.Event{
+				Type:   watch.Modified,
+				Object: volumesnap(readyToUse(true)),
+			},
+			want: true,
+		},
+		{
+			name: "not ready yet",
+			evt: watch.Event{
+				Type:   watch.Modified,
+				Object: volumesnap(readyToUse(false)),
+			},
+			want: false,
+		},
+		{
+			name: "failed",
+			evt: watch.Event{
+				Type:   watch.Modified,
+				Object: volumesnap(volfailed("failed to attach")),
+			},
+			want:    false,
+			wantErr: "failed to attach",
+		},
+		{
+			name: "error",
+			evt: watch.Event{
+				Type:   watch.Error,
+				Object: &metav1.Status{Message: "invalid frobnication"},
+			},
+			want:    false,
+			wantErr: "invalid frobnication",
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := snapshotReady(test.evt)
+
+			if test.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.wantErr)
+				require.False(t, got, "a failing snapshot is never okay")
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
 }
 
 func TestPodReady(t *testing.T) {
