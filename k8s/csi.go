@@ -104,7 +104,7 @@ func podReady(evt watch.Event) (bool, error) {
 			continue
 		}
 
-		if t := cs.State.Terminated; t != nil && t.ExitCode != 0 {
+		if t := cs.State.Terminated; t != nil {
 			msg := strings.TrimSpace(t.Message)
 			if msg == "" {
 				msg = t.Reason
@@ -348,6 +348,11 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			// this pod at all, it's there just to serve
 			// grpc and read volumes.
 			AutomountServiceAccountToken: new(false),
+
+			// a restart is never useful: the new instance
+			// generates a fresh keypair, so the fingerprint we
+			// pinned no longer matches.  Let it fail instead.
+			RestartPolicy: corev1.RestartPolicyNever,
 
 			Containers: []corev1.Container{{
 				Name:  kubeletContainer,
