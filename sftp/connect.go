@@ -33,9 +33,14 @@ import (
 )
 
 func controlDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
+	var base string
+
+	if run := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(run) {
+		base = run
+	} else if cache, err := os.UserCacheDir(); err != nil {
 		return "", fmt.Errorf("cannot locate a private cache directory: %w", err)
+	} else {
+		base = cache
 	}
 
 	dir := filepath.Join(base, "plakar", "ssh")
