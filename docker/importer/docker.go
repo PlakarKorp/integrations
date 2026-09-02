@@ -93,6 +93,23 @@ func (i *Importer) Flags() location.Flags {
 	return flags
 }
 
+// linkTarget returns the target to restore for a link entry.
+//
+// For a symlink the recorded target is reproduced verbatim, absolute ones
+// included: that is what the archive says the link points at.
+//
+// A hard link is different.  Its Linkname names another member of the same
+// archive, so it is a path within the archive and is normalised the same way
+// hdr.Name is.  It used to be passed through untouched, which meant a hard
+// link entry naming "../../etc/shadow" was handed to the exporter as a symlink
+// target pointing out of the restore root.
+func linkTarget(hdr *tar.Header) string {
+	if hdr.Typeflag == tar.TypeLink {
+		return path.Join("/", hdr.Linkname)
+	}
+	return hdr.Linkname
+}
+
 func finfo(hdr *tar.Header) objects.FileInfo {
 	f := objects.FileInfo{
 		Lname:      path.Base(hdr.Name),
@@ -108,7 +125,7 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 	}
 
 	switch hdr.Typeflag {
-	case tar.TypeLink:
+	case tar.TypeSymlink, tar.TypeLink:
 		f.Lmode |= fs.ModeSymlink
 	case tar.TypeChar:
 		f.Lmode |= fs.ModeCharDevice
@@ -140,7 +157,7 @@ func (t *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 		name := path.Join("/", hdr.Name)
 		records <- &connectors.Record{
 			Pathname: name,
-			Target:   hdr.Linkname,
+			Target:   linkTarget(hdr),
 			FileInfo: finfo(hdr),
 			Reader:   io.NopCloser(t.tar),
 		}
@@ -161,9 +178,17 @@ func (t *Importer) Ping(ctx context.Context) error {
 }
 
 func (t *Importer) Close(ctx context.Context) (err error) {
-	t.fp.Close()
+	// The nil check used to come after the first Close, which then ran
+	// twice; and cleanup, which closes the Docker client, was never called
+	// at all, so every import leaked it.
 	if t.fp != nil {
 		err = t.fp.Close()
+	}
+
+	if t.cleanup != nil {
+		if cerr := t.cleanup(); err == nil {
+			err = cerr
+		}
 	}
 
 	return err
