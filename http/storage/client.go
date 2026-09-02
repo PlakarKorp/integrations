@@ -65,19 +65,18 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		}
 	}
 
-	httpClient := http.DefaultClient
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if storeConfig["tls_no_verify"] == "true" {
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true,
 		}
 	}
 
 	return &Store{
 		location:   location,
 		authToken:  authToken,
-		httpClient: httpClient,
+		httpClient: &http.Client{Transport: transport},
 	}, nil
 }
 
