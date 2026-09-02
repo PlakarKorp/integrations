@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Redis Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis connection URI: redis://[user[:password]@]host[:port] or rediss://... for TLS.",
+      "pattern": "^rediss?://.*$"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis server hostname. Overrides the host in the location URI."
+    },
+    "port": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis server port. Overrides the port in the location URI."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis ACL username. Overrides the username in the location URI."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Redis password. Overrides the password in the location URI."
+    },
+    "tls": {
+      "type": "boolean",
+      "description": "Enable TLS. rediss:// enables TLS automatically."
+    },
+    "tls_server_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Server name used for TLS verification. Defaults to the Redis host."
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "description": "Skip TLS certificate verification. Intended for local testing only."
+    },
+    "timeout": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Dial and command timeout, as a Go duration like 30s or as a number of seconds."
+    }
+  }
+}
