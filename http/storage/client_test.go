@@ -53,3 +53,22 @@ func TestNewStoreRefusesTokenOverCleartext(t *testing.T) {
 		t.Errorf("tokenless http rejected: %v", err)
 	}
 }
+
+func TestNewStoreSetsATimeout(t *testing.T) {
+	s, err := NewStore(context.Background(), "https", map[string]string{
+		"location": "https://repo.example/backups",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.(*Store).httpClient.Timeout; got != defaultTimeout {
+		t.Errorf("Timeout = %v, want %v", got, defaultTimeout)
+	}
+
+	if _, err := NewStore(context.Background(), "https", map[string]string{
+		"location": "https://repo.example/backups",
+		"timeout":  "nonsense",
+	}); err == nil {
+		t.Error("invalid timeout accepted")
+	}
+}

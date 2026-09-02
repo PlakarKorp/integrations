@@ -26,10 +26,15 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+)
+
+const (
+	defaultTimeout = 5 * time.Minute // cap for the requests to complete.
 )
 
 type Store struct {
@@ -73,10 +78,22 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		}
 	}
 
+	timeout := defaultTimeout
+	if v, ok := storeConfig["timeout"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timeout %q: %w", v, err)
+		}
+		timeout = d
+	}
+
 	return &Store{
-		location:   location,
-		authToken:  authToken,
-		httpClient: &http.Client{Transport: transport},
+		location:  location,
+		authToken: authToken,
+		httpClient: &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+		},
 	}, nil
 }
 
