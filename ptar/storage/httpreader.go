@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+const (
+	defaultTimeout = 5 * time.Minute // cap for the requests to complete.
+)
+
 type ReadWriteSeekStatReadAtCloser interface {
 	io.Reader   // Read(p []byte) (n int, err error)
 	io.Seeker   // Seek(offset int64, whence int) (int64, error)
@@ -26,13 +30,14 @@ type HTTPReader struct {
 }
 
 func NewHTTPReader(url string) (*HTTPReader, error) {
-	var resp *http.Response
-	var err error
+	client := &http.Client{Timeout: defaultTimeout}
 
-	resp, err = http.Head(url)
+	resp, err := client.Head(url)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("could not open ptar: %s", resp.Status)
 	}
@@ -43,7 +48,7 @@ func NewHTTPReader(url string) (*HTTPReader, error) {
 	}
 
 	hr := HTTPReader{
-		client: &http.Client{},
+		client: client,
 		url:    url,
 		offset: 0,
 		size:   int64(contentLength),
