@@ -20,6 +20,10 @@ This integration allows:
 
 The configuration parameters are as follow:
 - `location` (required): The URL of the HTTP endpoint (e.g., http://example.com/data)
+- `auth_token` (optional): An HTTP Authorization Bearer token to include in the request
+- `insecure` (optional): Opt-in to use `auth_token` over insecure http
+- `tls_no_verify` (optional): Opt-in to disable the TLS verification over https
+- `timeout` (optional): Per-request timeout, defaults to 5 minutes
 
 > **Note:** The location can be write directly in the command, with `http://` or `https://` prefix.
 
