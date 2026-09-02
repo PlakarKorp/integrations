@@ -5,8 +5,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
+)
+
+const (
+	defaultTimeout = 5 * time.Minute // cap for the requests to complete.
 )
 
 type ReadWriteSeekStatReadAtCloser interface {
@@ -26,50 +29,29 @@ type HTTPReader struct {
 }
 
 func NewHTTPReader(url string) (*HTTPReader, error) {
-	var resp *http.Response
-	var err error
+	client := &http.Client{Timeout: defaultTimeout}
 
-	resp, err = http.Head(url)
+	resp, err := client.Head(url)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("could not open ptar: %s", resp.Status)
 	}
 
-	contentLength, err := strconv.Atoi(resp.Header.Get("Content-Length"))
-	if err != nil {
-		return nil, err
+	if resp.ContentLength < 0 {
+		return nil, fmt.Errorf("server did not report a size for %s", url)
 	}
 
 	hr := HTTPReader{
-		client: &http.Client{},
+		client: client,
 		url:    url,
 		offset: 0,
-		size:   int64(contentLength),
+		size:   resp.ContentLength,
 	}
 	return &hr, nil
-}
-
-func (hr *HTTPReader) Read(buf []byte) (int, error) {
-	req, err := http.NewRequest("GET", hr.url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", hr.offset, hr.offset+int64(len(buf))))
-	resp, err := hr.client.Do(req)
-	if err != nil {
-		return -1, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("NOT OK")
-	}
-
-	n, err := resp.Body.Read(buf)
-	hr.offset += int64(n)
-	return n, err
 }
 
 func (hr *HTTPReader) Seek(offset int64, whence int) (int64, error) {
@@ -91,6 +73,12 @@ func (hr *HTTPReader) Seek(offset int64, whence int) (int64, error) {
 		hr.offset = hr.size + offset
 	}
 	return hr.offset, nil
+}
+
+func (hr *HTTPReader) Read(buf []byte) (int, error) {
+	n, err := hr.ReadAt(buf, hr.offset)
+	hr.offset += int64(n)
+	return n, err
 }
 
 func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
@@ -115,13 +103,24 @@ func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("HTTP status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusPartialContent {
+		if resp.StatusCode == http.StatusOK {
+			return 0, fmt.Errorf("server ignored the Range header and returned the whole body")
+		}
+		return 0, fmt.Errorf("HTTP status %s", resp.Status)
 	}
 
-	n, err := io.ReadFull(resp.Body, buf[:end-off+1])
-	if err != nil && err != io.ErrUnexpectedEOF {
+	want := int(end - off + 1)
+	n, err := io.ReadFull(resp.Body, buf[:want])
+	switch {
+	case err == io.EOF || err == io.ErrUnexpectedEOF:
+		// the server sent less than the range it acknowledged
+		return n, io.ErrUnexpectedEOF
+	case err != nil:
 		return n, err
+	case n < len(buf):
+		// clamped at the end of the file: that is the end
+		return n, io.EOF
 	}
 	return n, nil
 }
