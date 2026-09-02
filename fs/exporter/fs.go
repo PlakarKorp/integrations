@@ -256,13 +256,7 @@ func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) err
 
 	ok = true
 
-	fileinfo := record.FileInfo
-	mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
-	if err := os.Chmod(pathname, mode); err != nil {
-		return err
-	}
-
-	return Lutimes(pathname, fileinfo.ModTime(), fileinfo.ModTime())
+	return p.permissions(pathname, record.FileInfo)
 }
 
 func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
