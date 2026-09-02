@@ -54,27 +54,6 @@ func NewHTTPReader(url string) (*HTTPReader, error) {
 	return &hr, nil
 }
 
-func (hr *HTTPReader) Read(buf []byte) (int, error) {
-	req, err := http.NewRequest("GET", hr.url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", hr.offset, hr.offset+int64(len(buf))))
-	resp, err := hr.client.Do(req)
-	if err != nil {
-		return -1, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("NOT OK")
-	}
-
-	n, err := resp.Body.Read(buf)
-	hr.offset += int64(n)
-	return n, err
-}
-
 func (hr *HTTPReader) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
@@ -94,6 +73,12 @@ func (hr *HTTPReader) Seek(offset int64, whence int) (int64, error) {
 		hr.offset = hr.size + offset
 	}
 	return hr.offset, nil
+}
+
+func (hr *HTTPReader) Read(buf []byte) (int, error) {
+	n, err := hr.ReadAt(buf, hr.offset)
+	hr.offset += int64(n)
+	return n, err
 }
 
 func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
@@ -122,9 +107,17 @@ func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
 		return 0, fmt.Errorf("HTTP status %d", resp.StatusCode)
 	}
 
-	n, err := io.ReadFull(resp.Body, buf[:end-off+1])
-	if err != nil && err != io.ErrUnexpectedEOF {
+	want := int(end - off + 1)
+	n, err := io.ReadFull(resp.Body, buf[:want])
+	switch {
+	case err == io.EOF || err == io.ErrUnexpectedEOF:
+		// the server sent less than the range it acknowledged
+		return n, io.ErrUnexpectedEOF
+	case err != nil:
 		return n, err
+	case n < len(buf):
+		// clamped at the end of the file: that is the end
+		return n, io.EOF
 	}
 	return n, nil
 }
