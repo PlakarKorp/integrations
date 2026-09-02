@@ -103,8 +103,11 @@ func (hr *HTTPReader) ReadAt(buf []byte, off int64) (int, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("HTTP status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusPartialContent {
+		if resp.StatusCode == http.StatusOK {
+			return 0, fmt.Errorf("server ignored the Range header and returned the whole body")
+		}
+		return 0, fmt.Errorf("HTTP status %s", resp.Status)
 	}
 
 	want := int(end - off + 1)
