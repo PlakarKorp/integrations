@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,17 @@ type Store struct {
 func init() {
 	storage.Register("http", 0, NewStore)
 	storage.Register("https", 0, NewStore)
+}
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("stopped after 5 redirects")
+	}
+	if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing redirect from https to %s: %s",
+			req.URL.Scheme, req.URL.Redacted())
+	}
+	return nil
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -91,8 +103,9 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		location:  location,
 		authToken: authToken,
 		httpClient: &http.Client{
-			Transport: transport,
-			Timeout:   timeout,
+			Transport:     transport,
+			Timeout:       timeout,
+			CheckRedirect: checkRedirect,
 		},
 	}, nil
 }
