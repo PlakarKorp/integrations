@@ -201,7 +201,7 @@ func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error 
 		if err := p.writeAtomic(record, pathname); err != nil {
 			return "", err
 		}
-		p.hlCanon.Store(key, filepath.Join(p.rootDir, pathname))
+		p.hlCanon.Store(key, pathname)
 		return pathname, nil
 	})
 	if err != nil {
