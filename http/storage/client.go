@@ -27,7 +27,9 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
@@ -36,6 +38,7 @@ import (
 
 const (
 	defaultTimeout = 5 * time.Minute // cap for the requests to complete.
+	maxErrorBody   = 64 << 10        // cap for http error messages.
 )
 
 type Store struct {
@@ -110,6 +113,29 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}, nil
 }
 
+// errorBody reads back a bounded amount of a failed response for the error
+// message, with control characters stripped so a hostile server cannot inject
+// escape sequences into a terminal or a log.
+func errorBody(r *http.Response) string {
+	b, err := io.ReadAll(io.LimitReader(r.Body, maxErrorBody))
+	if err != nil {
+		return r.Status
+	}
+
+	msg := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || unicode.IsGraphic(r) {
+			return r
+		}
+		return -1
+	}, string(b))
+
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return r.Status
+	}
+	return msg
+}
+
 func (s *Store) Ping(ctx context.Context) error {
 	return nil
 }
@@ -150,11 +176,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 
 	return io.ReadAll(r.Body)
@@ -180,11 +202,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	}
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 
 	var ret []objects.MAC
@@ -205,11 +223,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return -1, err
-		}
-		return -1, fmt.Errorf("%s", errmsg)
+		return -1, fmt.Errorf("%s", errorBody(r))
 	}
 
 	return cr.n, nil
@@ -223,11 +237,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	}
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s", errmsg)
+		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 	return r.Body, nil
 }
@@ -241,11 +251,7 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
-		errmsg, err := io.ReadAll(r.Body)
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("%s", errmsg)
+		return fmt.Errorf("%s", errorBody(r))
 	}
 	return nil
 }

@@ -18,6 +18,9 @@ package storage
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +73,37 @@ func TestNewStoreSetsATimeout(t *testing.T) {
 		"timeout":  "nonsense",
 	}); err == nil {
 		t.Error("invalid timeout accepted")
+	}
+}
+
+// A hostile server should not be able to drive memory use or inject escape
+// sequences through an error body.
+func TestErrorBody(t *testing.T) {
+	huge := &http.Response{
+		Status: "500 Internal Server Error",
+		Body:   http.NoBody,
+	}
+	if got := errorBody(huge); got != huge.Status {
+		t.Errorf("empty body: got %q, want the status", got)
+	}
+
+	body := func(s string) io.ReadCloser {
+		return io.NopCloser(strings.NewReader(s))
+	}
+
+	resp := &http.Response{
+		Status: "500 Internal Server Error",
+		Body:   body(strings.Repeat("A", maxErrorBody*4)),
+	}
+	if got := errorBody(resp); len(got) > maxErrorBody {
+		t.Errorf("error body not capped: %d bytes", len(got))
+	}
+
+	resp = &http.Response{
+		Status: "400 Bad Request",
+		Body:   body("bad \x1b[2Jrequest\x00"),
+	}
+	if got := errorBody(resp); strings.ContainsAny(got, "\x1b\x00") {
+		t.Errorf("control characters survived: %q", got)
 	}
 }
