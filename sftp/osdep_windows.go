@@ -1,9 +1,14 @@
 package sftp
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
+
+func flock(string) (*os.File, error) {
+	return nil, fmt.Errorf("flock: %w", errors.ErrUnsupported)
+}
 
 // checkPrivateDir verifies that dir is a directory owned by the
 // current user.
