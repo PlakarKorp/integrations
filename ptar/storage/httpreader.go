@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -42,16 +41,15 @@ func NewHTTPReader(url string) (*HTTPReader, error) {
 		return nil, fmt.Errorf("could not open ptar: %s", resp.Status)
 	}
 
-	contentLength, err := strconv.Atoi(resp.Header.Get("Content-Length"))
-	if err != nil {
-		return nil, err
+	if resp.ContentLength < 0 {
+		return nil, fmt.Errorf("server did not report a size for %s", url)
 	}
 
 	hr := HTTPReader{
 		client: client,
 		url:    url,
 		offset: 0,
-		size:   int64(contentLength),
+		size:   resp.ContentLength,
 	}
 	return &hr, nil
 }
