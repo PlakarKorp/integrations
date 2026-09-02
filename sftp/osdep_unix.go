@@ -8,6 +8,28 @@ import (
 	"syscall"
 )
 
+func flock(p string) (*os.File, error) {
+	fp, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", p, err)
+	}
+
+	for {
+		err = syscall.Flock(int(fp.Fd()), syscall.LOCK_EX)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			fp.Close()
+			return nil, err
+		}
+
+		break
+	}
+
+	return fp, nil
+}
+
 // checkPrivateDir verifies that dir is a directory owned by the
 // current user.
 func checkPrivateDir(dir string) error {

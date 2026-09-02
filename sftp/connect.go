@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -66,13 +65,6 @@ func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
 	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(dir, fmt.Sprintf("%x.sock", sum[:8])), nil
-}
-
-// guard master creation per ControlPath
-var masterMu sync.Map // map[string]*sync.Mutex
-func lockFor(sock string) *sync.Mutex {
-	m, _ := masterMu.LoadOrStore(sock, &sync.Mutex{})
-	return m.(*sync.Mutex)
 }
 
 func setupPrivateKey(params map[string]string) error {
@@ -165,29 +157,46 @@ func ensureMaster(endpoint *url.URL, params map[string]string, host string) (str
 		return "", err
 	}
 
-	// Serialize master startup per socket
-	mu := lockFor(sock)
-	mu.Lock()
-	defer mu.Unlock()
-
 	if err := checkMaster(endpoint, params, host, sock); err == nil {
 		return sock, nil
 	}
 
-	// add the private key to the agent if necessary
-	if err := setupPrivateKey(params); err != nil {
-		return "", fmt.Errorf("failed to set private key: %w", err)
-	}
-
-	if err := startMaster(endpoint, params, host, sock); err != nil {
+	// we can't safely remove this without introducing races with
+	// clients attempting to spawn the master.
+	lockfile, err := flock(sock + ".lock")
+	if err != nil {
 		return "", err
 	}
 
-	if err := checkMaster(endpoint, params, host, sock); err != nil {
-		return "", err
-	}
+	defer lockfile.Close()
 
-	return sock, nil
+	var spawned bool
+	for range 100 {
+		time.Sleep(10 * time.Millisecond)
+
+		// always retry at least once after we've got the
+		// lock, because another process could have taken it,
+		// started the server and released it between our
+		// checkMaster() and flock().
+		if err := checkMaster(endpoint, params, host, sock); err == nil {
+			return sock, nil
+		}
+
+		if !spawned {
+			spawned = true
+
+			// add the private key to the agent if necessary
+			if err := setupPrivateKey(params); err != nil {
+				return "", fmt.Errorf("failed to set private key: %w", err)
+			}
+
+			os.Remove(sock)
+			if err := startMaster(endpoint, params, host, sock); err != nil {
+				return "", err
+			}
+		}
+	}
+	return "", fmt.Errorf("ssh master failed to come up")
 }
 
 func dial(args []string) (*sftp.Client, error) {
