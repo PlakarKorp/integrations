@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
@@ -50,6 +51,20 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("invalid URL %q: %w", storeConfig["location"], err)
 	}
 
+	authToken := storeConfig["auth_token"]
+
+	// The auth token is a bearer credential: over http:// it is readable by
+	// anyone on path.  Both schemes are registered here, so make the
+	// cleartext one deliberate rather than incidental, the way the webdav
+	// connector gates dav://.
+	if location.Scheme == "http" && authToken != "" {
+		insecure, _ := strconv.ParseBool(storeConfig["insecure"])
+		if !insecure {
+			return nil, fmt.Errorf("auth_token would be sent in cleartext over http://; " +
+				"use https:// or set insecure=true to acknowledge it")
+		}
+	}
+
 	httpClient := http.DefaultClient
 	if storeConfig["tls_no_verify"] == "true" {
 		httpClient = &http.Client{
@@ -61,7 +76,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 	return &Store{
 		location:   location,
-		authToken:  storeConfig["auth_token"],
+		authToken:  authToken,
 		httpClient: httpClient,
 	}, nil
 }
