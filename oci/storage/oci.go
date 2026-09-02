@@ -51,11 +51,6 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 		noVerify = b
 	}
 
-	// The scheme used to be hardcoded to http and certificate verification
-	// disabled unconditionally, so every registry request -- credentials
-	// included -- went out in cleartext with no way to change it.  TLS is now
-	// the default and cleartext has to be asked for, the same way the webdav
-	// connector gates dav://.
 	scheme := "https"
 	if insecure {
 		scheme = "http"
