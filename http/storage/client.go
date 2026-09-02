@@ -200,6 +200,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	if err != nil {
 		return nil, err
 	}
+	defer r.Body.Close()
 
 	if r.StatusCode != 200 {
 		return nil, fmt.Errorf("%s", errorBody(r))
@@ -235,8 +236,8 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	if err != nil {
 		return nil, err
 	}
-
 	if r.StatusCode != 200 {
+		defer r.Body.Close()
 		return nil, fmt.Errorf("%s", errorBody(r))
 	}
 	return r.Body, nil
