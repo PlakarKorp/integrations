@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -119,14 +120,12 @@ func sshArgs(endpoint *url.URL, params map[string]string) []string {
 	return args
 }
 
-func checkMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
-	args := sshArgs(endpoint, params)
-	args = append(args, "-S", sock, "-O", "check", "--", host)
-
-	out, err := exec.Command("ssh", args...).CombinedOutput()
+func checkMaster(sock string) error {
+	conn, err := net.Dial("unix", sock)
 	if err != nil {
-		return fmt.Errorf("ssh master not up: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("ssh master not up; failed to connect: %w", err)
 	}
+	conn.Close()
 	return nil
 }
 
@@ -157,7 +156,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string, host string) (str
 		return "", err
 	}
 
-	if err := checkMaster(endpoint, params, host, sock); err == nil {
+	if err := checkMaster(sock); err == nil {
 		return sock, nil
 	}
 
@@ -178,7 +177,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string, host string) (str
 		// lock, because another process could have taken it,
 		// started the server and released it between our
 		// checkMaster() and flock().
-		if err := checkMaster(endpoint, params, host, sock); err == nil {
+		if err := checkMaster(sock); err == nil {
 			return sock, nil
 		}
 
