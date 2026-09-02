@@ -20,29 +20,52 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
 )
 
-func controlSock(endpoint *url.URL, params map[string]string) string {
-	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
-	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("plakar-ssh-%x.sock", sum[:8]))
+func controlDir() (string, error) {
+	var base string
+
+	if run := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(run) {
+		base = run
+	} else if cache, err := os.UserCacheDir(); err != nil {
+		return "", fmt.Errorf("cannot locate a private cache directory: %w", err)
+	} else {
+		base = cache
+	}
+
+	dir := filepath.Join(base, "plakar", "ssh")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+
+	// MkdirAll is happy with a directory that already exists, whoever owns
+	// it and whatever its mode is, so check what we ended up with.
+	if err := checkPrivateDir(dir); err != nil {
+		return "", err
+	}
+
+	return dir, nil
 }
 
-// guard master creation per ControlPath
-var masterMu sync.Map // map[string]*sync.Mutex
-func lockFor(sock string) *sync.Mutex {
-	m, _ := masterMu.LoadOrStore(sock, &sync.Mutex{})
-	return m.(*sync.Mutex)
+func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
+	dir, err := controlDir()
+	if err != nil {
+		return "", err
+	}
+
+	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(dir, fmt.Sprintf("%x.sock", sum[:8])), nil
 }
 
 func setupPrivateKey(params map[string]string) error {
@@ -97,14 +120,12 @@ func sshArgs(endpoint *url.URL, params map[string]string) []string {
 	return args
 }
 
-func checkMaster(endpoint *url.URL, params map[string]string, host, sock string) error {
-	args := sshArgs(endpoint, params)
-	args = append(args, "-S", sock, "-O", "check", host)
-
-	out, err := exec.Command("ssh", args...).CombinedOutput()
+func checkMaster(sock string) error {
+	conn, err := net.Dial("unix", sock)
 	if err != nil {
-		return fmt.Errorf("ssh master not up: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("ssh master not up; failed to connect: %w", err)
 	}
+	conn.Close()
 	return nil
 }
 
@@ -114,7 +135,7 @@ func startMaster(endpoint *url.URL, params map[string]string, host, sock string)
 		"-N", "-f", "-S", sock,
 		"-o", "ControlMaster=yes",
 		"-o", "ControlPersist=10m",
-		host,
+		"--", host,
 	)
 
 	cmd := exec.Command("ssh", args...)
@@ -130,31 +151,51 @@ func startMaster(endpoint *url.URL, params map[string]string, host, sock string)
 }
 
 func ensureMaster(endpoint *url.URL, params map[string]string, host string) (string, error) {
-	sock := controlSock(endpoint, params)
+	sock, err := controlSock(endpoint, params)
+	if err != nil {
+		return "", err
+	}
 
-	// Serialize master startup per socket
-	mu := lockFor(sock)
-	mu.Lock()
-	defer mu.Unlock()
-
-	if err := checkMaster(endpoint, params, host, sock); err == nil {
+	if err := checkMaster(sock); err == nil {
 		return sock, nil
 	}
 
-	// add the private key to the agent if necessary
-	if err := setupPrivateKey(params); err != nil {
-		return "", fmt.Errorf("failed to set private key: %w", err)
-	}
-
-	if err := startMaster(endpoint, params, host, sock); err != nil {
+	// we can't safely remove this without introducing races with
+	// clients attempting to spawn the master.
+	lockfile, err := flock(sock + ".lock")
+	if err != nil {
 		return "", err
 	}
 
-	if err := checkMaster(endpoint, params, host, sock); err != nil {
-		return "", err
-	}
+	defer lockfile.Close()
 
-	return sock, nil
+	var spawned bool
+	for range 100 {
+		time.Sleep(10 * time.Millisecond)
+
+		// always retry at least once after we've got the
+		// lock, because another process could have taken it,
+		// started the server and released it between our
+		// checkMaster() and flock().
+		if err := checkMaster(sock); err == nil {
+			return sock, nil
+		}
+
+		if !spawned {
+			spawned = true
+
+			// add the private key to the agent if necessary
+			if err := setupPrivateKey(params); err != nil {
+				return "", fmt.Errorf("failed to set private key: %w", err)
+			}
+
+			os.Remove(sock)
+			if err := startMaster(endpoint, params, host, sock); err != nil {
+				return "", err
+			}
+		}
+	}
+	return "", fmt.Errorf("ssh master failed to come up")
 }
 
 func dial(args []string) (*sftp.Client, error) {
@@ -230,8 +271,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 			return nil, err
 		}
 
-		args = append(args, host)
-		args = append(args, "-s", "sftp")
+		args = append(args, "-s", "--", host, "sftp")
 
 		return dial(args)
 	}
@@ -243,9 +283,7 @@ func connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 	}
 
 	// reuse the master
-	args = append(args, "-S", sock)
-	args = append(args, host)
-	args = append(args, "-s", "sftp")
+	args = append(args, "-S", sock, "-s", "--", host, "sftp")
 
 	return dial(args)
 }
