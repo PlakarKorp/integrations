@@ -39,7 +39,6 @@ type FSExporter struct {
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
-	hlMu     sync.Map           // key -> *sync.Mutex (serialize os.Link per key)
 }
 
 func init() {
@@ -202,7 +201,7 @@ func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error 
 		if err := p.writeAtomic(record, pathname); err != nil {
 			return "", err
 		}
-		p.hlCanon.Store(key, filepath.Join(p.rootDir, pathname))
+		p.hlCanon.Store(key, pathname)
 		return pathname, nil
 	})
 	if err != nil {
