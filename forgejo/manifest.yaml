@@ -1,0 +1,15 @@
+name: forgejo
+display_name: Forgejo
+description: Back up Forgejo instances using forgejo dump archives
+homepage: https://github.com/PlakarKorp/integrations/tree/main/forgejo
+license: ISC
+api_version: v1.1.0
+connectors:
+- type: importer
+  executable: forgejoImporter
+  protocols: [forgejo]
+  validator: ./importer/schema.json
+- type: exporter
+  executable: forgejoExporter
+  protocols: [forgejo]
+  validator: ./exporter/schema.json
