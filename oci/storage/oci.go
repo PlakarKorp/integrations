@@ -72,7 +72,12 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 	u.Path = ""
 	base := strings.TrimRight(u.String(), "/")
 
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || defaultTransport == nil {
+		return nil, fmt.Errorf("http.DefaultTransport is not a usable *http.Transport")
+	}
+	tr := defaultTransport.Clone()
+
 	if !insecure {
 		tr.TLSClientConfig = &tls.Config{
 			MinVersion:         tls.VersionTLS12,
