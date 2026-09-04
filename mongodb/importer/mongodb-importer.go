@@ -121,6 +121,11 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 		return err
 	}
 
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -138,6 +143,11 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 			if strings.HasPrefix(line, "  ok: 1") {
 				return nil
 			}
+		}
+	} else {
+		buf, err = io.ReadAll(stderr)
+		if err != nil {
+			return err
 		}
 	}
 
