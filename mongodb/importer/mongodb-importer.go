@@ -154,10 +154,17 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
 }
 
+func cleanupTempFile(f *os.File) {
+	os.Remove(f.Name())
+	f.Close()
+}
+
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
 	var args []string
+	var f *os.File
+	var err error
 
 	args = append(args, "--host")
 	args = append(args, i.url.Hostname())
@@ -171,8 +178,17 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		args = append(args, i.username)
 	}
 	if len(i.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, i.password)
+		f, err = os.CreateTemp("", "plakar-mongodb")
+		if err != nil {
+			return err
+		}
+
+		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
+			cleanupTempFile(f)
+			return err
+		}
+		args = append(args, "--config")
+		args = append(args, f.Name())
 	}
 	args = append(args, "--archive")
 
@@ -180,15 +196,17 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cleanupTempFile(f)
 		return err
 	}
 
 	if err := cmd.Start(); err != nil {
+		cleanupTempFile(f)
 		return err
 	}
 
 	// reap process
-	go func() { _ = cmd.Wait() }()
+	go func() { _ = cmd.Wait(); cleanupTempFile(f) }()
 
 	fi := objects.FileInfo{
 		Lname:      backupFilename,
