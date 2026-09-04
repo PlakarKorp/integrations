@@ -23,7 +23,7 @@ uninstall:
 	-$(PLAKAR) pkg rm s3
 
 install: package
-	$(PLAKAR) pkg add ./$(PTAR)
+	$(PLAKAR) pkg add -allow-unsigned ./$(PTAR)
 
 reinstall: uninstall install
 
