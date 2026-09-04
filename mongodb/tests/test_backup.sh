@@ -30,6 +30,9 @@ test_backup_basic() {
 	egrep -v '(insertedId|Count):' $testroot/stdout > $testroot/stdout.filtered
 
 	cat > $testroot/stdout.expected <<EOF
+switched to db admin
+{ ok: 1 }
+switched to db test
 {
   acknowledged: true,
 }
@@ -47,6 +50,8 @@ EOF
 
 	run_plakar source add mongodb_src "$PLAKAR_MONGODB_ADDR" \
 		> /dev/null
+
+	get_auth_creds_yml >> $testroot/cfg/sources.yml
 
 	timestamp="2026-08-16T14:27:24Z"
 	run_plakar at "$testroot/backups" backup \
