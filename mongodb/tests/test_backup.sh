@@ -67,6 +67,19 @@ EOF
 		return 1
 	fi
 
+	# A zero-size snapshot means the backup has failed somehow.
+	run_plakar at "$testroot/backups" ls | \
+		awk '{ print $3 }' > $testroot/stdout
+	echo "0" > $testroot/stdout.unexpected
+	cmp -s $testroot/stdout.unexpected $testroot/stdout
+	ret=$?
+	if [ $ret -eq 0 ]; then
+		echo "zero bytes backed up in snapshot $snapshot" >&2
+		ret=1
+		test_done "$testroot" "$ret"
+		return 1
+	fi
+
 	run_plakar at "$testroot/backups" ls / > $testroot/stdout
 
 	# The file's modification timestamp depends on the current time.
