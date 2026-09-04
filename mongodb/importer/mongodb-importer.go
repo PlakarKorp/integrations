@@ -104,14 +104,6 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	if i.use_tls {
 		args = append(args, "--tls")
 	}
-	if len(i.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, i.username)
-	}
-	if len(i.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, i.password)
-	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
 	cmd := exec.Command("mongosh", args...)

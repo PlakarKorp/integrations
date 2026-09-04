@@ -109,20 +109,12 @@ func (e *mongodbExporter) commonArgs() []string {
 	if e.use_tls {
 		args = append(args, "--tls")
 	}
-	if len(e.username) > 0 {
-		args = append(args, "--username")
-		args = append(args, e.username)
-	}
 
 	return args;
 }
 
 func (e *mongodbExporter) Ping(ctx context.Context) error {
 	args := e.commonArgs()
-	if len(e.password) > 0 {
-		args = append(args, "--password")
-		args = append(args, e.password)
-	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
 	cmd := exec.Command("mongosh", args...)
@@ -179,6 +171,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	var err error
 
 	args := e.commonArgs()
+	if len(e.username) > 0 {
+		args = append(args, "--username")
+		args = append(args, e.username)
+	}
 	if len(e.password) > 0 {
 		f, err = os.CreateTemp("", "plakar-mongodb")
 		if err != nil {
