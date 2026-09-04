@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": { "type": "string", "description": "redis-file:// path to write dump.rdb" },
+    "output": { "type": "string", "description": "Path to restored dump.rdb" },
+    "force": { "type": "boolean", "default": false }
+  },
+  "anyOf": [
+    { "required": ["location"] },
+    { "required": ["output"] }
+  ]
+}

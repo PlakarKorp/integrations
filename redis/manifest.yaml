@@ -1,0 +1,21 @@
+name: redis
+display_name: Redis
+description: Integration providing import and export capabilities for Redis RDB persistence files.
+homepage: https://github.com/PlakarKorp/integration-redis
+license: ISC
+api_version: v1.1.0
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+- type: importer
+  executable: redisImporter
+  protocols: [redis, rediss]
+  validator: ./importer/schema.json
+  class: database
+  subclass: redis
+- type: exporter
+  executable: redisExporter
+  protocols: [redis-file]
+  validator: ./exporter/schema.json
+  class: database
+  subclass: redis
