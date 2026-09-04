@@ -228,7 +228,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	c := make(chan commandResult, 1)
 
 	// reap process
-	go func() { _ = cmd.Wait(); c <- commandResult{exit: true} }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err : err} }()
 
 	go func() {
 		read_stdout(c)
@@ -279,11 +279,11 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	if debug && len(res.stdout) > 0 {
 		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
 	}
-	if err == nil && len(res.stderr) > 0 {
+	if err != nil && res.exit == true && len(res.stderr) > 0 {
 		if debug {
 			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
 		}
-		err = fmt.Errorf("%s", res.stderr)
+		err = fmt.Errorf("%s: %s", err, res.stderr)
 	}
 
 	return err
