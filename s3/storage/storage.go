@@ -33,7 +33,6 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/reading"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -270,10 +269,15 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("bucket does not exist")
 	}
 
-	object, err := s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), minio.GetObjectOptions{ServerSideEncryption: s.ssec})
-	if err != nil {
-		return nil, fmt.Errorf("error getting object: %w", err)
-	}
+	object := common.NewRetryReader(ctx, -1, func(offset int64) (io.ReadCloser, error) {
+		opts := minio.GetObjectOptions{ServerSideEncryption: s.ssec}
+		if offset > 0 {
+			if err := opts.SetRange(offset, 0); err != nil {
+				return nil, err
+			}
+		}
+		return s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), opts)
+	})
 	defer object.Close()
 
 	data, err := io.ReadAll(object)
@@ -475,16 +479,29 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 		return nil, errors.ErrUnsupported
 	}
 
-	object, err := s.minioClient.GetObject(ctx, s.bucket, path, minio.GetObjectOptions{ServerSideEncryption: s.ssec})
-	if err != nil {
-		return nil, fmt.Errorf("get %s object: %w", res, err)
+	if rg != nil && rg.Length == 0 {
+		return io.NopCloser(bytes.NewReader(nil)), nil
 	}
 
+	expected := int64(-1)
 	if rg != nil {
-		return reading.NewSectionReadCloser(object, int64(rg.Offset), int64(rg.Length)), nil
+		expected = int64(rg.Length)
 	}
 
-	return object, nil
+	return common.NewRetryReader(ctx, expected, func(offset int64) (io.ReadCloser, error) {
+		opts := minio.GetObjectOptions{ServerSideEncryption: s.ssec}
+		if rg != nil {
+			start := int64(rg.Offset) + offset
+			if err := opts.SetRange(start, int64(rg.Offset)+int64(rg.Length)-1); err != nil {
+				return nil, err
+			}
+		} else if offset > 0 {
+			if err := opts.SetRange(offset, 0); err != nil {
+				return nil, err
+			}
+		}
+		return s.minioClient.GetObject(ctx, s.bucket, path, opts)
+	}), nil
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
