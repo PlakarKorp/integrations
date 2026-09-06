@@ -1,31 +1,161 @@
 package k8s
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
 	gimporter "github.com/PlakarKorp/integration-grpc/importer"
+	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
-	"github.com/google/uuid"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/portforward"
+	watchtools "k8s.io/client-go/tools/watch"
 	"k8s.io/client-go/transport/spdy"
 )
+
+const (
+	kubeletContainer = "kubelet"
+	pubkeyPrefix     = "plakar-pubkey: "
+
+	// heuristic to stop waiting indefinitely if there are issues
+	// mounting the pvc (e.g. ReadWriteOnce already mounted.)
+	podStartTimeout = 10 * time.Minute
+)
+
+var fatalWaiting = map[string]bool{
+	"CrashLoopBackOff":           true,
+	"ImagePullBackOff":           true,
+	"InvalidImageName":           true,
+	"CreateContainerConfigError": true,
+	"CreateContainerError":       true,
+}
+
+// detached detach the given ctx so it's not immediately expired.
+// intended for cleanups where we want to at least attempt to delete
+// resources and not fail immediately.
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+}
+
+func snapshotReady(evt watch.Event) (bool, error) {
+	if evt.Type == watch.Error {
+		return false, apierrors.FromObject(evt.Object)
+	}
+
+	s, ok := evt.Object.(*vs.VolumeSnapshot)
+	if !ok {
+		return false, nil
+	}
+
+	if s.Status != nil && s.Status.Error != nil && s.Status.Error.Message != nil {
+		return false, fmt.Errorf("%s", *s.Status.Error.Message)
+	}
+
+	return s.Status != nil && s.Status.ReadyToUse != nil && *s.Status.ReadyToUse, nil
+}
+
+func podReady(evt watch.Event) (bool, error) {
+	if evt.Type == watch.Error {
+		return false, apierrors.FromObject(evt.Object)
+	}
+
+	p, ok := evt.Object.(*corev1.Pod)
+	if !ok {
+		return false, nil
+	}
+
+	if evt.Type == watch.Deleted {
+		return false, fmt.Errorf("pod %s/%s was deleted while starting",
+			p.Namespace, p.Name)
+	}
+
+	if p.Status.Phase == corev1.PodFailed {
+		return false, fmt.Errorf("pod %s/%s failed: %s %s", p.Namespace, p.Name,
+			p.Status.Reason, p.Status.Message)
+	}
+
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Name != kubeletContainer {
+			continue
+		}
+
+		if t := cs.State.Terminated; t != nil {
+			msg := strings.TrimSpace(t.Message)
+			if msg == "" {
+				msg = t.Reason
+			}
+			return false, fmt.Errorf("container %s exited with status %d: %s",
+				cs.Name, t.ExitCode, msg)
+		}
+
+		if w := cs.State.Waiting; w != nil && fatalWaiting[w.Reason] {
+			return false, fmt.Errorf("container %s is not starting: %s: %s",
+				cs.Name, w.Reason, w.Message)
+		}
+
+		return cs.Ready, nil
+	}
+	return false, nil
+}
+
+// peerFingerprint reads the pod's log until it announces the public key it is
+// serving with.  Call once the pod is ready.
+func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	rc, err := k.clientset.CoreV1().Pods(pod.Namespace).
+		GetLogs(pod.Name, &corev1.PodLogOptions{
+			Container: kubeletContainer,
+			Follow:    true,
+		}).Stream(ctx)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to read logs of %s/%s: %w",
+			pod.Namespace, pod.Name, err)
+	}
+	defer rc.Close() // aborts the stream once we have what we came for
+
+	scanner := bufio.NewScanner(io.LimitReader(rc, 64*1024))
+	for scanner.Scan() {
+		line, ok := strings.CutPrefix(scanner.Text(), pubkeyPrefix)
+		if !ok {
+			continue
+		}
+		return mtls.ParseFingerprint(strings.TrimSpace(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return [32]byte{}, fmt.Errorf("failed to scan logs of %s/%s: %w",
+			pod.Namespace, pod.Name, err)
+	}
+
+	return [32]byte{}, fmt.Errorf("pod %s/%s never announced its public key",
+		pod.Namespace, pod.Name)
+}
 
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
 	snap := &vs.VolumeSnapshot{
@@ -50,58 +180,51 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		return nil, err
 	}
 
-	w, err := k.snapClient.SnapshotV1().VolumeSnapshots(ns).Watch(ctx, metav1.ListOptions{})
+	lw := &cache.ListWatch{
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = "metadata.name=" + snap.Name
+			return k.snapClient.SnapshotV1().VolumeSnapshots(snap.Namespace).Watch(ctx, opts)
+		},
+	}
+
+	evt, err := watchtools.Until(ctx, snap.ResourceVersion, lw, snapshotReady)
 	if err != nil {
 		k.delsnap(ctx, snap)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
 		return nil, err
 	}
 
-	defer w.Stop()
-	for {
-		var evt watch.Event
-		var ok bool
-		select {
-		case evt, ok = <-w.ResultChan():
-			if !ok {
-				return snap, nil
-			}
-		case <-ctx.Done():
-			k.delsnap(ctx, snap)
-			return nil, ctx.Err()
-		}
+	ready, ok := evt.Object.(*vs.VolumeSnapshot)
+	if !ok {
+		k.delsnap(ctx, snap)
+		return nil, fmt.Errorf("unexpected object %T from the snapshot watch", evt.Object)
+	}
 
-		if evt.Type == watch.Error {
-			k.delsnap(ctx, snap)
-			return nil, fmt.Errorf("watch failed")
-		}
+	return ready, nil
+}
 
-		if evt.Type != watch.Modified && evt.Type != watch.Added {
-			continue
-		}
+func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
 
-		s, ok := evt.Object.(*vs.VolumeSnapshot)
-		if !ok {
-			continue
-		}
-
-		if s.Name != snap.Name {
-			continue
-		}
-
-		if s.Status != nil && s.Status.Error != nil && s.Status.Error.Message != nil {
-			k.delsnap(ctx, s)
-			return nil, fmt.Errorf("%s", *s.Status.Error.Message)
-		}
-
-		if s.Status != nil && s.Status.ReadyToUse != nil && *s.Status.ReadyToUse {
-			return s, nil
-		}
+	err := k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
+		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete volumesnapshot %s/%s: %s",
+			snap.Namespace, snap.Name, err)
 	}
 }
 
-func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) error {
-	return k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
-		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
+func cloneSize(orig *corev1.PersistentVolumeClaim, snap *vs.VolumeSnapshot) resource.Quantity {
+	size := orig.Spec.Resources.Requests[corev1.ResourceStorage]
+
+	if snap.Status != nil && snap.Status.RestoreSize != nil && size.Cmp(*snap.Status.RestoreSize) < 0 {
+		size = *snap.Status.RestoreSize
+	}
+
+	return size.DeepCopy()
 }
 
 func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapshot, orig *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, error) {
@@ -120,10 +243,14 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 				Kind:     "VolumeSnapshot",
 				Name:     snap.Name,
 			},
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: cloneSize(orig, snap),
+				},
 			},
-			Resources: orig.Spec.Resources,
+			AccessModes:      orig.Spec.AccessModes,
+			StorageClassName: orig.Spec.StorageClassName,
+			VolumeMode:       orig.Spec.VolumeMode,
 		},
 	}
 
@@ -132,24 +259,78 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 }
 
 func (k *k8s) getpvc(ctx context.Context, ns, name string) (*corev1.PersistentVolumeClaim, error) {
-	return k.clientset.CoreV1().PersistentVolumeClaims(ns).
+	pvc, err := k.clientset.CoreV1().PersistentVolumeClaims(ns).
 		Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock {
+		return nil, fmt.Errorf("PVC %s/%s is a raw block volume, which is not supported", ns, name)
+	}
+	return pvc, nil
 }
 
-func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) error {
-	return k.clientset.CoreV1().PersistentVolumeClaims(pvc.ObjectMeta.Namespace).
+func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
+
+	err := k.clientset.CoreV1().PersistentVolumeClaims(pvc.ObjectMeta.Namespace).
 		Delete(ctx, pvc.Name, metav1.DeleteOptions{})
+	if err != nil {
+		log.Printf("failed to delete pvc %s/%s: %s",
+			pvc.Namespace, pvc.Name, err)
+	}
 }
 
-func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*corev1.Pod, error) {
-	args = append(args, "-p", "8080")
+// podTrouble tries to guess why the pod didn't start in time.  In
+// various cases (e.g. PVC ReadWriteOnce already mounted, or a volume
+// mode that the mount cannot handle), these issues are below the pod,
+// and can be retrieved only via events.
+func (k *k8s) podTrouble(ctx context.Context, pod *corev1.Pod) string {
+	events, err := k.clientset.CoreV1().Events(pod.Namespace).
+		SearchWithContext(ctx, scheme.Scheme, pod)
+	if err != nil {
+		return fmt.Sprintf("phase %s (failed to read events: %s)",
+			pod.Status.Phase, err)
+	}
+
+	var msgs []string
+	for _, e := range events.Items {
+		if e.Type != corev1.EventTypeWarning {
+			continue
+		}
+		msg := strings.TrimSpace(e.Reason + ": " + e.Message)
+		if !slices.Contains(msgs, msg) {
+			msgs = append(msgs, msg)
+		}
+	}
+
+	if len(msgs) == 0 {
+		return fmt.Sprintf("phase %s, no warnings", pod.Status.Phase)
+	}
+	return strings.Join(msgs, "; ")
+}
+
+type fspod struct {
+	cert *tls.Certificate
+	peer [32]byte
+	pod  *corev1.Pod
+}
+
+func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*fspod, error) {
+	cert, fp, err := mtls.Gencert()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate a certificate: %w", err)
+	}
+
+	args = append(args, "-p", "8080", "-peer", mtls.Fingerprint(fp))
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "plakar-" + op + "-",
 			Namespace:    ns,
 			Labels: map[string]string{
 				"plakar.io/generated-resource": "true",
-				"plakar.io/service":            uuid.NewString(),
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -162,10 +343,25 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					},
 				},
 			}},
+
+			// we don't need to access the cluster from
+			// this pod at all, it's there just to serve
+			// grpc and read volumes.
+			AutomountServiceAccountToken: new(false),
+
+			// a restart is never useful: the new instance
+			// generates a fresh keypair, so the fingerprint we
+			// pinned no longer matches.  Let it fail instead.
+			RestartPolicy: corev1.RestartPolicyNever,
+
 			Containers: []corev1.Container{{
-				Name:  "kubelet",
+				Name:  kubeletContainer,
 				Image: k.kubeletImage,
 				Args:  args,
+
+				// use the tail of stderr in the container status
+				TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+
 				Ports: []corev1.ContainerPort{{
 					Name:          "grpc",
 					Protocol:      "TCP",
@@ -175,92 +371,76 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					Name:      "snap",
 					MountPath: "/data",
 				}},
+				ReadinessProbe: &corev1.Probe{
+					PeriodSeconds: 1,
+					ProbeHandler: corev1.ProbeHandler{
+						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
+					},
+				},
 			}},
 		},
 	}
 
-	pod, err := k.clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
+	pod, err = k.clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	w, err := k.clientset.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{})
+	lw := &cache.ListWatch{
+		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = "metadata.name=" + pod.Name
+			return k.clientset.CoreV1().Pods(pod.Namespace).Watch(ctx, opts)
+		},
+	}
+
+	// don't wait indefinitely for the pod to be ready: there are
+	// cases where the pod might be stuck on creation and its
+	// status not updated.
+	wctx, cancel := context.WithTimeout(ctx, podStartTimeout)
+	defer cancel()
+
+	evt, err := watchtools.Until(wctx, pod.ResourceVersion, lw, podReady)
+	if err != nil {
+		k.delpod(ctx, pod)
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
+		if wctx.Err() != nil {
+			return nil, fmt.Errorf("pod %s/%s did not start within %s: %s",
+				pod.Namespace, pod.Name, podStartTimeout, k.podTrouble(ctx, pod))
+		}
+		return nil, err
+	}
+
+	ready, ok := evt.Object.(*corev1.Pod)
+	if !ok {
+		k.delpod(ctx, pod)
+		return nil, fmt.Errorf("unexpected object %T from the pod watch", evt.Object)
+	}
+
+	peer, err := k.peerFingerprint(ctx, ready)
 	if err != nil {
 		k.delpod(ctx, pod)
 		return nil, err
 	}
 
-	defer w.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			k.delpod(ctx, pod)
-			return nil, ctx.Err()
-
-		case evt, ok := <-w.ResultChan():
-			if !ok {
-				return pod, nil
-			}
-
-			if evt.Type == watch.Error {
-				k.delpod(ctx, pod)
-				return nil, fmt.Errorf("watch failed")
-			}
-
-			if evt.Type != watch.Modified && evt.Type != watch.Added {
-				continue
-			}
-
-			p, ok := evt.Object.(*corev1.Pod)
-			if !ok {
-				continue
-			}
-
-			if p.Name != pod.Name {
-				continue
-			}
-
-			if len(p.Status.ContainerStatuses) > 0 && p.Status.ContainerStatuses[0].Ready {
-				return p, nil
-			}
-		}
-	}
+	return &fspod{
+		cert: &cert,
+		peer: peer,
+		pod:  ready,
+	}, nil
 }
 
-func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) error {
-	return k.clientset.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
-}
+func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
+	ctx, cancel := detached(ctx)
+	defer cancel()
 
-func (k *k8s) serviceFor(ctx context.Context, pod *corev1.Pod) (*corev1.Service, error) {
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: pod.Name + "-",
-			Namespace:    pod.Namespace,
-			Labels: map[string]string{
-				"plakar.io/generated-resource": "true",
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{{
-				Name:       pod.Spec.Containers[0].Ports[0].Name,
-				Protocol:   pod.Spec.Containers[0].Ports[0].Protocol,
-				Port:       pod.Spec.Containers[0].Ports[0].ContainerPort,
-				TargetPort: intstr.FromInt32(pod.Spec.Containers[0].Ports[0].ContainerPort),
-			}},
-			Selector: pod.ObjectMeta.Labels,
-		},
-	}
-
-	svc, err := k.clientset.CoreV1().Services(pod.Namespace).Create(ctx, svc, metav1.CreateOptions{})
+	err := k.clientset.CoreV1().Pods(pod.Namespace).
+		Delete(ctx, pod.Name, metav1.DeleteOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create service: %w", err)
+		log.Printf("failed to delete pod %s/%s: %s",
+			pod.Namespace, pod.Name, err)
 	}
-
-	return svc, nil
-}
-
-func (k *k8s) delservice(ctx context.Context, svc *corev1.Service) error {
-	return k.clientset.CoreV1().Services(svc.Namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
 }
 
 func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connectors.Record, chan<- *connectors.Result)) error {
@@ -288,8 +468,10 @@ func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connec
 	return err
 }
 
-func (k *k8s) consume(ctx context.Context, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
+
+	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", dest, err)
 	}
@@ -355,7 +537,9 @@ func (k *k8s) consume(ctx context.Context, dest, podpath string, Records chan<- 
 	}
 }
 
-func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) (string, chan struct{}, error) {
+func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{}, error) {
+	port := pod.Spec.Containers[0].Ports[0].ContainerPort
+
 	if k.portForward {
 		u := k.clientset.CoreV1().RESTClient().Post().
 			Resource("pods").
@@ -375,7 +559,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 			readyChan = make(chan struct{}, 1)
 		)
 
-		p := fmt.Sprintf(":%d", svc.Spec.Ports[0].Port)
+		p := fmt.Sprintf(":%d", port)
 		pf, err := portforward.New(dialer, []string{p}, stopChan, readyChan, io.Discard, io.Discard)
 		if err != nil {
 			close(stopChan)
@@ -394,12 +578,14 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod, svc *corev1.Service) 
 		return fmt.Sprintf("localhost:%d", ports[0].Local), stopChan, nil
 	}
 
-	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace,
-		svc.Spec.Ports[0].Port), nil, nil
+	if pod.Status.PodIP == "" {
+		return "", nil, fmt.Errorf("pod %s/%s has no IP", pod.Namespace, pod.Name)
+	}
+	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Service, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, pod, svc)
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
 	}
@@ -407,11 +593,11 @@ func (k *k8s) podBackup(ctx context.Context, pod *corev1.Pod, svc *corev1.Servic
 		defer close(stop)
 	}
 
-	return k.consume(ctx, url, "/data", records, results)
+	return k.consume(ctx, fp.cert, fp.peer, url, "/data", records, results)
 }
 
-func (k *k8s) podRestore(ctx context.Context, pod *corev1.Pod, svc *corev1.Service, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
-	url, stop, err := k.urlFor(ctx, pod, svc)
+func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
 	}
@@ -419,10 +605,12 @@ func (k *k8s) podRestore(ctx context.Context, pod *corev1.Pod, svc *corev1.Servi
 		defer close(stop)
 	}
 
-	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
+	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
 	}
+	defer client.Close()
 
 	opts := &connectors.Options{
 		Hostname:        "plakar-pod",
@@ -479,19 +667,13 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 		return fmt.Errorf("unexpected protocol %q", k.proto)
 	}
 
-	pod, err := k.fsServer(ctx, "backup", ns, pvc, true)
+	fp, err := k.fsServer(ctx, "backup", ns, pvc, true)
 	if err != nil {
 		return fmt.Errorf("failed to create the pod: %w", err)
 	}
-	defer k.delpod(ctx, pod)
+	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, pod)
-	if err != nil {
-		return fmt.Errorf("failed to create the service: %w", err)
-	}
-	defer k.delservice(ctx, svc)
-
-	return k.podBackup(ctx, pod, svc, records, results)
+	return k.podBackup(ctx, fp, records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -500,17 +682,11 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
 	}
 
-	pod, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
+	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
 	if err != nil {
 		return fmt.Errorf("failed to run the pod: %w", err)
 	}
-	defer k.delpod(ctx, pod)
+	defer k.delpod(ctx, fp.pod)
 
-	svc, err := k.serviceFor(ctx, pod)
-	if err != nil {
-		return fmt.Errorf("failed to create the service: %w", err)
-	}
-	defer k.delservice(ctx, svc)
-
-	return k.podRestore(ctx, pod, svc, records, results)
+	return k.podRestore(ctx, fp, records, results)
 }
