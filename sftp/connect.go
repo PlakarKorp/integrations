@@ -63,7 +63,8 @@ func controlSock(endpoint *url.URL, params map[string]string) (string, error) {
 		return "", err
 	}
 
-	key := endpoint.String() + "|" + params["username"] + "|" + params["identity"]
+	key := fmt.Sprintf("%s|%s|%s", endpoint.String(), params["username"],
+		params["identity"])
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(dir, fmt.Sprintf("%x.sock", sum[:8])), nil
 }
