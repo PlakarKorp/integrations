@@ -20,7 +20,7 @@ var Schema []byte
 
 type inventory struct {
 	config    *rest.Config
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
