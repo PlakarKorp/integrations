@@ -338,10 +338,20 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	}
 
 	ret := make([]objects.MAC, 0)
+	var listingErr error
 	for object := range s.minioClient.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: true,
 	}) {
+		if listingErr != nil {
+			continue // We have to drain the objects per documentation.
+		}
+
+		if object.Err != nil {
+			listingErr = object.Err
+			continue
+		}
+
 		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
 			t, err := hex.DecodeString(object.Key[prefixSize:])
 			if err != nil {
@@ -354,6 +364,11 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 			ret = append(ret, objects.MAC(t))
 		}
 	}
+
+	if listingErr != nil {
+		return nil, listingErr
+	}
+
 	return ret, nil
 }
 
