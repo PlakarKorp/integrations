@@ -10,14 +10,10 @@ connectors:
   homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
   license: ISC
   protocols: [nfs]
-  class: service
-  subclass: nfs
   validator: ./importer/schema.json
 - type: exporter
   executable: nfsExporter
   homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
   license: ISC
   protocols: [nfs]
-  class: service
-  subclass: nfs
   validator: ./exporter/schema.json
