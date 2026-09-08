@@ -25,7 +25,7 @@ type Block struct {
 
 func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (*Block, error) {
 	device := strings.TrimPrefix(config["location"], proto+"://")
-	if device == "/" {
+	if device == "" {
 		return nil, fmt.Errorf("missing device path in location %q",
 			config["location"])
 	}
@@ -46,7 +46,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, co
 func (b *Block) Origin() string                  { return b.hostname }
 func (b *Block) Type() string                    { return "block" }
 func (b *Block) Root() string                    { return "/" }
-func (b *Block) Flags() location.Flags           { return location.FLAG_NEEDACK }
+func (b *Block) Flags() location.Flags           { return 0 }
 func (b *Block) Ping(ctx context.Context) error  { _, err := os.Stat(b.device); return err }
 func (b *Block) Close(ctx context.Context) error { return nil }
 
@@ -85,13 +85,7 @@ func (b *Block) Import(ctx context.Context, records chan<- *connectors.Record, r
 	records <- connectors.NewRecord(diskpath, "", fi, nil, func() (io.ReadCloser, error) {
 		return fp, nil
 	})
-
-	res := <-results
-	if err := fp.Close(); err != nil {
-		return fmt.Errorf("failed to close %q: %w", b.device, err)
-	}
-
-	return res.Err
+	return nil
 }
 
 func (b *Block) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
