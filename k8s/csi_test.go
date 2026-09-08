@@ -409,13 +409,14 @@ func TestGetPvc(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects raw block volumes", func(t *testing.T) {
+	t.Run("accepts raw block volumes", func(t *testing.T) {
 		pvc := pvcObj("ns", "block")
 		pvc.Spec.VolumeMode = new(corev1.PersistentVolumeBlock)
 		k := newCsiTestK8s(pvc)
 
-		_, err := k.getpvc(t.Context(), "ns", "block")
-		require.ErrorContains(t, err, "raw block volume")
+		got, err := k.getpvc(t.Context(), "ns", "block")
+		require.NoError(t, err)
+		require.Equal(t, "block", got.Name)
 	})
 }
 
@@ -690,7 +691,7 @@ func TestFsServer(t *testing.T) {
 
 		c := list.Items[0].Spec.Containers[0]
 		require.Empty(t, c.VolumeDevices)
-		require.Equal(t, []corev1.VolumeMount{{Name: "snap", MountPath: "/data"}}, c.VolumeMounts)
+		require.Equal(t, []corev1.VolumeMount{{Name: "snap", MountPath: fsPath}}, c.VolumeMounts)
 	})
 
 	t.Run("block mode exposes a raw device", func(t *testing.T) {
@@ -708,6 +709,6 @@ func TestFsServer(t *testing.T) {
 
 		c := list.Items[0].Spec.Containers[0]
 		require.Empty(t, c.VolumeMounts)
-		require.Equal(t, []corev1.VolumeDevice{{Name: "snap", DevicePath: blockDevicePath}}, c.VolumeDevices)
+		require.Equal(t, []corev1.VolumeDevice{{Name: "snap", DevicePath: blockPath}}, c.VolumeDevices)
 	})
 }
