@@ -45,6 +45,12 @@ const (
 	// heuristic to stop waiting indefinitely if there are issues
 	// mounting the pvc (e.g. ReadWriteOnce already mounted.)
 	podStartTimeout = 10 * time.Minute
+
+	// path at which the PVC is exposed inside the pod.
+	fsPath = "/data"
+
+	// path at which a raw block PVC is exposed inside the pod.
+	blockPath = "/dev/plakarvol"
 )
 
 var fatalWaiting = map[string]bool{
@@ -313,9 +319,10 @@ func (k *k8s) podTrouble(ctx context.Context, pod *corev1.Pod) string {
 }
 
 type fspod struct {
-	cert *tls.Certificate
-	peer [32]byte
-	pod  *corev1.Pod
+	cert  *tls.Certificate
+	peer  [32]byte
+	pod   *corev1.Pod
+	block bool
 }
 
 func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*fspod, error) {
@@ -324,7 +331,41 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 		return nil, fmt.Errorf("failed to generate a certificate: %w", err)
 	}
 
+	block := pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock
+
 	args = append(args, "-p", "8080", "-peer", mtls.Fingerprint(fp))
+	container := corev1.Container{
+		Name:  kubeletContainer,
+		Image: k.kubeletImage,
+		Args:  args,
+
+		// use the tail of stderr in the container status
+		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+
+		Ports: []corev1.ContainerPort{{
+			Name:          "grpc",
+			Protocol:      "TCP",
+			ContainerPort: 8080,
+		}},
+		ReadinessProbe: &corev1.Probe{
+			PeriodSeconds: 1,
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
+			},
+		},
+	}
+	if block {
+		container.VolumeDevices = []corev1.VolumeDevice{{
+			Name:       "snap",
+			DevicePath: blockPath,
+		}}
+	} else {
+		container.VolumeMounts = []corev1.VolumeMount{{
+			Name:      "snap",
+			MountPath: fsPath,
+		}}
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "plakar-" + op + "-",
@@ -354,30 +395,7 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			// pinned no longer matches.  Let it fail instead.
 			RestartPolicy: corev1.RestartPolicyNever,
 
-			Containers: []corev1.Container{{
-				Name:  kubeletContainer,
-				Image: k.kubeletImage,
-				Args:  args,
-
-				// use the tail of stderr in the container status
-				TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-
-				Ports: []corev1.ContainerPort{{
-					Name:          "grpc",
-					Protocol:      "TCP",
-					ContainerPort: 8080,
-				}},
-				VolumeMounts: []corev1.VolumeMount{{
-					Name:      "snap",
-					MountPath: "/data",
-				}},
-				ReadinessProbe: &corev1.Probe{
-					PeriodSeconds: 1,
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
-					},
-				},
-			}},
+			Containers: []corev1.Container{container},
 		},
 	}
 
@@ -425,9 +443,10 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 	}
 
 	return &fspod{
-		cert: &cert,
-		peer: peer,
-		pod:  ready,
+		cert:  &cert,
+		peer:  peer,
+		pod:   ready,
+		block: block,
 	}, nil
 }
 
@@ -468,7 +487,7 @@ func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connec
 	return err
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
@@ -485,10 +504,12 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
 
-	importer, err := gimporter.NewImporter(ctx, client, opts, "fs", map[string]string{
-		"location":         "fs://" + podpath,
-		"dont_traverse_fs": "true",
-	})
+	params := map[string]string{"location": proto + "://" + podpath}
+	if proto == "fs" {
+		params["dont_traverse_fs"] = "true"
+	}
+
+	importer, err := gimporter.NewImporter(ctx, client, opts, proto, params)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the importer: %w", err)
 	}
@@ -505,6 +526,12 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	var total uint64
 	err = progress(ctx, importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
 		for record := range records {
+			if proto != "fs" {
+				Records <- record
+				total++
+				continue
+			}
+
 			if record.Pathname == "/" {
 				if results != nil {
 					results <- record.Ok()
@@ -515,7 +542,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 			}
 
 			newrecord := *record
-			newrecord.Pathname = strings.TrimPrefix(record.Pathname, "/data")
+			newrecord.Pathname = strings.TrimPrefix(record.Pathname, fsPath)
 			if newrecord.Pathname == "" {
 				newrecord.Pathname = "/"
 				newrecord.FileInfo.Lname = "/"
@@ -593,7 +620,12 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connecto
 		defer close(stop)
 	}
 
-	return k.consume(ctx, fp.cert, fp.peer, url, "/data", records, results)
+	proto, path := "fs", fsPath
+	if fp.block {
+		proto, path = "block", blockPath
+	}
+
+	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, records, results)
 }
 
 func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -612,16 +644,21 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	}
 	defer client.Close()
 
+	proto, path := "fs", fsPath
+	if fp.block {
+		proto, path = "block", blockPath
+	}
+
 	opts := &connectors.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
-		CWD:             "/data",
+		CWD:             path,
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
 
-	exporter, err := gexporter.NewExporter(ctx, client, opts, "fs", map[string]string{
-		"location": "fs:///data",
+	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, map[string]string{
+		"location": proto + "://" + path,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
