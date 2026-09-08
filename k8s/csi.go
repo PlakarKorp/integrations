@@ -186,6 +186,15 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		return nil, err
 	}
 
+	ready, err := k.waitsnap(ctx, snap)
+	if err != nil {
+		k.delsnap(ctx, snap)
+		return nil, err
+	}
+	return ready, nil
+}
+
+func (k *k8s) waitsnap(ctx context.Context, snap *vs.VolumeSnapshot) (*vs.VolumeSnapshot, error) {
 	lw := &cache.ListWatch{
 		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
 			opts.FieldSelector = "metadata.name=" + snap.Name
@@ -195,7 +204,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	evt, err := watchtools.Until(ctx, snap.ResourceVersion, lw, snapshotReady)
 	if err != nil {
-		k.delsnap(ctx, snap)
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
 		}
@@ -204,7 +212,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	ready, ok := evt.Object.(*vs.VolumeSnapshot)
 	if !ok {
-		k.delsnap(ctx, snap)
 		return nil, fmt.Errorf("unexpected object %T from the snapshot watch", evt.Object)
 	}
 
