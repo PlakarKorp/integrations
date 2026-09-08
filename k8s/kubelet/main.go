@@ -11,6 +11,7 @@ import (
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
 	fsexporter "github.com/PlakarKorp/integrations/fs/exporter"
 	fsimporter "github.com/PlakarKorp/integrations/fs/importer"
+	"github.com/PlakarKorp/integrations/k8s/block"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -21,6 +22,8 @@ func chooseImporter(ctx context.Context, opts *connectors.Options, proto string,
 	switch proto {
 	case "fs":
 		return fsimporter.NewFSImporter(ctx, opts, proto, config)
+	case "block":
+		return block.NewImporter(ctx, opts, proto, config)
 	default:
 		return nil, fmt.Errorf("unsupported proto %q", proto)
 	}
@@ -30,6 +33,8 @@ func chooseExporter(ctx context.Context, opts *connectors.Options, proto string,
 	switch proto {
 	case "fs":
 		return fsexporter.NewFSExporter(ctx, opts, proto, config)
+	case "block":
+		return block.NewExporter(ctx, opts, proto, config)
 	default:
 		return nil, fmt.Errorf("unsupported proto %q", proto)
 	}
