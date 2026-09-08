@@ -22,17 +22,19 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"kubevirt.io/client-go/kubevirt"
 )
 
 type k8s struct {
-	proto      string
-	config     *rest.Config
-	clientset  kubernetes.Interface
-	dclient    dynamic.Interface
-	discover   discovery.DiscoveryInterfaceWithContext
-	snapClient versioned.Interface
-	opts       *connectors.Options
-	export     bool
+	proto          string
+	config         *rest.Config
+	clientset      kubernetes.Interface
+	dclient        dynamic.Interface
+	discover       discovery.DiscoveryInterfaceWithContext
+	snapClient     versioned.Interface
+	kubevirtClient kubevirt.Interface
+	opts           *connectors.Options
+	export         bool
 
 	host      string
 	namespace string
@@ -182,19 +184,25 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, err
 	}
 
+	kubevirtClient, err := kubevirt.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &k8s{
-		proto:      proto,
-		config:     config,
-		clientset:  clientset,
-		dclient:    dclient,
-		discover:   discover,
-		snapClient: snapClient,
-		opts:       opts,
-		export:     export,
-		host:       host,
-		namespace:  namespace,
-		labels:     matchLabels,
-		pvcName:    pvcName,
+		proto:          proto,
+		config:         config,
+		clientset:      clientset,
+		dclient:        dclient,
+		discover:       discover,
+		snapClient:     snapClient,
+		kubevirtClient: kubevirtClient,
+		opts:           opts,
+		export:         export,
+		host:           host,
+		namespace:      namespace,
+		labels:         matchLabels,
+		pvcName:        pvcName,
 
 		portForward: portForward,
 

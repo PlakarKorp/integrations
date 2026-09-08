@@ -163,6 +163,23 @@ func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, e
 		pod.Namespace, pod.Name)
 }
 
+func (k *k8s) getsnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
+	snap, err := k.snapClient.SnapshotV1().VolumeSnapshots(ns).Get(ctx, name,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	ok, err := snapshotReady(watch.Event{Type: watch.Modified, Object: snap})
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return snap, err
+	}
+	return k.waitsnap(ctx, snap)
+}
+
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
 	snap := &vs.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
