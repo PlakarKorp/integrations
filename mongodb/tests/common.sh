@@ -18,6 +18,11 @@ export LC_ALL=C
 
 export TEST_TMPDIR="/tmp"
 export TEST_DATA_FILE="testdata.bson"
+export AUTH_DATA_FILE="mongo-test-authdata"
+
+. ./"$AUTH_DATA_FILE"
+export MONGODB_INITDB_ROOT_USERNAME
+export MONGODB_INITDB_ROOT_PASSWORD
 
 test_status=0
 
@@ -117,7 +122,28 @@ run_plakar()
 
 run_mongosh()
 {
-	docker exec ${MONGODB_DOCKER_NAME} mongosh \
-		--port ${MONGODB_PORT} \
-		--eval "$*"
+	script=`mktemp`
+	trap "rm -f \"$script\"" HUP INT QUIT PIPE TERM
+
+	cat mongo-test-authdata | tr -d '\n' | sed \
+		-e 's/^/use admin; db.auth\("/' \
+		-e 's/MONGODB_INITDB_ROOT_USERNAME=//' \
+		-e 's/MONGODB_INITDB_ROOT_PASSWORD=/", "/' \
+		-e 's/$/"); use test;/' | tr ';' '\n' > "$script"
+
+	echo "$*" >> "$script"
+
+	cat "$script" | docker exec -i ${MONGODB_DOCKER_NAME} mongosh \
+		--quiet \
+		--port ${MONGODB_PORT} | \
+		sed -e 's/^admin> //' -e 's/^test> //'
+
+	rm -f "$script"
+}
+
+get_auth_creds_yml()
+{
+	cat ./"$AUTH_DATA_FILE" | sed \
+		-e 's/^MONGODB_INITDB_ROOT_USERNAME=/        username: /' \
+		-e 's/^MONGODB_INITDB_ROOT_PASSWORD=/        password: /'
 }

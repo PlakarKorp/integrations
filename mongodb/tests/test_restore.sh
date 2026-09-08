@@ -28,6 +28,8 @@ test_restore_basic() {
 	run_plakar source add mongodb_src "$PLAKAR_MONGODB_ADDR" \
 		> /dev/null
 
+	get_auth_creds_yml >> $testroot/cfg/sources.yml
+
 	timestamp="2026-08-16T14:27:24Z"
 	run_plakar at "$testroot/backups" backup \
 		-o use_tls=false \
@@ -39,7 +41,12 @@ test_restore_basic() {
 	run_mongosh "db.collection.find()" > $testroot/collection.before
 
 	run_mongosh "db.collection.drop()" > $testroot/stdout
-	echo "true" > $testroot/stdout.expected
+	cat > $testroot/stdout.expected <<EOF
+switched to db admin
+{ ok: 1 }
+switched to db test
+true
+EOF
 	cmp -s $testroot/stdout.expected $testroot/stdout
 	ret=$?
 	if [ $ret -ne 0 ]; then
@@ -50,6 +57,8 @@ test_restore_basic() {
 
 	run_plakar destination add mongodb_dst "$PLAKAR_MONGODB_ADDR" \
 		> /dev/null
+
+	get_auth_creds_yml >> $testroot/cfg/destinations.yml
 
 	run_plakar at "$testroot/backups" restore -to @mongodb_dst \
 		-o use_tls=false \
