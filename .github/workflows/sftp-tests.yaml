@@ -1,0 +1,23 @@
+name: sftp tests
+
+on:
+  push:
+    paths:
+      - 'sftp/**'
+  pull_request:
+    paths:
+      - 'sftp/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sftp/go.mod
+
+      - name: test
+        working-directory: sftp
+        run: go test ./...
