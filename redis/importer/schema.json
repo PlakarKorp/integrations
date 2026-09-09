@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "location": { "type": "string", "description": "Redis URI: redis://[:password@]host:port[/db] or rediss://..." },
+    "host": { "type": "string", "default": "127.0.0.1" },
+    "port": { "type": "string", "default": "6379" },
+    "username": { "type": "string" },
+    "password": { "type": "string" },
+    "database": { "type": "string" },
+    "tls": { "type": "boolean", "default": false },
+    "insecure_tls": { "type": "boolean", "default": false },
+    "ca_cert": { "type": "string" },
+    "cert": { "type": "string" },
+    "key": { "type": "string" },
+    "redis_bin_dir": { "type": "string", "description": "Directory containing redis-cli" },
+    "redis_cli": { "type": "string", "default": "redis-cli" },
+    "trigger_bgsave": { "type": "boolean", "default": true },
+    "wait_timeout": { "type": "string", "default": "5m", "description": "Go duration to wait for BGSAVE completion" },
+    "output": { "type": "string", "default": "/dump.rdb", "description": "Snapshot path for the emitted RDB file" }
+  }
+}
