@@ -27,12 +27,19 @@ import (
 
 // vmConfigPath is where backupVm records the VM's own spec, captured from
 // the VirtualMachineSnapshotContent.  pvcConfigPath is where each disk's
-// original PVC spec is recorded, alongside its data under the same
-// per-disk prefix.
+// original PVC spec is recorded, as a sibling of that disk's actual content
+// under diskDataPrefix -- never inside it.  A disk's content is always
+// nested one level deeper, under .../data/..., specifically so a real file
+// the disk's filesystem happens to contain (named "pvc.yaml" or anything
+// else) can never produce a path colliding with our own manifest records.
 const vmConfigPath = "/vm.yaml"
 
 func pvcConfigPath(volumeName string) string {
 	return path.Join("/", volumeName, "pvc.yaml")
+}
+
+func diskDataPrefix(volumeName string) string {
+	return path.Join("/", volumeName, "data")
 }
 
 // heuristic to stop waiting indefinitely if the guest agent never
@@ -374,7 +381,7 @@ func (k *k8s) backupDisk(ctx context.Context, ns, volumeName string, pvc *corev1
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	return k.podBackup(ctx, fp, "/"+volumeName, records, results)
+	return k.podBackup(ctx, fp, diskDataPrefix(volumeName), records, results)
 }
 
 // diskRestore accumulates one disk's captured PVC manifest and data records
@@ -428,7 +435,7 @@ func (k *k8s) restoreVm(ctx context.Context, ns, vmName string, records <-chan *
 
 		rel := strings.TrimPrefix(record.Pathname, "/")
 		volumeName, sub, hasSub := strings.Cut(rel, "/")
-		if volumeName == "" {
+		if volumeName == "" || !hasSub {
 			res := record.Error(fmt.Errorf("unexpected record %q outside any disk", record.Pathname))
 			results <- res
 			return res.Err
@@ -436,7 +443,10 @@ func (k *k8s) restoreVm(ctx context.Context, ns, vmName string, records <-chan *
 
 		st := diskState(volumeName)
 
-		if hasSub && sub == "pvc.yaml" {
+		// each disk's manifest sits as a sibling of its own "data"
+		// subtree, never inside it -- see diskDataPrefix/pvcConfigPath.
+		switch {
+		case sub == "pvc.yaml":
 			data, err := io.ReadAll(record.Reader)
 			if err != nil {
 				res := record.Error(fmt.Errorf("failed to read pvc manifest for disk %q: %w", volumeName, err))
@@ -445,16 +455,22 @@ func (k *k8s) restoreVm(ctx context.Context, ns, vmName string, records <-chan *
 			}
 			st.pvcYAML = data
 			results <- record.Ok()
-			continue
-		}
 
-		newrecord := *record
-		if hasSub {
-			newrecord.Pathname = "/" + sub
-		} else {
+		case sub == "data":
+			newrecord := *record
 			newrecord.Pathname = "/"
+			st.data = append(st.data, &newrecord)
+
+		case strings.HasPrefix(sub, "data/"):
+			newrecord := *record
+			newrecord.Pathname = strings.TrimPrefix(sub, "data")
+			st.data = append(st.data, &newrecord)
+
+		default:
+			res := record.Error(fmt.Errorf("unexpected record %q for disk %q", record.Pathname, volumeName))
+			results <- res
+			return res.Err
 		}
-		st.data = append(st.data, &newrecord)
 	}
 
 	if vmYAML == nil {
