@@ -28,6 +28,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -181,14 +182,18 @@ func TestStorageMetadata(t *testing.T) {
 	s := ts.newTestSftp(t, "/repo")
 	defer s.Close((context.Background()))
 
-	_, err := s.Mode(context.Background())
+	mode, err := s.Mode(context.Background())
 	if err != nil {
-		t.Fatalf("failed to access s.Mode()")
+		t.Fatalf("failed to access s.Mode(): %v", err)
+	}
+	want := storage.ModeRead | storage.ModeWrite
+	if mode != want {
+		t.Fatalf("s.Mode() = %v, want %v", mode, want)
 	}
 
 	size, err := s.Size(context.Background())
 	if err != nil {
-		t.Fatalf("failed to access s.Mode()")
+		t.Fatalf("failed to access s.Size(): %v", err)
 	}
 	if size != -1 {
 		t.Fatalf("s.Size() should return -1")
@@ -200,7 +205,9 @@ func TestStorageList_Supported(t *testing.T) {
 	s := ts.newTestSftp(t, "/repo")
 	defer s.Close((context.Background()))
 
-	s.Create(context.Background(), []byte("test config"))
+	if err := s.Create(context.Background(), []byte("test config")); err != nil {
+		t.Fatalf("s.Create() failed: %v", err)
+	}
 	supportedStorageFiletypes := []storage.StorageResource{
 		storage.StorageResourcePackfile,
 		storage.StorageResourceLock,
@@ -208,11 +215,26 @@ func TestStorageList_Supported(t *testing.T) {
 	}
 	for _, tt := range supportedStorageFiletypes {
 		t.Run(tt.String(), func(t *testing.T) {
-			_, err := s.List(context.Background(), tt)
+			got, err := s.List(context.Background(), tt)
 			if err != nil {
 				t.Fatalf("failed to access s.List() for %s: %s", tt.String(), err.Error())
 			}
+			// Fresh repo: nothing has been Put() for this resource yet.
+			if len(got) != 0 {
+				t.Fatalf("s.List() for %s = %v, want empty", tt.String(), got)
+			}
 
+			m := mac(0x33)
+			if _, err := s.Put(context.Background(), tt, m, bytes.NewReader([]byte("data"))); err != nil {
+				t.Fatalf("s.Put() failed for %s: %v", tt.String(), err)
+			}
+			got, err = s.List(context.Background(), tt)
+			if err != nil {
+				t.Fatalf("failed to access s.List() for %s: %s", tt.String(), err.Error())
+			}
+			if len(got) != 1 || got[0] != m {
+				t.Fatalf("s.List() for %s = %v, want [%x]", tt.String(), got, m)
+			}
 		})
 	}
 }
@@ -373,7 +395,7 @@ func TestStorageGetPut_Lock(t *testing.T) {
 
 	rc, err := s.Get(context.Background(), storage.StorageResourceLock, m, nil)
 	if err != nil {
-		t.Fatalf("s.Get() expected to fail for state range request")
+		t.Fatalf("s.Get() failed: %v", err)
 	}
 	defer rc.Close()
 
@@ -405,7 +427,7 @@ func TestStorageGet_LockRangeUnsupported(t *testing.T) {
 
 	_, err := s.Get(context.Background(), storage.StorageResourceLock, m, &storage.Range{Offset: 5, Length: 8})
 	if err == nil {
-		t.Fatalf("s.Get() expected to fail for state range request")
+		t.Fatalf("s.Get() expected to fail for lock range request")
 	}
 }
 
@@ -420,10 +442,16 @@ func TestStorageDelete_Packfile(t *testing.T) {
 
 	m := mac(0x2a)
 	want := []byte("test packfile data")
-	s.Put(context.Background(), storage.StorageResourcePackfile, m, bytes.NewReader(want))
+	if _, err := s.Put(context.Background(), storage.StorageResourcePackfile, m, bytes.NewReader(want)); err != nil {
+		t.Fatalf("s.Put() failed: %v", err)
+	}
 
 	if err := s.Delete(context.Background(), storage.StorageResourcePackfile, m); err != nil {
-		t.Fatalf("s.Put() failed: %v", err)
+		t.Fatalf("s.Delete() failed: %v", err)
+	}
+
+	if _, err := s.Get(context.Background(), storage.StorageResourcePackfile, m, nil); err == nil {
+		t.Fatalf("s.Get() succeeded after Delete(), want error")
 	}
 }
 
@@ -438,10 +466,16 @@ func TestStorageDelete_State(t *testing.T) {
 
 	m := mac(0x2a)
 	want := []byte("test packfile data")
-	s.Put(context.Background(), storage.StorageResourceState, m, bytes.NewReader(want))
+	if _, err := s.Put(context.Background(), storage.StorageResourceState, m, bytes.NewReader(want)); err != nil {
+		t.Fatalf("s.Put() failed: %v", err)
+	}
 
 	if err := s.Delete(context.Background(), storage.StorageResourceState, m); err != nil {
-		t.Fatalf("s.Put() failed: %v", err)
+		t.Fatalf("s.Delete() failed: %v", err)
+	}
+
+	if _, err := s.Get(context.Background(), storage.StorageResourceState, m, nil); err == nil {
+		t.Fatalf("s.Get() succeeded after Delete(), want error")
 	}
 }
 
@@ -520,8 +554,76 @@ func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 	}
 }
 
+// TestStorageConcurrentPacksAndStates exercises concurrent Put/List across
+// both packfiles and states buckets, run under -race to catch any data race
+// in buckets.List()'s mutex-guarded append and to confirm every concurrently
+// written entry is observed exactly once.
 func TestStorageConcurrentPacksAndStates(t *testing.T) {
-	t.Skip("TODO")
+	ts := newTestServer(t)
+	s := ts.newTestSftp(t, "/repo")
+	defer s.Close(context.Background())
+
+	if err := s.Create(context.Background(), []byte("test config")); err != nil {
+		t.Fatalf("s.Create() failed: %v", err)
+	}
+
+	const n = 32
+	wantPackfiles := make(map[objects.MAC]bool, n)
+	wantStates := make(map[objects.MAC]bool, n)
+	for i := range n {
+		var m objects.MAC
+		m[0] = byte(i)
+		m[1] = 0xaa
+		wantPackfiles[m] = true
+
+		var sm objects.MAC
+		sm[0] = byte(i)
+		sm[1] = 0xbb
+		wantStates[sm] = true
+	}
+
+	var wg sync.WaitGroup
+	put := func(res storage.StorageResource, m objects.MAC) {
+		defer wg.Done()
+		if _, err := s.Put(context.Background(), res, m, bytes.NewReader([]byte("data"))); err != nil {
+			t.Errorf("s.Put(%s, %x) failed: %v", res.String(), m, err)
+		}
+	}
+	for m := range wantPackfiles {
+		wg.Add(1)
+		go put(storage.StorageResourcePackfile, m)
+	}
+	for m := range wantStates {
+		wg.Add(1)
+		go put(storage.StorageResourceState, m)
+	}
+	wg.Wait()
+
+	gotPackfiles, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	if err != nil {
+		t.Fatalf("s.List(packfile) failed: %v", err)
+	}
+	if len(gotPackfiles) != len(wantPackfiles) {
+		t.Fatalf("s.List(packfile) returned %d entries, want %d: %v", len(gotPackfiles), len(wantPackfiles), gotPackfiles)
+	}
+	for _, m := range gotPackfiles {
+		if !wantPackfiles[m] {
+			t.Fatalf("s.List(packfile) returned unexpected mac %x", m)
+		}
+	}
+
+	gotStates, err := s.List(context.Background(), storage.StorageResourceState)
+	if err != nil {
+		t.Fatalf("s.List(state) failed: %v", err)
+	}
+	if len(gotStates) != len(wantStates) {
+		t.Fatalf("s.List(state) returned %d entries, want %d: %v", len(gotStates), len(wantStates), gotStates)
+	}
+	for _, m := range gotStates {
+		if !wantStates[m] {
+			t.Fatalf("s.List(state) returned unexpected mac %x", m)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------
