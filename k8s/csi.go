@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path"
 	"runtime"
 	"slices"
 	"strconv"
@@ -503,7 +504,7 @@ func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connec
 	return err
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
@@ -543,7 +544,9 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	err = progress(ctx, importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
 		for record := range records {
 			if proto != "fs" {
-				Records <- record
+				newrecord := *record
+				newrecord.Pathname = prefix + record.Pathname
+				Records <- &newrecord
 				total++
 				continue
 			}
@@ -558,10 +561,17 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 			}
 
 			newrecord := *record
-			newrecord.Pathname = strings.TrimPrefix(record.Pathname, fsPath)
-			if newrecord.Pathname == "" {
-				newrecord.Pathname = "/"
-				newrecord.FileInfo.Lname = "/"
+			rel := strings.TrimPrefix(record.Pathname, fsPath)
+			if rel == "" {
+				if prefix == "" {
+					newrecord.Pathname = "/"
+					newrecord.FileInfo.Lname = "/"
+				} else {
+					newrecord.Pathname = prefix
+					newrecord.FileInfo.Lname = path.Base(prefix)
+				}
+			} else {
+				newrecord.Pathname = prefix + rel
 			}
 
 			Records <- &newrecord
@@ -627,7 +637,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -636,12 +646,12 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connecto
 		defer close(stop)
 	}
 
-	proto, path := "fs", fsPath
+	proto, podpath := "fs", fsPath
 	if fp.block {
-		proto, path = "block", blockPath
+		proto, podpath = "block", blockPath
 	}
 
-	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, records, results)
+	return k.consume(ctx, fp.cert, fp.peer, url, proto, podpath, prefix, records, results)
 }
 
 func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -726,7 +736,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	return k.podBackup(ctx, fp, records, results)
+	return k.podBackup(ctx, fp, "", records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {

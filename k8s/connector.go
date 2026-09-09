@@ -40,6 +40,7 @@ type k8s struct {
 	namespace string
 	labels    string
 	pvcName   string
+	vmName    string
 
 	portForward bool
 
@@ -51,9 +52,11 @@ func init() {
 	importer.Register("k8s", 0, NewImporter)
 	importer.Register("k8s+csi", 0, NewImporter)
 	importer.Register("k8s+pvc", 0, NewImporter)
+	importer.Register("k8s+vm", 0, NewImporter)
 
 	exporter.Register("k8s", 0, NewExporter)
 	exporter.Register("k8s+pvc", 0, NewExporter)
+	exporter.Register("k8s+vm", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
@@ -119,7 +122,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		host = "in-cluster"
 	}
 
-	var namespace, pvcName, matchLabels, snapClass string
+	var namespace, pvcName, vmName, matchLabels, snapClass string
 
 	switch proto {
 	case "k8s+csi":
@@ -138,6 +141,14 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		namespace, pvcName, found = strings.Cut(strings.Trim(u.Path, "/"), "/")
 		if !found || strings.Contains(pvcName, "/") {
 			return nil, fmt.Errorf("bad location: expected namespace/pvc-name but got %s",
+				strings.Trim(u.Path, "/"))
+		}
+
+	case "k8s+vm":
+		var found bool
+		namespace, vmName, found = strings.Cut(strings.Trim(u.Path, "/"), "/")
+		if !found || strings.Contains(vmName, "/") {
+			return nil, fmt.Errorf("bad location: expected namespace/vm-name but got %s",
 				strings.Trim(u.Path, "/"))
 		}
 
@@ -203,6 +214,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		namespace:      namespace,
 		labels:         matchLabels,
 		pvcName:        pvcName,
+		vmName:         vmName,
 
 		portForward: portForward,
 
@@ -215,14 +227,14 @@ func (k *k8s) Type() string   { return k.proto }
 func (k *k8s) Origin() string { return k.host }
 
 func (k *k8s) Root() string {
-	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" {
+	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" || k.proto == "k8s+vm" {
 		return "/"
 	}
 	return "/" + k.namespace
 }
 
 func (k *k8s) Flags() location.Flags {
-	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" {
+	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" || k.proto == "k8s+vm" {
 		return location.FLAG_STREAM | location.FLAG_NEEDACK
 	}
 	return 0
@@ -260,6 +272,9 @@ func (k *k8s) Ping(ctx context.Context) error {
 	case "k8s+csi", "k8s+pvc":
 		_, err := k.getpvc(ctx, k.namespace, k.pvcName)
 		return err
+	case "k8s+vm":
+		_, err := k.getvm(ctx, k.namespace, k.vmName)
+		return err
 	default:
 		return errors.ErrUnsupported
 	}
@@ -273,6 +288,8 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 		return k.walkResources(ctx, records)
 	case "k8s+pvc", "k8s+csi":
 		return k.backupPvc(ctx, k.namespace, k.pvcName, records, results)
+	case "k8s+vm":
+		return k.backupVm(ctx, k.namespace, k.vmName, records, results)
 	default:
 		return errors.ErrUnsupported
 	}
@@ -287,6 +304,9 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 		// no need to close results here, it's passed to
 		// exporter.Export which will take care of it.
 		return k.restorePvc(ctx, k.namespace, k.pvcName, records, results)
+	case "k8s+vm":
+		defer close(results)
+		return k.restoreVm(ctx, k.namespace, k.vmName, records, results)
 	default:
 		return errors.ErrUnsupported
 	}
