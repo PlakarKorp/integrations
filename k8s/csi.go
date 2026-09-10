@@ -21,7 +21,6 @@ import (
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -480,32 +479,69 @@ func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
 	}
 }
 
-func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connectors.Record, chan<- *connectors.Result)) error {
+func filter(ctx context.Context, imp importer.Importer, Records chan<- *connectors.Record, Results <-chan *connectors.Result, fn func(*connectors.Record) *connectors.Record) error {
 	var (
-		size    = 2
+		size    = max(cap(Records), cap(Results), 2)
 		records = make(chan *connectors.Record, size)
-		retch   = make(chan struct{}, 1)
+		results = make(chan *connectors.Result, size)
+		retch   = make(chan error, 1)
+		done    = make(chan struct{})
+		drained = make(chan struct{})
+
+		sent uint64
+		recv atomic.Uint64
 	)
 
-	var results chan *connectors.Result
-	if (imp.Flags() & location.FLAG_NEEDACK) != 0 {
-		results = make(chan *connectors.Result, size)
-	}
-
+	// count the results so we know when kloset is done with this
+	// importer.
 	go func() {
-		fn(records, results)
-		if results != nil {
-			close(results)
+		for {
+			select {
+			case <-done:
+				return
+			case result, ok := <-Results:
+				if !ok {
+					close(drained)
+					return
+				}
+				results <- result
+				recv.Add(1)
+			}
 		}
-		close(retch)
 	}()
 
-	err := imp.Import(ctx, records, results)
-	<-retch
-	return err
+	// run the importer as well
+	go func() { retch <- imp.Import(ctx, records, results) }()
+
+	// the actual records filtering
+	for record := range records {
+		if ret := fn(record); ret != nil {
+			sent++
+			Records <- ret
+		} else {
+			results <- record.Ok()
+		}
+	}
+
+	// wait for the processing of all records, then yield Import()
+	// return value
+	for {
+		if sent == recv.Load() {
+			close(done)
+			close(results)
+			return <-retch
+		}
+		select {
+		case <-drained:
+			close(results)
+			<-retch
+			return fmt.Errorf("result channel early closed: %w", context.Cause(ctx))
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
@@ -531,53 +567,28 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	}
 	defer importer.Close(ctx)
 
-	var done atomic.Uint64
-
-	go func() {
-		for range results {
-			done.Add(1)
+	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
+		if proto == "block" {
+			return record
 		}
-	}()
 
-	var total uint64
-	err = progress(ctx, importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
-		for record := range records {
-			if proto == "block" {
-				Records <- record
-				total++
-				continue
-			}
-
-			if record.Pathname == "/" {
-				if results != nil {
-					results <- record.Ok()
-				} else {
-					record.Close()
-				}
-				continue
-			}
-
-			newrecord := *record
-			newrecord.Pathname = strings.TrimPrefix(record.Pathname, fsPath)
-			if newrecord.Pathname == "" {
-				newrecord.Pathname = "/"
-				newrecord.FileInfo.Lname = "/"
-			}
-
-			Records <- &newrecord
-			total++
+		if record.Pathname == "/" {
+			return nil
 		}
+
+		newrecord := *record
+		newrecord.Pathname = strings.TrimPrefix(record.Pathname, fsPath)
+		if newrecord.Pathname == "" {
+			newrecord.Pathname = "/"
+			newrecord.FileInfo.Lname = "/"
+		}
+
+		return &newrecord
 	})
 	if err != nil {
 		return fmt.Errorf("failed to run the grpc importer: %w", err)
 	}
-
-	for {
-		if total == done.Load() {
-			return nil
-		}
-		time.Sleep(time.Second)
-	}
+	return nil
 }
 
 func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{}, error) {
