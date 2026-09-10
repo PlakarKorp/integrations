@@ -42,8 +42,8 @@ func (s *Sftp) getLocks() (ret []objects.MAC, err error) {
 
 	for i := range entries {
 		var t []byte
-		t, hexErr := hex.DecodeString(entries[i].Name())
-		if hexErr != nil {
+		t, err := hex.DecodeString(entries[i].Name())
+		if err != nil {
 			continue
 		}
 		if len(t) != 32 {
