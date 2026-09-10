@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/k8s/mtls"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/require"
@@ -305,7 +306,7 @@ func newCsiTestK8s(objs ...runtime.Object) *k8s {
 
 // withGeneratedResourceVersion makes the fake snapshot clientset behave like
 // a real apiserver on Create: assigning a name (from GenerateName) and a
-// ResourceVersion.  The generated fake tracker doesn't, and watchtools.Until 
+// ResourceVersion.  The generated fake tracker doesn't, and watchtools.Until
 // refuses to start a watch from an empty resource version.
 func withGeneratedResourceVersion(snapClient *snapfake.Clientset) {
 	snapClient.PrependReactor("create", "volumesnapshots", func(action clienttesting.Action) (bool, runtime.Object, error) {
@@ -408,13 +409,14 @@ func TestGetPvc(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects raw block volumes", func(t *testing.T) {
+	t.Run("accepts raw block volumes", func(t *testing.T) {
 		pvc := pvcObj("ns", "block")
 		pvc.Spec.VolumeMode = new(corev1.PersistentVolumeBlock)
 		k := newCsiTestK8s(pvc)
 
-		_, err := k.getpvc(t.Context(), "ns", "block")
-		require.ErrorContains(t, err, "raw block volume")
+		got, err := k.getpvc(t.Context(), "ns", "block")
+		require.NoError(t, err)
+		require.Equal(t, "block", got.Name)
 	})
 }
 
@@ -626,5 +628,83 @@ func TestPodTrouble(t *testing.T) {
 
 		got := k.podTrouble(t.Context(), testPod)
 		require.Contains(t, got, "apiserver unreachable")
+	})
+}
+
+// fsServerTestK8s prepares a fake clientset so that fsServer succeeds.
+func fsServerTestK8s(t *testing.T, pvc *corev1.PersistentVolumeClaim) *k8s {
+	t.Helper()
+
+	k := newCsiTestK8s(pvc)
+	cs := k.clientset.(*k8sfake.Clientset)
+
+	cs.PrependReactor("create", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		obj := action.(clienttesting.CreateAction).GetObject().(metav1.Object)
+		if obj.GetName() == "" {
+			obj.SetName(obj.GetGenerateName() + "generated")
+		}
+		obj.SetResourceVersion("1")
+		return false, nil, nil
+	})
+
+	_, fp, err := mtls.Gencert()
+	require.NoError(t, err)
+	podlog := []byte("plakar-pubkey: " + mtls.Fingerprint(fp) + "\n")
+
+	cs.PrependReactor("get", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "log" {
+			return false, nil, nil
+		}
+		return true, &runtime.Unknown{Raw: podlog}, nil
+	})
+
+	cs.PrependWatchReactor("pods", singleEventWatchReactor(watch.Event{
+		Type: watch.Modified,
+		Object: &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "plakar-backup-x", Namespace: "ns", ResourceVersion: "2"},
+			Status: corev1.PodStatus{
+				Phase:             corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{container(kubeletContainer, running(), true)},
+			},
+		},
+	}))
+
+	return k
+}
+
+func TestFsServer(t *testing.T) {
+	t.Run("filesystem mode mounts the pvc", func(t *testing.T) {
+		pvc := pvcObj("ns", "data")
+		k := fsServerTestK8s(t, pvc)
+
+		fp, err := k.fsServer(t.Context(), "backup", "ns", pvc, true)
+		require.NoError(t, err)
+		require.False(t, fp.block)
+
+		list, err := k.clientset.CoreV1().Pods("ns").List(t.Context(), metav1.ListOptions{})
+		require.NoError(t, err)
+		require.Len(t, list.Items, 1)
+
+		c := list.Items[0].Spec.Containers[0]
+		require.Empty(t, c.VolumeDevices)
+		require.Equal(t, []corev1.VolumeMount{{Name: "snap", MountPath: fsPath}}, c.VolumeMounts)
+	})
+
+	t.Run("block mode exposes a raw device", func(t *testing.T) {
+		pvc := pvcObj("ns", "block")
+		pvc.Spec.VolumeMode = new(corev1.PersistentVolumeBlock)
+		k := fsServerTestK8s(t, pvc)
+
+		fp, err := k.fsServer(t.Context(), "backup", "ns", pvc, true)
+		require.NoError(t, err)
+		require.True(t, fp.block)
+
+		list, err := k.clientset.CoreV1().Pods("ns").List(t.Context(), metav1.ListOptions{})
+		require.NoError(t, err)
+		require.Len(t, list.Items, 1)
+
+		c := list.Items[0].Spec.Containers[0]
+		require.Empty(t, c.VolumeMounts)
+		require.Equal(t, []corev1.VolumeDevice{{Name: "snap", DevicePath: blockPath}}, c.VolumeDevices)
 	})
 }

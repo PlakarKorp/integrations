@@ -9,6 +9,7 @@ on:
       - k8s/go.mod
       - k8s/go.sum
       - 'k8s/kubelet/**'
+      - 'k8s/block/**'
   workflow_dispatch:
 
 jobs:
