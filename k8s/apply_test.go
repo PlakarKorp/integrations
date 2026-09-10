@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	discoveryfake "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -212,4 +213,94 @@ metadata:
 	require.Contains(t, err.Error(), "apiserver is on fire")
 	require.Len(t, results, 1)
 	require.Error(t, results[0].Err)
+}
+
+func TestIsRestorable(t *testing.T) {
+	suite := []struct {
+		name  string
+		verbs metav1.Verbs
+		want  bool
+	}{
+		{
+			name:  "a writable resource",
+			verbs: metav1.Verbs{"get", "list", "watch", "create", "update", "patch", "delete"},
+			want:  true,
+		},
+		{
+			name:  "only the two verbs an apply needs",
+			verbs: metav1.Verbs{"create", "patch"},
+			want:  true,
+		},
+		{
+			name:  "read-only endpoint",
+			verbs: metav1.Verbs{"get", "list", "watch"},
+			want:  false,
+		},
+		{
+			name:  "create without patch, like the *reviews",
+			verbs: metav1.Verbs{"create"},
+			want:  false,
+		},
+		{
+			name:  "patch without create",
+			verbs: metav1.Verbs{"get", "list", "patch"},
+			want:  false,
+		},
+		{
+			name:  "no verbs advertised at all",
+			verbs: nil,
+			want:  false,
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, isRestorable(test.verbs))
+		})
+	}
+}
+
+func TestSkipRestore(t *testing.T) {
+	suite := []struct {
+		name string
+		gvk  schema.GroupVersionKind
+		skip bool
+	}{
+		{
+			name: "core kind on the list",
+			gvk:  schema.GroupVersionKind{Version: "v1", Kind: "Node"},
+			skip: true,
+		},
+		{
+			name: "grouped kind on the list",
+			gvk:  schema.GroupVersionKind{Group: "storage.k8s.io", Version: "v1", Kind: "VolumeAttachment"},
+			skip: true,
+		},
+		{
+			name: "the version is not part of the match",
+			gvk:  schema.GroupVersionKind{Group: "events.k8s.io", Version: "v1beta1", Kind: "Event"},
+			skip: true,
+		},
+		{
+			name: "ordinary resource",
+			gvk:  schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"},
+			skip: false,
+		},
+		{
+			name: "same kind in a group we do not disallow",
+			gvk:  schema.GroupVersionKind{Group: "acme.example.com", Version: "v1", Kind: "Node"},
+			skip: false,
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			reason := skipRestore(test.gvk)
+			if !test.skip {
+				require.Empty(t, reason)
+				return
+			}
+			require.NotEmpty(t, reason, "a skipped kind must say why")
+		})
+	}
 }
