@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -10,7 +11,11 @@ import (
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
 	fsexporter "github.com/PlakarKorp/integrations/fs/exporter"
 	fsimporter "github.com/PlakarKorp/integrations/fs/importer"
+	"github.com/PlakarKorp/integrations/k8s/block"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/kloset/connectors/importer"
 )
 
 func usage() {
@@ -22,6 +27,28 @@ func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "%s: ", path.Base(os.Args[0]))
 	fmt.Fprintf(os.Stderr, format+"\n", a...)
 	os.Exit(1)
+}
+
+func source(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+	switch proto {
+	case "block":
+		return block.NewImporter(ctx, opts, proto, config)
+	case "fs":
+		return fsimporter.NewFSImporter(ctx, opts, proto, config)
+	default:
+		return nil, fmt.Errorf("unsupported proto %q", proto)
+	}
+}
+
+func destination(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+	switch proto {
+	case "block":
+		return block.NewExporter(ctx, opts, proto, config)
+	case "fs":
+		return fsexporter.NewFSExporter(ctx, opts, proto, config)
+	default:
+		return nil, fmt.Errorf("unsupported proto %q", proto)
+	}
 }
 
 func main() {
@@ -65,11 +92,11 @@ func main() {
 	fmt.Fprintf(os.Stderr, "listening on :%d\n", port)
 
 	if doexport {
-		if err := sdk.RunExporterOn(fsexporter.NewFSExporter, listener); err != nil {
+		if err := sdk.RunExporterOn(destination, listener); err != nil {
 			fatal("failed to run the fs exporter: %s", err)
 		}
 	} else {
-		if err := sdk.RunImporterOn(fsimporter.NewFSImporter, listener); err != nil {
+		if err := sdk.RunImporterOn(source, listener); err != nil {
 			fatal("failed to run the fs importer: %s", err)
 		}
 	}
