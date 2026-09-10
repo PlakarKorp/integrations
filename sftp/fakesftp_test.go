@@ -97,6 +97,7 @@ import (
 	"testing"
 
 	"github.com/pkg/sftp"
+	"github.com/stretchr/testify/require"
 )
 
 // localRootHandlers implements the sftp.Handlers interfaces (FileReader,
@@ -441,96 +442,57 @@ func TestHarnessRoundtrip(t *testing.T) {
 	ts := newTestServer(t)
 
 	f, err := ts.client.Create("/hello.txt")
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if _, err := f.Write([]byte("hello world")); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	require.NoError(t, err)
+	_, err = f.Write([]byte("hello world"))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 
 	// Validate against the real file on disk.
 	data, err := os.ReadFile(ts.realPath("/hello.txt"))
-	if err != nil {
-		t.Fatalf("os.ReadFile: %v", err)
-	}
-	if string(data) != "hello world" {
-		t.Fatalf("unexpected file contents: %q", data)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "hello world", string(data))
 
 	// Read back through the client.
 	rf, err := ts.client.Open("/hello.txt")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoError(t, err)
 	defer rf.Close()
 	buf := make([]byte, 32)
 	n, _ := rf.Read(buf)
-	if string(buf[:n]) != "hello world" {
-		t.Fatalf("unexpected read contents: %q", buf[:n])
-	}
+	require.Equal(t, "hello world", string(buf[:n]))
 
 	// Mkdir + List.
-	if err := ts.client.Mkdir("/dir"); err != nil {
-		t.Fatalf("Mkdir: %v", err)
-	}
+	require.NoError(t, ts.client.Mkdir("/dir"))
 	entries, err := ts.client.ReadDir("/")
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
+	require.NoError(t, err)
 	names := map[string]bool{}
 	for _, e := range entries {
 		names[e.Name()] = true
 	}
-	if !names["hello.txt"] || !names["dir"] {
-		t.Fatalf("unexpected directory listing: %v", names)
-	}
+	require.True(t, names["hello.txt"] && names["dir"], "unexpected directory listing: %v", names)
 
 	// Chmod through the client, validate against real filesystem mode
 	// bits (proves permission semantics are real, not virtual).
-	if err := ts.client.Chmod("/hello.txt", 0o600); err != nil {
-		t.Fatalf("Chmod: %v", err)
-	}
+	require.NoError(t, ts.client.Chmod("/hello.txt", 0o600))
 	info, err := os.Stat(ts.realPath("/hello.txt"))
-	if err != nil {
-		t.Fatalf("os.Stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("expected real mode 0600, got %v", info.Mode().Perm())
-	}
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
 	// Symlink + Readlink round trip.
-	if err := ts.client.Symlink("/hello.txt", "/link.txt"); err != nil {
-		t.Fatalf("Symlink: %v", err)
-	}
+	require.NoError(t, ts.client.Symlink("/hello.txt", "/link.txt"))
 	target, err := ts.client.ReadLink("/link.txt")
-	if err != nil {
-		t.Fatalf("ReadLink: %v", err)
-	}
-	if target != "/hello.txt" {
-		t.Fatalf("unexpected symlink target: %q", target)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "/hello.txt", target)
 	realTarget, err := os.Readlink(ts.realPath("/link.txt"))
-	if err != nil {
-		t.Fatalf("os.Readlink: %v", err)
-	}
-	if realTarget != "/hello.txt" {
-		t.Fatalf("unexpected real symlink target: %q", realTarget)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "/hello.txt", realTarget)
 
 	// Path escape attempts must fail, not touch anything outside root.
-	if _, err := ts.client.Stat("/../../etc/passwd"); err == nil {
-		t.Fatalf("expected path escape to fail")
-	}
+	_, err = ts.client.Stat("/../../etc/passwd")
+	require.Error(t, err, "expected path escape to fail")
 
 	// Connector construction bypasses connect()/ensureMaster().
 	conn := ts.newTestSftp(t, "/")
-	if conn.Root() != "/" {
-		t.Fatalf("unexpected root: %q", conn.Root())
-	}
-	if _, err := conn.client.Lstat(filepath.Join("/", "hello.txt")); err != nil {
-		t.Fatalf("connector client Lstat: %v", err)
-	}
+	require.Equal(t, "/", conn.Root())
+	_, err = conn.client.Lstat(filepath.Join("/", "hello.txt"))
+	require.NoError(t, err)
 }
