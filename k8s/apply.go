@@ -81,6 +81,11 @@ func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, resu
 			return err
 		}
 
+		if meta, ok := obj.Object["metadata"].(map[string]any); ok {
+			delete(meta, "managedFields")
+			delete(meta, "uid")
+		}
+
 		gvk := obj.GroupVersionKind()
 
 		if reason := skipRestore(gvk); reason != "" {
