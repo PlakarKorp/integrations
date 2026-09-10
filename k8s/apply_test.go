@@ -24,8 +24,10 @@ var applyTestResources = []*metav1.APIResourceList{
 	{
 		GroupVersion: "v1",
 		APIResources: []metav1.APIResource{
-			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap"},
-			{Name: "namespaces", Namespaced: false, Kind: "Namespace"},
+			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "namespaces", Namespaced: false, Kind: "Namespace",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 		},
 	},
 }
