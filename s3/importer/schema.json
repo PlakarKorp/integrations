@@ -32,6 +32,11 @@
       "default": "",
       "description": "S3 endpoint URL"
     },
+    "region": {
+      "type": "string",
+      "default": "",
+      "description": "S3 region to use for request signing (required for some S3-compatible providers that reject the SDK's automatic region discovery)"
+    },
     "access_key": {
       "type": "string",
       "minLength": 1,

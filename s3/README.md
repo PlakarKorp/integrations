@@ -30,6 +30,7 @@ The configuration parameters are as follows:
 
 For S3-compatible storage providers, you may also need to specify:
 - `storage_class`: The storage class to use (e.g., `STANDARD`, `GLACIER`)
+- `region`: The region to use when signing requests. Leave unset for AWS. Some S3-compatible providers whose endpoint hostname isn't of the form `s3.<region>.amazonaws.com` reject the SDK's automatic region-discovery request, causing `SignatureDoesNotMatch` errors on every operation. Setting this explicitly avoids that
 
 ## Examples
 
