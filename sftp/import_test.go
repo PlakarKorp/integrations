@@ -29,6 +29,7 @@ package sftp
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,7 +53,16 @@ func (ts *testServer) newTestImportSftp(t *testing.T, rootDir string) *Sftp {
 // runImporter runs s.Import in a goroutine and returns the records channel
 // for the caller to drain, plus a wait function that blocks until Import
 // has returned and yields its final error.
+//
+// The required call order is always:
+//  1. drain the returned channel to completion (drainRecords)
+//  2. then call wait()
+//
+// Reversing the order deadlocks: workers block trying to send on a full
+// records channel, Import blocks waiting for workers to finish, and the
+// test blocks waiting for Import.
 func runImporter(t *testing.T, s *Sftp) (<-chan *connectors.Record, func() error) {
+	t.Helper()
 	records := make(chan *connectors.Record, 16)
 	done := make(chan error, 1)
 	go func() {
@@ -146,16 +156,6 @@ func seedTree(t *testing.T, root string) {
 	mustMkdir(filepath.Join(root, "excluded"), 0750)
 	mustWrite(filepath.Join(root, "excluded", "skip.txt"), "skip me", 0600)
 }
-
-// Case stubs below mirror the Import section of TEST_PLAN.md. Fill in each
-// body; the harness helpers above (newTestImportSftp/runImporter/
-// drainRecords) are ready to use, e.g.:
-//
-//	ts := newTestServer(t)
-//	s := ts.newTestImportSftp(t, "/")
-//	// ... seed files/dirs/symlinks via os.* against ts.realPath(...) ...
-//	records, wait := runImporter(t, s)
-//	got := drainRecords(records)
 
 func TestImport_WalksNestedTree(t *testing.T) {
 	ts := newTestServer(t)
@@ -279,87 +279,91 @@ func TestImport_SymlinkTarget(t *testing.T) {
 	assert.Empty(t, fileRec.Target)
 }
 
-func TestImport_ExcludeRules_SkipDir(t *testing.T) {
-	ts := newTestServer(t)
-	seedTree(t, ts.realPath("/repo"))
-
-	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
-
-	// Exclude the "excluded" directory and everything under it.
-	s.excludes = exclude.NewRuleSet()
-	err := s.excludes.AddRulesFromArray([]string{
-		"/repo/excluded/**",
-	})
-	require.NoError(t, err, "failed to add exclude rules")
-
-	records, wait := runImporter(t, s)
-	got := drainRecords(records)
-	require.NoError(t, wait())
-
-	byPath := byPathname(got)
-	for _, r := range got {
-		require.NoError(t, r.Err, "record %q has unexpected error", r.Pathname)
+// TestImport_ExcludeRules covers all exclusion scenarios in one table-driven
+// test. Each case seeds the standard tree, applies different exclude rules,
+// and asserts which paths are absent and which remain. Adding a new scenario
+// requires only a new entry in the table, not a new top-level function.
+func TestImport_ExcludeRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		rules   []string
+		absent  []string
+		present []string
+	}{
+		{
+			// Excluding a glob that covers a directory and its descendants
+			// must remove both the directory record and every record below it.
+			name:  "skip_dir_and_descendants",
+			rules: []string{"/repo/excluded/**"},
+			absent: []string{
+				"/repo/excluded",
+				"/repo/excluded/skip.txt",
+			},
+			present: []string{
+				"/repo",
+				"/repo/file.txt",
+				"/repo/subdir",
+				"/repo/subdir/nested.txt",
+				"/repo/link.txt",
+			},
+		},
+		{
+			// Excluding a leaf file must remove only that file; the parent
+			// directory record must still appear, proving exclusion is not an
+			// overbroad parent-prefix filter.
+			name:  "skip_leaf_file_only",
+			rules: []string{"/repo/excluded/skip.txt"},
+			absent: []string{
+				"/repo/excluded/skip.txt",
+			},
+			present: []string{
+				"/repo",
+				"/repo/file.txt",
+				"/repo/subdir",
+				"/repo/subdir/nested.txt",
+				"/repo/link.txt",
+				"/repo/excluded", // parent directory must still appear
+			},
+		},
 	}
 
-	// The excluded directory and its contents should not appear in the
-	// emitted records.
-	assert.NotContains(t, byPath, "/repo/excluded", "excluded dir should be skipped")
-	assert.NotContains(t, byPath, "/repo/excluded/skip.txt", "file under excluded dir should be skipped")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			seedTree(t, ts.realPath("/repo"))
 
-	// Other entries from seedTree's fixture should still be present.
-	want := []string{
-		"/repo",
-		"/repo/file.txt",
-		"/repo/subdir",
-		"/repo/subdir/nested.txt",
-		"/repo/link.txt",
+			s := ts.newTestImportSftp(t, "/repo")
+			defer s.Close(context.Background())
+
+			require.NoError(t, s.excludes.AddRulesFromArray(tc.rules),
+				"failed to add exclude rules")
+
+			records, wait := runImporter(t, s)
+			got := drainRecords(records)
+			require.NoError(t, wait())
+
+			byPath := byPathname(got)
+			for _, r := range got {
+				require.NoError(t, r.Err, "record %q has unexpected error", r.Pathname)
+			}
+
+			t.Run("absent", func(t *testing.T) {
+				for _, p := range tc.absent {
+					assert.NotContains(t, byPath, p,
+						"excluded path %q should be absent; got: %v", p, keysOf(byPath))
+				}
+			})
+
+			t.Run("present", func(t *testing.T) {
+				for _, p := range tc.present {
+					assert.Contains(t, byPath, p,
+						"expected path %q to be present; got: %v", p, keysOf(byPath))
+				}
+				assert.Len(t, got, len(tc.present),
+					"unexpected record count; got paths: %v", keysOf(byPath))
+			})
+		})
 	}
-	for _, p := range want {
-		assert.Contains(t, byPath, p, "missing record for %q; got paths: %v", p, keysOf(byPath))
-	}
-	assert.Len(t, got, len(want), "unexpected extra/missing records; got paths: %v", keysOf(byPath))
-}
-
-func TestImport_ExcludeRules_SkipFile(t *testing.T) {
-	ts := newTestServer(t)
-	seedTree(t, ts.realPath("/repo"))
-
-	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
-
-	// Exclude the "file.txt" file only.
-	s.excludes = exclude.NewRuleSet()
-	err := s.excludes.AddRulesFromArray([]string{
-		"/repo/excluded/skip.txt",
-	})
-	require.NoError(t, err, "failed to add exclude rules")
-
-	records, wait := runImporter(t, s)
-	got := drainRecords(records)
-	require.NoError(t, wait())
-
-	byPath := byPathname(got)
-	for _, r := range got {
-		require.NoError(t, r.Err, "record %q has unexpected error", r.Pathname)
-	}
-
-	// The excluded file should not appear in the emitted records.
-	assert.NotContains(t, byPath, "/repo/excluded/skip.txt", "excluded file should be skipped")
-
-	// Other entries from seedTree's fixture should still be present.
-	want := []string{
-		"/repo",
-		"/repo/file.txt",
-		"/repo/subdir",
-		"/repo/subdir/nested.txt",
-		"/repo/link.txt",
-		"/repo/excluded",
-	}
-	for _, p := range want {
-		assert.Contains(t, byPath, p, "missing record for %q; got paths: %v", p, keysOf(byPath))
-	}
-	assert.Len(t, got, len(want), "unexpected extra/missing records; got paths: %v", keysOf(byPath))
 }
 
 func TestWalk_RootLstatError(t *testing.T) {
@@ -369,12 +373,13 @@ func TestWalk_RootLstatError(t *testing.T) {
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
+	err := wait()
 
 	// walkDir_walker's callback swallows a per-path error (including the
 	// root's own Lstat failure) into an error record and returns nil, so
 	// Import() itself completes without error; the failure is only ever
 	// visible via the emitted record below.
-	require.NoError(t, wait(), "Import should not itself return an error for a root Lstat failure")
+	require.NoError(t, err, "Import should not itself return an error for a root Lstat failure")
 
 	// The root Lstat error should be emitted as a record.
 	require.Len(t, got, 1, "expected exactly one record for the root Lstat error")
@@ -394,6 +399,9 @@ func TestImport_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
+	// runImporter always uses t.Context(), so we wire channels manually here
+	// to pass the pre-cancelled context while preserving the mandatory
+	// drain-before-wait order.
 	records := make(chan *connectors.Record, 16)
 	done := make(chan error, 1)
 	go func() {
@@ -468,4 +476,43 @@ func TestImport_WorkerPoolConcurrency(t *testing.T) {
 	for p, n := range seen {
 		assert.Equal(t, 1, n, "pathname %q was emitted %d times, expected exactly once", p, n)
 	}
+}
+
+// TestImport_FileReaderReturnsContent verifies that the lazy reader attached
+// to each regular-file record actually opens and streams the remote file's
+// content when called. This exercises the client.Open callback installed by
+// walkDir_worker (see import.go) which metadata-only tests never invoke —
+// a regression in path capture or client state would only surface here.
+func TestImport_FileReaderReturnsContent(t *testing.T) {
+	ts := newTestServer(t)
+
+	root := ts.realPath("/repo")
+	if err := os.MkdirAll(root, 0750); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+	wantContent := []byte("hello from reader test")
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), wantContent, 0640); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	s := ts.newTestImportSftp(t, "/repo")
+	defer s.Close(context.Background())
+
+	records, wait := runImporter(t, s)
+	got := drainRecords(records)
+	require.NoError(t, wait())
+
+	byPath := byPathname(got)
+	rec, ok := byPath["/repo/file.txt"]
+	require.True(t, ok, "expected a record for /repo/file.txt; got: %v", keysOf(byPath))
+	require.NoError(t, rec.Err, "unexpected error on /repo/file.txt record")
+
+	// Reader is a LazyReader: the underlying client.Open runs on first Read,
+	// not when the record was emitted. This call exercises that deferred open.
+	require.NotNil(t, rec.Reader, "expected a non-nil Reader on /repo/file.txt record")
+	defer rec.Reader.Close()
+
+	data, err := io.ReadAll(rec.Reader)
+	require.NoError(t, err, "io.ReadAll from lazy Reader failed")
+	assert.Equal(t, wantContent, data, "file content did not round-trip correctly through the lazy reader")
 }
