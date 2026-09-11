@@ -12,9 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
 )
 
 var restoreVerbs = []string{"create", "patch"}
@@ -59,71 +57,65 @@ func skipRestore(gvk schema.GroupVersionKind) string {
 	return ""
 }
 
-func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) apply(ctx context.Context, record *connectors.Record) (*unstructured.Unstructured, error) {
 	var (
-		discover = memory.NewMemCacheClientWithContext(k.discover)
-		mapper   = restmapper.NewDeferredDiscoveryRESTMapperWithContext(discover)
+		obj = &unstructured.Unstructured{Object: map[string]any{}}
+		dec = yamlv3.NewDecoder(record.Reader)
+		err = dec.Decode(&obj.Object)
 	)
+	if err != nil {
+		return nil, err
+	}
 
+	if meta, ok := obj.Object["metadata"].(map[string]any); ok {
+		delete(meta, "managedFields")
+		delete(meta, "uid")
+	}
+
+	gvk := obj.GroupVersionKind()
+
+	if reason := skipRestore(gvk); reason != "" {
+		log.Printf("skipping %s: %s", record.Pathname, reason)
+		return obj, nil
+	}
+
+	rest, err := k.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	gvr := rest.Resource
+
+	verbs, err := resourceVerbs(ctx, k.discover, gvr)
+	if err != nil {
+		return nil, err
+	}
+
+	if !isRestorable(verbs) {
+		return obj, nil
+	}
+
+	client := k.dclient.Resource(gvr)
+
+	var ri dynamic.ResourceInterface = client
+	if ns := obj.GetNamespace(); ns != "" {
+		ri = client.Namespace(ns)
+	}
+
+	_, err = ri.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
+		FieldManager: "plakar-k8s-exporter",
+	})
+	return obj, err
+}
+
+func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	for record := range records {
 		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
 			results <- record.Ok()
 			continue
 		}
 
-		var (
-			obj = &unstructured.Unstructured{Object: map[string]any{}}
-			dec = yamlv3.NewDecoder(record.Reader)
-			err = dec.Decode(&obj.Object)
-		)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		if meta, ok := obj.Object["metadata"].(map[string]any); ok {
-			delete(meta, "managedFields")
-			delete(meta, "uid")
-		}
-
-		gvk := obj.GroupVersionKind()
-
-		if reason := skipRestore(gvk); reason != "" {
-			log.Printf("skipping %s: %s", record.Pathname, reason)
-			results <- record.Ok()
-			continue
-		}
-
-		rest, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		gvr := rest.Resource
-
-		verbs, err := resourceVerbs(ctx, discover, gvr)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		if !isRestorable(verbs) {
-			results <- record.Ok()
-			continue
-		}
-
-		client := k.dclient.Resource(gvr)
-
-		var ri dynamic.ResourceInterface = client
-		if ns := obj.GetNamespace(); ns != "" {
-			ri = client.Namespace(ns)
-		}
-
-		_, err = ri.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
-			FieldManager: "plakar-k8s-exporter",
-		})
-		if err != nil {
+		if _, err := k.apply(ctx, record); err != nil {
 			results <- record.Error(err)
 			return err
 		}

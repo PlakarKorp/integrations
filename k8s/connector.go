@@ -19,9 +19,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"kubevirt.io/client-go/kubevirt"
 )
@@ -32,6 +34,8 @@ type k8s struct {
 	clientset      kubernetes.Interface
 	dclient        dynamic.Interface
 	discover       discovery.DiscoveryInterfaceWithContext
+	discovercache  discovery.CachedDiscoveryInterfaceWithContext
+	mapper         *restmapper.DeferredDiscoveryRESTMapper
 	snapClient     versioned.Interface
 	kubevirtClient kubevirt.Interface
 	opts           *connectors.Options
@@ -218,12 +222,19 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, err
 	}
 
+	discovercache := memory.NewMemCacheClientWithContext(discover)
+	mapper := restmapper.NewDeferredDiscoveryRESTMapperWithContext(
+		discovercache,
+	)
+
 	return &k8s{
 		proto:          proto,
 		config:         config,
 		clientset:      clientset,
 		dclient:        dclient,
 		discover:       discover,
+		discovercache:  discovercache,
+		mapper:         mapper,
 		snapClient:     snapClient,
 		kubevirtClient: kubevirtClient,
 		opts:           opts,
@@ -318,7 +329,7 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 	switch k.proto {
 	case "k8s":
 		defer close(results)
-		return k.apply(ctx, records, results)
+		return k.restoreConfig(ctx, records, results)
 	case "k8s+pvc":
 		// no need to close results here, it's passed to
 		// exporter.Export which will take care of it.

@@ -15,9 +15,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery/cached/memory"
 	discoveryfake "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/restmapper"
 	clienttesting "k8s.io/client-go/testing"
 )
 
@@ -34,11 +36,16 @@ var applyTestResources = []*metav1.APIResourceList{
 }
 
 func newApplyTestK8s() *k8s {
+	discover := &discoveryfake.FakeDiscovery{
+		Fake: &clienttesting.Fake{Resources: applyTestResources},
+	}
+	discovercache := memory.NewMemCacheClientWithContext(discover)
+
 	return &k8s{
-		discover: &discoveryfake.FakeDiscovery{
-			Fake: &clienttesting.Fake{Resources: applyTestResources},
-		},
-		dclient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
+		discover:      discover,
+		discovercache: discovercache,
+		mapper:        restmapper.NewDeferredDiscoveryRESTMapperWithContext(discovercache),
+		dclient:       dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
 	}
 }
 
@@ -53,7 +60,7 @@ func recordFor(path, yaml string) *connectors.Record {
 		})
 }
 
-func runApply(t *testing.T, k *k8s, records ...*connectors.Record) ([]*connectors.Result, error) {
+func runRestoreConfig(t *testing.T, k *k8s, records ...*connectors.Record) ([]*connectors.Result, error) {
 	t.Helper()
 
 	in := make(chan *connectors.Record, len(records))
@@ -63,7 +70,7 @@ func runApply(t *testing.T, k *k8s, records ...*connectors.Record) ([]*connector
 	}
 	close(in)
 
-	err := k.apply(t.Context(), in, out)
+	err := k.restoreConfig(t.Context(), in, out)
 	close(out)
 
 	var results []*connectors.Result
@@ -95,7 +102,7 @@ func interceptApply(dyn *dynamicfake.FakeDynamicClient, resource string) *captur
 	return c
 }
 
-func TestApplySkipsNonRegularRecords(t *testing.T) {
+func TestRestoreConfigSkipsNonRegularRecords(t *testing.T) {
 	k := newApplyTestK8s()
 
 	errRecord := connectors.NewError("/broken", errors.New("boom"))
@@ -105,7 +112,7 @@ func TestApplySkipsNonRegularRecords(t *testing.T) {
 	dirRecord := connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: fs.ModeDir | 0755}, nil,
 		func() (io.ReadCloser, error) { return nil, errors.New("should not be called") })
 
-	results, err := runApply(t, k, errRecord, xattrRecord, dirRecord)
+	results, err := runRestoreConfig(t, k, errRecord, xattrRecord, dirRecord)
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 	for _, r := range results {
@@ -129,10 +136,9 @@ metadata:
 data:
   foo: bar
 `
-	results, err := runApply(t, k, recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	obj, err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
 	require.NoError(t, err)
-	require.Len(t, results, 1)
-	require.NoError(t, results[0].Err)
+	require.Equal(t, "my-cm", obj.GetName())
 
 	require.Equal(t, "default", captured.namespace)
 	require.Equal(t, "my-cm", captured.name)
@@ -154,10 +160,9 @@ kind: Namespace
 metadata:
   name: my-ns
 `
-	results, err := runApply(t, k, recordFor("/_/_/Namespace/v1/my-ns.yaml", yaml))
+	obj, err := k.apply(t.Context(), recordFor("/_/_/Namespace/v1/my-ns.yaml", yaml))
 	require.NoError(t, err)
-	require.Len(t, results, 1)
-	require.NoError(t, results[0].Err)
+	require.Equal(t, "my-ns", obj.GetName())
 
 	require.Empty(t, captured.namespace, "cluster-scoped resources must not be namespaced")
 	require.Equal(t, "my-ns", captured.name)
@@ -174,10 +179,8 @@ func TestApplyDecodeError(t *testing.T) {
 	record := connectors.NewRecord("/bad.yaml", "", objects.FileInfo{Lmode: 0644}, nil,
 		func() (io.ReadCloser, error) { return errReader{}, nil })
 
-	results, err := runApply(t, k, record)
+	_, err := k.apply(t.Context(), record)
 	require.Error(t, err)
-	require.Len(t, results, 1)
-	require.Error(t, results[0].Err)
 }
 
 func TestApplyUnknownKind(t *testing.T) {
@@ -189,10 +192,8 @@ kind: Widget
 metadata:
   name: gizmo
 `
-	results, err := runApply(t, k, recordFor("/widget.yaml", yaml))
+	_, err := k.apply(t.Context(), recordFor("/widget.yaml", yaml))
 	require.Error(t, err)
-	require.Len(t, results, 1)
-	require.Error(t, results[0].Err)
 }
 
 func TestApplyServerError(t *testing.T) {
@@ -208,11 +209,8 @@ metadata:
   name: my-cm
   namespace: default
 `
-	results, err := runApply(t, k, recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "apiserver is on fire")
-	require.Len(t, results, 1)
-	require.Error(t, results[0].Err)
+	_, err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	require.ErrorContains(t, err, "apiserver is on fire")
 }
 
 func TestIsRestorable(t *testing.T) {
