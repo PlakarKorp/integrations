@@ -51,7 +51,7 @@ func (buckets *buckets) Create() error {
 			if err := buckets.client.MkdirAll(dir); err != nil {
 				return err
 			}
-			if err := buckets.client.Chmod(dir, 0755); err != nil {
+			if err := buckets.client.Chmod(dir, 0700); err != nil {
 				return err
 			}
 			return nil
