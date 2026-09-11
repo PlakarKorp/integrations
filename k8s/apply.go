@@ -3,7 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"log"
+	"io"
 	"slices"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -57,10 +57,10 @@ func skipRestore(gvk schema.GroupVersionKind) string {
 	return ""
 }
 
-func (k *k8s) apply(ctx context.Context, record *connectors.Record) error {
+func (k *k8s) apply(ctx context.Context, rd io.Reader) error {
 	var (
 		obj = &unstructured.Unstructured{Object: map[string]any{}}
-		dec = yamlv3.NewDecoder(record.Reader)
+		dec = yamlv3.NewDecoder(rd)
 		err = dec.Decode(&obj.Object)
 	)
 	if err != nil {
@@ -75,7 +75,6 @@ func (k *k8s) apply(ctx context.Context, record *connectors.Record) error {
 	gvk := obj.GroupVersionKind()
 
 	if reason := skipRestore(gvk); reason != "" {
-		log.Printf("skipping %s: %s", record.Pathname, reason)
 		return nil
 	}
 
@@ -115,7 +114,7 @@ func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Reco
 			continue
 		}
 
-		if err := k.apply(ctx, record); err != nil {
+		if err := k.apply(ctx, record.Reader); err != nil {
 			results <- record.Error(err)
 			return err
 		}

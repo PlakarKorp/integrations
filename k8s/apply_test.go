@@ -53,13 +53,6 @@ func fakeDynamic(k *k8s) *dynamicfake.FakeDynamicClient {
 	return k.dclient.(*dynamicfake.FakeDynamicClient)
 }
 
-func recordFor(path, yaml string) *connectors.Record {
-	return connectors.NewRecord(path, "", objects.FileInfo{Lmode: 0644}, nil,
-		func() (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(yaml)), nil
-		})
-}
-
 func runRestoreConfig(t *testing.T, k *k8s, records ...*connectors.Record) ([]*connectors.Result, error) {
 	t.Helper()
 
@@ -136,7 +129,7 @@ metadata:
 data:
   foo: bar
 `
-	err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	err := k.apply(t.Context(), strings.NewReader(yaml))
 	require.NoError(t, err)
 
 	require.Equal(t, "default", captured.namespace)
@@ -159,7 +152,7 @@ kind: Namespace
 metadata:
   name: my-ns
 `
-	err := k.apply(t.Context(), recordFor("/_/_/Namespace/v1/my-ns.yaml", yaml))
+	err := k.apply(t.Context(), strings.NewReader(yaml))
 	require.NoError(t, err)
 
 	require.Empty(t, captured.namespace, "cluster-scoped resources must not be namespaced")
@@ -174,10 +167,7 @@ func (errReader) Close() error             { return nil }
 func TestApplyDecodeError(t *testing.T) {
 	k := newApplyTestK8s()
 
-	record := connectors.NewRecord("/bad.yaml", "", objects.FileInfo{Lmode: 0644}, nil,
-		func() (io.ReadCloser, error) { return errReader{}, nil })
-
-	err := k.apply(t.Context(), record)
+	err := k.apply(t.Context(), errReader{})
 	require.Error(t, err)
 }
 
@@ -190,7 +180,7 @@ kind: Widget
 metadata:
   name: gizmo
 `
-	err := k.apply(t.Context(), recordFor("/widget.yaml", yaml))
+	err := k.apply(t.Context(), strings.NewReader(yaml))
 	require.Error(t, err)
 }
 
@@ -207,7 +197,7 @@ metadata:
   name: my-cm
   namespace: default
 `
-	err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	err := k.apply(t.Context(), strings.NewReader(yaml))
 	require.ErrorContains(t, err, "apiserver is on fire")
 }
 
