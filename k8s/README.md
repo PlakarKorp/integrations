@@ -13,6 +13,11 @@ CSI driver snapshot feature (preferred) and without.
 - `kubeconfig_file`: optional, point to a kube config file.  Defaults to `~/.kube/config`.
 - `kubeconfig`: optional, content of a kube config passed inline.  Takes precedence over `kubeconfig_file`.
 - `kubelet_image`: optional, used only for PVC backups.  Defaults to a recent version of the kubelet image.
+- `fs_access`: optional.  Sets the file access capabilities granted to the kubelet pod:
+  - Defaults to `read` on backup and `full` on restore.
+  - `default` grants no extra capabilities
+  - `read` adds `DAC_READ_SEARCH`
+  - `override` adds `DAC_OVERRIDE`, `CHOWN`, `FOWNER` and `FSETID`
 - `labels`: optional, used only for configuration backup.  Limits the manifests to backup to the ones matching the given labels.
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 
