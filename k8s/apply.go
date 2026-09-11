@@ -57,14 +57,14 @@ func skipRestore(gvk schema.GroupVersionKind) string {
 	return ""
 }
 
-func (k *k8s) apply(ctx context.Context, record *connectors.Record) (*unstructured.Unstructured, error) {
+func (k *k8s) apply(ctx context.Context, record *connectors.Record) error {
 	var (
 		obj = &unstructured.Unstructured{Object: map[string]any{}}
 		dec = yamlv3.NewDecoder(record.Reader)
 		err = dec.Decode(&obj.Object)
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if meta, ok := obj.Object["metadata"].(map[string]any); ok {
@@ -76,23 +76,23 @@ func (k *k8s) apply(ctx context.Context, record *connectors.Record) (*unstructur
 
 	if reason := skipRestore(gvk); reason != "" {
 		log.Printf("skipping %s: %s", record.Pathname, reason)
-		return obj, nil
+		return nil
 	}
 
 	rest, err := k.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	gvr := rest.Resource
 
 	verbs, err := resourceVerbs(ctx, k.discover, gvr)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if !isRestorable(verbs) {
-		return obj, nil
+		return nil
 	}
 
 	client := k.dclient.Resource(gvr)
@@ -105,7 +105,7 @@ func (k *k8s) apply(ctx context.Context, record *connectors.Record) (*unstructur
 	_, err = ri.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
 		FieldManager: "plakar-k8s-exporter",
 	})
-	return obj, err
+	return err
 }
 
 func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -115,7 +115,7 @@ func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Reco
 			continue
 		}
 
-		if _, err := k.apply(ctx, record); err != nil {
+		if err := k.apply(ctx, record); err != nil {
 			results <- record.Error(err)
 			return err
 		}

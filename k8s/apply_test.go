@@ -136,9 +136,8 @@ metadata:
 data:
   foo: bar
 `
-	obj, err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
 	require.NoError(t, err)
-	require.Equal(t, "my-cm", obj.GetName())
 
 	require.Equal(t, "default", captured.namespace)
 	require.Equal(t, "my-cm", captured.name)
@@ -160,9 +159,8 @@ kind: Namespace
 metadata:
   name: my-ns
 `
-	obj, err := k.apply(t.Context(), recordFor("/_/_/Namespace/v1/my-ns.yaml", yaml))
+	err := k.apply(t.Context(), recordFor("/_/_/Namespace/v1/my-ns.yaml", yaml))
 	require.NoError(t, err)
-	require.Equal(t, "my-ns", obj.GetName())
 
 	require.Empty(t, captured.namespace, "cluster-scoped resources must not be namespaced")
 	require.Equal(t, "my-ns", captured.name)
@@ -179,7 +177,7 @@ func TestApplyDecodeError(t *testing.T) {
 	record := connectors.NewRecord("/bad.yaml", "", objects.FileInfo{Lmode: 0644}, nil,
 		func() (io.ReadCloser, error) { return errReader{}, nil })
 
-	_, err := k.apply(t.Context(), record)
+	err := k.apply(t.Context(), record)
 	require.Error(t, err)
 }
 
@@ -192,7 +190,7 @@ kind: Widget
 metadata:
   name: gizmo
 `
-	_, err := k.apply(t.Context(), recordFor("/widget.yaml", yaml))
+	err := k.apply(t.Context(), recordFor("/widget.yaml", yaml))
 	require.Error(t, err)
 }
 
@@ -209,7 +207,7 @@ metadata:
   name: my-cm
   namespace: default
 `
-	_, err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
+	err := k.apply(t.Context(), recordFor("/default/_/ConfigMap/v1/my-cm.yaml", yaml))
 	require.ErrorContains(t, err, "apiserver is on fire")
 }
 
