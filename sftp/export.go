@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
@@ -30,6 +31,15 @@ import (
 type dirPerm struct {
 	Pathname string
 	Fileinfo objects.FileInfo
+}
+
+// isContained reports whether joined (a path already produced by joining
+// root with some pathname) is still rooted within root, guarding against
+// hostile/malformed pathnames (e.g. containing "../" segments) that would
+// otherwise let path.Join's lexical cleaning escape the restore root.
+func isContained(root, joined string) bool {
+	cleanRoot := path.Clean(root)
+	return joined == cleanRoot || strings.HasPrefix(joined, cleanRoot+"/")
 }
 
 func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
@@ -62,6 +72,10 @@ loop:
 			}
 
 			pathname := path.Join(s.Root(), record.Pathname)
+			if !isContained(s.Root(), pathname) {
+				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
+				continue
+			}
 			if record.FileInfo.Lmode.IsDir() {
 				err := s.directory(record, pathname)
 				results <- record.Error(err)
