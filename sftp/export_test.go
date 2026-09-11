@@ -282,19 +282,28 @@ func TestExport_HardlinkConcurrentRace(t *testing.T) {
 		assert.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
 	}
 
-	// Verify that both hardlinks were actually created on the fake SFTP server.
-	for _, path := range []string{"/repo/hardlink1.txt", "/repo/hardlink2.txt"} {
-		hardlinkInfo, err := ts.client.Stat(path)
-		require.NoError(t, err, "expected Stat to succeed for the created hardlink: %v", path)
-		assert.False(t, hardlinkInfo.IsDir(), "expected the created path to be a file: %v", path)
-		assert.Equal(t, os.FileMode(0644), hardlinkInfo.Mode(), "unexpected mode for the created hardlink: %v", path)
+	// Verify that both paths exist with the expected mode.
+	for _, p := range []string{"/repo/hardlink1.txt", "/repo/hardlink2.txt"} {
+		info, err := ts.client.Stat(p)
+		require.NoError(t, err, "expected Stat to succeed for the created hardlink: %v", p)
+		assert.False(t, info.IsDir(), "expected the created path to be a file: %v", p)
+		assert.Equal(t, os.FileMode(0644), info.Mode(), "unexpected mode for the created hardlink: %v", p)
 	}
+
+	// The defining property of a hard link is a shared inode: both paths
+	// must point to the same underlying file, not two independent copies.
+	// os.SameFile compares the inode and device from real os.Lstat, which
+	// is why we use ts.realPath rather than the SFTP client here.
+	info1, err := ts.realStat("/repo/hardlink1.txt")
+	require.NoError(t, err, "realStat hardlink1")
+	info2, err := ts.realStat("/repo/hardlink2.txt")
+	require.NoError(t, err, "realStat hardlink2")
+	assert.True(t, os.SameFile(info1, info2),
+		"hardlink1.txt and hardlink2.txt must share the same inode")
 }
 
 func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	ts := newTestServer(t)
-	// Pre-create the root directory with a different mode than the record
-	// will specify, to verify that Export applies the record's mode.
 	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
 		t.Fatalf("mkdir /repo: %v", err)
 	}
@@ -303,23 +312,33 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	records := make(chan *connectors.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	// Export a directory with a different mode than the pre-created one.
-	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
+	// Send parent before child, with a restrictive parent mode (0500:
+	// read+execute only, no write). If Export applied the parent's chmod
+	// immediately on receipt, the subsequent Mkdir for the child would
+	// fail because 0500 forbids creating entries inside the directory.
+	// Export must defer all directory chmod calls until after every record
+	// has been processed and apply them in reverse order (child before
+	// parent), which is what the dirPerms reverse loop in export.go does.
+	records <- connectors.NewRecord("/parent", "", objects.FileInfo{Lmode: os.ModeDir | 0500}, nil, nil)
+	records <- connectors.NewRecord("/parent/child", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
-	require.NoError(t, wait(), "Export should not return an error for a simple directory create with permissions change")
+	require.NoError(t, wait(), "Export should not return an error when parent has restrictive final mode")
 
-	assert.Len(t, got, 1, "expected exactly one result for the directory create with permissions change")
-	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create with permissions change")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create with permissions change")
+	require.Len(t, got, 2)
+	for _, r := range got {
+		assert.NoError(t, r.Err, "unexpected error for %q", r.Record.Pathname)
+	}
 
-	// Verify that the directory was actually created on the fake SFTP server
-	// and that its mode matches the record's Lmode.
-	dirInfo, err := ts.client.Stat("/repo/dir")
-	require.NoError(t, err, "expected Stat to succeed for the created directory")
-	assert.True(t, dirInfo.IsDir(), "expected the created path to be a directory")
-	assert.Equal(t, os.FileMode(0700)|os.ModeDir, dirInfo.Mode(), "unexpected mode for the created directory")
+	// Both directories must exist with their requested modes.
+	parentInfo, err := ts.client.Stat("/repo/parent")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0500)|os.ModeDir, parentInfo.Mode())
+
+	childInfo, err := ts.client.Stat("/repo/parent/child")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir, childInfo.Mode())
 }
 
 func TestExport_ChownNoopByDefault(t *testing.T) {
