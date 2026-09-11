@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path"
 	"runtime"
 	"slices"
 	"strconv"
@@ -162,6 +163,23 @@ func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, e
 		pod.Namespace, pod.Name)
 }
 
+func (k *k8s) getsnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
+	snap, err := k.snapClient.SnapshotV1().VolumeSnapshots(ns).Get(ctx, name,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	ok, err := snapshotReady(watch.Event{Type: watch.Modified, Object: snap})
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return snap, err
+	}
+	return k.waitsnap(ctx, snap)
+}
+
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
 	snap := &vs.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
@@ -185,6 +203,15 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		return nil, err
 	}
 
+	ready, err := k.waitsnap(ctx, snap)
+	if err != nil {
+		k.delsnap(ctx, snap)
+		return nil, err
+	}
+	return ready, nil
+}
+
+func (k *k8s) waitsnap(ctx context.Context, snap *vs.VolumeSnapshot) (*vs.VolumeSnapshot, error) {
 	lw := &cache.ListWatch{
 		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
 			opts.FieldSelector = "metadata.name=" + snap.Name
@@ -194,7 +221,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	evt, err := watchtools.Until(ctx, snap.ResourceVersion, lw, snapshotReady)
 	if err != nil {
-		k.delsnap(ctx, snap)
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
 		}
@@ -203,7 +229,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	ready, ok := evt.Object.(*vs.VolumeSnapshot)
 	if !ok {
-		k.delsnap(ctx, snap)
 		return nil, fmt.Errorf("unexpected object %T from the snapshot watch", evt.Object)
 	}
 
@@ -541,7 +566,11 @@ func filter(ctx context.Context, imp importer.Importer, Records chan<- *connecto
 	}
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	if prefix == "" {
+		prefix = "/"
+	}
+
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
@@ -569,7 +598,9 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 
 	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
 		if proto == "block" {
-			return record
+			newrecord := *record
+			newrecord.Pathname = path.Join(prefix, record.Pathname)
+			return &newrecord
 		}
 
 		if record.Pathname == "/" {
@@ -577,9 +608,8 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		}
 
 		newrecord := *record
-		newrecord.Pathname = strings.TrimPrefix(record.Pathname, fsPath)
-		if newrecord.Pathname == "" {
-			newrecord.Pathname = "/"
+		newrecord.Pathname = path.Join(prefix, strings.TrimPrefix(record.Pathname, fsPath))
+		if newrecord.Pathname == "/" {
 			newrecord.FileInfo.Lname = "/"
 		}
 
@@ -638,7 +668,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -652,7 +682,7 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connecto
 		proto, path = "block", blockPath
 	}
 
-	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, records, results)
+	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, prefix, records, results)
 }
 
 func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -737,7 +767,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	return k.podBackup(ctx, fp, records, results)
+	return k.podBackup(ctx, fp, "/", records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
