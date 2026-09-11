@@ -24,6 +24,15 @@
     "kubelet_image": {
       "type": "string",
       "description": "Optional kubelet image to use"
+    },
+    "kubelet_dac": {
+      "type": "string",
+      "enum": [
+        "none",
+        "read"
+      ],
+      "default": "read",
+      "description": "Optional file access capabilities granted to the kubelet pod: none, or read (DAC_READ_SEARCH)."
     }
   }
 }

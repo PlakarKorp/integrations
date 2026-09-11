@@ -19,6 +19,15 @@
     "kubelet_image": {
       "type": "string",
       "description": "Optional kubelet image to use"
+    },
+    "kubelet_dac": {
+      "type": "string",
+      "enum": [
+        "none",
+        "override"
+      ],
+      "default": "override",
+      "description": "Optional file access capabilities granted to the kubelet pod: none, or override (DAC_OVERRIDE, CHOWN, FOWNER, FSETID)."
     }
   }
 }
