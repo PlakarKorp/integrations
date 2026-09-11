@@ -8,14 +8,19 @@ import (
 	"io"
 	"log"
 	"path"
+	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integrations/k8s/tee"
 	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/objects"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -298,4 +303,121 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 	}
 
 	return nil
+}
+
+// restorablepvc returns a copy of a backed up PVC that can be created
+// again, keeping only the fields that describe what to provision.  The
+// PV itself is never restored: it's cluster-scoped and its volumeHandle
+// names a volume in the storage backend that doesn't exist here, and
+// the data is streamed back in anyway.  So the claim has to go through
+// dynamic provisioning again, which means dropping:
+//
+//   - volumeName, which pins the claim to a PV that isn't here and
+//     skips dynamic provisioning altogether, leaving it Pending;
+//   - dataSource and dataSourceRef, which point at the VolumeSnapshot
+//     the backup was taken from, long gone by now;
+//   - the bind annotations, since bind-completed without a volumeName
+//     makes the PV controller treat the claim as bound to a volume
+//     that vanished and park it in Lost.
+func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeClaim {
+	var annotations map[string]string
+	for key, value := range pvc.Annotations {
+		if strings.HasPrefix(key, "pv.kubernetes.io/") ||
+			strings.HasPrefix(key, "volume.kubernetes.io/") ||
+			strings.HasPrefix(key, "volume.beta.kubernetes.io/") {
+			continue
+		}
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[key] = value
+	}
+
+	return &corev1.PersistentVolumeClaim{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "PersistentVolumeClaim",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        pvc.Name,
+			Namespace:   pvc.Namespace, // XXX should be overwriteable
+			Labels:      pvc.Labels,
+			Annotations: annotations,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes:      pvc.Spec.AccessModes,
+			Resources:        pvc.Spec.Resources,
+			StorageClassName: pvc.Spec.StorageClassName,
+			VolumeMode:       pvc.Spec.VolumeMode,
+		},
+	}
+}
+
+func (k *k8s) pvcfrom(u *unstructured.Unstructured) (*corev1.PersistentVolumeClaim, error) {
+	var pvcGVK = corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim")
+	if gvk := u.GroupVersionKind(); gvk != pvcGVK {
+		return nil, fmt.Errorf("expected %s but got %s", pvcGVK, gvk)
+	}
+
+	var pvc corev1.PersistentVolumeClaim
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &pvc); err != nil {
+		return nil, fmt.Errorf("failed to convert %s into a PersistentVolumeClaim: %w",
+			u.GetName(), err)
+	}
+
+	return restorablepvc(&pvc), nil
+}
+
+func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	var (
+		vmconf     []byte
+		currentexp *tee.Exporter
+	)
+
+	for record := range records {
+		if record.Pathname == "/vm.yaml" {
+			if vmconf != nil {
+				err := errors.New("/vm.yaml already seen")
+				results <- record.Error(err)
+				return err
+			}
+
+			b, err := io.ReadAll(record.Reader)
+			if err != nil {
+				err = fmt.Errorf("failed to read %q: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			vmconf = b
+			results <- record.Ok()
+			continue
+		}
+
+		pvc, rest, ok := strings.Cut(strings.TrimPrefix(record.Pathname, "/"), "/")
+		if ok {
+			err := fmt.Errorf("unexpected record %q", record.Pathname)
+			results <- record.Error(err)
+			return err
+		}
+
+		if rest == "config.yaml" {
+			// new pvc.
+			if currentexp != nil {
+				if err := currentexp.Wait(); err != nil {
+					results <- record.Ok() // small lie
+					return err
+				}
+				currentexp = nil
+			}
+		}
+	}
+
+	_, err := k.apply(ctx, connectors.NewRecord("/vm.yaml", "", objects.FileInfo{
+		Lname: "vm.yaml",
+		Lsize: int64(len(vmconf)),
+	}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(vmconf)), nil
+	}))
+	return err
 }
