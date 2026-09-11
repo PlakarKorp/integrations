@@ -220,7 +220,6 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	assert.Equal(t, "/file.txt", target, "unexpected target for the created symlink")
 }
 
-
 func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	ts := newTestServer(t)
 	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
@@ -504,4 +503,67 @@ func TestExport_XattrRecordsSkipped(t *testing.T) {
 	// never written to, only acked.
 	_, err := ts.client.Stat("/repo/file.txt")
 	assert.Error(t, err, "expected no file to have been created for a skipped xattr record")
+}
+
+func TestExport_PathTraversalEscape(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	newFileRecord := func(pathname, content string) *connectors.Record {
+		return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader([]byte(content))), nil
+		})
+	}
+
+	// Two well-behaved records that stay within the restore root, and one
+	// hostile record trying to climb out of /repo and write into a
+	// sibling directory outside the restore root.
+	records <- newFileRecord("/good1.txt", "good1-content")
+	records <- newFileRecord("/../../outside.txt", "escaped-content")
+	records <- newFileRecord("/good2.txt", "good2-content")
+	close(records)
+
+	got := drainResults(results)
+	_ = wait()
+
+	require.Len(t, got, 3, "expected exactly three results, one per record")
+
+	byPath := make(map[string]*connectors.Result, len(got))
+	for _, r := range got {
+		byPath[r.Record.Pathname] = r
+	}
+
+	// The two legitimate files should succeed and land inside /repo.
+	require.Contains(t, byPath, "/good1.txt")
+	assert.NoError(t, byPath["/good1.txt"].Err, "expected the first well-behaved file to succeed")
+	good1, err := ts.client.Open("/repo/good1.txt")
+	require.NoError(t, err, "expected the first well-behaved file to exist inside the restore root")
+	good1Content, err := io.ReadAll(good1)
+	require.NoError(t, err)
+	good1.Close()
+	assert.Equal(t, "good1-content", string(good1Content))
+
+	require.Contains(t, byPath, "/good2.txt")
+	assert.NoError(t, byPath["/good2.txt"].Err, "expected the second well-behaved file to succeed")
+	good2, err := ts.client.Open("/repo/good2.txt")
+	require.NoError(t, err, "expected the second well-behaved file to exist inside the restore root")
+	good2Content, err := io.ReadAll(good2)
+	require.NoError(t, err)
+	good2.Close()
+	assert.Equal(t, "good2-content", string(good2Content))
+
+	// The hostile record should fail with a path containment error, and
+	// nothing should be written outside of /repo on the fake server's
+	// filesystem.
+	require.Contains(t, byPath, "/../../outside.txt")
+	assert.Error(t, byPath["/../../outside.txt"].Err, "expected Export to reject a path that escapes the restore root")
+
+	_, statErr := ts.client.Stat("/outside.txt")
+	assert.Error(t, statErr, "expected no file to have been written outside of the restore root")
 }
