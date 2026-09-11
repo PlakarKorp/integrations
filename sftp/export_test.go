@@ -339,6 +339,12 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	childInfo, err := ts.client.Stat("/repo/parent/child")
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0750)|os.ModeDir, childInfo.Mode())
+
+	// Restore the parent to a writable mode so t.TempDir's cleanup can
+	// remove it. Without this, os.RemoveAll fails with permission denied.
+	t.Cleanup(func() {
+		_ = os.Chmod(ts.realPath("/repo/parent"), 0750)
+	})
 }
 
 func TestExport_ChownNoopByDefault(t *testing.T) {
