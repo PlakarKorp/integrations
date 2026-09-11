@@ -354,6 +354,14 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			// pinned no longer matches.  Let it fail instead.
 			RestartPolicy: corev1.RestartPolicyNever,
 
+			// Using the smallest security context possible
+			// setting it explicitly
+			SecurityContext: &corev1.PodSecurityContext{
+				//RunAsNonRoot: new(true), // => if there is no non-root user, this breaks
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 			Containers: []corev1.Container{{
 				Name:  kubeletContainer,
 				Image: k.kubeletImage,
@@ -376,6 +384,20 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					ProbeHandler: corev1.ProbeHandler{
 						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
 					},
+				},
+				// Using the smallest security context possible
+				// setting it explicitly
+				SecurityContext: &corev1.SecurityContext{
+					AllowPrivilegeEscalation: new(false),
+					//RunAsNonRoot:             new(true), // => if there is no non-root user, this breaks
+					Capabilities: &corev1.Capabilities{
+						Drop: []corev1.Capability{"ALL"},
+						Add:  k.kubeletDACCaps,
+					},
+					SeccompProfile: &corev1.SeccompProfile{
+						Type: corev1.SeccompProfileTypeRuntimeDefault,
+					},
+					ReadOnlyRootFilesystem: new(true),
 				},
 			}},
 		},

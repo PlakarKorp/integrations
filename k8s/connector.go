@@ -15,6 +15,7 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	authv1 "k8s.io/api/authorization/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
@@ -43,6 +44,7 @@ type k8s struct {
 
 	volumeSnapshotClass string
 	kubeletImage        string
+	kubeletDACCaps      []corev1.Capability
 }
 
 func init() {
@@ -55,10 +57,16 @@ func init() {
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
+	if params["kubelet_dac"] == "" {
+		params["kubelet_dac"] = "read"
+	}
 	return New(ctx, opts, name, params, false)
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
+	if params["kubelet_dac"] == "" {
+		params["kubelet_dac"] = "override"
+	}
 	return New(ctx, opts, name, params, true)
 }
 
@@ -162,6 +170,17 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		kubeletImage = "ghcr.io/plakarkorp/kubelet:420fa2a79e152fc2b4d69837105d5155d10de54d-33393485194"
 	}
 
+	var dacCaps []corev1.Capability
+	switch c := params["kubelet_dac"]; c {
+	case "", "none":
+	case "read":
+		dacCaps = []corev1.Capability{"DAC_READ_SEARCH"}
+	case "override":
+		dacCaps = []corev1.Capability{"DAC_OVERRIDE", "CHOWN", "FOWNER", "FSETID"}
+	default:
+		return nil, fmt.Errorf("bad kubelet_dac %q: expected none, read or override", c)
+	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -200,6 +219,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
+		kubeletDACCaps:      dacCaps,
 	}, nil
 }
 
