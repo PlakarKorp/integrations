@@ -1,0 +1,416 @@
+/*
+ * Copyright (c) 2025 Gilles Chehade <gilles@poolp.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+package sftp
+
+// General pattern:
+//
+//	ts := newTestServer(t)
+//	s := ts.newTestExportSftp(t, "/repo")
+//	records := make(chan *connectors.Record, 16)
+//	results, wait := runExporter(t, s, records)
+//	records <- connectors.NewRecord(...)
+//	close(records)
+//	got := drainResults(results)
+//	// ... assert against got, and/or against ts.realPath(...) on disk ...
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"testing"
+
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/exclude"
+	"github.com/PlakarKorp/kloset/objects"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// newTestExportSftp builds an *Sftp wired to the fake server's client, with
+// excludes initialised (mirroring newTestImportSftp), ready to have its
+// Export method exercised directly. setOwner defaults to false; tests that
+// need chown behaviour should set s.setOwner = true after construction.
+func (ts *testServer) newTestExportSftp(t *testing.T, rootDir string) *Sftp {
+	s := ts.newTestSftp(t, rootDir)
+	s.excludes = exclude.NewRuleSet()
+	return s
+}
+
+// runExporter runs s.Export in a goroutine, feeding it the given records
+// channel (the caller is responsible for sending records and closing it),
+// and returns the results channel for the caller to drain, plus a wait
+// function that blocks until Export has returned and yields its final
+// error.
+func runExporter(t *testing.T, s *Sftp, records <-chan *connectors.Record) (<-chan *connectors.Result, func() error) {
+	results := make(chan *connectors.Result, 16)
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Export(t.Context(), records, results)
+	}()
+
+	return results, func() error { return <-done }
+}
+
+// drainResults consumes every result off the channel until it is closed,
+// returning them in receipt order for assertions.
+func drainResults(results <-chan *connectors.Result) []*connectors.Result {
+	got := make([]*connectors.Result, 0, 16)
+	for r := range results {
+		got = append(got, r)
+	}
+	return got
+}
+
+// Case stubs below mirror the Export section of TEST_PLAN.md. Fill in each
+// body; the harness helpers above (newTestExportSftp/runExporter/
+// drainResults) are ready to use, e.g.:
+//
+//	ts := newTestServer(t)
+//	s := ts.newTestExportSftp(t, "/repo")
+//	records := make(chan *connectors.Record, 16)
+//	results, wait := runExporter(t, s, records)
+//	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+//	close(records)
+//	got := drainResults(results)
+
+func TestExport_DirectoryCreate(t *testing.T) {
+	ts := newTestServer(t)
+	// Export's directory() calls Mkdir for a single path component; the
+	// parent directory must already exist on disk (mirroring a real SFTP
+	// server, which doesn't auto-create intermediate directories either).
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple directory create")
+
+	assert.Len(t, got, 1, "expected exactly one result for the directory create")
+	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create")
+
+	// Verify that the directory was actually created on the fake SFTP
+	// server. Use the client (SFTP-visible path "/repo/dir"), not
+	// ts.realPath, since the client operates in the fake server's own
+	// path namespace rather than the real on-disk path.
+	dirInfo, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err, "expected Stat to succeed for the created directory")
+	assert.True(t, dirInfo.IsDir(), "expected the created path to be a directory")
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir, dirInfo.Mode(), "unexpected mode for the created directory")
+}
+
+func TestExport_RootDirectoryIdempotent(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Exporting the root directory itself should be a no-op (idempotent).
+	records <- connectors.NewRecord("/", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+	close(records)
+	got := drainResults(results)
+
+	require.NoError(t, wait(), "Export should not return an error for exporting the root directory")
+	assert.Len(t, got, 1, "expected exactly one result for the root directory export")
+	assert.Equal(t, "/", got[0].Record.Pathname, "unexpected pathname in the result for the root directory export")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the root directory export")
+
+	// Verify that the root directory still exists and has the expected mode.
+	rootInfo, err := ts.client.Stat("/repo")
+	require.NoError(t, err, "expected Stat to succeed for the root directory")
+	assert.True(t, rootInfo.IsDir(), "expected the root path to be a directory")
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir, rootInfo.Mode(), "unexpected mode for the root directory")
+
+}
+
+func TestExport_FileWrite(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	content := []byte("Hello, SFTP!")
+	records <- connectors.NewRecord("/file.txt", "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(content)), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple file write")
+
+	assert.Len(t, got, 1, "expected exactly one result for the file write")
+	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the file write")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the file write")
+
+	// Verify that the file was actually created on the fake SFTP server.
+	fileInfo, err := ts.client.Stat("/repo/file.txt")
+	require.NoError(t, err, "expected Stat to succeed for the created file")
+	assert.False(t, fileInfo.IsDir(), "expected the created path to be a file")
+	assert.Equal(t, os.FileMode(0644), fileInfo.Mode(), "unexpected mode for the created file")
+
+	// Verify the content of the file.
+	f, err := ts.client.Open("/repo/file.txt")
+	require.NoError(t, err, "expected Open to succeed for the created file")
+	defer f.Close()
+	fileContent, err := io.ReadAll(f)
+	require.NoError(t, err, "expected reading the created file to succeed")
+	assert.Equal(t, content, fileContent, "unexpected content in the created file")
+}
+
+func TestExport_SymlinkCreate(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Create a symlink from /link.txt to /file.txt
+	records <- connectors.NewRecord("/link.txt", "/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple symlink create")
+
+	assert.Len(t, got, 1, "expected exactly one result for the symlink create")
+	assert.Equal(t, "/link.txt", got[0].Record.Pathname, "unexpected pathname in the result for the symlink create")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the symlink create")
+
+	// Verify that the symlink was actually created on the fake SFTP server.
+	// Note: symlink() (export.go) intentionally never chmods the link -
+	// sftp has no lchown(2)/lchmod(2) equivalent - so its mode is whatever
+	// the underlying os.Symlink call produces, not the record's Lmode.
+	// Only the symlink bit itself is meaningful to assert here.
+	linkInfo, err := ts.client.Lstat("/repo/link.txt")
+	require.NoError(t, err, "expected Lstat to succeed for the created symlink")
+	assert.True(t, linkInfo.Mode()&os.ModeSymlink != 0, "expected the created path to be a symlink, got mode %v", linkInfo.Mode())
+
+	// Verify that the symlink points to the correct target.
+	target, err := ts.client.ReadLink("/repo/link.txt")
+	require.NoError(t, err, "expected ReadLink to succeed for the created symlink")
+	assert.Equal(t, "/file.txt", target, "unexpected target for the created symlink")
+}
+
+func TestExport_HardlinkCanonicalOnce(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Create a hardlink from /hardlink.txt to /file.txt. Lnlink must be >1
+	// for file() to route through hardlink() (see export.go); a nil read
+	// func would otherwise panic once anything actually reads the lazy
+	// Reader, so provide real content too.
+	content := []byte("hardlinked content")
+	records <- connectors.NewRecord("/hardlink.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(content)), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple hardlink create")
+
+	assert.Len(t, got, 1, "expected exactly one result for the hardlink create")
+	assert.Equal(t, "/hardlink.txt", got[0].Record.Pathname, "unexpected pathname in the result for the hardlink create")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the hardlink create")
+
+	// Verify that the hardlink was actually created on the fake SFTP server.
+	hardlinkInfo, err := ts.client.Stat("/repo/hardlink.txt")
+	require.NoError(t, err, "expected Stat to succeed for the created hardlink")
+	assert.False(t, hardlinkInfo.IsDir(), "expected the created path to be a file")
+	assert.Equal(t, os.FileMode(0644), hardlinkInfo.Mode(), "unexpected mode for the created hardlink")
+}
+
+func TestExport_HardlinkConcurrentRace(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Create two hardlinks to the same target concurrently. Both should
+	// succeed, and the underlying file should only be created once.
+	content := []byte("concurrent hardlink content")
+	records <- connectors.NewRecord("/hardlink1.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(content)), nil
+	})
+	records <- connectors.NewRecord("/hardlink2.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(content)), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for concurrent hardlink creates")
+
+	assert.Len(t, got, 2, "expected exactly two results for the concurrent hardlink creates")
+	for _, r := range got {
+		assert.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
+	}
+
+	// Verify that both hardlinks were actually created on the fake SFTP server.
+	for _, path := range []string{"/repo/hardlink1.txt", "/repo/hardlink2.txt"} {
+		hardlinkInfo, err := ts.client.Stat(path)
+		require.NoError(t, err, "expected Stat to succeed for the created hardlink: %v", path)
+		assert.False(t, hardlinkInfo.IsDir(), "expected the created path to be a file: %v", path)
+		assert.Equal(t, os.FileMode(0644), hardlinkInfo.Mode(), "unexpected mode for the created hardlink: %v", path)
+	}
+}
+
+func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
+	ts := newTestServer(t)
+	// Pre-create the root directory with a different mode than the record
+	// will specify, to verify that Export applies the record's mode.
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Export a directory with a different mode than the pre-created one.
+	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple directory create with permissions change")
+
+	assert.Len(t, got, 1, "expected exactly one result for the directory create with permissions change")
+	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create with permissions change")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create with permissions change")
+
+	// Verify that the directory was actually created on the fake SFTP server
+	// and that its mode matches the record's Lmode.
+	dirInfo, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err, "expected Stat to succeed for the created directory")
+	assert.True(t, dirInfo.IsDir(), "expected the created path to be a directory")
+	assert.Equal(t, os.FileMode(0700)|os.ModeDir, dirInfo.Mode(), "unexpected mode for the created directory")
+}
+
+func TestExport_ChownNoopByDefault(t *testing.T) {
+	ts := newTestServer(t)
+	// Pre-create the root directory with a different owner than the record
+	// will specify, to verify that Export does not attempt to chown by
+	// default.
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Export a directory with a different owner than the pre-created one.
+	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750, Luid: 1001, Lgid: 1001}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a simple directory create with chown info")
+
+	assert.Len(t, got, 1, "expected exactly one result for the directory create with chown info")
+	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create with chown info")
+	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create with chown info")
+
+	// Verify that the directory was actually created on the fake SFTP server
+	// and that its owner has not changed (i.e., it remains the same as the
+	// pre-created directory).
+	dirInfo, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err, "expected Stat to succeed for the created directory")
+	assert.True(t, dirInfo.IsDir(), "expected the created path to be a directory")
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir, dirInfo.Mode(), "unexpected mode for the created directory")
+
+}
+
+func TestExport_ErrorIsolation(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Send a record that will cause an error (e.g., trying to create a file
+	// in a non-existent directory).
+	records <- connectors.NewRecord("/nonexistentdir/file.txt", "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader([]byte("content"))), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for a record that causes an isolated error")
+
+	assert.Len(t, got, 1, "expected exactly one result for the record that causes an isolated error")
+	assert.Equal(t, "/nonexistentdir/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the record that causes an isolated error")
+	assert.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
+	// The error should indicate that the parent directory does not exist.
+	// Note: this goes through the SFTP protocol (writeAtomic's temp-file
+	// creation), so the message is pkg/sftp's own wording for
+	// SSH_FX_NO_SUCH_FILE, not the raw OS errno string.
+	assert.Contains(t, got[0].Err.Error(), "file does not exist", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
+}
+
+func TestExport_XattrRecordsSkipped(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	// Records marked IsXattr should be acked immediately without any
+	// filesystem action (see Export's `if record.IsXattr` branch).
+	rec := connectors.NewXattr("/file.txt", "user.test", objects.AttributeExtended, nil)
+	require.True(t, rec.IsXattr, "test setup: NewXattr should produce a record with IsXattr set")
+	records <- rec
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait(), "Export should not return an error for xattr records")
+
+	require.Len(t, got, 1, "expected exactly one result for the xattr record")
+	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the xattr record")
+	assert.NoError(t, got[0].Err, "xattr records should be acked without error")
+
+	// No file should have been created on disk: the xattr record was
+	// never written to, only acked.
+	_, err := ts.client.Stat("/repo/file.txt")
+	assert.Error(t, err, "expected no file to have been created for a skipped xattr record")
+}
