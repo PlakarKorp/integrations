@@ -23,6 +23,14 @@ This integration allows:
 The supported configuration options are:
 
 * `location`: remote server hostname or IP
+* `username`: SSH username (optional if included in location)
+* `identity`: path to SSH private key file
+* `host_key`: SSH host public key for verification (e.g., `example.com ssh-rsa AAAAB3NzaC1yc2E...`)
+* `insecure_ignore_host_key`: disable host key verification (dangerous; use only for testing)
+* `ssh_auth_sock`: path to SSH agent socket (not supported on Windows)
+* `ssh_private_key`: SSH private key material to load into ssh-agent
+* `ssh_private_key_ttl`: TTL for ssh-add (default: 5s)
+* `set_owner`: set file owner and group on restore (requires superuser permissions)
 
 It relies on the `sftp` executable and will use the user-configuration for additional options.
 
