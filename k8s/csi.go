@@ -392,7 +392,7 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 					//RunAsNonRoot:             new(true), // => if there is no non-root user, this breaks
 					Capabilities: &corev1.Capabilities{
 						Drop: []corev1.Capability{"ALL"},
-						Add:  k.kubeletDACCaps,
+						Add:  k.kubeletCapas,
 					},
 					SeccompProfile: &corev1.SeccompProfile{
 						Type: corev1.SeccompProfileTypeRuntimeDefault,

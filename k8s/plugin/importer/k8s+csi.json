@@ -25,14 +25,15 @@
       "type": "string",
       "description": "Optional kubelet image to use"
     },
-    "kubelet_dac": {
+    "fs_access": {
       "type": "string",
       "enum": [
-        "none",
-        "read"
+        "default",
+        "read",
+        "full"
       ],
       "default": "read",
-      "description": "Optional file access capabilities granted to the kubelet pod: none, or read (DAC_READ_SEARCH)."
+      "description": "Optional file access capabilities granted to the pod: default to not gain extra capabilities, read to only gain read capabilities, or full to gain write capabilities as well."
     }
   }
 }

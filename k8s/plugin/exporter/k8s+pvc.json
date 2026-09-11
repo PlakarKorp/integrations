@@ -20,14 +20,15 @@
       "type": "string",
       "description": "Optional kubelet image to use"
     },
-    "kubelet_dac": {
+    "fs_access": {
       "type": "string",
       "enum": [
-        "none",
-        "override"
+        "default",
+        "read",
+        "full"
       ],
-      "default": "override",
-      "description": "Optional file access capabilities granted to the kubelet pod: none, or override (DAC_OVERRIDE, CHOWN, FOWNER, FSETID)."
+      "default": "full",
+      "description": "Optional file access capabilities granted to the pod: default to not gain extra capabilities, read to only gain read capabilities, or full to gain write capabilities as well."
     }
   }
 }
