@@ -26,6 +26,7 @@ package sftp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -480,6 +481,35 @@ func TestStorageConcurrentPacksAndStates(t *testing.T) {
 	gotStates, err := s.List(context.Background(), storage.StorageResourceState)
 	require.NoError(t, err)
 	require.ElementsMatch(t, keys(wantStates), gotStates)
+}
+
+func TestStorageBuckets_CreatePermissions(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestSftp(t, "/repo")
+
+	ctx := context.Background()
+	err := s.Create(ctx, []byte(`sample`))
+	require.NoError(t, err, "Create should succeed")
+
+	// Verify root directory has restrictive permissions (0700).
+	rootInfo, err := ts.client.Stat("/repo")
+	require.NoError(t, err, "expected Stat to succeed for root directory")
+	rootPerms := rootInfo.Mode().Perm()
+	assert.Equal(t, os.FileMode(0700), rootPerms, "expected root directory to have 0700 permissions")
+
+	// Verify all bucket subdirectories (00-ff) within packfiles have the
+	// same restrictive permissions as the root (0700), not world-readable
+	// permissions (0755). (Only checking packfiles buckets here, but states buckets should be the same.)
+	for i := 0; i < 256; i++ {
+		bucketName := fmt.Sprintf("%02x", i)
+		bucketPath := "/repo/packfiles/" + bucketName
+		bucketInfo, err := ts.client.Stat(bucketPath)
+		require.NoError(t, err, "expected Stat to succeed for bucket directory packfiles/%s", bucketName)
+
+		bucketPerms := bucketInfo.Mode().Perm()
+		assert.Equal(t, os.FileMode(0700), bucketPerms,
+			"expected bucket directory packfiles/%s to have 0700 permissions like the root, not 0755", bucketName)
+	}
 }
 
 // ---------------------------------------------------------------------
