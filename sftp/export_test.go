@@ -55,6 +55,15 @@ func (ts *testServer) newTestExportSftp(t *testing.T, rootDir string) *Sftp {
 // and returns the results channel for the caller to drain, plus a wait
 // function that blocks until Export has returned and yields its final
 // error.
+//
+// The required call order is always:
+//  1. send all records into the input channel, then close it
+//  2. drain the results channel to completion (drainResults)
+//  3. then call wait()
+//
+// Draining before wait matters because Export's file/symlink tasks send
+// results concurrently. If results fills up, those tasks block, Export
+// cannot finish, and wait() deadlocks.
 func runExporter(t *testing.T, s *Sftp, records <-chan *connectors.Record) (<-chan *connectors.Result, func() error) {
 	results := make(chan *connectors.Result, 16)
 	done := make(chan error, 1)
@@ -74,18 +83,6 @@ func drainResults(results <-chan *connectors.Result) []*connectors.Result {
 	}
 	return got
 }
-
-// Case stubs below mirror the Export section of TEST_PLAN.md. Fill in each
-// body; the harness helpers above (newTestExportSftp/runExporter/
-// drainResults) are ready to use, e.g.:
-//
-//	ts := newTestServer(t)
-//	s := ts.newTestExportSftp(t, "/repo")
-//	records := make(chan *connectors.Record, 16)
-//	results, wait := runExporter(t, s, records)
-//	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
-//	close(records)
-//	got := drainResults(results)
 
 func TestExport_DirectoryCreate(t *testing.T) {
 	ts := newTestServer(t)
