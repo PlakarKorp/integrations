@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -44,6 +45,8 @@ type FSExporter struct {
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
 	hlCanon  sync.Map           // key -> canonical root-relative path string
+
+	skipOwnership bool
 }
 
 func init() {
@@ -53,6 +56,16 @@ func init() {
 func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
+
+	skipOwnership := false
+	if v, ok := config["skip_ownership"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", "skip_ownership", err)
+		}
+
+		skipOwnership = b
+	}
 
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
@@ -71,9 +84,10 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	return &FSExporter{
-		opts:    opts,
-		rootDir: absRoot,
-		root:    root,
+		opts:          opts,
+		rootDir:       absRoot,
+		root:          root,
+		skipOwnership: skipOwnership,
 	}, nil
 }
 
@@ -211,7 +225,7 @@ func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
 
 	fileinfo := record.FileInfo
 
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 && !p.skipOwnership {
 		err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid()))
 		if err != nil {
 			return err
@@ -325,7 +339,7 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 			return fmt.Errorf("chmod(%s): %w", pathname, err)
 		}
 	}
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 && !p.skipOwnership {
 		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
 			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
