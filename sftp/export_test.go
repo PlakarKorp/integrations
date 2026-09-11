@@ -371,6 +371,14 @@ func TestExport_HardlinkConcurrentRace(t *testing.T) {
 
 func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	ts := newTestServer(t)
+	// Forcefully restore permissions on cleanup so t.TempDir can remove the
+	// directory tree. Without this, os.RemoveAll fails with permission denied
+	// because Export leaves the parent directory as 0500 (read/execute only).
+	t.Cleanup(func() {
+		_ = os.Chmod(ts.realPath("/repo/parent"), 0750)
+		_ = os.Chmod(ts.realPath("/repo/parent/child"), 0750)
+	})
+
 	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
 		t.Fatalf("mkdir /repo: %v", err)
 	}
@@ -406,12 +414,6 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	childInfo, err := ts.client.Stat("/repo/parent/child")
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0750)|os.ModeDir, childInfo.Mode())
-
-	// Restore the parent to a writable mode so t.TempDir's cleanup can
-	// remove it. Without this, os.RemoveAll fails with permission denied.
-	t.Cleanup(func() {
-		_ = os.Chmod(ts.realPath("/repo/parent"), 0750)
-	})
 }
 
 func TestExport_ChownNoopByDefault(t *testing.T) {
