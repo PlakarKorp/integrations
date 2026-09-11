@@ -44,7 +44,7 @@ type k8s struct {
 
 	volumeSnapshotClass string
 	kubeletImage        string
-	kubeletDACCaps      []corev1.Capability
+	kubeletCapas        []corev1.Capability
 }
 
 func init() {
@@ -57,15 +57,15 @@ func init() {
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
-	if params["kubelet_dac"] == "" {
-		params["kubelet_dac"] = "read"
+	if params["fs_access"] == "" {
+		params["fs_access"] = "read"
 	}
 	return New(ctx, opts, name, params, false)
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
-	if params["kubelet_dac"] == "" {
-		params["kubelet_dac"] = "override"
+	if params["fs_access"] == "" {
+		params["fs_access"] = "full"
 	}
 	return New(ctx, opts, name, params, true)
 }
@@ -170,15 +170,15 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		kubeletImage = "ghcr.io/plakarkorp/kubelet:420fa2a79e152fc2b4d69837105d5155d10de54d-33393485194"
 	}
 
-	var dacCaps []corev1.Capability
-	switch c := params["kubelet_dac"]; c {
-	case "", "none":
+	var capas []corev1.Capability
+	switch c := params["fs_access"]; c {
+	case "", "default":
 	case "read":
-		dacCaps = []corev1.Capability{"DAC_READ_SEARCH"}
-	case "override":
-		dacCaps = []corev1.Capability{"DAC_OVERRIDE", "CHOWN", "FOWNER", "FSETID"}
+		capas = []corev1.Capability{"DAC_READ_SEARCH"}
+	case "full":
+		capas = []corev1.Capability{"DAC_OVERRIDE", "CHOWN", "FOWNER", "FSETID"}
 	default:
-		return nil, fmt.Errorf("bad kubelet_dac %q: expected none, read or override", c)
+		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -219,7 +219,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
-		kubeletDACCaps:      dacCaps,
+		kubeletCapas:        capas,
 	}, nil
 }
 
