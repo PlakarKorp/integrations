@@ -167,7 +167,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 	kubeletImage := params["kubelet_image"]
 	if kubeletImage == "" {
-		kubeletImage = "ghcr.io/plakarkorp/kubelet:420fa2a79e152fc2b4d69837105d5155d10de54d-33393485194"
+		kubeletImage = "ghcr.io/plakarkorp/kubelet:541eeddc56949fc617da602d3bce234592108371-34600504204"
 	}
 
 	var capas []corev1.Capability
