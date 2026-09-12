@@ -8,19 +8,22 @@ import (
 	"io"
 	"log"
 	"path"
+	"runtime"
 	"strings"
 	"time"
 
+	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
+	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/integrations/k8s/tee"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/objects"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -353,25 +356,101 @@ func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeCl
 	}
 }
 
-func (k *k8s) pvcfrom(u *unstructured.Unstructured) (*corev1.PersistentVolumeClaim, error) {
-	var pvcGVK = corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim")
-	if gvk := u.GroupVersionKind(); gvk != pvcGVK {
+func pvcfrom(content []byte) (*corev1.PersistentVolumeClaim, error) {
+	// the PVC embeds its own TypeMeta, so one pass gets both the
+	// apiVersion/kind the manifest claims to be and its spec.
+	var pvc corev1.PersistentVolumeClaim
+	if err := yaml.Unmarshal(content, &pvc); err != nil {
+		return nil, fmt.Errorf("failed to parse the PersistentVolumeClaim: %w", err)
+	}
+
+	// ensure that what we parsed was really a PVC though
+	pvcGVK := corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim")
+	if gvk := pvc.GroupVersionKind(); gvk != pvcGVK {
 		return nil, fmt.Errorf("expected %s but got %s", pvcGVK, gvk)
 	}
 
-	var pvc corev1.PersistentVolumeClaim
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &pvc); err != nil {
-		return nil, fmt.Errorf("failed to convert %s into a PersistentVolumeClaim: %w",
-			u.GetName(), err)
+	return restorablepvc(&pvc), nil
+}
+
+type smolexporter struct {
+	exporter.Exporter
+	client  *grpc.ClientConn
+	stop    chan struct{}
+	killpod func(ctx context.Context)
+}
+
+func (s *smolexporter) Close(ctx context.Context) error {
+	err := errors.Join(s.Exporter.Close(ctx), s.client.Close())
+	s.killpod(ctx)
+	if s.stop != nil {
+		close(s.stop)
+	}
+	return err
+}
+
+func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (exporter.Exporter, error) {
+	fp, err := k.fsServer(ctx, "restore", pvc.Namespace, pvc, false, "-export")
+	if err != nil {
+		return nil, fmt.Errorf("failed to run the pod: %w", err)
 	}
 
-	return restorablepvc(&pvc), nil
+	url, stop, err := k.urlFor(ctx, fp.pod)
+	if err != nil {
+		k.delpod(ctx, fp.pod)
+		return nil, err
+	}
+
+	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
+	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
+	if err != nil {
+		k.delpod(ctx, fp.pod)
+		if stop != nil {
+			close(stop)
+		}
+		return nil, fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
+	}
+
+	proto, path := "fs", fsPath
+	if fp.block {
+		proto, path = "block", blockPath
+	}
+
+	opts := &connectors.Options{
+		Hostname:        "plakar-pod",
+		OperatingSystem: "linux",
+		Architecture:    runtime.GOARCH,
+		CWD:             path,
+		MaxConcurrency:  k.opts.MaxConcurrency,
+	}
+
+	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, map[string]string{
+		"location": proto + "://" + path,
+	})
+	if err != nil {
+		k.delpod(ctx, fp.pod)
+		if stop != nil {
+			close(stop)
+		}
+		return nil, fmt.Errorf("failed to run the grpc exporter: %w", err)
+	}
+
+	return &smolexporter{
+		Exporter: exporter,
+		client:   client,
+		stop:     stop,
+		killpod: func(ctx context.Context) {
+			k.delpod(ctx, fp.pod)
+		},
+	}, nil
 }
 
 func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	var (
 		vmconf     []byte
 		currentexp *tee.Exporter
+		currentvol string
+		prefix     string
 	)
 
 	for record := range records {
@@ -394,9 +473,15 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 			continue
 		}
 
-		pvc, rest, ok := strings.Cut(strings.TrimPrefix(record.Pathname, "/"), "/")
-		if ok {
-			err := fmt.Errorf("unexpected record %q", record.Pathname)
+		vol, rest, ok := strings.Cut(strings.TrimPrefix(record.Pathname, "/"), "/")
+		if !ok {
+			results <- record.Ok()
+			continue
+		}
+
+		if vol != currentvol && rest != "config.yaml" {
+			err := fmt.Errorf("unexpected record: was in volume %q now we're in %q",
+				currentvol, vol)
 			results <- record.Error(err)
 			return err
 		}
@@ -410,14 +495,91 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 				}
 				currentexp = nil
 			}
+
+			b, err := io.ReadAll(record.Reader)
+			if err != nil {
+				err = fmt.Errorf("failed to read %q: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			pvc, err := pvcfrom(b)
+			if err != nil {
+				err = fmt.Errorf("failed to parse %q as pvc: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			b, err = yaml.Marshal(pvc)
+			if err != nil {
+				err = fmt.Errorf("failed to marshal %q as pvc: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			if err := k.apply(ctx, bytes.NewReader(b)); err != nil {
+				err = fmt.Errorf("failed to apply pvc %q: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			exp, err := k.exporterfor(ctx, pvc)
+			if err != nil {
+				err = fmt.Errorf("failed to apply pvc %q: %w", record.Pathname, err)
+				results <- record.Error(err)
+				return err
+			}
+
+			currentexp = tee.New(ctx, exp)
+			currentvol = vol
+			prefix = path.Join("/", vol, "data")
+			results <- record.Ok()
+			continue
+		}
+
+		if rest == "data" {
+			results <- record.Ok()
+			continue
+		}
+
+		if !strings.HasPrefix(rest, "data/") {
+			err := errors.New("unexpected file found")
+			results <- record.Error(err)
+			return err
+		}
+
+		if currentexp == nil {
+			err := fmt.Errorf("missing PVC config.yaml before data for volume %s", vol)
+			results <- record.Error(err)
+			return err
+		}
+
+		pathname := strings.TrimPrefix(record.Pathname, prefix)
+		newrecord := *record
+		newrecord.Pathname = pathname
+		newrecord.FileInfo.Lname = path.Base(pathname)
+
+		res, err := currentexp.Push(&newrecord)
+		if err != nil {
+			results <- record.Error(err)
+			return err
+		}
+
+		results <- &connectors.Result{Record: *record, Err: res.Err}
+		if res.Err != nil {
+			return res.Err
 		}
 	}
 
-	_, err := k.apply(ctx, connectors.NewRecord("/vm.yaml", "", objects.FileInfo{
-		Lname: "vm.yaml",
-		Lsize: int64(len(vmconf)),
-	}, nil, func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(vmconf)), nil
-	}))
-	return err
+	if currentexp != nil {
+		if err := currentexp.Wait(); err != nil {
+			return fmt.Errorf("failed to close exporter for pvc %s: %w", currentvol, err)
+		}
+	}
+
+	if vmconf == nil {
+		return errors.New("never seen /vm.yaml, not restoring a vm")
+	}
+
+	return k.apply(ctx, bytes.NewReader(vmconf))
 }
