@@ -198,6 +198,16 @@ func (k *k8s) gendisksnap(ctx context.Context, vms *snapshotv1beta1.VirtualMachi
 	return disks, nil
 }
 
+// annotations that describe the live object rather than the desired
+// state: the last-applied blob is a stale copy of the whole object, old
+// uid and finalizers included, and the observed-api-version pair is
+// virt-controller's own bookkeeping.
+var dropVMAnnotations = map[string]bool{
+	"kubectl.kubernetes.io/last-applied-configuration": true,
+	"kubevirt.io/latest-observed-api-version":          true,
+	"kubevirt.io/storage-observed-api-version":         true,
+}
+
 func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, error) {
 	src := content.Spec.Source.VirtualMachine
 	if src == nil {
@@ -205,13 +215,37 @@ func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, e
 			content.Namespace, content.Name)
 	}
 
+	// Only the metadata describing desired state is kept.  The source
+	// VM is captured by KubeVirt while the VirtualMachineSnapshot is
+	// still in flight, so it carries
+	// snapshot.kubevirt.io/snapshot-source-protection -- restoring that
+	// finalizer produces a VM no controller will ever release, wedged
+	// in Terminating forever.  uid, resourceVersion, generation and the
+	// rest go for the same reason they do in restorablepvc: they
+	// describe one past instance, not what to recreate.
+	var annotations map[string]string
+	for key, value := range src.Annotations {
+		if dropVMAnnotations[key] {
+			continue
+		}
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[key] = value
+	}
+
 	vm := kvcorev1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: kvcorev1.GroupVersion.String(),
 			Kind:       "VirtualMachine",
 		},
-		ObjectMeta: src.ObjectMeta,
-		Spec:       src.Spec,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        src.Name,
+			Namespace:   src.Namespace,
+			Labels:      src.Labels,
+			Annotations: annotations,
+		},
+		Spec: src.Spec,
 	}
 
 	return yaml.Marshal(&vm)
@@ -283,7 +317,17 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 			return fmt.Errorf("failed to clone disk %q: %w", disk.volumeName, err)
 		}
 
-		content, err := yaml.Marshal(pvc)
+		// the original claim, not the clone: the clone is a throwaway
+		// from-snap-xxxxx pointing at a VolumeSnapshot that's long
+		// gone by restore time.  TypeMeta has to be set by hand since
+		// client-go leaves it empty on everything it hands back.
+		orig := *disk.origPVC
+		orig.TypeMeta = metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "PersistentVolumeClaim",
+		}
+
+		content, err := yaml.Marshal(&orig)
 		if err != nil {
 			k.delpvc(ctx, pvc)
 			return fmt.Errorf("failed to marshal disk %q config: %w",
