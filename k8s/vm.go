@@ -198,16 +198,6 @@ func (k *k8s) gendisksnap(ctx context.Context, vms *snapshotv1beta1.VirtualMachi
 	return disks, nil
 }
 
-// annotations that describe the live object rather than the desired
-// state: the last-applied blob is a stale copy of the whole object, old
-// uid and finalizers included, and the observed-api-version pair is
-// virt-controller's own bookkeeping.
-var dropVMAnnotations = map[string]bool{
-	"kubectl.kubernetes.io/last-applied-configuration": true,
-	"kubevirt.io/latest-observed-api-version":          true,
-	"kubevirt.io/storage-observed-api-version":         true,
-}
-
 func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, error) {
 	src := content.Spec.Source.VirtualMachine
 	if src == nil {
@@ -215,37 +205,20 @@ func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, e
 			content.Namespace, content.Name)
 	}
 
-	// Only the metadata describing desired state is kept.  The source
-	// VM is captured by KubeVirt while the VirtualMachineSnapshot is
-	// still in flight, so it carries
-	// snapshot.kubevirt.io/snapshot-source-protection -- restoring that
-	// finalizer produces a VM no controller will ever release, wedged
-	// in Terminating forever.  uid, resourceVersion, generation and the
-	// rest go for the same reason they do in restorablepvc: they
-	// describe one past instance, not what to recreate.
-	var annotations map[string]string
-	for key, value := range src.Annotations {
-		if dropVMAnnotations[key] {
-			continue
-		}
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		annotations[key] = value
-	}
-
+	// captured verbatim, on purpose: the backup is a faithful record of
+	// the VM as it was at snapshot time, status included.  Whatever
+	// can't be recreated as-is -- finalizers, uid, ... -- is stripped
+	// on the way back in by restorablevm, not here.  TypeMeta is the
+	// one addition, since client-go leaves it empty and a captured
+	// manifest has to be self-describing.
 	vm := kvcorev1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: kvcorev1.GroupVersion.String(),
 			Kind:       "VirtualMachine",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        src.Name,
-			Namespace:   src.Namespace,
-			Labels:      src.Labels,
-			Annotations: annotations,
-		},
-		Spec: src.Spec,
+		ObjectMeta: src.ObjectMeta,
+		Spec:       src.Spec,
+		Status:     src.Status,
 	}
 
 	return yaml.Marshal(&vm)
@@ -398,6 +371,67 @@ func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeCl
 			VolumeMode:       pvc.Spec.VolumeMode,
 		},
 	}
+}
+
+// annotations that describe the live object rather than the desired
+// state: the last-applied blob is a stale copy of the whole object, old
+// uid and finalizers included, and the observed-api-version pair is
+// virt-controller's own bookkeeping.
+var dropVMAnnotations = map[string]bool{
+	"kubectl.kubernetes.io/last-applied-configuration": true,
+	"kubevirt.io/latest-observed-api-version":          true,
+	"kubevirt.io/storage-observed-api-version":         true,
+}
+
+// restorablevm returns a copy of a backed up VM that can be created
+// again, keeping only what describes desired state.  The backup is a
+// verbatim capture, so it carries plenty that can't be recreated -- and
+// one entry that actively breaks the restore:
+// snapshot.kubevirt.io/snapshot-source-protection, which KubeVirt
+// stamps on the source while the VirtualMachineSnapshot is in flight.
+// Restoring that finalizer yields a VM no controller will ever release,
+// wedged in Terminating forever.  Status goes too: it describes the
+// instance that was, not the one being created.
+func restorablevm(vm *kvcorev1.VirtualMachine) *kvcorev1.VirtualMachine {
+	var annotations map[string]string
+	for key, value := range vm.Annotations {
+		if dropVMAnnotations[key] {
+			continue
+		}
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[key] = value
+	}
+
+	return &kvcorev1.VirtualMachine{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: kvcorev1.GroupVersion.String(),
+			Kind:       "VirtualMachine",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        vm.Name,
+			Namespace:   vm.Namespace,
+			Labels:      vm.Labels,
+			Annotations: annotations,
+		},
+		Spec: vm.Spec,
+	}
+}
+
+func vmfrom(content []byte) (*kvcorev1.VirtualMachine, error) {
+	var vm kvcorev1.VirtualMachine
+	if err := yaml.Unmarshal(content, &vm); err != nil {
+		return nil, fmt.Errorf("failed to parse the VirtualMachine: %w", err)
+	}
+
+	// ensure that what we parsed was really a VM though
+	vmGVK := kvcorev1.GroupVersion.WithKind("VirtualMachine")
+	if gvk := vm.GroupVersionKind(); gvk != vmGVK {
+		return nil, fmt.Errorf("expected %s but got %s", vmGVK, gvk)
+	}
+
+	return restorablevm(&vm), nil
 }
 
 func pvcfrom(content []byte) (*corev1.PersistentVolumeClaim, error) {
@@ -625,5 +659,15 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 		return errors.New("never seen /vm.yaml, not restoring a vm")
 	}
 
-	return k.apply(ctx, bytes.NewReader(vmconf))
+	vm, err := vmfrom(vmconf)
+	if err != nil {
+		return fmt.Errorf("failed to parse /vm.yaml: %w", err)
+	}
+
+	conf, err := yaml.Marshal(vm)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the VirtualMachine: %w", err)
+	}
+
+	return k.apply(ctx, bytes.NewReader(conf))
 }
