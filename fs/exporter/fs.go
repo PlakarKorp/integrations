@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,6 +42,8 @@ type FSExporter struct {
 	rootDir string
 
 	root *os.Root
+
+	allowPrivilegeEscalation bool
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
 	hlCanon  sync.Map           // key -> canonical root-relative path string
@@ -70,10 +73,19 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 		return nil, fmt.Errorf("failed to open restore root %s: %w", absRoot, err)
 	}
 
+	allowPrivilegeEscalation := false
+	if tmp, ok := config["allowPrivilegeEscalation"]; ok {
+		allowPrivilegeEscalation, err = strconv.ParseBool(tmp)
+		if err != nil {
+			return nil, fmt.Errorf("allowPrivilegeEscalation: bad value: %w", err)
+		}
+	}
+
 	return &FSExporter{
-		opts:    opts,
-		rootDir: absRoot,
-		root:    root,
+		opts:                     opts,
+		rootDir:                  absRoot,
+		root:                     root,
+		allowPrivilegeEscalation: allowPrivilegeEscalation,
 	}, nil
 }
 
@@ -316,18 +328,31 @@ func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) err
 	return p.permissions(pathname, record.FileInfo)
 }
 
-func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
-	if fileinfo.Mode()&os.ModeSymlink == 0 {
-		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
-		// Use the full mode which includes these special bits, not just Mode().Perm()
-		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
-		if err := p.root.Chmod(pathname, mode); err != nil {
-			return fmt.Errorf("chmod(%s): %w", pathname, err)
-		}
+// restoreMode computes the mode to apply to a restored file. By default,
+// the setuid, setgid and sticky bits recorded in the snapshot are stripped
+// to prevent restoring attacker-controlled privileged executables. Only
+// when allowPrivilegeEscalation is explicitly enabled are those bits
+// reapplied as recorded in the source snapshot.
+func (p *FSExporter) restoreMode(fileinfo objects.FileInfo) os.FileMode {
+	mode := fileinfo.Mode().Perm()
+	if p.allowPrivilegeEscalation {
+		mode |= fileinfo.Mode() & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 	}
+	return mode
+}
+
+func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+	// Apply ownership before mode bits so that any (opt-in) setuid/setgid
+	// bits are never set while the file is still owned by an unintended uid/gid.
 	if os.Geteuid() == 0 {
 		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
 			return fmt.Errorf("chown(%s): %w", pathname, err)
+		}
+	}
+	if fileinfo.Mode()&os.ModeSymlink == 0 {
+		mode := p.restoreMode(fileinfo)
+		if err := p.root.Chmod(pathname, mode); err != nil {
+			return fmt.Errorf("chmod(%s): %w", pathname, err)
 		}
 	}
 
