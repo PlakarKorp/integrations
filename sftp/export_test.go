@@ -220,7 +220,6 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	assert.Equal(t, "/file.txt", target, "unexpected target for the created symlink")
 }
 
-
 func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	ts := newTestServer(t)
 	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
@@ -504,4 +503,175 @@ func TestExport_XattrRecordsSkipped(t *testing.T) {
 	// never written to, only acked.
 	_, err := ts.client.Stat("/repo/file.txt")
 	assert.Error(t, err, "expected no file to have been created for a skipped xattr record")
+}
+
+func TestExport_FileStripsSetuidByDefault(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	// allowPrivilegeEscalation defaults to false.
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	content := []byte("setuid test")
+	records <- connectors.NewRecord("/file.txt", "",
+		objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | 0755},
+		nil,
+		func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(content)), nil
+		},
+	)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/file.txt")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755), info.Mode(), "setuid/setgid bits must be stripped by default")
+	assert.Equal(t, os.FileMode(0), info.Mode()&(os.ModeSetuid|os.ModeSetgid), "setuid/setgid bits must not be present when allowPrivilegeEscalation is disabled")
+}
+
+func TestExport_FilePreservesSetuidWhenAllowed(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	s.allowPrivilegeEscalation = true
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	content := []byte("setuid test")
+	records <- connectors.NewRecord("/file.txt", "",
+		objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | 0755},
+		nil,
+		func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(content)), nil
+		},
+	)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/file.txt")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755)|os.ModeSetuid|os.ModeSetgid, info.Mode(), "setuid/setgid bits must be preserved when allowPrivilegeEscalation is enabled")
+}
+
+func TestExport_DirectoryStripsSetgidByDefault(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	// allowPrivilegeEscalation defaults to false.
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir, info.Mode(), "setgid bit must be stripped from directories by default")
+}
+
+func TestExport_DirectoryPreservesSetgidWhenAllowed(t *testing.T) {
+	ts := newTestServer(t)
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	s.allowPrivilegeEscalation = true
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750}, nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir|os.ModeSetgid, info.Mode(), "setgid bit must be preserved on directories when allowPrivilegeEscalation is enabled")
+}
+
+// TestExport_DirectorySetgidSurvivesChownOrdering is a regression test for
+// the ordering of chown vs chmod in permissions(). On this platform, chown
+// clears the setgid bit even when chowning to the *same* uid/gid the file
+// already has (verified empirically: chmod g+s, then chown $(id -u):$(id
+// -g) on an unprivileged process strips the setgid bit). This means:
+//
+//   - chmod (restoring setgid) THEN chown -> setgid is stripped by the
+//     chown call, even though setOwner/allowPrivilegeEscalation both asked
+//     for it.
+//   - chown THEN chmod (restoring setgid) -> setgid survives, since nothing
+//     runs after the chmod to strip it.
+//
+// This test does not require root: it chowns to the current process's own
+// uid/gid, which is enough to trigger the kernel's clearing behaviour.
+func TestExport_DirectorySetgidSurvivesChownOrdering(t *testing.T) {
+	ts := newTestServer(t)
+	t.Cleanup(func() {
+		_ = os.Chmod(ts.realPath("/repo/dir"), 0750)
+	})
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	s.setOwner = true
+	s.allowPrivilegeEscalation = true
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	uid := uint64(os.Getuid())
+	gid := uint64(os.Getgid())
+	records <- connectors.NewRecord("/dir", "",
+		objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750, Luid: uid, Lgid: gid},
+		nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir|os.ModeSetgid, info.Mode(),
+		"setgid bit must survive when both chown and chmod(setgid) are requested: chown must be applied before chmod")
+}
+
+func TestExport_RestoreModeHelper(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestExportSftp(t, "/repo")
+
+	fi := objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | os.ModeSticky | 0644}
+
+	s.allowPrivilegeEscalation = false
+	assert.Equal(t, os.FileMode(0644), s.restoreMode(fi), "special bits must be stripped when allowPrivilegeEscalation is false")
+
+	s.allowPrivilegeEscalation = true
+	assert.Equal(t, os.FileMode(0644)|os.ModeSetuid|os.ModeSetgid|os.ModeSticky, s.restoreMode(fi), "special bits must be preserved when allowPrivilegeEscalation is true")
 }
