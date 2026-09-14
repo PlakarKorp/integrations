@@ -254,3 +254,128 @@ func TestRelativeRejectsEscapes(t *testing.T) {
 		}
 	}
 }
+
+// setuidRecord returns a file record whose recorded mode carries the
+// setuid, setgid and sticky bits, so restoreMode/permissions can be
+// exercised against it.
+func setuidRecord(pathname, content string) *connectors.Record {
+	return &connectors.Record{
+		Pathname: pathname,
+		Reader:   io.NopCloser(strings.NewReader(content)),
+		FileInfo: objects.FileInfo{Lname: filepath.Base(pathname), Lmode: os.ModeSetuid | os.ModeSetgid | 0755, Lsize: int64(len(content))},
+	}
+}
+
+// TestExport_FileStripsSetuidByDefault verifies that, by default
+// (allowPrivilegeEscalation unset), restored files never keep the
+// setuid/setgid bits recorded in the snapshot, even if the snapshot
+// carried them - preventing restoring an attacker-controlled privileged
+// executable.
+func TestExport_FileStripsSetuidByDefault(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "restore")
+	exp := newExporter(t, root)
+
+	errs := run(t, exp, setuidRecord("/file", "content"))
+	if errs[0] != nil {
+		t.Fatalf("unexpected error: %v", errs[0])
+	}
+
+	fi, err := os.Stat(filepath.Join(root, "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&(os.ModeSetuid|os.ModeSetgid) != 0 {
+		t.Fatalf("setuid/setgid bits must be stripped by default, got mode %v", fi.Mode())
+	}
+	if fi.Mode().Perm() != 0755 {
+		t.Fatalf("unexpected permission bits: got %v, want 0755", fi.Mode().Perm())
+	}
+}
+
+// TestExport_FilePreservesSetuidWhenAllowed verifies the opt-in path: when
+// allowPrivilegeEscalation is explicitly enabled, the setuid/setgid bits
+// recorded in the snapshot are restored as-is.
+func TestExport_FilePreservesSetuidWhenAllowed(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "restore")
+	exp := newExporter(t, root)
+	exp.allowPrivilegeEscalation = true
+
+	errs := run(t, exp, setuidRecord("/file", "content"))
+	if errs[0] != nil {
+		t.Fatalf("unexpected error: %v", errs[0])
+	}
+
+	fi, err := os.Stat(filepath.Join(root, "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&(os.ModeSetuid|os.ModeSetgid) != os.ModeSetuid|os.ModeSetgid {
+		t.Fatalf("setuid/setgid bits must be preserved when allowPrivilegeEscalation is enabled, got mode %v", fi.Mode())
+	}
+}
+
+// TestExport_DirectoryStripsSetgidByDefault mirrors the file test for
+// directories, which go through the dirPerms/permissions() path rather than
+// writeAtomic.
+func TestExport_DirectoryStripsSetgidByDefault(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "restore")
+	exp := newExporter(t, root)
+
+	dir := &connectors.Record{
+		Pathname: "/dir",
+		FileInfo: objects.FileInfo{Lname: "dir", Lmode: os.ModeDir | os.ModeSetgid | 0750},
+	}
+	errs := run(t, exp, dir)
+	if errs[0] != nil {
+		t.Fatalf("unexpected error: %v", errs[0])
+	}
+
+	fi, err := os.Stat(filepath.Join(root, "dir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSetgid != 0 {
+		t.Fatalf("setgid bit must be stripped from directories by default, got mode %v", fi.Mode())
+	}
+}
+
+func TestExport_DirectoryPreservesSetgidWhenAllowed(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "restore")
+	exp := newExporter(t, root)
+	exp.allowPrivilegeEscalation = true
+
+	dir := &connectors.Record{
+		Pathname: "/dir",
+		FileInfo: objects.FileInfo{Lname: "dir", Lmode: os.ModeDir | os.ModeSetgid | 0750},
+	}
+	errs := run(t, exp, dir)
+	if errs[0] != nil {
+		t.Fatalf("unexpected error: %v", errs[0])
+	}
+
+	fi, err := os.Stat(filepath.Join(root, "dir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSetgid == 0 {
+		t.Fatalf("setgid bit must be preserved on directories when allowPrivilegeEscalation is enabled, got mode %v", fi.Mode())
+	}
+}
+
+func TestExport_RestoreModeHelper(t *testing.T) {
+	root := t.TempDir()
+	exp := newExporter(t, root)
+
+	fi := objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | os.ModeSticky | 0644}
+
+	exp.allowPrivilegeEscalation = false
+	if got := exp.restoreMode(fi); got != 0644 {
+		t.Errorf("restoreMode with allowPrivilegeEscalation=false = %v, want 0644 (special bits stripped)", got)
+	}
+
+	exp.allowPrivilegeEscalation = true
+	want := os.FileMode(0644) | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	if got := exp.restoreMode(fi); got != want {
+		t.Errorf("restoreMode with allowPrivilegeEscalation=true = %v, want %v (special bits preserved)", got, want)
+	}
+}
