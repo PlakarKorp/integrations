@@ -39,7 +39,17 @@ type dirPerm struct {
 // otherwise let path.Join's lexical cleaning escape the restore root.
 func isContained(root, joined string) bool {
 	cleanRoot := path.Clean(root)
-	return joined == cleanRoot || strings.HasPrefix(joined, cleanRoot+"/")
+	cleanJoined := path.Clean(joined)
+
+	if cleanJoined == cleanRoot {
+		return true
+	}
+
+	prefix := cleanRoot
+	if prefix != "/" {
+		prefix += "/"
+	}
+	return strings.HasPrefix(cleanJoined, prefix)
 }
 
 func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
