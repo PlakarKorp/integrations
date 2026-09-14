@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -44,6 +45,10 @@ type FSExporter struct {
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
 	hlCanon  sync.Map           // key -> canonical root-relative path string
+
+	skipOwnership bool
+	skipPerms     bool
+	skipTimes     bool
 }
 
 func init() {
@@ -53,6 +58,36 @@ func init() {
 func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
+
+	skipOwnership := false
+	if v, ok := config["skip_ownership"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", "skip_ownership", err)
+		}
+
+		skipOwnership = b
+	}
+
+	skipPermissions := false
+	if v, ok := config["skip_permissions"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", "skip_permissions", err)
+		}
+
+		skipPermissions = b
+	}
+
+	skipTimes := false
+	if v, ok := config["skip_times"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", "skip_times", err)
+		}
+
+		skipTimes = b
+	}
 
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
@@ -71,9 +106,12 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	return &FSExporter{
-		opts:    opts,
-		rootDir: absRoot,
-		root:    root,
+		opts:          opts,
+		rootDir:       absRoot,
+		root:          root,
+		skipOwnership: skipOwnership,
+		skipPerms:     skipPermissions,
+		skipTimes:     skipTimes,
 	}, nil
 }
 
@@ -156,7 +194,9 @@ loop:
 					if !os.IsExist(err) {
 						results <- record.Error(err)
 					} else {
-						_ = p.root.Chmod(pathname, 0700)
+						if !p.skipPerms {
+							_ = p.root.Chmod(pathname, 0700)
+						}
 						results <- record.Ok()
 					}
 				} else {
@@ -211,17 +251,21 @@ func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
 
 	fileinfo := record.FileInfo
 
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 && !p.skipOwnership {
 		err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid()))
 		if err != nil {
 			return err
 		}
 	}
 
-	// This is safe to do through the real filesystem because pathname has been
-	// validated already through root.Symlink()
-	realpath := filepath.Join(p.root.Name(), pathname)
-	return Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime())
+	if !p.skipTimes {
+		// This is safe to do through the real filesystem because pathname has been
+		// validated already through root.Symlink()
+		realpath := filepath.Join(p.root.Name(), pathname)
+		return Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime())
+	}
+
+	return nil
 }
 
 func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error {
@@ -317,7 +361,7 @@ func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) err
 }
 
 func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
-	if fileinfo.Mode()&os.ModeSymlink == 0 {
+	if fileinfo.Mode()&os.ModeSymlink == 0 && !p.skipPerms {
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
 		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
@@ -325,18 +369,22 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 			return fmt.Errorf("chmod(%s): %w", pathname, err)
 		}
 	}
-	if os.Geteuid() == 0 {
+
+	if os.Geteuid() == 0 && !p.skipOwnership {
 		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
 			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
 	}
 
-	// This is safe to do through the real filesystem because pathname has been
-	// validated already through either through Mkdir for a directory or Rename
-	// for a file or an hardlink.
-	realpath := filepath.Join(p.root.Name(), pathname)
-	if err := Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
-		return fmt.Errorf("lutimes(%s): %w", pathname, err)
+	if !p.skipTimes {
+		// This is safe to do through the real filesystem because pathname has been
+		// validated already through either through Mkdir for a directory or Rename
+		// for a file or an hardlink.
+		realpath := filepath.Join(p.root.Name(), pathname)
+		if err := Lutimes(realpath, fileinfo.ModTime(), fileinfo.ModTime()); err != nil {
+			return fmt.Errorf("lutimes(%s): %w", pathname, err)
+		}
 	}
+
 	return nil
 }
