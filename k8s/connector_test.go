@@ -1,0 +1,253 @@
+package k8s
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+)
+
+func TestValidateGroup(t *testing.T) {
+	suite := []struct {
+		name    string
+		group   string
+		wantErr string
+	}{
+		{
+			name:  "apigroup",
+			group: "apps.k8s.io",
+		},
+		{
+			name:  "two labels",
+			group: "cert-manager.io",
+		},
+		{
+			name:  "many labels",
+			group: "snapshot.storage.k8s.io",
+		},
+		{
+			name:    "empty",
+			group:   "",
+			wantErr: "does not contain a dot",
+		},
+		{
+			name:    "core group has no dot",
+			group:   "apps",
+			wantErr: "does not contain a dot",
+		},
+		{
+			name:    "uppercase",
+			group:   "Apps.k8s.io",
+			wantErr: "invalid format",
+		},
+		{
+			name:    "slash",
+			group:   "apps.k8s.io/v1",
+			wantErr: "invalid format",
+		},
+		{
+			name:    "leading space",
+			group:   " apps.k8s.io",
+			wantErr: "invalid format",
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateGroup(test.group)
+
+			if test.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.wantErr)
+				require.Contains(t, err.Error(), test.group, "the error mentions the offending group")
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateKind(t *testing.T) {
+	suite := []struct {
+		name    string
+		kind    string
+		wantErr string
+	}{
+		{
+			name: "kinds are camelcase",
+			kind: "Deployment",
+		},
+		{
+			name: "several words",
+			kind: "VirtualMachineInstance",
+		},
+		{
+			name: "digits",
+			kind: "PodDisruptionBudgetV2",
+		},
+		{
+			name:    "dot",
+			kind:    "apps.Deployment",
+			wantErr: "invalid format",
+		},
+		{
+			name:    "slash",
+			kind:    "apps/Deployment",
+			wantErr: "invalid format",
+		},
+		{
+			name:    "space",
+			kind:    "Virtual Machine",
+			wantErr: "invalid format",
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateKind(test.kind)
+
+			if test.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.wantErr)
+				require.Contains(t, err.Error(), test.kind, "the error mentions the offending kind")
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestParseGroupKind(t *testing.T) {
+	suite := []struct {
+		name    string
+		str     string
+		want    schema.GroupKind
+		wantErr string
+	}{
+		{
+			name: "group and kind",
+			str:  "apps.k8s.io/Deployment",
+			want: schema.GroupKind{Group: "apps.k8s.io", Kind: "Deployment"},
+		},
+		{
+			name:    "no separator",
+			str:     "Deployment",
+			wantErr: `invalid format for group/kind "Deployment"`,
+		},
+		{
+			name:    "empty",
+			str:     "",
+			wantErr: `invalid format for group/kind ""`,
+		},
+		{
+			name:    "too many separators",
+			str:     "apps.k8s.io/v1/Deployment",
+			wantErr: "invalid format for group/kind",
+		},
+		{
+			name:    "bad group",
+			str:     "apps/Deployment",
+			wantErr: `group "apps" does not contain a dot`,
+		},
+		{
+			name:    "bad kind",
+			str:     "apps.k8s.io/Deployment!",
+			wantErr: `invalid format for kind "Deployment!"`,
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseGroupKind(test.str)
+
+			if test.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.wantErr)
+				require.Zero(t, got, "a rejected group/kind is never returned")
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
+func TestParseGroupKinds(t *testing.T) {
+	suite := []struct {
+		name    string
+		str     string
+		want    map[schema.GroupKind]struct{}
+		wantErr string
+	}{
+		{
+			name: "empty",
+			str:  "",
+			want: map[schema.GroupKind]struct{}{},
+		},
+		{
+			name: "only separators",
+			str:  ";;",
+			want: map[schema.GroupKind]struct{}{},
+		},
+		{
+			name: "single",
+			str:  "apps.k8s.io/Deployment",
+			want: map[schema.GroupKind]struct{}{
+				{Group: "apps.k8s.io", Kind: "Deployment"}: {},
+			},
+		},
+		{
+			name: "several",
+			str:  "apps.k8s.io/Deployment;snapshot.storage.k8s.io/VolumeSnapshot",
+			want: map[schema.GroupKind]struct{}{
+				{Group: "apps.k8s.io", Kind: "Deployment"}:                 {},
+				{Group: "snapshot.storage.k8s.io", Kind: "VolumeSnapshot"}: {},
+			},
+		},
+		{
+			name: "empty entries are skipped",
+			str:  ";apps.k8s.io/Deployment;;cert-manager.io/Certificate;",
+			want: map[schema.GroupKind]struct{}{
+				{Group: "apps.k8s.io", Kind: "Deployment"}:      {},
+				{Group: "cert-manager.io", Kind: "Certificate"}: {},
+			},
+		},
+		{
+			name: "duplicates are folded",
+			str:  "apps.k8s.io/Deployment;cert-manager.io/Certificate;apps.k8s.io/Deployment",
+			want: map[schema.GroupKind]struct{}{
+				{Group: "apps.k8s.io", Kind: "Deployment"}:      {},
+				{Group: "cert-manager.io", Kind: "Certificate"}: {},
+			},
+		},
+		{
+			name:    "one bad entry rejects the whole list",
+			str:     "apps.k8s.io/Deployment;nope",
+			wantErr: `invalid format for group/kind "nope"`,
+		},
+		{
+			name:    "entries are not trimmed",
+			str:     "apps.k8s.io/Deployment; cert-manager.io/Certificate",
+			wantErr: `invalid format for group " cert-manager.io"`,
+		},
+	}
+
+	for _, test := range suite {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseGroupKinds(test.str)
+
+			if test.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.wantErr)
+				require.Nil(t, got, "a rejected list is never partially returned")
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
