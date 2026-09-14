@@ -567,3 +567,72 @@ func TestExport_PathTraversalEscape(t *testing.T) {
 	_, statErr := ts.client.Stat("/outside.txt")
 	assert.Error(t, statErr, "expected no file to have been written outside of the restore root")
 }
+
+func TestIsContained(t *testing.T) {
+	tests := []struct {
+		name   string
+		root   string
+		joined string
+		want   bool
+	}{
+		// --- root "/" (filesystem root): every absolute path is contained ---
+		{"root-slash exact match", "/", "/", true},
+		{"root-slash top-level child", "/", "/toto", true},
+		{"root-slash nested child", "/", "/toto/titi.txt", true},
+		{"root-slash double-slash root", "//", "/toto", true},
+		{"root-slash unclean root with dot", "/.", "/toto", true},
+
+		// --- normal, non-root path ---
+		{"exact match", "/repo", "/repo", true},
+		{"top-level child", "/repo", "/repo/toto", true},
+		{"nested child", "/repo", "/repo/toto/titi.txt", true},
+		{"child with trailing slash", "/repo", "/repo/", true},
+		{"child with duplicated slash separator", "/repo", "/repo//toto", true},
+
+		// --- sibling / prefix confusion (the classic path-traversal-style bug) ---
+		{"sibling with same string prefix, longer", "/repo", "/repox", false},
+		{"sibling with same string prefix, longer dir", "/repo", "/repoo/toto", false},
+		{"sibling with same string prefix, shorter", "/repo", "/rep", false},
+		{"unrelated absolute path", "/repo", "/other", false},
+		{"parent of root", "/repo", "/", false},
+		{"grandparent of root", "/repo/sub", "/repo", false},
+
+		// --- root with trailing slash should be normalized via path.Clean ---
+		{"root trailing slash, exact", "/repo/", "/repo", true},
+		{"root trailing slash, child", "/repo/", "/repo/toto", true},
+		{"root trailing slash, sibling rejected", "/repo/", "/repox", false},
+
+		// --- root with redundant/unclean segments ---
+		{"root with dot segment", "/repo/./sub", "/repo/sub", true},
+		{"root with double slashes", "/repo//sub", "/repo/sub/x", true},
+		{"root with dot-dot collapsing to parent", "/repo/sub/..", "/repo/x", true},
+
+		// --- case sensitivity: comparison is literal, not case-insensitive ---
+		{"case mismatch rejected", "/Repo", "/repo/x", false},
+		{"case mismatch exact rejected", "/Repo", "/repo", false},
+
+		// --- relative / malformed roots (defensive, should never authorize escape) ---
+		{"empty root and empty joined", "", "", true},
+		{"empty root, absolute joined", "", "/foo", false},
+		{"relative root, absolute joined", "repo", "/repo", false},
+		{"absolute root, relative joined", "/repo", "repo", false},
+		{"dot root, absolute joined", ".", "/foo", false},
+
+		// --- joined path not itself cleaned; cleanJoined normalizes it (defense in depth) ---
+		{"joined containing dot-dot resolves back inside root", "/a/b", "/a/b/../c", false},
+		{"joined containing dot-dot resolves to root itself", "/a/b", "/a/b/../b", true},
+		{"joined escaping via dot-dot lexically outside prefix check", "/a/b", "/a/../c", false},
+
+		// --- deeply nested paths ---
+		{"deeply nested child", "/a/b/c", "/a/b/c/d/e/f/g.txt", true},
+		{"deeply nested unrelated sibling", "/a/b/c", "/a/b/cc/d/e/f/g.txt", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isContained(tt.root, tt.joined); got != tt.want {
+				t.Errorf("isContained(%q, %q) = %v; want %v", tt.root, tt.joined, got, tt.want)
+			}
+		})
+	}
+}
