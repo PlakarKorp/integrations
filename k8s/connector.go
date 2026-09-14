@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -18,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -45,9 +48,12 @@ type k8s struct {
 
 	portForward bool
 
-	volumeSnapshotClass string
-	kubeletImage        string
-	kubeletCapas        []corev1.Capability
+	volumeSnapshotClass    string
+	kubeletImage           string
+	kubeletImagePullPolicy corev1.PullPolicy
+	kubeletCapas           []corev1.Capability
+
+	skippedGroupKinds map[schema.GroupKind]struct{}
 }
 
 func init() {
@@ -193,6 +199,11 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
+	gks, err := parseGroupKinds(params["skipped_group_kinds"])
+	if err != nil {
+		return nil, err
+	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -236,10 +247,65 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 		portForward: portForward,
 
+		skippedGroupKinds:   gks,
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
 		kubeletCapas:        capas,
 	}, nil
+}
+
+func parseGroupKinds(str string) (map[schema.GroupKind]struct{}, error) {
+	gks := make(map[schema.GroupKind]struct{})
+	gksStrs := strings.SplitSeq(str, ";")
+	for gkStr := range gksStrs {
+		if gkStr == "" {
+			continue
+		}
+		gk, err := parseGroupKind(gkStr)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := gks[gk]; ok {
+			log.Printf("duplicate group/kind: %s/%s", gk.Group, gk.Kind)
+		}
+		gks[gk] = struct{}{}
+	}
+	return gks, nil
+}
+
+func parseGroupKind(str string) (schema.GroupKind, error) {
+	gk := strings.Split(str, "/")
+	if len(gk) != 2 {
+		return schema.GroupKind{}, fmt.Errorf("invalid format for group/kind %q", str)
+	}
+	if err := validateGroup(gk[0]); err != nil {
+		return schema.GroupKind{}, err
+	}
+	if err := validateKind(gk[1]); err != nil {
+		return schema.GroupKind{}, err
+	}
+	return schema.GroupKind{
+		Group: gk[0],
+		Kind:  gk[1],
+	}, nil
+}
+
+var kindRegexp = regexp.MustCompile("^[A-Za-z0-9-]+$")
+
+func validateKind(kind string) error {
+	if !kindRegexp.MatchString(kind) {
+		return fmt.Errorf("invalid format for kind %q", kind)
+	}
+	return nil
+}
+
+var groupRegexp = regexp.MustCompile("^[a-z0-9.-]*$")
+
+func validateGroup(group string) error {
+	if !groupRegexp.MatchString(group) {
+		return fmt.Errorf("invalid format for group %q", group)
+	}
+	return nil
 }
 
 func (k *k8s) Type() string   { return k.proto }

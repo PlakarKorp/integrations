@@ -52,9 +52,12 @@ var neverRestore = map[schema.GroupKind]string{
 	{Group: "storage.k8s.io", Kind: "VolumeAttachment"}: "records which node a volume is mounted on",
 }
 
-func skipRestore(gvk schema.GroupVersionKind) string {
+func (k *k8s) skipRestore(gvk schema.GroupVersionKind) string {
 	if reason, ok := neverRestore[gvk.GroupKind()]; ok {
 		return reason
+	}
+	if _, ok := k.skippedGroupKinds[gvk.GroupKind()]; ok {
+		return fmt.Sprintf("group/kind skipped in configuration: %s/%s", gvk.Group, gvk.Kind)
 	}
 	return ""
 }
@@ -88,7 +91,7 @@ func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, resu
 
 		gvk := obj.GroupVersionKind()
 
-		if reason := skipRestore(gvk); reason != "" {
+		if reason := k.skipRestore(gvk); reason != "" {
 			log.Printf("skipping %s: %s", record.Pathname, reason)
 			results <- record.Ok()
 			continue
