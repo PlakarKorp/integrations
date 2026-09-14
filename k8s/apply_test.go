@@ -260,11 +260,23 @@ func TestIsRestorable(t *testing.T) {
 	}
 }
 
+func ownerRef(apiVersion, kind, name string, controller bool) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: apiVersion,
+		Kind:       kind,
+		Name:       name,
+		Controller: &controller,
+	}
+}
+
 func TestSkipRestore(t *testing.T) {
 	suite := []struct {
-		name string
-		gvk  schema.GroupVersionKind
-		skip bool
+		name         string
+		gvk          schema.GroupVersionKind
+		owners       []metav1.OwnerReference
+		skipped      []schema.GroupKind
+		restoreOwned bool
+		skip         bool
 	}{
 		{
 			name: "core kind on the list",
@@ -291,11 +303,82 @@ func TestSkipRestore(t *testing.T) {
 			gvk:  schema.GroupVersionKind{Group: "acme.example.com", Version: "v1", Kind: "Node"},
 			skip: false,
 		},
+		{
+			name:    "kind skipped in the configuration",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    true,
+		},
+		{
+			name:    "the version is not part of the configured match",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1beta1", Kind: "Deployment"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    true,
+		},
+		{
+			name:    "another kind of a configured group",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    false,
+		},
+		{
+			name:   "controller-owned resource",
+			gvk:    schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSet"},
+			owners: []metav1.OwnerReference{ownerRef("apps/v1", "Deployment", "nginx", true)},
+			skip:   true,
+		},
+		{
+			name: "only one of the owners controls it",
+			gvk:  schema.GroupVersionKind{Version: "v1", Kind: "Pod"},
+			owners: []metav1.OwnerReference{
+				ownerRef("acme.example.com/v1", "Widget", "w", false),
+				ownerRef("apps/v1", "ReplicaSet", "nginx-abc", true),
+			},
+			skip: true,
+		},
+		{
+			name:   "a plain owner reference is not a controller",
+			gvk:    schema.GroupVersionKind{Version: "v1", Kind: "Secret"},
+			owners: []metav1.OwnerReference{ownerRef("acme.example.com/v1", "Widget", "w", false)},
+			skip:   false,
+		},
+		{
+			name:   "an owner reference without a controller flag",
+			gvk:    schema.GroupVersionKind{Version: "v1", Kind: "Secret"},
+			owners: []metav1.OwnerReference{{APIVersion: "acme.example.com/v1", Kind: "Widget", Name: "w"}},
+			skip:   false,
+		},
+		{
+			name:         "restore_owned_resources keeps them",
+			gvk:          schema.GroupVersionKind{Version: "v1", Kind: "Secret"},
+			owners:       []metav1.OwnerReference{ownerRef("cert-manager.io/v1", "Certificate", "tls", true)},
+			restoreOwned: true,
+			skip:         false,
+		},
+		{
+			name:         "restore_owned_resources does not resurrect a skipped kind",
+			gvk:          schema.GroupVersionKind{Version: "v1", Kind: "Event"},
+			owners:       []metav1.OwnerReference{ownerRef("v1", "Pod", "nginx", true)},
+			restoreOwned: true,
+			skip:         true,
+		},
 	}
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
-			reason := skipRestore(test.gvk)
+			k := &k8s{
+				skippedGroupKinds: make(map[schema.GroupKind]struct{}),
+				restoreOwned:      test.restoreOwned,
+			}
+			for _, gk := range test.skipped {
+				k.skippedGroupKinds[gk] = struct{}{}
+			}
+
+			obj := &unstructured.Unstructured{Object: map[string]any{}}
+			obj.SetGroupVersionKind(test.gvk)
+			obj.SetOwnerReferences(test.owners)
+
+			reason := k.skipRestore(obj)
 			if !test.skip {
 				require.Empty(t, reason)
 				return
