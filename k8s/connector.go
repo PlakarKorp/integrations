@@ -299,12 +299,9 @@ func validateKind(kind string) error {
 	return nil
 }
 
-var groupRegexp = regexp.MustCompile("^[a-z0-9.-]+$")
+var groupRegexp = regexp.MustCompile("^[a-z0-9.-]*$")
 
 func validateGroup(group string) error {
-	if !strings.Contains(group, ".") {
-		return fmt.Errorf("group %q does not contain a dot", group)
-	}
 	if !groupRegexp.MatchString(group) {
 		return fmt.Errorf("invalid format for group %q", group)
 	}

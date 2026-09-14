@@ -26,14 +26,12 @@ func TestValidateGroup(t *testing.T) {
 			group: "snapshot.storage.k8s.io",
 		},
 		{
-			name:    "empty",
-			group:   "",
-			wantErr: "does not contain a dot",
+			name:  "empty is the core group",
+			group: "",
 		},
 		{
-			name:    "core group has no dot",
-			group:   "apps",
-			wantErr: "does not contain a dot",
+			name:  "dotless legacy group",
+			group: "apps",
 		},
 		{
 			name:    "uppercase",
@@ -147,9 +145,19 @@ func TestParseGroupKind(t *testing.T) {
 			wantErr: "invalid format for group/kind",
 		},
 		{
+			name: "core group",
+			str:  "/ConfigMap",
+			want: schema.GroupKind{Group: "", Kind: "ConfigMap"},
+		},
+		{
+			name: "dotless legacy group",
+			str:  "batch/CronJob",
+			want: schema.GroupKind{Group: "batch", Kind: "CronJob"},
+		},
+		{
 			name:    "bad group",
-			str:     "apps/Deployment",
-			wantErr: `group "apps" does not contain a dot`,
+			str:     "Apps/Deployment",
+			wantErr: `invalid format for group "Apps"`,
 		},
 		{
 			name:    "bad kind",
@@ -209,10 +217,11 @@ func TestParseGroupKinds(t *testing.T) {
 		},
 		{
 			name: "empty entries are skipped",
-			str:  ";apps.k8s.io/Deployment;;cert-manager.io/Certificate;",
+			str:  ";apps/Deployment;;cert-manager.io/Certificate;/ConfigMap;",
 			want: map[schema.GroupKind]struct{}{
-				{Group: "apps.k8s.io", Kind: "Deployment"}:      {},
+				{Group: "apps", Kind: "Deployment"}:             {},
 				{Group: "cert-manager.io", Kind: "Certificate"}: {},
+				{Group: "", Kind: "ConfigMap"}:                  {},
 			},
 		},
 		{

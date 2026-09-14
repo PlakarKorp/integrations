@@ -262,9 +262,10 @@ func TestIsRestorable(t *testing.T) {
 
 func TestSkipRestore(t *testing.T) {
 	suite := []struct {
-		name string
-		gvk  schema.GroupVersionKind
-		skip bool
+		name    string
+		gvk     schema.GroupVersionKind
+		skipped []schema.GroupKind
+		skip    bool
 	}{
 		{
 			name: "core kind on the list",
@@ -291,11 +292,34 @@ func TestSkipRestore(t *testing.T) {
 			gvk:  schema.GroupVersionKind{Group: "acme.example.com", Version: "v1", Kind: "Node"},
 			skip: false,
 		},
+		{
+			name:    "kind skipped in the configuration",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    true,
+		},
+		{
+			name:    "the version is not part of the configured match",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1beta1", Kind: "Deployment"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    true,
+		},
+		{
+			name:    "another kind of a configured group",
+			gvk:     schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+			skipped: []schema.GroupKind{{Group: "apps", Kind: "Deployment"}},
+			skip:    false,
+		},
 	}
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
-			reason := skipRestore(test.gvk)
+			k := &k8s{skippedGroupKinds: make(map[schema.GroupKind]struct{})}
+			for _, gk := range test.skipped {
+				k.skippedGroupKinds[gk] = struct{}{}
+			}
+
+			reason := k.skipRestore(test.gvk)
 			if !test.skip {
 				require.Empty(t, reason)
 				return
