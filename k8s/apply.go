@@ -52,13 +52,32 @@ var neverRestore = map[schema.GroupKind]string{
 	{Group: "storage.k8s.io", Kind: "VolumeAttachment"}: "records which node a volume is mounted on",
 }
 
-func (k *k8s) skipRestore(gvk schema.GroupVersionKind) string {
+func controllerOf(obj *unstructured.Unstructured) *metav1.OwnerReference {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.Controller != nil && *ref.Controller {
+			return &ref
+		}
+	}
+	return nil
+}
+
+func (k *k8s) skipRestore(obj *unstructured.Unstructured) string {
+	gvk := obj.GroupVersionKind()
+
 	if reason, ok := neverRestore[gvk.GroupKind()]; ok {
 		return reason
 	}
 	if _, ok := k.skippedGroupKinds[gvk.GroupKind()]; ok {
 		return fmt.Sprintf("group/kind skipped in configuration: %s/%s", gvk.Group, gvk.Kind)
 	}
+
+	// not restoring owned objects, since UIDs will be invalid and new ones should be re-created from resource owners
+	if ref := controllerOf(obj); ref != nil && !k.restoreOwned {
+		group := schema.FromAPIVersionAndKind(ref.APIVersion, ref.Kind).Group
+		return fmt.Sprintf("owned by %s/%s %s, recreated by its controller",
+			group, ref.Kind, ref.Name)
+	}
+
 	return ""
 }
 
@@ -91,7 +110,7 @@ func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, resu
 
 		gvk := obj.GroupVersionKind()
 
-		if reason := k.skipRestore(gvk); reason != "" {
+		if reason := k.skipRestore(obj); reason != "" {
 			log.Printf("skipping %s: %s", record.Pathname, reason)
 			results <- record.Ok()
 			continue

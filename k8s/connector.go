@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -54,6 +55,7 @@ type k8s struct {
 	kubeletCapas           []corev1.Capability
 
 	skippedGroupKinds map[schema.GroupKind]struct{}
+	restoreOwned      bool
 }
 
 func init() {
@@ -204,6 +206,14 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, err
 	}
 
+	var restoreOwned bool
+	if v, ok := params["restore_owned_resources"]; ok {
+		restoreOwned, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("bad restore_owned_resources %q: expected a boolean", v)
+		}
+	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -248,6 +258,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		portForward: portForward,
 
 		skippedGroupKinds:   gks,
+		restoreOwned:        restoreOwned,
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
 		kubeletCapas:        capas,

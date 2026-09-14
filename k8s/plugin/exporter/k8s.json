@@ -16,6 +16,15 @@
       "type": "string",
       "description": "Kube config content to use"
     },
+    "restore_owned_resources": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false"
+      ],
+      "default": "false",
+      "description": "Optional, restore the resources that are owned by another one instead of leaving them to their controller."
+    },
     "skipped_group_kinds": {
       "type": "string",
       "description": "Optional semicolon-separated list of group/Kind to leave out of the restore, e.g. \"apps/Deployment;cert-manager.io/Certificate;/ConfigMap\". The group is the full API group, empty for the core group, the kind matches the case."
