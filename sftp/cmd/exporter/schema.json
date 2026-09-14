@@ -60,6 +60,11 @@
       "type": "boolean",
       "default": false,
       "description": "Set the owner and group for restored files, needs super user permissions."
+    },
+    "allowPrivilegeEscalation": {
+      "type": "boolean",
+      "default": false,
+      "description": "When enabled, restore setuid/setgid/sticky bits recorded in the source snapshot. When disabled (default), those bits are stripped from restored files to prevent restoring privileged executables."
     }
   },
   "allOf": [
