@@ -1,0 +1,23 @@
+name: fs tests
+
+on:
+  push:
+    paths:
+      - 'fs/**'
+  pull_request:
+    paths:
+      - 'fs/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fs/go.mod
+
+      - name: test
+        working-directory: fs
+        run: go test -race ./...
