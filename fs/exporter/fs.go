@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -44,6 +45,8 @@ type FSExporter struct {
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
 	hlCanon  sync.Map           // key -> canonical root-relative path string
+
+	skipRootPermsAndTime bool // we sometimes can't restore them when on a mountpoint, needed for openshift
 }
 
 func init() {
@@ -54,6 +57,15 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
+	skipRootPermsAndTime := false
+	if v, ok := config["skip_root_perms_and_time"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", "skip_root_perms_and_time", err)
+		}
+
+		skipRootPermsAndTime = b
+	}
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to absolutify root: %w", err)
@@ -71,9 +83,10 @@ func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	return &FSExporter{
-		opts:    opts,
-		rootDir: absRoot,
-		root:    root,
+		opts:                 opts,
+		rootDir:              absRoot,
+		root:                 root,
+		skipRootPermsAndTime: skipRootPermsAndTime,
 	}, nil
 }
 
@@ -317,6 +330,9 @@ func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) err
 }
 
 func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+	if pathname == "." && p.skipRootPermsAndTime {
+		return nil
+	}
 	if fileinfo.Mode()&os.ModeSymlink == 0 {
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
