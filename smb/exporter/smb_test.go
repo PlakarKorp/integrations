@@ -56,6 +56,24 @@ func TestSafe(t *testing.T) {
 		// --- deeply nested paths ---
 		{"deeply nested child", "/a/b/c", "/a/b/c/d/e/f/g.txt", true},
 		{"deeply nested unrelated sibling", "/a/b/c", "/a/b/cc/d/e/f/g.txt", false},
+
+		// --- unclean rootDir: safe() must clean rootDir too, not just pathname ---
+		{"root with dot segment", "/repo/./sub", "/repo/sub", true},
+		{"root with double slashes", "/repo//sub", "/repo/sub/x", true},
+		{"root with dot-dot collapsing to parent", "/repo/sub/..", "/repo/x", true},
+		{"root trailing slash, exact match", "/repo/", "/repo", true},
+		{"root trailing slash, child", "/repo/", "/repo/toto", true},
+		{"root trailing slash, sibling rejected", "/repo/", "/repox", false},
+
+		// --- empty/malformed rootDir must never authorize escape ---
+		{"empty root, absolute pathname", "", "/foo", false},
+		{"empty root and empty pathname", "", "", true},
+		{"relative root, absolute pathname", "repo", "/repo", false},
+		{"absolute root, relative pathname", "/repo", "repo", false},
+		{"dot root, absolute pathname", ".", "/foo", false},
+
+		// --- case sensitivity: comparison is literal, not case-insensitive ---
+		{"case mismatch rejected", "/Repo", "/repo/x", false},
 	}
 
 	for _, tt := range tests {
