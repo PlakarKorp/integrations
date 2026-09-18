@@ -11,6 +11,7 @@ import (
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/require"
+	yamlv3 "go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -351,18 +352,17 @@ func TestSkipRestore(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
-			k := &k8s{
-				ingoredResources: make(map[schema.GroupKind]struct{}),
-			}
+			ignored := make(Filters)
 			for _, gk := range test.skipped {
-				k.ingoredResources[gk] = struct{}{}
+				ignored[gk] = defaultFilter
 			}
 
-			obj := &unstructured.Unstructured{Object: map[string]any{}}
-			obj.SetGroupVersionKind(test.gvk)
-			obj.SetOwnerReferences(test.owners)
+			k := &k8s{restoreFilters: mergeMaps(ignored, neverRestore)}
 
-			reason := k.skipRestore(obj)
+			meta := metav1.ObjectMeta{OwnerReferences: test.owners}
+
+			reason, err := k.skipRestore(test.gvk, meta)
+			require.NoError(t, err)
 			if !test.skip {
 				require.Empty(t, reason)
 				return
@@ -370,4 +370,112 @@ func TestSkipRestore(t *testing.T) {
 			require.NotEmpty(t, reason, "a skipped kind must say why")
 		})
 	}
+}
+
+func TestSkipRestoreFilters(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	gk := gvk.GroupKind()
+
+	t.Run("restores what the filter keeps", func(t *testing.T) {
+		k := &k8s{restoreFilters: Filters{gk: func(meta metav1.ObjectMeta) (bool, error) {
+			return meta.Labels["restore"] == "yes", nil
+		}}}
+
+		reason, err := k.skipRestore(gvk, metav1.ObjectMeta{
+			Name:   "nginx",
+			Labels: map[string]string{"restore": "yes"},
+		})
+		require.NoError(t, err)
+		require.Empty(t, reason)
+	})
+
+	t.Run("skips what the filter drops", func(t *testing.T) {
+		k := &k8s{restoreFilters: Filters{gk: defaultFilter}}
+
+		reason, err := k.skipRestore(gvk, metav1.ObjectMeta{Name: "nginx"})
+		require.NoError(t, err)
+		require.NotEmpty(t, reason, "a filtered kind must say why")
+	})
+
+	t.Run("leaves other kinds alone", func(t *testing.T) {
+		k := &k8s{restoreFilters: Filters{{Group: "apps", Kind: "StatefulSet"}: defaultFilter}}
+
+		reason, err := k.skipRestore(gvk, metav1.ObjectMeta{Name: "nginx"})
+		require.NoError(t, err)
+		require.Empty(t, reason)
+	})
+
+	t.Run("yields the filter error", func(t *testing.T) {
+		k := &k8s{restoreFilters: Filters{gk: func(metav1.ObjectMeta) (bool, error) {
+			return false, errors.New("boom")
+		}}}
+
+		_, err := k.skipRestore(gvk, metav1.ObjectMeta{Name: "nginx"})
+		require.ErrorContains(t, err, "boom")
+	})
+}
+
+func TestObjectMeta(t *testing.T) {
+	decode := func(t *testing.T, doc string) *unstructured.Unstructured {
+		t.Helper()
+		obj := &unstructured.Unstructured{Object: map[string]any{}}
+		require.NoError(t, yamlv3.NewDecoder(strings.NewReader(doc)).Decode(&obj.Object))
+		return obj
+	}
+
+	t.Run("decodes the metadata into the typed struct", func(t *testing.T) {
+		obj := decode(t, `
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-abc
+  namespace: default
+  generation: 3
+  creationTimestamp: 2024-01-01T00:00:00Z
+  labels:
+    app: nginx
+  ownerReferences:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: nginx
+      controller: true
+spec:
+  replicas: 2
+`)
+
+		meta, err := objectMeta(obj)
+		require.NoError(t, err)
+		require.Equal(t, "nginx-abc", meta.Name)
+		require.Equal(t, "default", meta.Namespace)
+		require.EqualValues(t, 3, meta.Generation)
+		require.Equal(t, map[string]string{"app": "nginx"}, meta.Labels)
+		require.False(t, meta.CreationTimestamp.IsZero())
+		require.Len(t, meta.OwnerReferences, 1)
+		require.NotNil(t, controllerOf(meta.OwnerReferences))
+	})
+
+	t.Run("does not alter the object it reads", func(t *testing.T) {
+		obj := decode(t, `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+data:
+  foo: bar
+`)
+
+		meta, err := objectMeta(obj)
+		require.NoError(t, err)
+		meta.Name = "other"
+
+		require.Equal(t, "my-cm", obj.GetName())
+		require.NotContains(t, obj.Object["metadata"], "creationTimestamp")
+	})
+
+	t.Run("reports an object without metadata", func(t *testing.T) {
+		obj := decode(t, "apiVersion: v1\nkind: ConfigMap\n")
+
+		_, err := objectMeta(obj)
+		require.Error(t, err)
+	})
 }

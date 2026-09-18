@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -53,8 +54,8 @@ type k8s struct {
 	kubeletImagePullPolicy corev1.PullPolicy
 	kubeletCapas           []corev1.Capability
 
-	ingoredResources map[schema.GroupKind]struct{}
-	restoreOwned     bool
+	restoreOwned   bool
+	restoreFilters Filters
 }
 
 func init() {
@@ -81,7 +82,44 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, par
 	return New(ctx, opts, name, params, true)
 }
 
-func New(ctx context.Context, opts *connectors.Options, proto string, params map[string]string, export bool) (*k8s, error) {
+// Filter reports whether an object of a given group/kind must be restored.
+type Filter func(meta metav1.ObjectMeta) (bool, error)
+type Filters map[schema.GroupKind]Filter
+
+// defaultFilter never restores.
+var defaultFilter = func(_ metav1.ObjectMeta) (bool, error) {
+	return false, nil
+}
+
+type options struct {
+	filters Filters
+}
+
+func newOptions() *options {
+	return &options{}
+}
+
+type Options func(o *options)
+
+func WithFilters(filters Filters) Options {
+	return func(o *options) {
+		o.filters = filters
+	}
+}
+
+func New(
+	ctx context.Context,
+	opts *connectors.Options,
+	proto string,
+	params map[string]string,
+	export bool,
+	k8sOptions ...Options,
+) (*k8s, error) {
+	k8sOpts := newOptions()
+	for _, f := range k8sOptions {
+		f(k8sOpts)
+	}
+
 	var host string
 	var portForward bool
 	var hasKubeConfig bool
@@ -200,7 +238,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
-	gks, err := parseGroupKinds(params["ignore_resources"])
+	ignoreResources, err := parseIgnoreResources(params["ignore_resources"])
 	if err != nil {
 		return nil, err
 	}
@@ -248,15 +286,24 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 		portForward: portForward,
 
-		ingoredResources:    gks,
+		restoreFilters:      mergeMaps(k8sOpts.filters, ignoreResources, neverRestore),
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
 		kubeletCapas:        capas,
 	}, nil
 }
 
-func parseGroupKinds(str string) (map[schema.GroupKind]struct{}, error) {
-	gks := make(map[schema.GroupKind]struct{})
+// mergeMaps merges maps, later maps can override duplicates
+func mergeMaps[K comparable, V any](ms ...map[K]V) map[K]V {
+	newMap := make(map[K]V)
+	for _, m := range ms {
+		maps.Copy(newMap, m)
+	}
+	return newMap
+}
+
+func parseIgnoreResources(str string) (Filters, error) {
+	gks := make(Filters)
 	gksStrs := strings.SplitSeq(str, ";")
 	for gkStr := range gksStrs {
 		if gkStr == "" {
@@ -269,7 +316,7 @@ func parseGroupKinds(str string) (map[schema.GroupKind]struct{}, error) {
 		if _, ok := gks[gk]; ok {
 			log.Printf("duplicate group/kind: %s/%s", gk.Group, gk.Kind)
 		}
-		gks[gk] = struct{}{}
+		gks[gk] = defaultFilter
 	}
 	return gks, nil
 }
