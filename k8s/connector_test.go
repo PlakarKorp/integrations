@@ -140,7 +140,7 @@ func TestParseGroupKind(t *testing.T) {
 		{
 			name:    "too many separators",
 			str:     "apps.k8s.io/v1/Deployment",
-			wantErr: "invalid format for group/kind",
+			wantErr: `invalid format for kind "v1/Deployment"`,
 		},
 		{
 			name: "core group",
