@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
@@ -195,6 +196,56 @@ func TestExportDoesNotWriteThroughNestedSymlink(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(outside, "etc", "pwned")); !os.IsNotExist(err) {
 		t.Fatalf("wrote through the nested symlink: %v", err)
+	}
+}
+
+// Restoring mtimes on a symlink that escapes the root must not touch
+// whatever it points at.
+func TestSymlinkLutimesDoesNotTouchEscapeTarget(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "restore")
+
+	outside := filepath.Join(base, "outside")
+	if err := os.Mkdir(outside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secret, []byte("shh"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(secret, old, old); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exp := newExporter(t, root)
+	rec := symlinkRecord("/link", secret)
+	rec.FileInfo.LmodTime = time.Now().Add(-time.Hour).Truncate(time.Second)
+	errs := run(t, exp, rec)
+
+	if errs[0] != nil {
+		t.Fatalf("symlink should still be restored verbatim: %v", errs[0])
+	}
+
+	after, err := os.Stat(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("restoring the symlink's mtime touched its target: before=%v after=%v", before.ModTime(), after.ModTime())
+	}
+
+	linkSt, err := os.Lstat(filepath.Join(root, "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := linkSt.ModTime().Sub(rec.FileInfo.LmodTime); diff < -2*time.Second || diff > 2*time.Second {
+		t.Errorf("symlink mtime = %v, want ~%v", linkSt.ModTime(), rec.FileInfo.LmodTime)
 	}
 }
 
