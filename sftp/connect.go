@@ -95,6 +95,27 @@ func setupPrivateKey(params map[string]string) error {
 	return nil
 }
 
+func setupKnownHosts(params map[string]string) (string, error) {
+	hostKey := params["host_key"]
+	if hostKey == "" {
+		return "", nil
+	}
+
+	// Write host_key to a temporary file
+	tmpfile, err := os.CreateTemp("", "known_hosts_*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary known_hosts file: %w", err)
+	}
+
+	if _, err := tmpfile.WriteString(hostKey + "\n"); err != nil {
+		return "", fmt.Errorf("failed to write to temporary known_hosts file: %w", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temporary known_hosts file: %w", err)
+	}
+
+	return tmpfile.Name(), nil
+}
 func sshArgs(endpoint *url.URL, params map[string]string) []string {
 	// Non-interactive: fail fast instead of hanging on passphrase/host-key prompt
 	args := []string{"-o", "BatchMode=yes"}
@@ -102,6 +123,16 @@ func sshArgs(endpoint *url.URL, params map[string]string) []string {
 	if params["insecure_ignore_host_key"] == "true" {
 		args = append(args, "-o", "StrictHostKeyChecking=no")
 		// args = append(args, "-o", "UserKnownHostsFile=/dev/null") ?
+	}
+
+	if params["host_key"] != "" {
+		knownHostsFile, err := setupKnownHosts(params)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		} else {
+			args = append(args, "-o", "UserKnownHostsFile="+knownHostsFile)
+			args = append(args, "-o", "StrictHostKeyChecking=yes")
+		}
 	}
 
 	if id := params["identity"]; id != "" {

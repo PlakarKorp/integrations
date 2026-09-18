@@ -55,6 +55,11 @@
       "type": "string",
       "default": "5s",
       "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h)"
+    },
+    "host_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH host public key entry for host key verification (e.g., 'example.com ssh-rsa AAAAB3NzaC1yc2E...')"
     }
   },
   "allOf": [

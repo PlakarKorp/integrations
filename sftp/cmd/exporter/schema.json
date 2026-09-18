@@ -56,6 +56,11 @@
       "default": "5s",
       "description": "TTL for ssh-add -t (e.g. 5s, 1m, 1h) (not supported on Windows)"
     },
+    "host_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH host public key entry for host key verification (e.g., 'example.com ssh-rsa AAAAB3NzaC1yc2E...')"
+    },
     "set_owner": {
       "type": "boolean",
       "default": false,
