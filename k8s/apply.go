@@ -10,7 +10,6 @@ import (
 	yamlv3 "go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -53,29 +52,6 @@ var neverRestore = Filters{
 	{Group: "storage.k8s.io", Kind: "VolumeAttachment"}: defaultFilter,
 }
 
-func objectMeta(obj *unstructured.Unstructured) (metav1.ObjectMeta, error) {
-	var meta metav1.ObjectMeta
-
-	raw, ok := obj.Object["metadata"].(map[string]any)
-	if !ok {
-		return meta, fmt.Errorf("object has no metadata")
-	}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &meta); err != nil {
-		return meta, fmt.Errorf("decoding metadata: %w", err)
-	}
-
-	return meta, nil
-}
-
-func controllerOf(refs []metav1.OwnerReference) *metav1.OwnerReference {
-	for _, ref := range refs {
-		if ref.Controller != nil && *ref.Controller {
-			return &ref
-		}
-	}
-	return nil
-}
-
 func (k *k8s) skipRestore(gvk schema.GroupVersionKind, meta metav1.ObjectMeta) (string, error) {
 	gk := gvk.GroupKind()
 
@@ -90,7 +66,7 @@ func (k *k8s) skipRestore(gvk schema.GroupVersionKind, meta metav1.ObjectMeta) (
 	}
 
 	// not restoring owned objects, since UIDs will be invalid and new ones should be re-created from resource owners
-	if ref := controllerOf(meta.OwnerReferences); ref != nil && !k.restoreOwned {
+	if ref := controllerOf(meta.OwnerReferences); ref != nil {
 		group := schema.FromAPIVersionAndKind(ref.APIVersion, ref.Kind).Group
 		return fmt.Sprintf("owned by %s/%s %s, recreated by its controller",
 			group, ref.Kind, ref.Name), nil

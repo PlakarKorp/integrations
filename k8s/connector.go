@@ -54,7 +54,6 @@ type k8s struct {
 	kubeletImagePullPolicy corev1.PullPolicy
 	kubeletCapas           []corev1.Capability
 
-	restoreOwned   bool
 	restoreFilters Filters
 }
 
