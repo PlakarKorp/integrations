@@ -180,7 +180,7 @@ func TestParseGroupKind(t *testing.T) {
 	}
 }
 
-func TestParseGroupKinds(t *testing.T) {
+func TestParseIgnoreResources(t *testing.T) {
 	suite := []struct {
 		name    string
 		str     string
@@ -243,7 +243,7 @@ func TestParseGroupKinds(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := parseGroupKinds(test.str)
+			got, err := parseIgnoreResources(test.str)
 
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
@@ -252,7 +252,14 @@ func TestParseGroupKinds(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Equal(t, test.want, got)
+
+			// filters are funcs, so compare the kinds they cover
+			gks := make(map[schema.GroupKind]struct{}, len(got))
+			for gk, filter := range got {
+				require.NotNil(t, filter, "%s/%s has no filter", gk.Group, gk.Kind)
+				gks[gk] = struct{}{}
+			}
+			require.Equal(t, test.want, gks)
 		})
 	}
 }
