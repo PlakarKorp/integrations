@@ -275,19 +275,19 @@ func parseGroupKinds(str string) (map[schema.GroupKind]struct{}, error) {
 }
 
 func parseGroupKind(str string) (schema.GroupKind, error) {
-	gk := strings.Split(str, "/")
-	if len(gk) != 2 {
+	g, k, ok := strings.Cut(str, "/")
+	if !ok {
 		return schema.GroupKind{}, fmt.Errorf("invalid format for group/kind %q", str)
 	}
-	if err := validateGroup(gk[0]); err != nil {
+	if err := validateGroup(g); err != nil {
 		return schema.GroupKind{}, err
 	}
-	if err := validateKind(gk[1]); err != nil {
+	if err := validateKind(k); err != nil {
 		return schema.GroupKind{}, err
 	}
 	return schema.GroupKind{
-		Group: gk[0],
-		Kind:  gk[1],
+		Group: g,
+		Kind:  k,
 	}, nil
 }
 

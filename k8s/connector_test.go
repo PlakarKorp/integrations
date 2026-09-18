@@ -55,9 +55,8 @@ func TestValidateGroup(t *testing.T) {
 			err := validateGroup(test.group)
 
 			if test.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.wantErr)
-				require.Contains(t, err.Error(), test.group, "the error mentions the offending group")
+				require.ErrorContains(t, err, test.wantErr)
+				require.ErrorContains(t, err, test.group, "the error mentions the offending group")
 				return
 			}
 
@@ -106,9 +105,8 @@ func TestValidateKind(t *testing.T) {
 			err := validateKind(test.kind)
 
 			if test.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.wantErr)
-				require.Contains(t, err.Error(), test.kind, "the error mentions the offending kind")
+				require.ErrorContains(t, err, test.wantErr)
+				require.ErrorContains(t, err, test.kind, "the error mentions the offending kind")
 				return
 			}
 
@@ -171,8 +169,7 @@ func TestParseGroupKind(t *testing.T) {
 			got, err := parseGroupKind(test.str)
 
 			if test.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.wantErr)
+				require.ErrorContains(t, err, test.wantErr)
 				require.Zero(t, got, "a rejected group/kind is never returned")
 				return
 			}
@@ -249,8 +246,7 @@ func TestParseGroupKinds(t *testing.T) {
 			got, err := parseGroupKinds(test.str)
 
 			if test.wantErr != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.wantErr)
+				require.ErrorContains(t, err, test.wantErr)
 				require.Nil(t, got, "a rejected list is never partially returned")
 				return
 			}
