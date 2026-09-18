@@ -67,7 +67,7 @@ func (k *k8s) skipRestore(obj *unstructured.Unstructured) string {
 	if reason, ok := neverRestore[gvk.GroupKind()]; ok {
 		return reason
 	}
-	if _, ok := k.skippedGroupKinds[gvk.GroupKind()]; ok {
+	if _, ok := k.ingoredResources[gvk.GroupKind()]; ok {
 		return fmt.Sprintf("group/kind skipped in configuration: %s/%s", gvk.Group, gvk.Kind)
 	}
 

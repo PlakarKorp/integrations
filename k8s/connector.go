@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -54,8 +53,8 @@ type k8s struct {
 	kubeletImagePullPolicy corev1.PullPolicy
 	kubeletCapas           []corev1.Capability
 
-	skippedGroupKinds map[schema.GroupKind]struct{}
-	restoreOwned      bool
+	ingoredResources map[schema.GroupKind]struct{}
+	restoreOwned     bool
 }
 
 func init() {
@@ -201,17 +200,9 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
-	gks, err := parseGroupKinds(params["skipped_group_kinds"])
+	gks, err := parseGroupKinds(params["ignore_resources"])
 	if err != nil {
 		return nil, err
-	}
-
-	var restoreOwned bool
-	if v, ok := params["restore_owned_resources"]; ok {
-		restoreOwned, err = strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("bad restore_owned_resources %q: expected a boolean", v)
-		}
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -257,8 +248,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, params map
 
 		portForward: portForward,
 
-		skippedGroupKinds:   gks,
-		restoreOwned:        restoreOwned,
+		ingoredResources:    gks,
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
 		kubeletCapas:        capas,

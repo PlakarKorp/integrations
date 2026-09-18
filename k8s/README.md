@@ -20,11 +20,7 @@ CSI driver snapshot feature (preferred) and without.
   - `override` adds `DAC_OVERRIDE`, `CHOWN`, `FOWNER` and `FSETID`
 - `labels`: optional, used only for configuration backup.  Limits the manifests to backup to the ones matching the given labels.
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
-- `skipped_group_kinds`: optional, used only for configuration restore.  Semicolon-separated
-  list of `group/Kind` to leave out of the restore.
-- `restore_owned_resources`: optional, used only for configuration restore.  Defaults to
-  `false`, leaving the resources owned by another one to their controller, which recreates
-  them: their `ownerReference` points at an UID that no longer exists on the target cluster.
+- `ignore_resources`: optional, used only for configuration restore.  Semicolon-separated list of `group/Kind` to leave out of the restore.
 
 
 ## Permissions
