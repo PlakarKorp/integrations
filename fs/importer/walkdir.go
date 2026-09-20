@@ -22,7 +22,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -109,13 +108,5 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 			break
 		}
 		root = newroot
-	}
-
-	if runtime.GOOS == "windows" {
-		finfo := objects.FileInfo{
-			Lname: "/",
-			Lmode: os.ModeDir | 0755,
-		}
-		records <- connectors.NewRecord("/", "", finfo, nil, nil)
 	}
 }
