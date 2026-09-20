@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -248,5 +249,5 @@ func toslash(p string) string {
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p
 	}
-	return p
+	return path.Clean(p)
 }

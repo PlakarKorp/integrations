@@ -208,3 +208,20 @@ func TestImporter_ExcludedDirectoryPrunesSubtree(t *testing.T) {
 		t.Errorf("main.go (outside node_modules/) should be included")
 	}
 }
+
+func TetToSlash(t *testing.T) {
+	suite := []struct {
+		t string
+		e string
+	}{
+		{"C:\\test", "/C:/test"},
+		{"C:\\", "/C:"},
+	}
+
+	for _, test := range suite {
+		if r := toslash(test.t); r != test.e {
+			t.Errorf("toslash(%s) yield %s; expected %s",
+				test.t, r, test.e)
+		}
+	}
+}
