@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -141,6 +142,11 @@ func TestExportRejectsDotDotPath(t *testing.T) {
 // followed by a record that writes *through* it.  The lexical containment
 // check that used to guard this could not see the second path leaving.
 func TestExportDoesNotWriteThroughSymlink(t *testing.T) {
+	// not enough permissions to create symlinks.
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+
 	base := t.TempDir()
 	root := filepath.Join(base, "restore")
 
@@ -201,6 +207,11 @@ func TestExportDoesNotWriteThroughNestedSymlink(t *testing.T) {
 // Ordinary restores keep working: nested dirs, file contents, and a symlink
 // that stays inside the root.
 func TestExportRestoresNormalTree(t *testing.T) {
+	// not enough permissions to create symlinks.
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+
 	root := filepath.Join(t.TempDir(), "restore")
 	exp := newExporter(t, root)
 
