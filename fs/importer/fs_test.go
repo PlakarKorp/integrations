@@ -11,6 +11,7 @@ package importer
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -125,7 +126,7 @@ func TestImporter_IgnoreNegation_PlakarKorpPlakar2120(t *testing.T) {
 	got := drainImporter(t, imp)
 
 	// index.html must be in the output (re-included by the negation rule).
-	indexPath := filepath.Join(frontend, "index.html")
+	indexPath := path.Join(toslash(frontend), "index.html")
 	if !got[indexPath] {
 		var paths []string
 		for p := range got {
@@ -148,7 +149,7 @@ func TestImporter_IgnoreNegation_PlakarKorpPlakar2120(t *testing.T) {
 	}
 
 	// Sanity: README.md outside frontend/ should be included.
-	readme := filepath.Join(root, "ui", "README.md")
+	readme := path.Join(toslash(root), "ui", "README.md")
 	if !got[readme] {
 		t.Errorf("expected %s (outside frontend/) to be included", readme)
 	}
@@ -171,7 +172,7 @@ func TestImporter_ExcludedFileDoesNotSkipSiblings(t *testing.T) {
 	got := drainImporter(t, imp)
 
 	for _, name := range []string{"b.txt", "c.txt", "d.txt"} {
-		p := filepath.Join(root, name)
+		p := path.Join(toslash(root), name)
 		if !got[p] {
 			t.Errorf("sibling %s of an excluded file was incorrectly dropped", p)
 		}
@@ -200,10 +201,10 @@ func TestImporter_ExcludedDirectoryPrunesSubtree(t *testing.T) {
 	imp := newImporter(t, root, []string{"node_modules/"})
 	got := drainImporter(t, imp)
 
-	if got[filepath.Join(nm, "index.js")] {
+	if got[path.Join(toslash(nm), "index.js")] {
 		t.Errorf("descended into node_modules/ even though it is excluded")
 	}
-	if !got[filepath.Join(root, "main.go")] {
+	if !got[path.Join(toslash(root), "main.go")] {
 		t.Errorf("main.go (outside node_modules/) should be included")
 	}
 }
