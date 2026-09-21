@@ -74,7 +74,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 
 	config.SetData(&mapconfig{name: typ, data: rconfig})
 
-	f, err := rclonefs.NewFs(ctx, fmt.Sprintf("%s:%s", typ, base))
+	f, err := rclonefs.NewFs(context.WithoutCancel(ctx), fmt.Sprintf("%s:%s", typ, base))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rclone fs: %w", err)
 	}
