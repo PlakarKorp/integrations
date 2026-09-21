@@ -19,7 +19,11 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [-export] [-p port]\n", path.Base(os.Args[0]))
+	fmt.Fprintf(
+		os.Stderr,
+		"usage: %s [-export] [-skip-root-perms-and-time] [-p port]\n",
+		path.Base(os.Args[0]),
+	)
 	os.Exit(1)
 }
 
@@ -40,26 +44,34 @@ func source(ctx context.Context, opts *connectors.Options, proto string, config 
 	}
 }
 
-func destination(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
-	switch proto {
-	case "block":
-		return block.NewExporter(ctx, opts, proto, config)
-	case "fs":
-		return fsexporter.NewFSExporter(ctx, opts, proto, config)
-	default:
-		return nil, fmt.Errorf("unsupported proto %q", proto)
+func destination(skipRootPermsAndTime bool) exporter.ExporterFn {
+	return func(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+		switch proto {
+		case "block":
+			return block.NewExporter(ctx, opts, proto, config)
+		case "fs":
+			if skipRootPermsAndTime {
+				config["skip_root_perms_and_time"] = "true"
+			}
+			return fsexporter.NewFSExporter(ctx, opts, proto, config)
+		default:
+			return nil, fmt.Errorf("unsupported proto %q", proto)
+		}
 	}
 }
 
 func main() {
 	var (
-		doexport bool
-		peer     string
-		port     = 8080
+		doexport             bool
+		skipRootPermsAndTime bool
+		peer                 string
+		port                 = 8080
 	)
 
 	flag.Usage = usage
 	flag.BoolVar(&doexport, "export", false, `run the exporter instead of the fs importer`)
+	flag.BoolVar(&skipRootPermsAndTime, "skip-root-perms-and-time", false,
+		`don't restore the permissions and the modification time of the root`)
 	flag.StringVar(&peer, "peer", "", `hex sha256 of the client public key (required)`)
 	flag.IntVar(&port, "p", port, `the port to listen in`)
 	flag.Parse()
@@ -92,7 +104,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "listening on :%d\n", port)
 
 	if doexport {
-		if err := sdk.RunExporterOn(destination, listener); err != nil {
+		if err := sdk.RunExporterOn(destination(skipRootPermsAndTime), listener); err != nil {
 			fatal("failed to run the fs exporter: %s", err)
 		}
 	} else {

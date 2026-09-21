@@ -3,6 +3,7 @@ package k8s
 import (
 	"testing"
 
+	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -262,4 +263,45 @@ func TestParseIgnoreResources(t *testing.T) {
 			require.Equal(t, test.want, gks)
 		})
 	}
+}
+
+func TestNewSkipRootPermsAndTime(t *testing.T) {
+	t.Parallel()
+	// inline so that the test never reads the developer's kubeconfig
+	const kubeconf = `
+apiVersion: v1
+kind: Config
+clusters:
+- cluster: {server: https://cluster.example}
+  name: test
+contexts:
+- context: {cluster: test, user: test}
+  name: test
+current-context: test
+users:
+- name: test
+  user: {token: t}
+`
+
+	newK8s := func(t *testing.T, options ...Options) *k8s {
+		t.Helper()
+		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+			"location":   "k8s+pvc://cluster.example/ns/data",
+			"kubeconfig": kubeconf,
+		}, true, options...)
+		require.NoError(t, err)
+		return k
+	}
+
+	t.Run("off by default", func(t *testing.T) {
+		require.False(t, newK8s(t).skipRootPermsAndTime)
+	})
+
+	t.Run("set by the option", func(t *testing.T) {
+		require.True(t, newK8s(t, WithSkipRootPermsAndTime(true)).skipRootPermsAndTime)
+	})
+
+	t.Run("the option can turn it back off", func(t *testing.T) {
+		require.False(t, newK8s(t, WithSkipRootPermsAndTime(false)).skipRootPermsAndTime)
+	})
 }

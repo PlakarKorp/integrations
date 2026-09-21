@@ -54,7 +54,10 @@ type k8s struct {
 	kubeletImagePullPolicy corev1.PullPolicy
 	kubeletCapas           []corev1.Capability
 
-	restoreFilters Filters
+	restoreFilters       Filters
+	skipRootPermsAndTime bool
+
+	ingoredResources map[schema.GroupKind]struct{}
 }
 
 func init() {
@@ -91,7 +94,8 @@ var defaultFilter = func(_ metav1.ObjectMeta) (bool, error) {
 }
 
 type options struct {
-	filters Filters
+	filters              Filters
+	skipRootPermsAndTime bool
 }
 
 func newOptions() *options {
@@ -103,6 +107,12 @@ type Options func(o *options)
 func WithFilters(filters Filters) Options {
 	return func(o *options) {
 		o.filters = filters
+	}
+}
+
+func WithSkipRootPermsAndTime(skipRootPermsAndTime bool) Options {
+	return func(o *options) {
+		o.skipRootPermsAndTime = skipRootPermsAndTime
 	}
 }
 
@@ -285,10 +295,11 @@ func New(
 
 		portForward: portForward,
 
-		restoreFilters:      mergeMaps(neverRestore, k8sOpts.filters, ignoreResources),
-		volumeSnapshotClass: snapClass,
-		kubeletImage:        kubeletImage,
-		kubeletCapas:        capas,
+		skipRootPermsAndTime: k8sOpts.skipRootPermsAndTime,
+		restoreFilters:       mergeMaps(neverRestore, k8sOpts.filters, ignoreResources),
+		volumeSnapshotClass:  snapClass,
+		kubeletImage:         kubeletImage,
+		kubeletCapas:         capas,
 	}, nil
 }
 

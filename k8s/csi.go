@@ -776,7 +776,12 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
 	}
 
-	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
+	args := []string{"-export"}
+	if k.skipRootPermsAndTime {
+		args = append(args, "-skip-root-perms-and-time")
+	}
+
+	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, args...)
 	if err != nil {
 		return fmt.Errorf("failed to run the pod: %w", err)
 	}
