@@ -285,7 +285,7 @@ func New(
 
 		portForward: portForward,
 
-		restoreFilters:      mergeMaps(k8sOpts.filters, ignoreResources, neverRestore),
+		restoreFilters:      mergeMaps(neverRestore, k8sOpts.filters, ignoreResources),
 		volumeSnapshotClass: snapClass,
 		kubeletImage:        kubeletImage,
 		kubeletCapas:        capas,
