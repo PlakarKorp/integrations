@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Forgejo Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Forgejo restore location. Use forgejo:///path/to/restore or target_dir."
+    },
+    "target_dir": {
+      "type": "string",
+      "description": "Directory where Forgejo dump contents are extracted. Overrides the location path."
+    }
+  }
+}
