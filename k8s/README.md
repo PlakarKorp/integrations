@@ -1,8 +1,9 @@
 # kubernetes integration
 
 This integration allows [plakar][plakar] to backup and restore
-[kubernetes][kubernetes] resources and PersistentVolumes, both via the
-CSI driver snapshot feature (preferred) and without.
+[kubernetes][kubernetes] resources, PersistentVolumes and KubeVirt
+Virtual Machines, both via the CSI driver snapshot feature (preferred)
+or without.
 
 [plakar]:     https://plakar.io/
 [kubernetes]: https://kubernetes.io/
@@ -26,7 +27,7 @@ CSI driver snapshot feature (preferred) and without.
 ## Permissions
 
 [`rbac.yaml`](rbac.yaml) carries the roles the integration needs, split in
-four: PVC data (`k8s+csi` and `k8s+pvc`), manifest backup (`k8s:`), manifest
+six: PVC data (`k8s+csi` and `k8s+pvc`), manifest backup (`k8s:`), manifest
 restore, and the inventory.  They differ enormously in scope, so apply only the
 ones you actually use: a single account holding all is basically a cluster-admin.
 
@@ -98,3 +99,14 @@ Restore inside a new, pristine, PersistentVolumeClaim:
 	$ plakar restore -to k8s+pvc:/storage/pristine abcdef:
 
 of course it's possible to restore the data inside an already existing PVC as well.
+
+Backup the virtual machine `my-vm` in the `vms` namespace:
+
+	$ plakar backup k8s+vm:/vms/my-vm
+
+No `volume_snapshot_class` in this case, since the snapshotting is done
+by kubevirt.
+
+Restore that same VM:
+
+	$ plakar restore -to k8s+vm: abcdef:
