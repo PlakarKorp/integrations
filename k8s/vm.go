@@ -20,7 +20,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	kvcorev1 "kubevirt.io/api/core/v1"
 	snapshotv1beta1 "kubevirt.io/api/snapshot/v1beta1"
 	"sigs.k8s.io/yaml"
 )
@@ -197,9 +196,9 @@ func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, e
 			content.Namespace, content.Name)
 	}
 
-	vm := kvcorev1.VirtualMachine{
+	vm := kubevirtv1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: kvcorev1.GroupVersion.String(),
+			APIVersion: kubevirtv1.GroupVersion.String(),
 			Kind:       "VirtualMachine",
 		},
 		ObjectMeta: src.ObjectMeta,

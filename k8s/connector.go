@@ -48,23 +48,22 @@ type k8s struct {
 
 	portForward bool
 
-	volumeSnapshotClass    string
-	kubeletImage           string
-	kubeletImagePullPolicy corev1.PullPolicy
-	kubeletCapas           []corev1.Capability
+	volumeSnapshotClass string
+	kubeletImage        string
+	kubeletCapas        []corev1.Capability
 
 	ingoredResources map[schema.GroupKind]struct{}
 	restoreOwned     bool
 }
 
 func init() {
-	importer.Register("k8s", 0, NewImporter)
-	importer.Register("k8s+csi", 0, NewImporter)
-	importer.Register("k8s+pvc", 0, NewImporter)
-	importer.Register("k8s+vm", 0, NewImporter)
+	_ = importer.Register("k8s", 0, NewImporter)
+	_ = importer.Register("k8s+csi", 0, NewImporter)
+	_ = importer.Register("k8s+pvc", 0, NewImporter)
+	_ = importer.Register("k8s+vm", 0, NewImporter)
 
-	exporter.Register("k8s", 0, NewExporter)
-	exporter.Register("k8s+pvc", 0, NewExporter)
+	_ = exporter.Register("k8s", 0, NewExporter)
+	_ = exporter.Register("k8s+pvc", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
