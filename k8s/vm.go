@@ -204,6 +204,7 @@ func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, e
 		},
 		ObjectMeta: src.ObjectMeta,
 		Spec:       src.Spec,
+		Status:     src.Status,
 	}
 
 	return yaml.Marshal(&vm)
