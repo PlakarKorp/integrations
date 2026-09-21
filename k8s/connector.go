@@ -49,15 +49,12 @@ type k8s struct {
 
 	portForward bool
 
-	volumeSnapshotClass    string
-	kubeletImage           string
-	kubeletImagePullPolicy corev1.PullPolicy
-	kubeletCapas           []corev1.Capability
+	volumeSnapshotClass string
+	kubeletImage        string
+	kubeletCapas        []corev1.Capability
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
-
-	ingoredResources map[schema.GroupKind]struct{}
 }
 
 func init() {
