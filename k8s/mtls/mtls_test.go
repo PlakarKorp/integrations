@@ -24,6 +24,8 @@ func gencert(t *testing.T) (tls.Certificate, [32]byte) {
 }
 
 func TestGencertIsPerCall(t *testing.T) {
+	t.Parallel()
+
 	_, a := gencert(t)
 	_, b := gencert(t)
 
@@ -31,6 +33,8 @@ func TestGencertIsPerCall(t *testing.T) {
 }
 
 func TestGencertFingerprintMatchesCertificate(t *testing.T) {
+	t.Parallel()
+
 	cert, fp := gencert(t)
 
 	require.Equal(t, 1, len(cert.Certificate), "too many certs generated")
@@ -42,6 +46,8 @@ func TestGencertFingerprintMatchesCertificate(t *testing.T) {
 }
 
 func TestGencertUsesEd25519(t *testing.T) {
+	t.Parallel()
+
 	cert, _ := gencert(t)
 
 	if _, ok := cert.PrivateKey.(ed25519.PrivateKey); !ok {
@@ -50,6 +56,8 @@ func TestGencertUsesEd25519(t *testing.T) {
 }
 
 func TestFingerprintRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	s := Fingerprint(fp)
@@ -61,6 +69,8 @@ func TestFingerprintRoundTrip(t *testing.T) {
 }
 
 func TestParseFingerprint(t *testing.T) {
+	t.Parallel()
+
 	valid := Fingerprint(sha256.Sum256([]byte("plakar")))
 
 	for _, tt := range []struct {
@@ -78,6 +88,8 @@ func TestParseFingerprint(t *testing.T) {
 		{"whitespace", " " + valid, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := ParseFingerprint(tt.in)
 			if tt.ok {
 				require.NoError(t, err)
@@ -90,12 +102,16 @@ func TestParseFingerprint(t *testing.T) {
 }
 
 func TestPinnedAcceptsMatchingKey(t *testing.T) {
+	t.Parallel()
+
 	cert, fp := gencert(t)
 
 	require.NoError(t, Pinned(fp)(cert.Certificate, nil))
 }
 
 func TestPinnedRejectsDifferentKey(t *testing.T) {
+	t.Parallel()
+
 	_, pinned := gencert(t)
 	other, _ := gencert(t)
 
@@ -104,6 +120,8 @@ func TestPinnedRejectsDifferentKey(t *testing.T) {
 }
 
 func TestPinnedRejectsNoCertificate(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	require.ErrorIs(t, Pinned(fp)(nil, nil), ErrNoCertificate)
@@ -111,6 +129,8 @@ func TestPinnedRejectsNoCertificate(t *testing.T) {
 }
 
 func TestPinnedRejectsUnparseableCertificate(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	require.Error(t, Pinned(fp)([][]byte{[]byte("not a certificate")}, nil))
@@ -185,6 +205,8 @@ func exchange(t *testing.T, e pair) (server, client error) {
 }
 
 func TestHandshakeAcceptsMatchedPins(t *testing.T) {
+	t.Parallel()
+
 	server, client := exchange(t, matching(t))
 
 	require.NoError(t, server)
@@ -192,6 +214,8 @@ func TestHandshakeAcceptsMatchedPins(t *testing.T) {
 }
 
 func TestHandshakeRejectsUnpinnedClient(t *testing.T) {
+	t.Parallel()
+
 	e := matching(t)
 	eve, _ := gencert(t)
 	e.cliCert = &eve // a key the server was never told to accept
@@ -201,6 +225,8 @@ func TestHandshakeRejectsUnpinnedClient(t *testing.T) {
 }
 
 func TestHandshakeRejectsClientWithoutCertificate(t *testing.T) {
+	t.Parallel()
+
 	e := matching(t)
 	e.cliCert = nil
 
@@ -210,6 +236,8 @@ func TestHandshakeRejectsClientWithoutCertificate(t *testing.T) {
 }
 
 func TestHandshakeRejectsUnpinnedServer(t *testing.T) {
+	t.Parallel()
+
 	e := matching(t)
 	_, eve := gencert(t)
 	e.cliPeer = eve // a key the server we reach does not hold
@@ -219,6 +247,8 @@ func TestHandshakeRejectsUnpinnedServer(t *testing.T) {
 }
 
 func TestGRPCNeedsH2InNextProtos(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		name       string
 		nextProtos []string
@@ -228,6 +258,8 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 		{"without", nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			srvCert, srvFP := gencert(t)
 			cliCert, cliFP := gencert(t)
 

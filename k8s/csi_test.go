@@ -71,6 +71,8 @@ func volfailed(msg string) *vs.VolumeSnapshotStatus {
 }
 
 func TestSnapshotReady(t *testing.T) {
+	t.Parallel()
+
 	suite := []struct {
 		name    string
 		evt     watch.Event
@@ -115,6 +117,8 @@ func TestSnapshotReady(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := snapshotReady(test.evt)
 
 			if test.wantErr != "" {
@@ -131,6 +135,8 @@ func TestSnapshotReady(t *testing.T) {
 }
 
 func TestPodReady(t *testing.T) {
+	t.Parallel()
+
 	const kl = kubeletContainer
 	suite := []struct {
 		name    string
@@ -266,6 +272,8 @@ func TestPodReady(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := podReady(test.evt)
 
 			if test.wantErr != "" {
@@ -282,6 +290,8 @@ func TestPodReady(t *testing.T) {
 }
 
 func TestPodReadyIgnoresOtherObjects(t *testing.T) {
+	t.Parallel()
+
 	got, err := podReady(watch.Event{
 		Type:   watch.Modified,
 		Object: &corev1.Service{},
@@ -292,6 +302,8 @@ func TestPodReadyIgnoresOtherObjects(t *testing.T) {
 }
 
 func TestPodReadyErrorEventAlwaysFails(t *testing.T) {
+	t.Parallel()
+
 	_, err := podReady(watch.Event{Type: watch.Error, Object: &corev1.Pod{}})
 
 	require.Error(t, err)
@@ -340,6 +352,8 @@ func singleEventWatchReactor(evt watch.Event) clienttesting.WatchReactionFunc {
 }
 
 func TestCloneSize(t *testing.T) {
+	t.Parallel()
+
 	pvcWithSize := func(size string) *corev1.PersistentVolumeClaim {
 		return &corev1.PersistentVolumeClaim{
 			Spec: corev1.PersistentVolumeClaimSpec{
@@ -386,6 +400,8 @@ func TestCloneSize(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := cloneSize(test.orig, test.snap)
 			want := resource.MustParse(test.want)
 			require.Zero(t, got.Cmp(want), "got %s, want %s", got.String(), want.String())
@@ -394,7 +410,11 @@ func TestCloneSize(t *testing.T) {
 }
 
 func TestGetPvc(t *testing.T) {
+	t.Parallel()
+
 	t.Run("happy path", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(pvcObj("ns", "data"))
 
 		pvc, err := k.getpvc(t.Context(), "ns", "data")
@@ -403,6 +423,8 @@ func TestGetPvc(t *testing.T) {
 	})
 
 	t.Run("not found propagates the api error", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s()
 
 		_, err := k.getpvc(t.Context(), "ns", "missing")
@@ -410,6 +432,8 @@ func TestGetPvc(t *testing.T) {
 	})
 
 	t.Run("accepts raw block volumes", func(t *testing.T) {
+		t.Parallel()
+
 		pvc := pvcObj("ns", "block")
 		pvc.Spec.VolumeMode = new(corev1.PersistentVolumeBlock)
 		k := newCsiTestK8s(pvc)
@@ -421,7 +445,11 @@ func TestGetPvc(t *testing.T) {
 }
 
 func TestDelPvc(t *testing.T) {
+	t.Parallel()
+
 	t.Run("deletes the pvc", func(t *testing.T) {
+		t.Parallel()
+
 		pvc := pvcObj("ns", "data")
 		k := newCsiTestK8s(pvc)
 
@@ -432,6 +460,8 @@ func TestDelPvc(t *testing.T) {
 	})
 
 	t.Run("delete error is only logged", func(t *testing.T) {
+		t.Parallel()
+
 		pvc := pvcObj("ns", "data")
 		k := newCsiTestK8s(pvc)
 		k.clientset.(*k8sfake.Clientset).PrependReactor("delete", "persistentvolumeclaims",
@@ -444,9 +474,13 @@ func TestDelPvc(t *testing.T) {
 }
 
 func TestDelPod(t *testing.T) {
+	t.Parallel()
+
 	testPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: "ns"}}
 
 	t.Run("deletes the pod", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(testPod)
 
 		k.delpod(t.Context(), testPod)
@@ -456,6 +490,8 @@ func TestDelPod(t *testing.T) {
 	})
 
 	t.Run("delete error is only logged", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(testPod)
 		k.clientset.(*k8sfake.Clientset).PrependReactor("delete", "pods",
 			func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -467,6 +503,8 @@ func TestDelPod(t *testing.T) {
 }
 
 func TestPvcFromSnap(t *testing.T) {
+	t.Parallel()
+
 	k := newCsiTestK8s()
 
 	orig := &corev1.PersistentVolumeClaim{
@@ -506,7 +544,11 @@ func TestPvcFromSnap(t *testing.T) {
 }
 
 func TestGensnap(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ready", func(t *testing.T) {
+		t.Parallel()
+
 		snapClient := snapfake.NewSimpleClientset()
 		withGeneratedResourceVersion(snapClient)
 		snapClient.PrependWatchReactor("volumesnapshots", singleEventWatchReactor(watch.Event{
@@ -532,6 +574,8 @@ func TestGensnap(t *testing.T) {
 	})
 
 	t.Run("failed status deletes the snapshot and returns the error", func(t *testing.T) {
+		t.Parallel()
+
 		snapClient := snapfake.NewSimpleClientset()
 		withGeneratedResourceVersion(snapClient)
 		snapClient.PrependWatchReactor("volumesnapshots", singleEventWatchReactor(watch.Event{
@@ -560,11 +604,15 @@ func TestGensnap(t *testing.T) {
 }
 
 func TestDelsnap(t *testing.T) {
+	t.Parallel()
+
 	newSnap := func() *vs.VolumeSnapshot {
 		return &vs.VolumeSnapshot{ObjectMeta: metav1.ObjectMeta{Name: "snap1", Namespace: "ns"}}
 	}
 
 	t.Run("deletes the snapshot", func(t *testing.T) {
+		t.Parallel()
+
 		snap := newSnap()
 		snapClient := snapfake.NewSimpleClientset(snap)
 		k := &k8s{snapClient: snapClient}
@@ -576,6 +624,8 @@ func TestDelsnap(t *testing.T) {
 	})
 
 	t.Run("delete error is only logged", func(t *testing.T) {
+		t.Parallel()
+
 		snap := newSnap()
 		snapClient := snapfake.NewSimpleClientset(snap)
 		snapClient.PrependReactor("delete", "volumesnapshots", func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -588,12 +638,16 @@ func TestDelsnap(t *testing.T) {
 }
 
 func TestPodTrouble(t *testing.T) {
+	t.Parallel()
+
 	testPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: "ns"},
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
 	}
 
 	t.Run("collects unique warning events", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(testPod)
 		k.clientset.(*k8sfake.Clientset).PrependReactor("list", "events",
 			func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -609,6 +663,8 @@ func TestPodTrouble(t *testing.T) {
 	})
 
 	t.Run("falls back to the phase when there are no warnings", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(testPod)
 		k.clientset.(*k8sfake.Clientset).PrependReactor("list", "events",
 			func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -620,6 +676,8 @@ func TestPodTrouble(t *testing.T) {
 	})
 
 	t.Run("read failure is reported instead of panicking", func(t *testing.T) {
+		t.Parallel()
+
 		k := newCsiTestK8s(testPod)
 		k.clientset.(*k8sfake.Clientset).PrependReactor("list", "events",
 			func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -673,7 +731,11 @@ func fsServerTestK8s(t *testing.T, pvc *corev1.PersistentVolumeClaim) *k8s {
 }
 
 func TestFsServer(t *testing.T) {
+	t.Parallel()
+
 	t.Run("filesystem mode mounts the pvc", func(t *testing.T) {
+		t.Parallel()
+
 		pvc := pvcObj("ns", "data")
 		k := fsServerTestK8s(t, pvc)
 
@@ -691,6 +753,8 @@ func TestFsServer(t *testing.T) {
 	})
 
 	t.Run("block mode exposes a raw device", func(t *testing.T) {
+		t.Parallel()
+
 		pvc := pvcObj("ns", "block")
 		pvc.Spec.VolumeMode = new(corev1.PersistentVolumeBlock)
 		k := fsServerTestK8s(t, pvc)

@@ -13,6 +13,8 @@ import (
 )
 
 func TestImport(t *testing.T) {
+	t.Parallel()
+
 	var (
 		dest = filepath.Join(t.TempDir(), "import")
 		body = "hello world\n"
@@ -49,6 +51,8 @@ func TestImport(t *testing.T) {
 }
 
 func TestExporter(t *testing.T) {
+	t.Parallel()
+
 	var (
 		dest = filepath.Join(t.TempDir(), "import")
 		body = "hello world\n"
