@@ -1,0 +1,39 @@
+name: fs tests
+
+on:
+  push:
+    branches:
+      - integration/fs
+    paths:
+      - .github/workflows/fs-tests.yml
+      - 'fs/**'
+  pull_request:
+    paths:
+      - .github/workflows/fs-tests.yml
+      - 'fs/**'
+  workflow_dispatch:
+
+jobs:
+  push:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Run on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: fs
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: fs/go.mod
+
+      - name: vet
+        run: go vet -v ./...
+
+      - name: Running tests
+        run: go test -v ./...
