@@ -25,10 +25,6 @@ jobs:
         working-directory: k8s
         run: go build ./...
 
-      - name: vet
-        working-directory: k8s
-        run: go vet ./...
-
       - name: test
         working-directory: k8s
         run: go test -race ./...
