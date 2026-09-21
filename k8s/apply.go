@@ -141,7 +141,7 @@ func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Reco
 
 		if err := k.apply(ctx, record.Pathname, record.Reader); err != nil {
 			results <- record.Error(err)
-			return err
+			continue
 		}
 
 		results <- record.Ok()
