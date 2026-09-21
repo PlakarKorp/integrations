@@ -282,7 +282,7 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 				disk.volumeName, err)
 		}
 
-		pathname := path.Join("/", disk.volumeName, "pvc.yaml")
+		pathname := path.Join("/", disk.volumeName, "config.yaml")
 		if err := manifest(records, results, pathname, content); err != nil {
 			k.delpvc(ctx, pvc)
 			return fmt.Errorf("failed to write %s: %w", pathname, err)
