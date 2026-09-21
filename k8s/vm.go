@@ -276,7 +276,16 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 			return fmt.Errorf("failed to clone disk %q: %w", disk.volumeName, err)
 		}
 
-		content, err := yaml.Marshal(pvc)
+		// manually fill the TypeMeta since it's left empty by
+		// client-go.  Also, we need to recreate the original
+		// claim, not the clone we're backing up.
+		orig := *disk.origPVC
+		orig.TypeMeta = metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "PersistentVolumeClaim",
+		}
+
+		content, err := yaml.Marshal(&orig)
 		if err != nil {
 			k.delpvc(ctx, pvc)
 			return fmt.Errorf("failed to marshal disk %q config: %w",
