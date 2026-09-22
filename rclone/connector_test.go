@@ -18,6 +18,7 @@ package rclone
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/fs"
 	"path"
@@ -30,11 +31,28 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
 	rclonefs "github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/config/configmap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	_ "github.com/rclone/rclone/backend/memory" // register memory backend
 )
+
+// ctxprobe is a fake rclone backend that records the context it is
+// constructed with, so tests can assert on its lifetime.
+var probeCtx context.Context
+
+func init() {
+	rclonefs.Register(&rclonefs.RegInfo{
+		Name:        "ctxprobe",
+		Description: "test only: captures the constructor context",
+		NewFs: func(ctx context.Context, name, root string, m configmap.Mapper) (rclonefs.Fs, error) {
+			probeCtx = ctx
+			// The context is captured already; no need for a real Fs.
+			return nil, rclonefs.ErrorIsFile
+		},
+	})
+}
 
 func newRclone(t *testing.T) *Rclone {
 	t.Helper()
@@ -373,4 +391,31 @@ func TestStorageSize(t *testing.T) {
 	size, err := r.Size(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, int64(-1), size)
+}
+
+func TestNewDetachesConstructorContext(t *testing.T) {
+	type key struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), key{}, "v"))
+
+	params := map[string]string{
+		"location":    "rclone://x",
+		"rclone_type": "ctxprobe",
+	}
+	opts := &connectors.Options{
+		Hostname:        "localhost",
+		OperatingSystem: "test",
+		Architecture:    "amd64",
+		MaxConcurrency:  1,
+	}
+
+	_, err := New(ctx, opts, "rclone", params)
+	require.ErrorIs(t, err, rclonefs.ErrorIsFile) // proves the probe backend was reached
+	require.NotNil(t, probeCtx)                   // fail loudly rather than pass vacuously
+
+	cancel()
+	// The fs must be built with a context that outlives the
+	// constructor: canceling the caller's context must not cancel it…
+	require.NoError(t, probeCtx.Err())
+	// …while still propagating its values.
+	require.Equal(t, "v", probeCtx.Value(key{}))
 }
