@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"slices"
 
@@ -12,9 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
 )
 
 var restoreVerbs = []string{"create", "patch"}
@@ -75,80 +74,72 @@ func (k *k8s) skipRestore(gvk schema.GroupVersionKind, meta metav1.ObjectMeta) (
 	return "", nil
 }
 
-func (k *k8s) apply(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) apply(ctx context.Context, name string, rd io.Reader) error {
 	var (
-		discover = memory.NewMemCacheClientWithContext(k.discover)
-		mapper   = restmapper.NewDeferredDiscoveryRESTMapperWithContext(discover)
+		obj = &unstructured.Unstructured{Object: map[string]any{}}
+		dec = yamlv3.NewDecoder(rd)
+		err = dec.Decode(&obj.Object)
 	)
+	if err != nil {
+		return err
+	}
 
+	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+	unstructured.RemoveNestedField(obj.Object, "metadata", "uid")
+
+	gvk := obj.GroupVersionKind()
+
+	meta, err := objectMeta(obj)
+	if err != nil {
+		return err
+	}
+
+	reason, err := k.skipRestore(gvk, meta)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		log.Printf("skipping %s: %s", name, reason)
+		return nil
+	}
+
+	rest, err := k.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return err
+	}
+
+	gvr := rest.Resource
+
+	verbs, err := resourceVerbs(ctx, k.discovercache, gvr)
+	if err != nil {
+		return err
+	}
+
+	if !isRestorable(verbs) {
+		return nil
+	}
+
+	client := k.dclient.Resource(gvr)
+
+	var ri dynamic.ResourceInterface = client
+	if ns := obj.GetNamespace(); ns != "" {
+		ri = client.Namespace(ns)
+	}
+
+	_, err = ri.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
+		FieldManager: "plakar-k8s-exporter",
+	})
+	return err
+}
+
+func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	for record := range records {
 		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
 			results <- record.Ok()
 			continue
 		}
 
-		var (
-			obj = &unstructured.Unstructured{Object: map[string]any{}}
-			dec = yamlv3.NewDecoder(record.Reader)
-			err = dec.Decode(&obj.Object)
-		)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
-		unstructured.RemoveNestedField(obj.Object, "metadata", "uid")
-
-		gvk := obj.GroupVersionKind()
-
-		meta, err := objectMeta(obj)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		reason, err := k.skipRestore(gvk, meta)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-		if reason != "" {
-			log.Printf("skipping %s: %s", record.Pathname, reason)
-			results <- record.Ok()
-			continue
-		}
-
-		rest, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		gvr := rest.Resource
-
-		verbs, err := resourceVerbs(ctx, discover, gvr)
-		if err != nil {
-			results <- record.Error(err)
-			return err
-		}
-
-		if !isRestorable(verbs) {
-			results <- record.Ok()
-			continue
-		}
-
-		client := k.dclient.Resource(gvr)
-
-		var ri dynamic.ResourceInterface = client
-		if ns := obj.GetNamespace(); ns != "" {
-			ri = client.Namespace(ns)
-		}
-
-		_, err = ri.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
-			FieldManager: "plakar-k8s-exporter",
-		})
-		if err != nil {
+		if err := k.apply(ctx, record.Pathname, record.Reader); err != nil {
 			results <- record.Error(err)
 			return err
 		}
