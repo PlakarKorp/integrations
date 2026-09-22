@@ -713,10 +713,13 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 		CWD:             path,
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
-
-	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, map[string]string{
+	config := map[string]string{
 		"location": proto + "://" + path,
-	})
+	}
+	if proto == "fs" && k.skipRootPermsAndTime {
+		config["skip_root_perms_and_time"] = "true"
+	}
+	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, config)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
 	}
@@ -776,12 +779,7 @@ func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *c
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
 	}
 
-	args := []string{"-export"}
-	if k.skipRootPermsAndTime {
-		args = append(args, "-skip-root-perms-and-time")
-	}
-
-	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, args...)
+	fp, err := k.fsServer(ctx, "restore", ns, pvc, false, "-export")
 	if err != nil {
 		return fmt.Errorf("failed to run the pod: %w", err)
 	}
