@@ -19,11 +19,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(
-		os.Stderr,
-		"usage: %s [-export] [-p port]\n",
-		path.Base(os.Args[0]),
-	)
+	fmt.Fprintf(os.Stderr, "usage: %s [-export] [-p port]\n", path.Base(os.Args[0]))
 	os.Exit(1)
 }
 
