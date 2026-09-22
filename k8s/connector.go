@@ -69,6 +69,7 @@ func init() {
 
 	exporter.Register("k8s", 0, NewExporter)
 	exporter.Register("k8s+pvc", 0, NewExporter)
+	exporter.Register("k8s+vm", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
@@ -447,6 +448,11 @@ func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, res
 		// no need to close results here, it's passed to
 		// exporter.Export which will take care of it.
 		return k.restorePvc(ctx, k.namespace, k.pvcName, records, results)
+	case "k8s+vm":
+		// restoeVM does the records tee'ing, so we can close
+		// this here.
+		defer close(results)
+		return k.restoreVM(ctx, k.namespace, k.vmName, records, results)
 	default:
 		return errors.ErrUnsupported
 	}
