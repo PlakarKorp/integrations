@@ -11,19 +11,25 @@ import (
 
 	sdk "github.com/PlakarKorp/go-inventory-sdk/inventory"
 	"github.com/PlakarKorp/pkg"
+	"golang.org/x/sync/errgroup"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	kvcorev1 "kubevirt.io/api/core/v1"
+	"kubevirt.io/client-go/kubevirt"
 )
 
 //go:embed plugin/inventory/k8s.json
 var Schema []byte
 
 type inventory struct {
-	namespaces []string
-	config     *rest.Config
-	clientset  kubernetes.Interface
+	namespaces     []string
+	config         *rest.Config
+	clientset      kubernetes.Interface
+	kubevirtClient kubevirt.Interface
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
@@ -87,6 +93,12 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 	}
 	inv.clientset = clientset
 
+	kubevirtClient, err := kubevirt.NewForConfig(inv.config)
+	if err != nil {
+		return nil, err
+	}
+	inv.kubevirtClient = kubevirtClient
+
 	return &inv, nil
 }
 
@@ -133,14 +145,64 @@ func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan
 	return nil
 }
 
-func (inv *inventory) List(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
-	defer close(resources)
+func (inv *inventory) listVM(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	_, err := inv.clientset.Discovery().ServerResourcesForGroupVersionWithContext(ctx,
+		kvcorev1.GroupVersion.String())
+	if apierrors.IsNotFound(err) || discovery.IsGroupDiscoveryFailedError(err) {
+		// kubevirt is not installed
+		return nil
+	}
 
-	if err := inv.listPVC(ctx, resources); err != nil {
-		return err
+	for _, ns := range inv.namespaces {
+		if err := inv.listVMInNs(ctx, ns, resources); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inv *inventory) listVMInNs(ctx context.Context, ns string, resources chan<- *sdk.InventoryEntry) error {
+	var cont string
+
+	for {
+		vms, err := inv.kubevirtClient.KubevirtV1().VirtualMachines(ns).List(ctx, metav1.ListOptions{
+			Limit:    50,
+			Continue: cont,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list VMs: %w", err)
+		}
+
+		for _, vm := range vms.Items {
+			resources <- &sdk.InventoryEntry{
+				Class: pkg.ResourceClassCompute,
+				URN:   "k8s:" + vm.Namespace + ":" + vm.Name + ":" + string(vm.UID),
+				Name:  vm.Name,
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: "/" + vm.Namespace + "/" + vm.Name,
+				}},
+			}
+		}
+
+		cont = vms.Continue
+		if cont == "" {
+			break
+		}
 	}
 
 	return nil
+}
+
+func (inv *inventory) List(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	defer close(resources)
+
+	wg, ctx := errgroup.WithContext(ctx)
+
+	wg.Go(func() error { return inv.listPVC(ctx, resources) })
+	wg.Go(func() error { return inv.listVM(ctx, resources) })
+
+	return wg.Wait()
 }
 
 func (inv *inventory) Close(ctx context.Context) error {
