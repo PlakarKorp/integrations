@@ -19,6 +19,7 @@ export LC_ALL=C
 export TEST_TMPDIR="/tmp"
 export TEST_DATA_FILE="testdata.bson"
 export AUTH_DATA_FILE="mongo-test-authdata"
+export PLAKAR_INSECURE_PLAINTEXT=1
 
 . ./"$AUTH_DATA_FILE"
 export MONGODB_INITDB_ROOT_USERNAME
