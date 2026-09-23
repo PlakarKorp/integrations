@@ -3,3 +3,8 @@ basicConstraints=critical,CA:true
 
 [x509v3_IPAddr]
 subjectAltName=IP:127.0.0.1
+extendedKeyUsage=serverAuth
+
+[x509v3_IPAddrClient]
+subjectAltName=IP:127.0.0.1
+extendedKeyUsage=clientAuth
