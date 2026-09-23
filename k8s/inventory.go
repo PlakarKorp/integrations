@@ -50,10 +50,11 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 			}
 			slices.Sort(inv.namespaces)
 			inv.namespaces = slices.Compact(inv.namespaces)
-			if len(inv.namespaces) == 0 {
-				inv.namespaces = append(inv.namespaces, "")
-			}
 		}
+	}
+
+	if len(inv.namespaces) == 0 {
+		inv.namespaces = append(inv.namespaces, "")
 	}
 
 	if len(kubeconf) == 0 && kubeconfpath != "" {
