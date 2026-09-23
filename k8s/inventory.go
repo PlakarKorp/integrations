@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	_ "embed"
 
@@ -19,8 +21,9 @@ import (
 var Schema []byte
 
 type inventory struct {
-	config    *rest.Config
-	clientset kubernetes.Interface
+	namespaces []string
+	config     *rest.Config
+	clientset  kubernetes.Interface
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
@@ -37,6 +40,19 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 		case "k8s_kubeconf_path":
 			// this is just for ease of development
 			kubeconfpath = v
+		case "k8s_filter_namespaces":
+			for ns := range strings.SplitSeq(v, ",") {
+				ns = strings.TrimSpace(ns)
+				if ns == "" {
+					continue
+				}
+				inv.namespaces = append(inv.namespaces, ns)
+			}
+			slices.Sort(inv.namespaces)
+			inv.namespaces = slices.Compact(inv.namespaces)
+			if len(inv.namespaces) == 0 {
+				inv.namespaces = append(inv.namespaces, "")
+			}
 		}
 	}
 
@@ -74,10 +90,19 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 }
 
 func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	for _, ns := range inv.namespaces {
+		if err := inv.listPVCInNs(ctx, ns, resources); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan<- *sdk.InventoryEntry) error {
 	var cont string
 
 	for {
-		pvcs, err := inv.clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{
+		pvcs, err := inv.clientset.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{
 			Limit:    50,
 			Continue: cont,
 		})

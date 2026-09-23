@@ -15,7 +15,7 @@ import (
 )
 
 func newInventoryTest(objs ...runtime.Object) *inventory {
-	return &inventory{clientset: k8sfake.NewSimpleClientset(objs...)}
+	return &inventory{clientset: k8sfake.NewSimpleClientset(objs...), namespaces: []string{""}}
 }
 
 func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
