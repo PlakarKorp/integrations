@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"net/url"
 	"path"
 	"strconv"
@@ -24,6 +25,16 @@ type WebDAV struct {
 	concurrency int
 }
 
+// CustomUserAgentTransport override HTTP client to change User-Agent
+type CustomUserAgentTransport struct {
+	Transport http.RoundTripper
+}
+
+func (c *CustomUserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", "PlakarBackup/1.0")
+	return c.Transport.RoundTrip(req)
+}
+
 func init() {
 	importer.Register("dav", 0, NewImporter)
 	importer.Register("davs", 0, NewImporter)
@@ -33,6 +44,15 @@ func init() {
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string, baseClient webdav.HTTPClient) (*WebDAV, error) {
+
+	customTransport := &CustomUserAgentTransport{Transport: http.DefaultTransport}
+
+	if baseClient == nil {
+		baseClient = &http.Client{
+			Transport: customTransport,
+		}
+	}
+
 	httpc := baseClient
 	if u, ok := params["username"]; ok {
 		httpc = webdav.HTTPClientWithBasicAuth(httpc, u, params["password"])
