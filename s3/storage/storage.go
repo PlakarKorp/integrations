@@ -182,6 +182,11 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, fmt.Errorf("failed to create default transport: %w", err)
 	}
 
+	// All requests go to one host, so the per-host idle cap is the one that
+	// bites: above it, each finished request drops its connection and the
+	// next one redials.
+	transport.MaxIdleConnsPerHost = transport.MaxIdleConns
+
 	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
