@@ -26,8 +26,12 @@ import (
 // mailbox name regardless of the destination server's delimiter.
 
 // encodeSegment percent-encodes a single mailbox path segment so it never
-// contains "/" or other characters that break the kloset path layout.
+// contains "/" or other characters that break the kloset path layout, and is
+// never "." or "..".
 func encodeSegment(s string) string {
+	if s == "." || s == ".." {
+		return strings.ReplaceAll(s, ".", "%2E")
+	}
 	return url.PathEscape(s)
 }
 
