@@ -120,7 +120,7 @@ func WithSkipRootPermsAndTime(skipRootPermsAndTime bool) Options {
 	}
 }
 
-// WithSkipLostPlusFound quick fix to have restore working on fs when not root
+// Deprecated: (MVP hack) WithSkipLostPlusFound quick fix to have restore working on fs when not root
 func WithSkipLostPlusFound(skipLostPlusFound bool) Options {
 	return func(o *options) {
 		o.skipLostPlusFound = skipLostPlusFound
