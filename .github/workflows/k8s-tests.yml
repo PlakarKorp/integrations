@@ -1,6 +1,13 @@
 name: k8s tests
 
 on:
+  push:
+    branches:
+      - main
+      - integration/k8s
+    paths:
+      - .github/workflows/k8s-tests.yml
+      - 'k8s/**'
   pull_request:
     paths:
       - .github/workflows/k8s-tests.yml
