@@ -1,6 +1,11 @@
 package common
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestParseConfig(t *testing.T) {
 	tests := []struct {
@@ -161,5 +166,23 @@ func TestSharePath(t *testing.T) {
 		if got := SharePath(tt.in); got != tt.want {
 			t.Errorf("SharePath(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestParseConfigRedactsCredentials(t *testing.T) {
+	tests := []struct {
+		name     string
+		location string
+	}{
+		{"missing host", "smb://user:secret@/share"},
+		{"invalid port", "smb://user:secret@host:bad/share"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfig(map[string]string{"location": tt.location})
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "secret")
+		})
 	}
 }
