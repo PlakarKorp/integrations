@@ -122,11 +122,16 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 	return exp, nil
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (_ exporter.Exporter, err error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			conn.Cleanup()
+		}
+	}()
 	return NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
 }
 

@@ -16,11 +16,16 @@ func init() {
 	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
+func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (_ importer.Importer, err error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			conn.Cleanup()
+		}
+	}()
 
 	region := cfg["region"]
 	if region == "" {
