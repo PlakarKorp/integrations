@@ -1,11 +1,14 @@
 package common
 
 import (
+	"path"
 	"reflect"
 	"sort"
 	"testing"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMailboxPathRoundTrip(t *testing.T) {
@@ -46,6 +49,35 @@ func TestMailboxPathRoundTrip(t *testing.T) {
 		if back != want {
 			t.Errorf("round-trip mailbox %q via path %q -> %q, want %q", c.mailbox, got, back, want)
 		}
+	}
+}
+
+func TestMailboxPathDotSegments(t *testing.T) {
+	cases := []struct {
+		mailbox  string
+		path     string
+		collides string // mailbox it collapsed onto; "" is the root
+	}{
+		{"Archive/../Secret", "/Archive/%2E%2E/Secret", "Secret"},
+		{"Archive/./Secret", "/Archive/%2E/Secret", "Archive/Secret"},
+		{"..", "/%2E%2E", ""},
+		{".", "/%2E", ""},
+	}
+
+	for _, c := range cases {
+		got := MailboxToPath(c.mailbox, '/')
+		assert.Equal(t, c.path, got, "MailboxToPath(%q)", c.mailbox)
+
+		// kloset cleans record paths, so the path must survive path.Clean
+		// and not land on another mailbox.
+		cleaned := path.Clean(got)
+		assert.Equal(t, got, cleaned, "MailboxToPath(%q) changed by path.Clean", c.mailbox)
+		assert.NotEqual(t, path.Clean(MailboxToPath(c.collides, '/')), cleaned,
+			"MailboxToPath(%q) collides with %q", c.mailbox, c.collides)
+
+		back, err := PathToMailbox(cleaned, '/')
+		require.NoError(t, err)
+		assert.Equal(t, c.mailbox, back, "round-trip via path %q", got)
 	}
 }
 
