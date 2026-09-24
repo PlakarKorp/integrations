@@ -281,10 +281,8 @@ func TestParseIgnoreResources(t *testing.T) {
 	}
 }
 
-func TestNewSkipRootPermsAndTime(t *testing.T) {
-	t.Parallel()
-	// inline so that the test never reads the developer's kubeconfig
-	const kubeconf = `
+// inline so that the test never reads the developer's kubeconfig
+const testKubeconf = `
 apiVersion: v1
 kind: Config
 clusters:
@@ -299,25 +297,44 @@ users:
   user: {token: t}
 `
 
-	newK8s := func(t *testing.T, options ...Options) *k8s {
-		t.Helper()
-		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
-			"location":   "k8s+pvc://cluster.example/ns/data",
-			"kubeconfig": kubeconf,
-		}, true, options...)
-		require.NoError(t, err)
-		return k
-	}
+func newTestK8sExporter(t *testing.T, options ...Options) *k8s {
+	t.Helper()
+	k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+		"location":   "k8s+pvc://cluster.example/ns/data",
+		"kubeconfig": testKubeconf,
+	}, true, options...)
+	require.NoError(t, err)
+	return k
+}
+
+func TestNewSkipRootPermsAndTime(t *testing.T) {
+	t.Parallel()
 
 	t.Run("off by default", func(t *testing.T) {
-		require.False(t, newK8s(t).skipRootPermsAndTime)
+		require.False(t, newTestK8sExporter(t).skipRootPermsAndTime)
 	})
 
 	t.Run("set by the option", func(t *testing.T) {
-		require.True(t, newK8s(t, WithSkipRootPermsAndTime(true)).skipRootPermsAndTime)
+		require.True(t, newTestK8sExporter(t, WithSkipRootPermsAndTime(true)).skipRootPermsAndTime)
 	})
 
 	t.Run("the option can turn it back off", func(t *testing.T) {
-		require.False(t, newK8s(t, WithSkipRootPermsAndTime(false)).skipRootPermsAndTime)
+		require.False(t, newTestK8sExporter(t, WithSkipRootPermsAndTime(false)).skipRootPermsAndTime)
+	})
+}
+
+func TestNewSkipLostPlusFound(t *testing.T) {
+	t.Parallel()
+
+	t.Run("off by default", func(t *testing.T) {
+		require.False(t, newTestK8sExporter(t).skipLostPlusFound)
+	})
+
+	t.Run("set by the option", func(t *testing.T) {
+		require.True(t, newTestK8sExporter(t, WithSkipLostPlusFound(true)).skipLostPlusFound)
+	})
+
+	t.Run("the option can turn it back off", func(t *testing.T) {
+		require.False(t, newTestK8sExporter(t, WithSkipLostPlusFound(false)).skipLostPlusFound)
 	})
 }

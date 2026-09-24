@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/PlakarKorp/integrations/k8s/mtls"
+	"github.com/PlakarKorp/kloset/connectors"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/require"
@@ -770,5 +771,79 @@ func TestFsServer(t *testing.T) {
 		c := list.Items[0].Spec.Containers[0]
 		require.Empty(t, c.VolumeMounts)
 		require.Equal(t, []corev1.VolumeDevice{{Name: "snap", DevicePath: blockPath}}, c.VolumeDevices)
+	})
+}
+
+func TestExportSkipping(t *testing.T) {
+	t.Parallel()
+
+	feed := func(pathnames ...string) <-chan *connectors.Record {
+		records := make(chan *connectors.Record, len(pathnames))
+		for _, p := range pathnames {
+			records <- &connectors.Record{Pathname: p}
+		}
+		close(records)
+		return records
+	}
+
+	collect := func(results <-chan *connectors.Result) []string {
+		var got []string
+		for r := range results {
+			require.NoError(t, r.Err)
+			got = append(got, r.Record.Pathname)
+		}
+		return got
+	}
+
+	t.Run("lost+found is acknowledged but not exported", func(t *testing.T) {
+		t.Parallel()
+		all := []string{
+			"/",
+			"/a",
+			"/lost+found",
+			"/lost+found/#1234",
+			"/lost+found/dir/file",
+			"/lost+foundling",
+			"/a/lost+found",
+		}
+
+		var exported []string
+		results := make(chan *connectors.Result, len(all))
+		err := exportSkippingMiddleware(feed(all...), results, isLostPlusFound,
+			func(records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+				defer close(results)
+				for r := range records {
+					exported = append(exported, r.Pathname)
+					results <- r.Ok()
+				}
+				return nil
+			})
+		require.NoError(t, err)
+		require.Equal(t, []string{"/", "/a", "/lost+foundling", "/a/lost+found"}, exported)
+		require.ElementsMatch(t, all, collect(results))
+	})
+
+	t.Run("exporter failure is returned", func(t *testing.T) {
+		t.Parallel()
+		results := make(chan *connectors.Result, 2)
+		err := exportSkippingMiddleware(feed("/lost+found", "/a"), results, isLostPlusFound,
+			func(_ <-chan *connectors.Record, results chan<- *connectors.Result) error {
+				close(results)
+				return errors.New("boom")
+			})
+		require.EqualError(t, err, "boom")
+		require.Equal(t, []string{"/lost+found"}, collect(results))
+	})
+
+	t.Run("exporter exiting before the last record is an error", func(t *testing.T) {
+		t.Parallel()
+		results := make(chan *connectors.Result, 1)
+		err := exportSkippingMiddleware(feed("/a"), results, isLostPlusFound,
+			func(_ <-chan *connectors.Record, results chan<- *connectors.Result) error {
+				close(results)
+				return nil
+			})
+		require.Error(t, err)
+		require.Empty(t, collect(results))
 	})
 }
