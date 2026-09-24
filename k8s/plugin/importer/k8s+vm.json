@@ -10,7 +10,7 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "Endpoint with optional namespace"
+      "description": "Endpoint with path composed of namespace and vm name"
     },
     "kubeconfig": {
       "type": "string",
@@ -19,16 +19,6 @@
     "kubelet_image": {
       "type": "string",
       "description": "Optional kubelet image to use"
-    },
-    "fs_access": {
-      "type": "string",
-      "enum": [
-        "default",
-        "read",
-        "full"
-      ],
-      "default": "read",
-      "description": "Optional file access capabilities granted to the pod: default to not gain extra capabilities, read to only gain read capabilities, or full to gain write capabilities as well."
     }
   }
 }

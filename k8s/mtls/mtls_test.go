@@ -24,6 +24,8 @@ func gencert(t *testing.T) (tls.Certificate, [32]byte) {
 }
 
 func TestGencertIsPerCall(t *testing.T) {
+	t.Parallel()
+
 	_, a := gencert(t)
 	_, b := gencert(t)
 
@@ -31,6 +33,8 @@ func TestGencertIsPerCall(t *testing.T) {
 }
 
 func TestGencertFingerprintMatchesCertificate(t *testing.T) {
+	t.Parallel()
+
 	cert, fp := gencert(t)
 
 	require.Equal(t, 1, len(cert.Certificate), "too many certs generated")
@@ -42,6 +46,8 @@ func TestGencertFingerprintMatchesCertificate(t *testing.T) {
 }
 
 func TestGencertUsesEd25519(t *testing.T) {
+	t.Parallel()
+
 	cert, _ := gencert(t)
 
 	if _, ok := cert.PrivateKey.(ed25519.PrivateKey); !ok {
@@ -50,6 +56,8 @@ func TestGencertUsesEd25519(t *testing.T) {
 }
 
 func TestFingerprintRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	s := Fingerprint(fp)
@@ -61,6 +69,8 @@ func TestFingerprintRoundTrip(t *testing.T) {
 }
 
 func TestParseFingerprint(t *testing.T) {
+	t.Parallel()
+
 	valid := Fingerprint(sha256.Sum256([]byte("plakar")))
 
 	for _, tt := range []struct {
@@ -78,6 +88,8 @@ func TestParseFingerprint(t *testing.T) {
 		{"whitespace", " " + valid, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := ParseFingerprint(tt.in)
 			if tt.ok {
 				require.NoError(t, err)
@@ -90,12 +102,16 @@ func TestParseFingerprint(t *testing.T) {
 }
 
 func TestPinnedAcceptsMatchingKey(t *testing.T) {
+	t.Parallel()
+
 	cert, fp := gencert(t)
 
 	require.NoError(t, Pinned(fp)(cert.Certificate, nil))
 }
 
 func TestPinnedRejectsDifferentKey(t *testing.T) {
+	t.Parallel()
+
 	_, pinned := gencert(t)
 	other, _ := gencert(t)
 
@@ -104,6 +120,8 @@ func TestPinnedRejectsDifferentKey(t *testing.T) {
 }
 
 func TestPinnedRejectsNoCertificate(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	require.ErrorIs(t, Pinned(fp)(nil, nil), ErrNoCertificate)
@@ -111,15 +129,33 @@ func TestPinnedRejectsNoCertificate(t *testing.T) {
 }
 
 func TestPinnedRejectsUnparseableCertificate(t *testing.T) {
+	t.Parallel()
+
 	_, fp := gencert(t)
 
 	require.Error(t, Pinned(fp)([][]byte{[]byte("not a certificate")}, nil))
 }
 
-func handshake(t *testing.T, peer [32]byte, client *tls.Certificate) error {
+type pair struct {
+	srvCert tls.Certificate
+	srvPeer [32]byte         // the client key the server accepts
+	cliCert *tls.Certificate // nil presents no certificate at all
+	cliPeer [32]byte         // the server key the client accepts
+}
+
+func matching(t *testing.T) pair {
 	t.Helper()
 
 	srvCert, srvFP := gencert(t)
+	cliCert, cliFP := gencert(t)
+
+	return pair{srvCert: srvCert, srvPeer: cliFP, cliCert: &cliCert, cliPeer: srvFP}
+}
+
+// exchange run one handshake and returns what each side thought of
+// the other.
+func exchange(t *testing.T, e pair) (server, client error) {
+	t.Helper()
 
 	cconn, sconn := net.Pipe()
 	defer cconn.Close()
@@ -128,50 +164,91 @@ func handshake(t *testing.T, peer [32]byte, client *tls.Certificate) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	errc := make(chan error, 1)
+	serrc := make(chan error, 1)
 	go func() {
-		errc <- tls.Server(sconn, ServerTlsConfig(srvCert, peer)).HandshakeContext(ctx)
+		c := tls.Server(sconn, ServerTlsConfig(e.srvCert, e.srvPeer))
+		err := c.HandshakeContext(ctx)
+		serrc <- err // report before reading, or the caller deadlocks
+		if err == nil {
+			c.SetReadDeadline(time.Now().Add(time.Second))
+			var b [1]byte
+			c.Read(b[:])
+		}
 	}()
 
+	cerrc := make(chan error, 1)
 	go func() {
-		c := tls.Client(cconn, ClientTlsConfig(client, srvFP))
-		if err := c.HandshakeContext(ctx); err != nil {
-			return
+		c := tls.Client(cconn, ClientTlsConfig(e.cliCert, e.cliPeer))
+		err := c.HandshakeContext(ctx)
+		cerrc <- err
+		if err == nil {
+			// keep reading to get the close_notify
+			c.SetReadDeadline(time.Now().Add(time.Second))
+			var b [1]byte
+			c.Read(b[:])
 		}
-		// keep reading to get the close_notify
-		var b [1]byte
-		c.Read(b[:])
 	}()
 
 	select {
-	case err := <-errc:
-		return err
+	case client = <-cerrc:
+	case <-ctx.Done():
+		t.Fatal("client handshake never completed")
+	}
+
+	select {
+	case server = <-serrc:
 	case <-ctx.Done():
 		t.Fatal("server handshake never completed")
-		return nil
 	}
+
+	return server, client
 }
 
-func TestHandshakeAcceptsPinnedClient(t *testing.T) {
-	cert, fp := gencert(t)
+func TestHandshakeAcceptsMatchedPins(t *testing.T) {
+	t.Parallel()
 
-	require.NoError(t, handshake(t, fp, &cert))
+	server, client := exchange(t, matching(t))
+
+	require.NoError(t, server)
+	require.NoError(t, client)
 }
 
 func TestHandshakeRejectsUnpinnedClient(t *testing.T) {
-	_, pinned := gencert(t)
-	eve, _ := gencert(t)
+	t.Parallel()
 
-	require.Error(t, handshake(t, pinned, &eve))
+	e := matching(t)
+	eve, _ := gencert(t)
+	e.cliCert = &eve // a key the server was never told to accept
+
+	server, _ := exchange(t, e)
+	require.ErrorIs(t, server, ErrMismatch)
 }
 
 func TestHandshakeRejectsClientWithoutCertificate(t *testing.T) {
-	_, pinned := gencert(t)
+	t.Parallel()
 
-	require.Error(t, handshake(t, pinned, nil))
+	e := matching(t)
+	e.cliCert = nil
+
+	// crypto/tls turns this away before Pinned runs, so it is not ErrMismatch
+	server, _ := exchange(t, e)
+	require.Error(t, server)
+}
+
+func TestHandshakeRejectsUnpinnedServer(t *testing.T) {
+	t.Parallel()
+
+	e := matching(t)
+	_, eve := gencert(t)
+	e.cliPeer = eve // a key the server we reach does not hold
+
+	_, client := exchange(t, e)
+	require.ErrorIs(t, client, ErrMismatch)
 }
 
 func TestGRPCNeedsH2InNextProtos(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		name       string
 		nextProtos []string
@@ -181,6 +258,8 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 		{"without", nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			srvCert, srvFP := gencert(t)
 			cliCert, cliFP := gencert(t)
 

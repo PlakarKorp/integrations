@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path"
 	"runtime"
 	"slices"
 	"strconv"
@@ -21,7 +22,6 @@ import (
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -45,6 +45,12 @@ const (
 	// heuristic to stop waiting indefinitely if there are issues
 	// mounting the pvc (e.g. ReadWriteOnce already mounted.)
 	podStartTimeout = 10 * time.Minute
+
+	// path at which the PVC is exposed inside the pod.
+	fsPath = "/data"
+
+	// path at which a raw block PVC is exposed inside the pod.
+	blockPath = "/dev/plakarvol"
 )
 
 var fatalWaiting = map[string]bool{
@@ -157,6 +163,23 @@ func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, e
 		pod.Namespace, pod.Name)
 }
 
+func (k *k8s) getsnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
+	snap, err := k.snapClient.SnapshotV1().VolumeSnapshots(ns).Get(ctx, name,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	ok, err := snapshotReady(watch.Event{Type: watch.Modified, Object: snap})
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return snap, err
+	}
+	return k.waitsnap(ctx, snap)
+}
+
 func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot, error) {
 	snap := &vs.VolumeSnapshot{
 		ObjectMeta: metav1.ObjectMeta{
@@ -180,6 +203,15 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 		return nil, err
 	}
 
+	ready, err := k.waitsnap(ctx, snap)
+	if err != nil {
+		k.delsnap(ctx, snap)
+		return nil, err
+	}
+	return ready, nil
+}
+
+func (k *k8s) waitsnap(ctx context.Context, snap *vs.VolumeSnapshot) (*vs.VolumeSnapshot, error) {
 	lw := &cache.ListWatch{
 		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
 			opts.FieldSelector = "metadata.name=" + snap.Name
@@ -189,7 +221,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	evt, err := watchtools.Until(ctx, snap.ResourceVersion, lw, snapshotReady)
 	if err != nil {
-		k.delsnap(ctx, snap)
 		if cerr := ctx.Err(); cerr != nil {
 			return nil, cerr
 		}
@@ -198,7 +229,6 @@ func (k *k8s) gensnap(ctx context.Context, ns, name string) (*vs.VolumeSnapshot,
 
 	ready, ok := evt.Object.(*vs.VolumeSnapshot)
 	if !ok {
-		k.delsnap(ctx, snap)
 		return nil, fmt.Errorf("unexpected object %T from the snapshot watch", evt.Object)
 	}
 
@@ -259,16 +289,8 @@ func (k *k8s) pvcFromSnap(ctx context.Context, ns string, snap *vs.VolumeSnapsho
 }
 
 func (k *k8s) getpvc(ctx context.Context, ns, name string) (*corev1.PersistentVolumeClaim, error) {
-	pvc, err := k.clientset.CoreV1().PersistentVolumeClaims(ns).
+	return k.clientset.CoreV1().PersistentVolumeClaims(ns).
 		Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock {
-		return nil, fmt.Errorf("PVC %s/%s is a raw block volume, which is not supported", ns, name)
-	}
-	return pvc, nil
 }
 
 func (k *k8s) delpvc(ctx context.Context, pvc *corev1.PersistentVolumeClaim) {
@@ -313,9 +335,10 @@ func (k *k8s) podTrouble(ctx context.Context, pod *corev1.Pod) string {
 }
 
 type fspod struct {
-	cert *tls.Certificate
-	peer [32]byte
-	pod  *corev1.Pod
+	cert  *tls.Certificate
+	peer  [32]byte
+	pod   *corev1.Pod
+	block bool
 }
 
 func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.PersistentVolumeClaim, readOnly bool, args ...string) (*fspod, error) {
@@ -324,7 +347,59 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 		return nil, fmt.Errorf("failed to generate a certificate: %w", err)
 	}
 
+	block := pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock
+
 	args = append(args, "-p", "8080", "-peer", mtls.Fingerprint(fp))
+
+	container := corev1.Container{
+		Name:  kubeletContainer,
+		Image: k.kubeletImage,
+		Args:  args,
+
+		// use the tail of stderr in the container status
+		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+
+		Ports: []corev1.ContainerPort{{
+			Name:          "grpc",
+			Protocol:      "TCP",
+			ContainerPort: 8080,
+		}},
+
+		ReadinessProbe: &corev1.Probe{
+			PeriodSeconds: 1,
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
+			},
+		},
+
+		// Using the smallest security context possible
+		// setting it explicitly
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: new(false),
+			//RunAsNonRoot: new(true), // => if there is no non-root user, this breaks
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+				Add:  k.kubeletCapas,
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeRuntimeDefault,
+			},
+			ReadOnlyRootFilesystem: new(true),
+		},
+	}
+
+	if block {
+		container.VolumeDevices = []corev1.VolumeDevice{{
+			Name:       "snap",
+			DevicePath: blockPath,
+		}}
+	} else {
+		container.VolumeMounts = []corev1.VolumeMount{{
+			Name:      "snap",
+			MountPath: fsPath,
+		}}
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "plakar-" + op + "-",
@@ -354,30 +429,15 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 			// pinned no longer matches.  Let it fail instead.
 			RestartPolicy: corev1.RestartPolicyNever,
 
-			Containers: []corev1.Container{{
-				Name:  kubeletContainer,
-				Image: k.kubeletImage,
-				Args:  args,
-
-				// use the tail of stderr in the container status
-				TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-
-				Ports: []corev1.ContainerPort{{
-					Name:          "grpc",
-					Protocol:      "TCP",
-					ContainerPort: 8080,
-				}},
-				VolumeMounts: []corev1.VolumeMount{{
-					Name:      "snap",
-					MountPath: "/data",
-				}},
-				ReadinessProbe: &corev1.Probe{
-					PeriodSeconds: 1,
-					ProbeHandler: corev1.ProbeHandler{
-						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(8080)},
-					},
+			// Using the smallest security context possible
+			// setting it explicitly
+			SecurityContext: &corev1.PodSecurityContext{
+				//RunAsNonRoot: new(true), // => if there is no non-root user, this breaks
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
 				},
-			}},
+			},
+			Containers: []corev1.Container{container},
 		},
 	}
 
@@ -425,9 +485,10 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 	}
 
 	return &fspod{
-		cert: &cert,
-		peer: peer,
-		pod:  ready,
+		cert:  &cert,
+		peer:  peer,
+		pod:   ready,
+		block: block,
 	}, nil
 }
 
@@ -443,32 +504,73 @@ func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
 	}
 }
 
-func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connectors.Record, chan<- *connectors.Result)) error {
+func filter(ctx context.Context, imp importer.Importer, Records chan<- *connectors.Record, Results <-chan *connectors.Result, fn func(*connectors.Record) *connectors.Record) error {
 	var (
-		size    = 2
+		size    = max(cap(Records), cap(Results), 2)
 		records = make(chan *connectors.Record, size)
-		retch   = make(chan struct{}, 1)
+		results = make(chan *connectors.Result, size)
+		retch   = make(chan error, 1)
+		done    = make(chan struct{})
+		drained = make(chan struct{})
+
+		sent uint64
+		recv atomic.Uint64
 	)
 
-	var results chan *connectors.Result
-	if (imp.Flags() & location.FLAG_NEEDACK) != 0 {
-		results = make(chan *connectors.Result, size)
-	}
-
+	// count the results so we know when kloset is done with this
+	// importer.
 	go func() {
-		fn(records, results)
-		if results != nil {
-			close(results)
+		for {
+			select {
+			case <-done:
+				return
+			case result, ok := <-Results:
+				if !ok {
+					close(drained)
+					return
+				}
+				results <- result
+				recv.Add(1)
+			}
 		}
-		close(retch)
 	}()
 
-	err := imp.Import(ctx, records, results)
-	<-retch
-	return err
+	// run the importer as well
+	go func() { retch <- imp.Import(ctx, records, results) }()
+
+	// the actual records filtering
+	for record := range records {
+		if ret := fn(record); ret != nil {
+			sent++
+			Records <- ret
+		} else {
+			results <- record.Ok()
+		}
+	}
+
+	// wait for the processing of all records, then yield Import()
+	// return value
+	for {
+		if sent == recv.Load() {
+			close(done)
+			close(results)
+			return <-retch
+		}
+		select {
+		case <-drained:
+			close(results)
+			<-retch
+			return fmt.Errorf("result channel early closed: %w", context.Cause(ctx))
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, podpath string, Records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+	if prefix == "" {
+		prefix = "/"
+	}
+
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
 	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
@@ -485,8 +587,8 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
 
-	importer, err := gimporter.NewImporter(ctx, client, opts, "fs", map[string]string{
-		"location":         "fs://" + podpath,
+	importer, err := gimporter.NewImporter(ctx, client, opts, proto, map[string]string{
+		"location":         proto + "://" + podpath,
 		"dont_traverse_fs": "true",
 	})
 	if err != nil {
@@ -494,47 +596,29 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	}
 	defer importer.Close(ctx)
 
-	var done atomic.Uint64
-
-	go func() {
-		for range results {
-			done.Add(1)
-		}
-	}()
-
-	var total uint64
-	err = progress(ctx, importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
-		for record := range records {
-			if record.Pathname == "/" {
-				if results != nil {
-					results <- record.Ok()
-				} else {
-					record.Close()
-				}
-				continue
-			}
-
+	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
+		if proto == "block" {
 			newrecord := *record
-			newrecord.Pathname = strings.TrimPrefix(record.Pathname, "/data")
-			if newrecord.Pathname == "" {
-				newrecord.Pathname = "/"
-				newrecord.FileInfo.Lname = "/"
-			}
-
-			Records <- &newrecord
-			total++
+			newrecord.Pathname = path.Join(prefix, record.Pathname)
+			return &newrecord
 		}
+
+		if record.Pathname == "/" {
+			return nil
+		}
+
+		newrecord := *record
+		newrecord.Pathname = path.Join(prefix, strings.TrimPrefix(record.Pathname, fsPath))
+		if newrecord.Pathname == "/" {
+			newrecord.FileInfo.Lname = "/"
+		}
+
+		return &newrecord
 	})
 	if err != nil {
 		return fmt.Errorf("failed to run the grpc importer: %w", err)
 	}
-
-	for {
-		if total == done.Load() {
-			return nil
-		}
-		time.Sleep(time.Second)
-	}
+	return nil
 }
 
 func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{}, error) {
@@ -584,7 +668,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -593,7 +677,12 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, records chan<- *connecto
 		defer close(stop)
 	}
 
-	return k.consume(ctx, fp.cert, fp.peer, url, "/data", records, results)
+	proto, path := "fs", fsPath
+	if fp.block {
+		proto, path = "block", blockPath
+	}
+
+	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, prefix, records, results)
 }
 
 func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
@@ -612,17 +701,25 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	}
 	defer client.Close()
 
+	proto, path := "fs", fsPath
+	if fp.block {
+		proto, path = "block", blockPath
+	}
+
 	opts := &connectors.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
-		CWD:             "/data",
+		CWD:             path,
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
-
-	exporter, err := gexporter.NewExporter(ctx, client, opts, "fs", map[string]string{
-		"location": "fs:///data",
-	})
+	config := map[string]string{
+		"location": proto + "://" + path,
+	}
+	if proto == "fs" && k.skipRootPermsAndTime {
+		config["skip_root_perms_and_time"] = "true"
+	}
+	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, config)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
 	}
@@ -673,7 +770,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	}
 	defer k.delpod(ctx, fp.pod)
 
-	return k.podBackup(ctx, fp, records, results)
+	return k.podBackup(ctx, fp, "/", records, results)
 }
 
 func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {

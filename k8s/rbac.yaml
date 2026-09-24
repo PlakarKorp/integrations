@@ -1,10 +1,12 @@
 # RBAC for the plakar kubernetes integration.
 #
-# Four independent roles, one per thing the integration does.  Apply only the
+# Six independent roles, one per thing the integration does.  Apply only the
 # ones you need: they differ enormously in power, and a single ServiceAccount
 # holding all of them is equivalent to a cluster-admin.
 #
 #   k8s+csi / k8s+pvc   PVC data      namespaced, small
+#   k8s+vm (backup)     VM + disks    namespaced, needs kubevirt snapshots
+#   k8s+vm (restore)    VM + disks    namespaced write
 #   k8s: (backup)       manifests     cluster-wide read, INCLUDING SECRETS
 #   k8s: (restore)      manifests     cluster-wide write
 #   inventory           PVC discovery cluster-wide read of PVCs only
@@ -87,11 +89,14 @@ roleRef:
   name: plakar-pvc
 ---
 # ---------------------------------------------------------------------------
-# PVC data, out-of-cluster only.
+# Volume data, out-of-cluster only.
 #
 # A kubeconfig-based run tunnels through the apiserver's portforward
 # subresource.  An in-cluster run dials the pod IP directly and does NOT need
 # this: leave it unapplied there.
+#
+# Shared by every role that runs a serving pod: k8s+csi, k8s+pvc and k8s+vm
+# both ways.  Trim the subject list to the ServiceAccounts you actually apply.
 # ---------------------------------------------------------------------------
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -112,10 +117,161 @@ subjects:
   - kind: ServiceAccount
     name: plakar-pvc
     namespace: plakar
+  - kind: ServiceAccount
+    name: plakar-vm-backup
+    namespace: plakar
+  - kind: ServiceAccount
+    name: plakar-vm-restore
+    namespace: plakar
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: plakar-pvc-portforward
+---
+# ---------------------------------------------------------------------------
+# VM backup: k8s+vm as an importer
+#
+# Same shape as the PVC role -- a pod per disk, served over mTLS -- with a
+# kubevirt VirtualMachineSnapshot on top.  That snapshot is what makes the
+# backup application-consistent: the kubevirt controller freezes the guest,
+# takes one VolumeSnapshot per disk and thaws it again.  All of that happens
+# under the controller's own credentials, so what we need here is only CRUD
+# on the VirtualMachineSnapshot plus read access to what it produced.
+#
+# Still namespaced: a VM and its disks live in one namespace.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-vm-backup
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plakar-vm-backup
+  namespace: target-namespace
+rules:
+  # The VM being backed up.  Read-only: we never touch it, the snapshot
+  # controller is the one that talks to the guest agent.
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines"]
+    verbs: ["get"]
+
+  # The VirtualMachineSnapshot we create, wait on, and delete once the
+  # disks have been read.  list comes with watch, as above.
+  - apiGroups: ["snapshot.kubevirt.io"]
+    resources: ["virtualmachinesnapshots"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+  # Its content object, created by the controller.  Read-only, and the
+  # only place both the VM manifest we store as /vm.yaml and the mapping
+  # from disk to VolumeSnapshot are available.
+  - apiGroups: ["snapshot.kubevirt.io"]
+    resources: ["virtualmachinesnapshotcontents"]
+    verbs: ["get"]
+
+  # The per-disk VolumeSnapshots.  Note the missing create and delete:
+  # unlike k8s+csi these are owned by the VirtualMachineSnapshot and go
+  # away with it, we only read them to clone from.
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "watch"]
+
+  # One temporary PVC per disk, cloned from the VolumeSnapshot and
+  # deleted as soon as that disk has been read.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "delete"]
+
+  # The pod serving each disk over mTLS, one at a time.  Identical to the
+  # k8s+pvc rules: see the comments there.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: plakar-vm-backup
+  namespace: target-namespace
+subjects:
+  - kind: ServiceAccount
+    name: plakar-vm-backup
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plakar-vm-backup
+---
+# ---------------------------------------------------------------------------
+# VM restore: k8s+vm as an exporter
+#
+# Recreates the disks, streams their contents back through a pod, then
+# applies the VM last.  Unlike the k8s: restore role this stays namespaced
+# and touches two kinds only, so it is a much smaller grant -- but it is
+# still write access to a VM, which is write access to whatever that VM
+# runs.  Keep it off the ServiceAccount doing the backups.
+#
+# As above, patch is the verb server-side apply is authorized as, create is
+# for the objects that no longer exist, and update is deliberately absent.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plakar-vm-restore
+  namespace: plakar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: plakar-vm-restore
+  namespace: target-namespace
+rules:
+  # get is what the pre-flight check uses; create and patch apply the
+  # /vm.yaml manifest once every disk has been restored.
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "create", "patch"]
+
+  # One PVC per disk, applied from its stored config.yaml just before its
+  # data is streamed back into it.  No delete: a restore never removes a
+  # claim, it applies over whatever is there.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "create", "patch"]
+
+  # The pod receiving each disk.  Same as the backup side, except the
+  # volume is mounted read-write.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: plakar-vm-restore
+  namespace: target-namespace
+subjects:
+  - kind: ServiceAccount
+    name: plakar-vm-restore
+    namespace: plakar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: plakar-vm-restore
 ---
 # ---------------------------------------------------------------------------
 # Manifest backup: k8s:

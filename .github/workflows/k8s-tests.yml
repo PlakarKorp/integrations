@@ -1,0 +1,37 @@
+name: k8s tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/k8s
+    paths:
+      - .github/workflows/k8s-tests.yml
+      - 'k8s/**'
+  pull_request:
+    paths:
+      - .github/workflows/k8s-tests.yml
+      - 'k8s/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the k8s integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: k8s/go.mod
+          cache-dependency-path: k8s/go.sum
+
+      - name: build
+        working-directory: k8s
+        run: go build ./...
+
+      - name: test
+        working-directory: k8s
+        run: go test -race ./...
