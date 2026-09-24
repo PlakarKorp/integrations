@@ -2,8 +2,12 @@ package importer
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
-
+	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,4 +111,65 @@ func TestNewS3ImporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
 
 	require.Equal(t, "/my/subdir", imp.Root())
 	require.Equal(t, "s3.eu-west-3.amazonaws.com/bucket", imp.Origin())
+)
+
+func listResponse(keys []string) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<IsTruncated>false</IsTruncated>`)
+	for _, k := range keys {
+		fmt.Fprintf(&b, `
+	<Contents>
+		<Key>%s</Key>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+		<ETag>&quot;etag&quot;</ETag>
+		<Size>1</Size>
+	</Contents>`, k)
+	}
+	b.WriteString("\n</ListBucketResult>")
+	return b.String()
+}
+
+func TestImportSkipsDotKeys(t *testing.T) {
+	keys := []string{".", "..", "a/..", "a/.", "a/b/..", "a/file", "..foo", "a/.hidden"}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if r.URL.Query().Has("location") {
+			_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`)
+			return
+		}
+		_, _ = fmt.Fprint(w, listResponse(keys))
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	imp, err := NewS3Importer(context.Background(), nil, "s3", map[string]string{
+		"location":          "s3://" + host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records := make(chan *connectors.Record)
+	errch := make(chan error, 1)
+	go func() { errch <- imp.Import(context.Background(), records, nil) }()
+
+	var got []string
+	for rec := range records {
+		got = append(got, rec.Pathname)
+	}
+	if err := <-errch; err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"/a/file", "/..foo", "/a/.hidden"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got records %q, want %q", got, want)
+	}
 }
