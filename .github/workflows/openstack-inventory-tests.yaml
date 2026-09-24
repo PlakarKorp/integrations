@@ -1,0 +1,26 @@
+name: test openstack-inventory integration
+
+on:
+  push:
+    branches:
+      - integration/openstack-inventory
+  pull_request:
+    branches:
+      - integration/openstack-inventory
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: openstack-inventory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: openstack-inventory/go.mod
+
+      - name: Run tests
+        run: make test
