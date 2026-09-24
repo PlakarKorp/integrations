@@ -243,6 +243,9 @@ func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors
 		if _, excluded := p.excludeDatabases[dbname]; excluded {
 			continue
 		}
+		if err := pgconn.ValidDatabaseName(dbname); err != nil {
+			return fmt.Errorf("backing up database: %w", err)
+		}
 		n++
 		args := append(p.conn.Args(), "-Fc")
 		if !p.compress {
