@@ -244,8 +244,14 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			continue
 		}
 
+		// "." and ".." would collide with the root or a parent directory.
+		name := path.Base("/" + object.Key)
+		if name == "." || name == ".." {
+			continue
+		}
+
 		fi := objects.FileInfo{
-			Lname:    path.Base("/" + object.Key),
+			Lname:    name,
 			Lsize:    object.Size,
 			Lmode:    0o700,
 			LmodTime: object.LastModified,
