@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar OpenStack Inventory Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["openstack_auth_url"],
+  "properties": {
+    "openstack_auth_url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Keystone v3 endpoint, e.g. https://keystone.example.com:5000/v3"
+    },
+    "openstack_region": {
+      "type": "string",
+      "description": "Comma-separated regions to scan; defaults to every region in the service catalog"
+    },
+    "openstack_application_credential_id": {
+      "type": "string",
+      "description": "Application credential ID; takes precedence over password authentication"
+    },
+    "openstack_application_credential_secret": {
+      "type": "string",
+      "description": "Application credential secret"
+    },
+    "openstack_username": {
+      "type": "string",
+      "description": "Username, for password authentication"
+    },
+    "openstack_password": {
+      "type": "string",
+      "description": "Password, for password authentication"
+    },
+    "openstack_project_id": {
+      "type": "string",
+      "description": "Project ID, for password authentication; this or openstack_project_name is required"
+    },
+    "openstack_project_name": {
+      "type": "string",
+      "description": "Project name, for password authentication; ignored if openstack_project_id is set"
+    },
+    "openstack_domain_name": {
+      "type": "string",
+      "default": "Default",
+      "description": "Domain of the user, and of the project when given by name, for password authentication"
+    }
+  }
+}

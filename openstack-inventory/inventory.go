@@ -1,0 +1,290 @@
+package openstackinventory
+
+import (
+	"context"
+	_ "embed"
+	"errors"
+	"fmt"
+	"iter"
+	"log"
+	"maps"
+	"net"
+	"slices"
+	"strings"
+
+	"github.com/PlakarKorp/go-inventory-sdk/inventory"
+	"github.com/PlakarKorp/pkg"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/db/v1/instances"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
+)
+
+//go:embed schema.json
+var Schema []byte
+
+// osInventory scans one project, through one client per region.
+type osInventory struct {
+	apis []openstackAPI
+}
+
+// NewInventory authenticates against Keystone and returns an inventory of the
+// token's project across every region in its catalog, or only the regions
+// listed in openstack_region.
+func NewInventory(ctx context.Context, params map[string]string) (inventory.Inventory, error) {
+	cfg, err := parseConfig(params)
+	if err != nil {
+		return nil, err
+	}
+
+	clients, err := newGopherClients(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	inv := &osInventory{}
+	for _, c := range clients {
+		inv.apis = append(inv.apis, c)
+	}
+	return inv, nil
+}
+
+// List sends one entry per server, volume, owned Glance image, Swift container
+// and Trove instance in the project, region by region. A service missing from a
+// region's catalog, or refusing the credential, is skipped; any other error
+// stops the listing.
+func (inv *osInventory) List(ctx context.Context, resources chan<- *inventory.InventoryEntry) error {
+	defer close(resources)
+
+	for entry, err := range inv.entries(ctx) {
+		if err != nil {
+			return err
+		}
+		select {
+		case resources <- entry:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func (inv *osInventory) Close(ctx context.Context) error {
+	return nil
+}
+
+// entries chains every region's per-service listings into one stream. The
+// listings are lazy, so nothing is fetched until List ranges over the result.
+func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
+	return func(yield func(*inventory.InventoryEntry, error) bool) {
+		for _, api := range inv.apis {
+			sc := api.Scope()
+			sources := []iter.Seq2[*inventory.InventoryEntry, error]{
+				entriesOf(sc, api.ListServers(ctx), serverEntry),
+				entriesOf(sc, api.ListVolumes(ctx), volumeEntry),
+				entriesOf(sc, api.ListImages(ctx), imageEntry),
+				entriesOf(sc, api.ListContainers(ctx), containerEntry),
+				entriesOf(sc, api.ListDatabases(ctx), databaseEntry),
+			}
+			for _, source := range sources {
+				for entry, err := range source {
+					if errors.Is(err, errServiceUnavailable) || errors.Is(err, errAccessDenied) {
+						log.Printf("openstack-inventory: region %q: skipping: %v", sc.Region, err)
+						break
+					}
+					if err != nil {
+						yield(nil, fmt.Errorf("region %q: %w", sc.Region, err))
+						return
+					}
+					if !yield(entry, nil) {
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// entriesOf maps a client listing to inventory entries, passing errors through
+// and leaving out the items toEntry returns nil for.
+func entriesOf[T any](sc scope, seq iter.Seq2[T, error], toEntry func(scope, T) *inventory.InventoryEntry) iter.Seq2[*inventory.InventoryEntry, error] {
+	return func(yield func(*inventory.InventoryEntry, error) bool) {
+		for item, err := range seq {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if e := toEntry(sc, item); e != nil && !yield(e, nil) {
+				return
+			}
+		}
+	}
+}
+
+// urn follows the other inventories: urn:openstack:<project>:<service>:<region>:<type>:<id>.
+func urn(sc scope, service, resourceType, id string) string {
+	return fmt.Sprintf("urn:openstack:%s:%s:%s:%s:%s", sc.ProjectID, service, sc.Region, resourceType, id)
+}
+
+func serverEntry(sc scope, s servers.Server) *inventory.InventoryEntry {
+	e := &inventory.InventoryEntry{
+		Class:     pkg.ResourceClassCompute,
+		SubClass:  pkg.ResourceSubClassUndefined,
+		URN:       urn(sc, "nova", "server", s.ID),
+		Name:      s.Name,
+		Region:    sc.Region,
+		Service:   "nova",
+		Resource:  "nova:server",
+		Tags:      append(metadataTags(s.Metadata), serverTags(s)...),
+		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: s.ID}},
+	}
+	for _, addr := range serverAddresses(s) {
+		e.Endpoints = append(e.Endpoints, addressEndpoint(addr))
+	}
+	return e
+}
+
+// serverAddresses flattens the server's addresses, sorted by network name.
+// servers.Server leaves Addresses untyped: each network maps to a []any of
+// {"addr": ..., "version": ...} objects.
+func serverAddresses(s servers.Server) []string {
+	var out []string
+	for _, net := range slices.Sorted(maps.Keys(s.Addresses)) {
+		entries, _ := s.Addresses[net].([]any)
+		for _, e := range entries {
+			if m, ok := e.(map[string]any); ok {
+				if addr, ok := m["addr"].(string); ok {
+					out = append(out, addr)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func volumeEntry(sc scope, v volumes.Volume) *inventory.InventoryEntry {
+	e := &inventory.InventoryEntry{
+		Class:     pkg.ResourceClassBlockStorage,
+		SubClass:  pkg.ResourceSubClassUndefined,
+		URN:       urn(sc, "cinder", "volume", v.ID),
+		Name:      v.Name,
+		Region:    sc.Region,
+		Service:   "cinder",
+		Resource:  "cinder:volume",
+		Tags:      metadataTags(v.Metadata),
+		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: v.ID}},
+	}
+	if e.Name == "" {
+		e.Name = v.ID // Cinder volumes are often unnamed
+	}
+	return e
+}
+
+// imageEntry leaves out images without data: a snapshot of a boot-from-volume
+// server is an empty Glance image whose disks live in Cinder snapshots.
+func imageEntry(sc scope, i images.Image) *inventory.InventoryEntry {
+	if i.SizeBytes == 0 {
+		return nil
+	}
+	e := &inventory.InventoryEntry{
+		// pkg has no image subclass; Resource tells images and servers apart.
+		Class:     pkg.ResourceClassCompute,
+		SubClass:  pkg.ResourceSubClassUndefined,
+		URN:       urn(sc, "glance", "image", i.ID),
+		Name:      i.Name,
+		Region:    sc.Region,
+		Service:   "glance",
+		Resource:  "glance:image",
+		Tags:      i.Tags,
+		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: i.ID}},
+	}
+	if e.Name == "" {
+		e.Name = i.ID
+	}
+	return e
+}
+
+func containerEntry(sc scope, c container) *inventory.InventoryEntry {
+	return &inventory.InventoryEntry{
+		Class:     pkg.ResourceClassObjectStorage,
+		SubClass:  pkg.ResourceSubClassUndefined,
+		URN:       urn(sc, "swift", "container", c.Name),
+		Name:      c.Name,
+		Region:    sc.Region,
+		Service:   "swift",
+		Resource:  "swift:container",
+		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointHost, Endpoint: c.URL}},
+	}
+}
+
+// The trove API is yet to be tested against a real cloud, so the entry is best-effort.
+func databaseEntry(sc scope, d instances.Instance) *inventory.InventoryEntry {
+	e := &inventory.InventoryEntry{
+		Class:    pkg.ResourceClassDatabase,
+		SubClass: datastoreSubClass(d.Datastore.Type),
+		URN:      urn(sc, "trove", "instance", d.ID),
+		Name:     d.Name,
+		Region:   sc.Region,
+		Service:  "trove",
+		Resource: "trove:instance",
+	}
+	if d.Hostname != "" {
+		e.Endpoints = append(e.Endpoints, inventory.HostEndpoint{Type: inventory.EndpointHost, Endpoint: d.Hostname})
+	}
+	addrs := d.IP // older Trove releases only report the deprecated ip field
+	if len(d.Addresses) > 0 {
+		addrs = nil
+		for _, a := range d.Addresses {
+			addrs = append(addrs, a.Address)
+		}
+	}
+	for _, addr := range addrs {
+		e.Endpoints = append(e.Endpoints, addressEndpoint(addr))
+	}
+	return e
+}
+
+func datastoreSubClass(datastore string) pkg.ResourceSubClass {
+	switch strings.ToLower(datastore) {
+	case "mysql", "mariadb", "percona":
+		return pkg.ResourceSubClassMySQL
+	case "postgresql":
+		return pkg.ResourceSubClassPostgreSQL
+	case "mongodb":
+		return pkg.ResourceSubClassMongoDB
+	case "redis":
+		return pkg.ResourceSubClassRedis
+	default:
+		return pkg.ResourceSubClassUndefined
+	}
+}
+
+// addressEndpoint types an address as inet4, inet6 or, if it isn't an IP, host.
+func addressEndpoint(addr string) inventory.HostEndpoint {
+	t := inventory.EndpointHost
+	if ip := net.ParseIP(addr); ip != nil {
+		t = inventory.EndpointInet6
+		if ip.To4() != nil {
+			t = inventory.EndpointInet4
+		}
+	}
+	return inventory.HostEndpoint{Type: t, Endpoint: addr}
+}
+
+// metadataTags turns user metadata into key=value tags, sorted by key.
+func metadataTags(metadata map[string]string) []string {
+	var out []string
+	for _, key := range slices.Sorted(maps.Keys(metadata)) {
+		out = append(out, key+"="+metadata[key])
+	}
+	return out
+}
+
+// serverTags returns the server's Nova tags; the field is only set at
+// microversion 2.26 or later.
+func serverTags(s servers.Server) []string {
+	if s.Tags == nil {
+		return nil
+	}
+	return *s.Tags
+}
