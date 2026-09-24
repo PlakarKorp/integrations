@@ -59,7 +59,6 @@ type k8s struct {
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
-	skipLostPlusFound    bool
 }
 
 func init() {
@@ -99,7 +98,6 @@ var defaultFilter = func(_ metav1.ObjectMeta) (bool, error) {
 type options struct {
 	filters              Filters
 	skipRootPermsAndTime bool
-	skipLostPlusFound    bool
 }
 
 func newOptions() *options {
@@ -117,13 +115,6 @@ func WithFilters(filters Filters) Options {
 func WithSkipRootPermsAndTime(skipRootPermsAndTime bool) Options {
 	return func(o *options) {
 		o.skipRootPermsAndTime = skipRootPermsAndTime
-	}
-}
-
-// Deprecated: (MVP hack) WithSkipLostPlusFound quick fix to have restore working on fs when not root
-func WithSkipLostPlusFound(skipLostPlusFound bool) Options {
-	return func(o *options) {
-		o.skipLostPlusFound = skipLostPlusFound
 	}
 }
 
@@ -314,7 +305,6 @@ func New(
 		portForward: portForward,
 
 		skipRootPermsAndTime: k8sOpts.skipRootPermsAndTime,
-		skipLostPlusFound:    k8sOpts.skipLostPlusFound,
 		restoreFilters:       mergeMaps(neverRestore, k8sOpts.filters, ignoreResources),
 		volumeSnapshotClass:  snapClass,
 		kubeletImage:         kubeletImage,
