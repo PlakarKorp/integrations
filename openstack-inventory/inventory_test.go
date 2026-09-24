@@ -90,7 +90,7 @@ func TestListMapsEveryResource(t *testing.T) {
 			Attachments: []volumes.Attachment{{ServerID: "s1"}}, Metadata: map[string]string{"backup": "daily"}}},
 		images: []images.Image{
 			{ID: "i1", Name: "web-snap", Status: images.ImageStatusActive, Visibility: images.ImageVisibilityPrivate, DiskFormat: "qcow2", SizeBytes: 1024,
-				Properties: map[string]any{"image_type": "snapshot"}, Tags: []string{"golden"}},
+				Properties: map[string]any{"image_type": "snapshot"}, Tags: []string{"golden", "owner:peeyush", "env:prod"}},
 			{ID: "i2", Name: "bfv-snap", Status: images.ImageStatusActive, Visibility: images.ImageVisibilityPrivate}, // no data: skipped
 		},
 		containers: []container{{Container: containers.Container{Name: "media", Count: 3, Bytes: 42}, URL: "http://swift:8080/v1/AUTH_p1/media"}},
@@ -121,18 +121,20 @@ func TestListMapsEveryResource(t *testing.T) {
 		{
 			Class: pkg.ResourceClassCompute, URN: "urn:openstack:p1:glance:RegionOne:image:i1",
 			Name: "web-snap", Region: "RegionOne", Service: "glance", Resource: "glance:image",
-			Tags:      []string{"golden"},
+			Tags:      []string{"golden", "owner=peeyush", "env=prod"},
 			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "i1"}},
 		},
 		{
 			Class: pkg.ResourceClassObjectStorage, URN: "urn:openstack:p1:swift:RegionOne:container:media",
 			Name: "media", Region: "RegionOne", Service: "swift", Resource: "swift:container",
+			Tags:      []string{},
 			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointHost, Endpoint: "http://swift:8080/v1/AUTH_p1/media"}},
 		},
 		{
 			Class: pkg.ResourceClassDatabase, SubClass: pkg.ResourceSubClassPostgreSQL,
 			URN:  "urn:openstack:p1:trove:RegionOne:instance:d1",
 			Name: "orders", Region: "RegionOne", Service: "trove", Resource: "trove:instance",
+			Tags: []string{},
 			Endpoints: []inventory.HostEndpoint{
 				{Type: inventory.EndpointHost, Endpoint: "db.example"},
 				{Type: inventory.EndpointInet4, Endpoint: "10.0.0.9"},
@@ -224,6 +226,13 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 	_, err := listAll(t, &stubAPI{}, &stubAPI{region: "RegionTwo", serversErr: boom})
 	require.ErrorIs(t, err, boom)
 	assert.ErrorContains(t, err, `region "RegionTwo"`)
+}
+
+func TestGlanceTags(t *testing.T) {
+	assert.Equal(t,
+		[]string{"owner=peeyush", "golden", "url=https://x", ":odd"},
+		glanceTags([]string{"owner:peeyush", "golden", "url:https://x", ":odd"}))
+	assert.Equal(t, []string{}, glanceTags(nil))
 }
 
 // Older Trove releases report addresses only in the deprecated ip field.

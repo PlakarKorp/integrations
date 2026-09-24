@@ -114,7 +114,14 @@ func entriesOf[T any](sc scope, seq iter.Seq2[T, error], toEntry func(scope, T) 
 				yield(nil, err)
 				return
 			}
-			if e := toEntry(sc, item); e != nil && !yield(e, nil) {
+			e := toEntry(sc, item)
+			if e == nil {
+				continue
+			}
+			if e.Tags == nil {
+				e.Tags = []string{} // an entry without tags has an empty list, not none
+			}
+			if !yield(e, nil) {
 				return
 			}
 		}
@@ -195,7 +202,7 @@ func imageEntry(sc scope, i images.Image) *inventory.InventoryEntry {
 		Region:    sc.Region,
 		Service:   "glance",
 		Resource:  "glance:image",
-		Tags:      i.Tags,
+		Tags:      glanceTags(i.Tags),
 		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: i.ID}},
 	}
 	if e.Name == "" {
@@ -276,6 +283,19 @@ func metadataTags(metadata map[string]string) []string {
 	var out []string
 	for _, key := range slices.Sorted(maps.Keys(metadata)) {
 		out = append(out, key+"="+metadata[key])
+	}
+	return out
+}
+
+// glanceTags writes key:value image tags as key=value, the form metadata tags
+// take; other tags are kept as they are.
+func glanceTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if key, value, ok := strings.Cut(tag, ":"); ok && key != "" {
+			tag = key + "=" + value
+		}
+		out = append(out, tag)
 	}
 	return out
 }
