@@ -2,10 +2,14 @@ package storage
 
 import (
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -115,5 +119,84 @@ func TestListErrorMidListing(t *testing.T) {
 	}
 	if macs != nil {
 		t.Fatalf("partial results returned alongside error: %v", macs)
+	}
+}
+
+// Concurrent Gets must reuse connections once the first batch has dialed,
+// rather than dropping all but a few and redialing on the next batch.
+func TestGetReusesConnections(t *testing.T) {
+	const inflight = 64
+	const rounds = 10
+
+	var mu sync.Mutex
+	var arrived int
+	barrier := make(chan struct{})
+
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// hold every request until the whole batch is in flight, so they
+		// overlap and each needs its own connection.
+		mu.Lock()
+		arrived++
+		b := barrier
+		if arrived == inflight {
+			close(b)
+		}
+		mu.Unlock()
+		<-b
+		w.Header().Set("Last-Modified", "Mon, 07 Sep 2026 00:00:00 GMT")
+		w.Header().Set("ETag", `"etag"`)
+		w.Header().Set("Content-Range", "bytes 0-3/4")
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write([]byte("data"))
+	}))
+	var dials atomic.Int64
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			dials.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(context.Background(), "s3", map[string]string{
+		"location":          "s3://" + u.Host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+		"region":            "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	for range rounds {
+		mu.Lock()
+		arrived = 0
+		barrier = make(chan struct{})
+		mu.Unlock()
+
+		var wg sync.WaitGroup
+		for range inflight {
+			wg.Go(func() {
+				rd, err := st.Get(context.Background(), storage.StorageResourcePackfile, objects.MAC{}, &storage.Range{Offset: 0, Length: 4})
+				if err != nil {
+					t.Errorf("Get: %v", err)
+					return
+				}
+				defer rd.Close()
+				if _, err := io.ReadAll(rd); err != nil {
+					t.Errorf("read: %v", err)
+				}
+			})
+		}
+		wg.Wait()
+	}
+
+	if n := dials.Load(); n > inflight {
+		t.Fatalf("%d connections dialed for %d concurrent requests over %d rounds, want at most %d", n, inflight, rounds, inflight)
 	}
 }
