@@ -43,5 +43,31 @@
       "default": "Default",
       "description": "Domain of the user, and of the project when given by name, for password authentication"
     }
-  }
+  },
+  "allOf": [
+    {
+      "$comment": "An application credential needs both its ID and its secret.",
+      "dependentRequired": {
+        "openstack_application_credential_id": ["openstack_application_credential_secret"],
+        "openstack_application_credential_secret": ["openstack_application_credential_id"]
+      }
+    },
+    {
+      "$comment": "Authenticate with an application credential, or with a username and password.",
+      "anyOf": [
+        { "required": ["openstack_application_credential_id"] },
+        { "required": ["openstack_username", "openstack_password"] }
+      ]
+    },
+    {
+      "$comment": "Password authentication must name the project to scope the token to.",
+      "if": { "not": { "required": ["openstack_application_credential_id"] } },
+      "then": {
+        "anyOf": [
+          { "required": ["openstack_project_id"] },
+          { "required": ["openstack_project_name"] }
+        ]
+      }
+    }
+  ]
 }
