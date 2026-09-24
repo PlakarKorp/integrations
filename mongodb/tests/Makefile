@@ -10,6 +10,11 @@ MONGODB_CSR=mongodb.csr
 MONGODB_CRT=mongodb.crt
 MONGODB_PEM=mongodb.pem
 MONGOD_CFG=mongod.cfg
+CLIENT_KEY=client.key
+CLIENT_CSR=client.csr
+CLIENT_CRT=client.crt
+CLIENT_PEM=client.pem
+TLS_MODE=allowTLS
 
 .PHONY: all prepare shell clean start stop test_backup test_restore
 
@@ -22,7 +27,7 @@ ${CA_KEY}:
 
 ${CA_CSR}: ${CA_KEY}
 	openssl req -batch -new -key "${CA_KEY}" \
-		-subj "/C=FR/O=Plakar/CN=Test CA" \
+		-subj "/C=FR/O=Plakar/CN=TestCA" \
 		-addext "basicConstraints=CA:true" \
 		-out "$@"
 
@@ -37,7 +42,7 @@ ${MONGODB_KEY}:
 
 ${MONGODB_CSR}: ${MONGODB_KEY}
 	openssl req -batch -new -key "${MONGODB_KEY}" \
-		-subj "/C=FR/O=Plakar/CN=Test Server" \
+		-subj "/C=FR/O=Plakar/CN=TestServer" \
 		-addext "subjectAltName=IP:127.0.0.1" \
 		-out "$@"
 
@@ -50,7 +55,25 @@ ${MONGODB_CRT}: ${MONGODB_CSR} ${MONGODB_KEY}
 ${MONGODB_PEM}: ${MONGODB_CRT} ${MONGODB_KEY}
 	cat ${MONGODB_CRT} ${MONGODB_KEY} > "$@"
 
-prepare: ${CA_CRT} ${MONGODB_PEM}
+${CLIENT_KEY}:
+	openssl genrsa -out "$@" 4096
+	chmod 600 "$@"
+
+${CLIENT_CSR}: ${CLIENT_KEY}
+	openssl req -batch -new -key "${CLIENT_KEY}" \
+		-subj "/C=FR/O=Plakar/CN=TestClient" \
+		-out "$@"
+
+${CLIENT_CRT}: ${CLIENT_CSR} ${CLIENT_KEY}
+	openssl x509 -req -days 365 -in "${CLIENT_CSR}" \
+		-extfile x509v3.cnf -extensions x509v3_IPAddrClient \
+		-CA "${CA_CRT}" -CAkey "${CA_KEY}" \
+		-out "$@"
+
+${CLIENT_PEM}: ${CLIENT_CRT} ${CLIENT_KEY}
+	cat ${CLIENT_CRT} ${CLIENT_KEY} > "$@"
+
+prepare: ${CA_CRT} ${MONGODB_PEM} ${CLIENT_PEM}
 	docker pull ${MONGODB_DOCKER_IMAGE}
 	set -e; d=`mktemp -d /tmp/plakar-mongodb-XXXXXXXXXXXX`; \
 	echo "$$d" > testdir; \
@@ -58,6 +81,7 @@ prepare: ${CA_CRT} ${MONGODB_PEM}
 	cp ${CA_CRT} "$$d"; \
 	cp ${MONGODB_PEM} "$$d"; \
 	cp ${MONGOD_CFG} "$$d"; \
+	cp ${CLIENT_PEM} "$$d"; \
 	docker container create --name ${MONGODB_DOCKER_NAME} \
 		-p ${MONGODB_PORT}:${MONGODB_PORT} \
 		--env-file mongo-test-authdata \
@@ -66,11 +90,12 @@ prepare: ${CA_CRT} ${MONGODB_PEM}
 		--tlsCAFile="$$d/${CA_CRT}" \
 		--tlsCertificateKeyFile="$$d/${MONGODB_PEM}" \
 		--config "$$d/${MONGOD_CFG}" \
-		--tlsMode allowTLS
+		--tlsMode ${TLS_MODE}
 
 clean: stop
 	rm -f "${CA_CRT}" "${CA_CSR}" "${CA_KEY}"
 	rm -f "${MONGODB_PEM}" "${MONGODB_CRT}" "${MONGODB_CSR}" "${MONGODB_KEY}"
+	rm -f "${CLIENT_PEM}" "${CLIENT_CRT}" "${CLIENT_CSR}" "${CLIENT_KEY}"
 	-set -e; d=`cat testdir`; [ -d "$$d" ] && rm -f "$$d"/* && rmdir "$$d"
 	-docker container remove ${MONGODB_DOCKER_NAME} > /dev/null
 
@@ -100,6 +125,7 @@ test_backup:
 	env MONGODB_PORT=${MONGODB_PORT} \
 		MONGODB_DOCKER_NAME=${MONGODB_DOCKER_NAME} \
 		CA_CRT="$$d/${CA_CRT}" \
+		CLIENT_PEM="$$d/${CLIENT_PEM}" \
 		PLAKAR_MONGODB_ADDR=${PLAKAR_MONGODB_ADDR} \
 		./test_backup.sh; ret=$$?; \
 	if [ $$ret -eq 0 ]; then echo "All tests passed"; fi; exit $$ret
@@ -111,6 +137,7 @@ test_restore:
 	env MONGODB_PORT=${MONGODB_PORT} \
 		MONGODB_DOCKER_NAME=${MONGODB_DOCKER_NAME} \
 		CA_CRT="$$d/${CA_CRT}" \
+		CLIENT_PEM="$$d/${CLIENT_PEM}" \
 		PLAKAR_MONGODB_ADDR=${PLAKAR_MONGODB_ADDR} \
 		./test_restore.sh; ret=$$?; \
 	if [ $$ret -eq 0 ]; then echo "All tests passed"; fi; exit $$ret
