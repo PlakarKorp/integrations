@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -725,7 +726,68 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	}
 	defer exporter.Close(ctx)
 
+	if proto == "fs" && k.skipLostPlusFound {
+		return exportSkippingMiddleware(records, results, isLostPlusFound,
+			func(records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+				return exporter.Export(ctx, records, results)
+			})
+	}
 	return exporter.Export(ctx, records, results)
+}
+
+// isLostPlusFound matches /lost+found and what is below it.  The
+// directory is root-owned with mode 0700, so a non-root pod can
+// neither restore its attributes nor write into it.
+func isLostPlusFound(record *connectors.Record) bool {
+	return record.Pathname == "/lost+found" ||
+		strings.HasPrefix(record.Pathname, "/lost+found/")
+}
+
+// exportSkippingMiddleware runs export on the records that skip does not match,
+// and acknowledges the others as restored.
+func exportSkippingMiddleware(
+	records <-chan *connectors.Record,
+	results chan<- *connectors.Result,
+	skip func(*connectors.Record) bool,
+	export func(<-chan *connectors.Record, chan<- *connectors.Result) error,
+) error {
+	var (
+		inrecords = make(chan *connectors.Record)
+		inresults = make(chan *connectors.Result)
+		errch     = make(chan error, 1)
+		forwarded = make(chan struct{})
+	)
+	defer close(results)
+
+	go func() { errch <- export(inrecords, inresults) }()
+	go func() {
+		defer close(forwarded)
+		for result := range inresults {
+			results <- result
+		}
+	}()
+
+	for record := range records {
+		if skip(record) {
+			results <- record.Ok()
+			continue
+		}
+
+		select {
+		case inrecords <- record:
+		case err := <-errch:
+			<-forwarded
+			if err == nil {
+				err = errors.New("exporter exited early")
+			}
+			return err
+		}
+	}
+	close(inrecords)
+
+	err := <-errch
+	<-forwarded
+	return err
 }
 
 func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
