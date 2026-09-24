@@ -15,11 +15,16 @@ func init() {
 	exporter.Register("postgres+aws", 0, NewAWSExporter)
 }
 
-func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
+func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (_ exporter.Exporter, err error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			conn.Cleanup()
+		}
+	}()
 
 	region := cfg["region"]
 	if region == "" {

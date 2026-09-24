@@ -108,11 +108,16 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 	}, nil
 }
 
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (_ importer.Importer, err error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			conn.Cleanup()
+		}
+	}()
 	return NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
 }
 

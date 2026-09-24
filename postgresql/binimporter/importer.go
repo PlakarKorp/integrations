@@ -39,11 +39,16 @@ func (p *BinImporter) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
-func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (_ importer.Importer, err error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			conn.Cleanup()
+		}
+	}()
 	if dbPath != "" {
 		return nil, fmt.Errorf("postgres+bin: subpath %q is not allowed (pg_basebackup backs up the entire cluster)", dbPath)
 	}
