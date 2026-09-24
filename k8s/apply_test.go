@@ -97,6 +97,7 @@ func interceptApply(dyn *dynamicfake.FakeDynamicClient, resource string) *captur
 }
 
 func TestRestoreConfigSkipsNonRegularRecords(t *testing.T) {
+	t.Parallel()
 	k := newApplyTestK8s()
 
 	errRecord := connectors.NewError("/broken", errors.New("boom"))
@@ -115,6 +116,8 @@ func TestRestoreConfigSkipsNonRegularRecords(t *testing.T) {
 }
 
 func TestApplyNamespacedResource(t *testing.T) {
+	t.Parallel()
+
 	k := newApplyTestK8s()
 	captured := interceptApply(fakeDynamic(k), "configmaps")
 
@@ -144,6 +147,8 @@ data:
 }
 
 func TestApplyClusterScopedResource(t *testing.T) {
+	t.Parallel()
+
 	k := newApplyTestK8s()
 	captured := interceptApply(fakeDynamic(k), "namespaces")
 
@@ -166,6 +171,8 @@ func (errReader) Read([]byte) (int, error) { return 0, errors.New("forced read f
 func (errReader) Close() error             { return nil }
 
 func TestApplyDecodeError(t *testing.T) {
+	t.Parallel()
+
 	k := newApplyTestK8s()
 
 	err := k.apply(t.Context(), "err", errReader{})
@@ -173,6 +180,8 @@ func TestApplyDecodeError(t *testing.T) {
 }
 
 func TestApplyUnknownKind(t *testing.T) {
+	t.Parallel()
+
 	k := newApplyTestK8s()
 
 	yaml := `
@@ -186,6 +195,8 @@ metadata:
 }
 
 func TestApplyServerError(t *testing.T) {
+	t.Parallel()
+
 	k := newApplyTestK8s()
 	fakeDynamic(k).PrependReactor("patch", "configmaps", func(action clienttesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("apiserver is on fire")
@@ -203,6 +214,8 @@ metadata:
 }
 
 func TestIsRestorable(t *testing.T) {
+	t.Parallel()
+
 	suite := []struct {
 		name  string
 		verbs metav1.Verbs
@@ -242,6 +255,8 @@ func TestIsRestorable(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			require.Equal(t, test.want, isRestorable(test.verbs))
 		})
 	}
@@ -257,6 +272,8 @@ func ownerRef(apiVersion, kind, name string, controller bool) metav1.OwnerRefere
 }
 
 func TestSkipRestore(t *testing.T) {
+	t.Parallel()
+
 	suite := []struct {
 		name    string
 		gvk     schema.GroupVersionKind
@@ -338,6 +355,8 @@ func TestSkipRestore(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			ignored := make(Filters)
 			for _, gk := range test.skipped {
 				ignored[gk] = defaultFilter
@@ -359,10 +378,14 @@ func TestSkipRestore(t *testing.T) {
 }
 
 func TestSkipRestoreFilters(t *testing.T) {
+	t.Parallel()
+
 	gvk := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 	gk := gvk.GroupKind()
 
 	t.Run("restores what the filter keeps", func(t *testing.T) {
+		t.Parallel()
+
 		k := &k8s{restoreFilters: Filters{gk: func(meta metav1.ObjectMeta) (bool, error) {
 			return meta.Labels["restore"] == "yes", nil
 		}}}
@@ -376,6 +399,8 @@ func TestSkipRestoreFilters(t *testing.T) {
 	})
 
 	t.Run("skips what the filter drops", func(t *testing.T) {
+		t.Parallel()
+
 		k := &k8s{restoreFilters: Filters{gk: defaultFilter}}
 
 		reason, err := k.skipRestore(gvk, metav1.ObjectMeta{Name: "nginx"})
@@ -384,6 +409,8 @@ func TestSkipRestoreFilters(t *testing.T) {
 	})
 
 	t.Run("leaves other kinds alone", func(t *testing.T) {
+		t.Parallel()
+
 		k := &k8s{restoreFilters: Filters{{Group: "apps", Kind: "StatefulSet"}: defaultFilter}}
 
 		reason, err := k.skipRestore(gvk, metav1.ObjectMeta{Name: "nginx"})
@@ -392,6 +419,8 @@ func TestSkipRestoreFilters(t *testing.T) {
 	})
 
 	t.Run("yields the filter error", func(t *testing.T) {
+		t.Parallel()
+
 		k := &k8s{restoreFilters: Filters{gk: func(metav1.ObjectMeta) (bool, error) {
 			return false, errors.New("boom")
 		}}}
@@ -402,6 +431,8 @@ func TestSkipRestoreFilters(t *testing.T) {
 }
 
 func TestObjectMeta(t *testing.T) {
+	t.Parallel()
+
 	decode := func(t *testing.T, doc string) *unstructured.Unstructured {
 		t.Helper()
 		obj := &unstructured.Unstructured{Object: map[string]any{}}
@@ -410,6 +441,8 @@ func TestObjectMeta(t *testing.T) {
 	}
 
 	t.Run("decodes the metadata into the typed struct", func(t *testing.T) {
+		t.Parallel()
+
 		obj := decode(t, `
 apiVersion: apps/v1
 kind: ReplicaSet
@@ -441,6 +474,8 @@ spec:
 	})
 
 	t.Run("does not alter the object it reads", func(t *testing.T) {
+		t.Parallel()
+
 		obj := decode(t, `
 apiVersion: v1
 kind: ConfigMap
@@ -459,6 +494,8 @@ data:
 	})
 
 	t.Run("reports an object without metadata", func(t *testing.T) {
+		t.Parallel()
+
 		obj := decode(t, "apiVersion: v1\nkind: ConfigMap\n")
 
 		_, err := objectMeta(obj)

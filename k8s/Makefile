@@ -28,7 +28,7 @@ install: package
 reinstall: uninstall install
 
 test:
-	${GO} test -v ./...
+	${GO} test -v ./... -race
 
 check: test
 

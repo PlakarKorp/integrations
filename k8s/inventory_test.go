@@ -41,6 +41,8 @@ func runInventoryList(t *testing.T, inv *inventory) ([]*sdk.InventoryEntry, erro
 }
 
 func TestInventoryListPVCs(t *testing.T) {
+	t.Parallel()
+
 	inv := newInventoryTest(pvcObj("ns1", "pvc1"), pvcObj("ns2", "pvc2"))
 
 	entries, err := runInventoryList(t, inv)
@@ -64,6 +66,8 @@ func TestInventoryListPVCs(t *testing.T) {
 }
 
 func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {
+	t.Parallel()
+
 	inv := newInventoryTest()
 	clientset := inv.clientset.(*k8sfake.Clientset)
 
@@ -87,6 +91,8 @@ func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {
 }
 
 func TestInventoryListPVCsError(t *testing.T) {
+	t.Parallel()
+
 	inv := newInventoryTest()
 	clientset := inv.clientset.(*k8sfake.Clientset)
 	clientset.PrependReactor("list", "persistentvolumeclaims", func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -99,6 +105,8 @@ func TestInventoryListPVCsError(t *testing.T) {
 }
 
 func TestInventoryClose(t *testing.T) {
+	t.Parallel()
+
 	inv := newInventoryTest()
 	require.NoError(t, inv.Close(t.Context()))
 }

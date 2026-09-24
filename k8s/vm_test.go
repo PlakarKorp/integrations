@@ -41,6 +41,8 @@ func namedVolumeSnapshot(ns, name string, status *vs.VolumeSnapshotStatus) *vs.V
 }
 
 func TestVmsnapReady(t *testing.T) {
+	t.Parallel()
+
 	suite := []struct {
 		name    string
 		evt     watch.Event
@@ -78,6 +80,8 @@ func TestVmsnapReady(t *testing.T) {
 
 	for _, test := range suite {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := vmsnapReady(test.evt)
 
 			if test.wantErr != "" {
@@ -105,7 +109,11 @@ func withGeneratedVmsnapResourceVersion(client *kubevirtfake.Clientset) {
 }
 
 func TestGenvmsnap(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ready", func(t *testing.T) {
+		t.Parallel()
+
 		client := kubevirtfake.NewSimpleClientset()
 		withGeneratedVmsnapResourceVersion(client)
 		client.PrependWatchReactor("virtualmachinesnapshots", singleEventWatchReactor(watch.Event{
@@ -133,6 +141,8 @@ func TestGenvmsnap(t *testing.T) {
 	})
 
 	t.Run("failed status deletes the snapshot and returns the error", func(t *testing.T) {
+		t.Parallel()
+
 		client := kubevirtfake.NewSimpleClientset()
 		withGeneratedVmsnapResourceVersion(client)
 		client.PrependWatchReactor("virtualmachinesnapshots", singleEventWatchReactor(watch.Event{
@@ -156,17 +166,20 @@ func TestGenvmsnap(t *testing.T) {
 		require.True(t, deleted, "genvmsnap must delete the virtualmachinesnapshot when it failed")
 	})
 
-
 	// don't attempt to test watch.Error because watchtools.Until uses a
 	// RetryWatcher that would end up retrying forever.
 }
 
 func TestDelvmsnap(t *testing.T) {
+	t.Parallel()
+
 	newVms := func() *snapshotv1beta1.VirtualMachineSnapshot {
 		return &snapshotv1beta1.VirtualMachineSnapshot{ObjectMeta: metav1.ObjectMeta{Name: "vmsnap1", Namespace: "ns"}}
 	}
 
 	t.Run("deletes the virtualmachinesnapshot", func(t *testing.T) {
+		t.Parallel()
+
 		vms := newVms()
 		client := kubevirtfake.NewSimpleClientset(vms)
 		k := &k8s{kubevirtClient: client}
@@ -179,6 +192,8 @@ func TestDelvmsnap(t *testing.T) {
 	})
 
 	t.Run("delete error is only logged", func(t *testing.T) {
+		t.Parallel()
+
 		vms := newVms()
 		client := kubevirtfake.NewSimpleClientset(vms)
 		client.PrependReactor("delete", "virtualmachinesnapshots", func(clienttesting.Action) (bool, runtime.Object, error) {
@@ -191,6 +206,8 @@ func TestDelvmsnap(t *testing.T) {
 }
 
 func TestDiskSnapshots(t *testing.T) {
+	t.Parallel()
+
 	newContent := func(vbs ...snapshotv1beta1.VolumeBackup) *snapshotv1beta1.VirtualMachineSnapshotContent {
 		return &snapshotv1beta1.VirtualMachineSnapshotContent{
 			ObjectMeta: metav1.ObjectMeta{Name: "content1", Namespace: "ns"},
@@ -208,6 +225,8 @@ func TestDiskSnapshots(t *testing.T) {
 	}
 
 	t.Run("correlates each disk to its volumesnapshot and original pvc", func(t *testing.T) {
+		t.Parallel()
+
 		vb1 := snapshotv1beta1.VolumeBackup{
 			VolumeName: "disk0",
 			PersistentVolumeClaim: snapshotv1beta1.PersistentVolumeClaim{
@@ -252,6 +271,8 @@ func TestDiskSnapshots(t *testing.T) {
 	})
 
 	t.Run("nil VolumeSnapshotName is a partial-snapshot error, not a panic", func(t *testing.T) {
+		t.Parallel()
+
 		vb := snapshotv1beta1.VolumeBackup{
 			VolumeName: "disk0",
 			PersistentVolumeClaim: snapshotv1beta1.PersistentVolumeClaim{
@@ -276,6 +297,8 @@ func TestDiskSnapshots(t *testing.T) {
 	})
 
 	t.Run("missing volumesnapshot propagates the api error", func(t *testing.T) {
+		t.Parallel()
+
 		vb := snapshotv1beta1.VolumeBackup{
 			VolumeName: "disk0",
 			PersistentVolumeClaim: snapshotv1beta1.PersistentVolumeClaim{
@@ -295,7 +318,11 @@ func TestDiskSnapshots(t *testing.T) {
 }
 
 func TestVmConfig(t *testing.T) {
+	t.Parallel()
+
 	t.Run("marshals the embedded VirtualMachine as a self-describing manifest", func(t *testing.T) {
+		t.Parallel()
+
 		src := &snapshotv1beta1.VirtualMachine{
 			ObjectMeta: metav1.ObjectMeta{Name: "vm1", Namespace: "ns"},
 			Spec:       kvcorev1.VirtualMachineSpec{Running: new(true)},
@@ -324,6 +351,8 @@ func TestVmConfig(t *testing.T) {
 	})
 
 	t.Run("errors when the content has no source VirtualMachine", func(t *testing.T) {
+		t.Parallel()
+
 		content := &snapshotv1beta1.VirtualMachineSnapshotContent{
 			ObjectMeta: metav1.ObjectMeta{Name: "content1", Namespace: "ns"},
 		}

@@ -102,6 +102,8 @@ var podResources = []*metav1.APIResourceList{
 }
 
 func TestWalkResourcesClusterWide(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", podResources,
 		podObj("default", "web-1", false),
 		podObj("default", "web-2", true), // generated, must be skipped
@@ -119,6 +121,8 @@ func TestWalkResourcesClusterWide(t *testing.T) {
 }
 
 func TestWalkResourcesNamespaceFiltering(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("default", podResources,
 		podObj("default", "web-1", false),
 		podObj("other", "other-1", false),
@@ -150,6 +154,8 @@ var podOnlyResources = []*metav1.APIResourceList{
 }
 
 func TestWalkResourcesRecordsForbiddenAsError(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", podOnlyResources)
 	withListError(k, "pods", apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("nope")))
 
@@ -161,6 +167,8 @@ func TestWalkResourcesRecordsForbiddenAsError(t *testing.T) {
 }
 
 func TestWalkResourcesSkipsNotFound(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", podOnlyResources)
 	withListError(k, "pods", apierrors.NewNotFound(schema.GroupResource{Resource: "pods"}, ""))
 
@@ -170,6 +178,8 @@ func TestWalkResourcesSkipsNotFound(t *testing.T) {
 }
 
 func TestWalkResourcesAbortsOnUnauthorized(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", podOnlyResources)
 	withListError(k, "pods", apierrors.NewUnauthorized("bad creds"))
 
@@ -179,6 +189,8 @@ func TestWalkResourcesAbortsOnUnauthorized(t *testing.T) {
 }
 
 func TestWalkResourcesDiscoveryError(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", nil)
 	k.discover.(*stubDiscovery).err = errors.New("discovery is down")
 
@@ -187,6 +199,8 @@ func TestWalkResourcesDiscoveryError(t *testing.T) {
 }
 
 func TestWalkResourcesBadGroupVersion(t *testing.T) {
+	t.Parallel()
+
 	k := newWalkTestK8s("", []*metav1.APIResourceList{{GroupVersion: "a/b/c"}})
 
 	_, err := runWalk(t, k)
@@ -194,6 +208,8 @@ func TestWalkResourcesBadGroupVersion(t *testing.T) {
 }
 
 func TestClassifyListErrorContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	require.Equal(t, walkAbort, classifyListError(ctx, errors.New("whatever")))
