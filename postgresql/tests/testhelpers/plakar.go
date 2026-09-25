@@ -47,6 +47,8 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 		},
 		Cmd:      []string{"sleep", "infinity"},
 		Networks: networks,
+		// The tests use a -plaintext store, which plakar refuses without it.
+		Env: map[string]string{"PLAKAR_INSECURE_PLAINTEXT": "1"},
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
