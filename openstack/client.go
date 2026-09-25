@@ -65,14 +65,14 @@ type gopherClient struct {
 func newGopherClients(ctx context.Context, cfg *config) ([]*gopherClient, error) {
 	provider, err := gcopenstack.AuthenticatedClient(ctx, cfg.auth)
 	if err != nil {
-		return nil, fmt.Errorf("authenticate against %s: %w", cfg.auth.IdentityEndpoint, err)
+		return nil, fmt.Errorf("authenticate against %q: %w", cfg.auth.IdentityEndpoint, err)
 	}
 
 	project, available := tokenScope(provider)
 	// Without a project, Glance's owner filter would match every image and
 	// URNs would lack their project.
 	if project == "" {
-		return nil, fmt.Errorf("the token from %s is not scoped to a project", cfg.auth.IdentityEndpoint)
+		return nil, fmt.Errorf("the token from %q is not scoped to a project", cfg.auth.IdentityEndpoint)
 	}
 	regions := available
 	if len(cfg.regions) > 0 {
