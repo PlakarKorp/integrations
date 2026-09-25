@@ -25,7 +25,7 @@
       "type": "string",
       "default": "/",
       "pattern": "^/",
-      "description": "bucket path prefix to use"
+      "description": "bucket path prefix to use; with virtual_host, the prefix only, without the bucket"
     },
     "endpoint": {
       "type": "string",
