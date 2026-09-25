@@ -81,6 +81,34 @@ func TestMailboxPathDotSegments(t *testing.T) {
 	}
 }
 
+// Paths already stored in snapshots, taken from the encoder before "." and
+// ".." were escaped. They must not change, or new backups would diverge from
+// old snapshots and restores would decode them to different mailboxes.
+func TestMailboxPathStable(t *testing.T) {
+	cases := []struct {
+		mailbox string
+		path    string
+	}{
+		{"...", "/..."},
+		{"..foo", "/..foo"},
+		{".hidden", "/.hidden"},
+		{"a..b", "/a..b"},
+		{"Archive/.../x", "/Archive/.../x"},
+		{"100%", "/100%25"},
+		{"%2E%2E", "/%252E%252E"},
+		{"Été/Café", "/%C3%89t%C3%A9/Caf%C3%A9"},
+		{"a?b#c", "/a%3Fb%23c"},
+	}
+
+	for _, c := range cases {
+		assert.Equal(t, c.path, MailboxToPath(c.mailbox, '/'), "MailboxToPath(%q)", c.mailbox)
+
+		back, err := PathToMailbox(c.path, '/')
+		require.NoError(t, err)
+		assert.Equal(t, c.mailbox, back, "PathToMailbox(%q)", c.path)
+	}
+}
+
 func TestPathToMailboxRoot(t *testing.T) {
 	for _, p := range []string{"", "/", "//"} {
 		mb, err := PathToMailbox(p, '/')
