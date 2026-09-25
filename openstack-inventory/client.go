@@ -243,8 +243,7 @@ func (c *gopherClient) ListDatabases(ctx context.Context) iter.Seq2[instances.In
 func (c *gopherClient) service(name string, newService serviceFactory) (*gophercloud.ServiceClient, error) {
 	sc, err := newService(c.provider, c.endpoint)
 	if err != nil {
-		var notFound *gophercloud.ErrEndpointNotFound
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*gophercloud.ErrEndpointNotFound](err); ok {
 			err = errServiceUnavailable
 		}
 		return nil, fmt.Errorf("%s: %w", name, err)
