@@ -1,4 +1,4 @@
-package openstackinventory
+package openstack
 
 import (
 	"errors"

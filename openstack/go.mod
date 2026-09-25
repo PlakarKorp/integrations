@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integrations-private/openstack-inventory
+module github.com/PlakarKorp/integrations-private/openstack
 
 go 1.27.1
 

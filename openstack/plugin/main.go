@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/PlakarKorp/go-inventory-sdk/sdk/server"
-	osinv "github.com/PlakarKorp/integrations-private/openstack-inventory"
+	osinv "github.com/PlakarKorp/integrations-private/openstack"
 )
 
 func main() {

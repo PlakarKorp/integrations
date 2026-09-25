@@ -1,4 +1,4 @@
-name: test openstack-inventory integration
+name: test openstack integration
 
 on:
   push:
@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: openstack-inventory
+        working-directory: openstack
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: openstack-inventory/go.mod
+          go-version-file: openstack/go.mod
 
       - name: Run tests
         run: make test

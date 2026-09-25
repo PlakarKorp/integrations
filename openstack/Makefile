@@ -6,7 +6,7 @@ VERSION ?= v0.0.1
 
 GOOS   := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
-PTAR   := openstack-inventory_$(VERSION)_$(GOOS)_$(GOARCH).ptar
+PTAR   := openstack_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 
 all: build
 
@@ -22,7 +22,7 @@ package: build
 	$(PLAKAR) pkg create ./manifest.yaml $(VERSION)
 
 uninstall:
-	-$(PLAKAR) pkg rm openstack-inventory
+	-$(PLAKAR) pkg rm openstack
 
 install: package
 	$(PLAKAR) pkg add ./$(PTAR)

@@ -1,4 +1,4 @@
-package openstackinventory
+package openstack
 
 import (
 	"cmp"
@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/gophercloud/gophercloud/v2"
-	"github.com/gophercloud/gophercloud/v2/openstack"
+	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/v2/openstack/db/v1/instances"
@@ -63,7 +63,7 @@ type gopherClient struct {
 // newGopherClients authenticates once and returns one client per region: the
 // configured ones, or every region with a public endpoint in the catalog.
 func newGopherClients(ctx context.Context, cfg *config) ([]*gopherClient, error) {
-	provider, err := openstack.AuthenticatedClient(ctx, cfg.auth)
+	provider, err := gcopenstack.AuthenticatedClient(ctx, cfg.auth)
 	if err != nil {
 		return nil, fmt.Errorf("authenticate against %s: %w", cfg.auth.IdentityEndpoint, err)
 	}
@@ -126,7 +126,7 @@ func tokenScope(provider *gophercloud.ProviderClient) (string, []string) {
 
 func (c *gopherClient) Scope() scope { return c.scope }
 
-// serviceFactory is the signature of openstack.NewComputeV2 and its siblings.
+// serviceFactory is the signature of gcopenstack.NewComputeV2 and its siblings.
 type serviceFactory func(*gophercloud.ProviderClient, gophercloud.EndpointOpts) (*gophercloud.ServiceClient, error)
 
 // resource describes how to list one kind of OpenStack resource.
@@ -141,7 +141,7 @@ type resource[T any] struct {
 var (
 	serverResource = resource[servers.Server]{
 		name:       "servers",
-		newService: openstack.NewComputeV2,
+		newService: gcopenstack.NewComputeV2,
 		// Nova only returns server tags from 2.26 on.
 		microversion: "2.26",
 		pager:        func(sc *gophercloud.ServiceClient) pagination.Pager { return servers.List(sc, servers.ListOpts{}) },
@@ -149,13 +149,13 @@ var (
 	}
 	volumeResource = resource[volumes.Volume]{
 		name:       "volumes",
-		newService: openstack.NewBlockStorageV3,
+		newService: gcopenstack.NewBlockStorageV3,
 		pager:      func(sc *gophercloud.ServiceClient) pagination.Pager { return volumes.List(sc, volumes.ListOpts{}) },
 		extract:    volumes.ExtractVolumes,
 	}
 	containerResource = resource[containers.Container]{
 		name:       "containers",
-		newService: openstack.NewObjectStorageV1,
+		newService: gcopenstack.NewObjectStorageV1,
 		pager: func(sc *gophercloud.ServiceClient) pagination.Pager {
 			return containers.List(sc, containers.ListOpts{})
 		},
@@ -163,7 +163,7 @@ var (
 	}
 	databaseResource = resource[instances.Instance]{
 		name:       "databases",
-		newService: openstack.NewDBV1,
+		newService: gcopenstack.NewDBV1,
 		pager:      instances.List,
 		extract:    instances.ExtractInstances,
 	}
@@ -185,7 +185,7 @@ func (c *gopherClient) ListImages(ctx context.Context) iter.Seq2[images.Image, e
 func ownedImageResource(project string) resource[images.Image] {
 	return resource[images.Image]{
 		name:       "images",
-		newService: openstack.NewImageV2,
+		newService: gcopenstack.NewImageV2,
 		pager: func(sc *gophercloud.ServiceClient) pagination.Pager {
 			return images.List(sc, images.ListOpts{Owner: project})
 		},

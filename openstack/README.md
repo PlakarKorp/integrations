@@ -1,4 +1,4 @@
-# OpenStack Inventory
+# OpenStack
 
 Plakar inventory for OpenStack. It lists the backup targets of one OpenStack
 project, in every region the credential can reach:
@@ -48,7 +48,7 @@ Build and install the package:
 
 ```sh
 make package
-plakar pkg add ./openstack-inventory_v0.0.1_*.ptar
+plakar pkg add ./openstack_v0.0.1_*.ptar
 ```
 
 Run it locally with the inventory SDK's runner:
