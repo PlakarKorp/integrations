@@ -73,8 +73,7 @@ func (inv *osInventory) Close(ctx context.Context) error {
 	return nil
 }
 
-// entries chains every region's per-service listings into one stream. The
-// listings are lazy, so nothing is fetched until List ranges over the result.
+// entries chains every region's listings into one lazy stream.
 func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
 		for _, api := range inv.apis {
@@ -105,8 +104,7 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 	}
 }
 
-// entriesOf maps a client listing to inventory entries, passing errors through
-// and leaving out the items toEntry returns nil for.
+// entriesOf drops the items toEntry returns nil for.
 func entriesOf[T any](sc scope, seq iter.Seq2[T, error], toEntry func(scope, T) *inventory.InventoryEntry) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
 		for item, err := range seq {
@@ -151,9 +149,7 @@ func serverEntry(sc scope, s servers.Server) *inventory.InventoryEntry {
 	return e
 }
 
-// serverAddresses flattens the server's addresses, sorted by network name.
-// servers.Server leaves Addresses untyped: each network maps to a []any of
-// {"addr": ..., "version": ...} objects.
+// serverAddresses flattens the untyped addresses, sorted by network name.
 func serverAddresses(s servers.Server) []string {
 	var out []string
 	for _, net := range slices.Sorted(maps.Keys(s.Addresses)) {
@@ -266,7 +262,6 @@ func datastoreSubClass(datastore string) pkg.ResourceSubClass {
 	}
 }
 
-// addressEndpoint types an address as inet4, inet6 or, if it isn't an IP, host.
 func addressEndpoint(addr string) inventory.HostEndpoint {
 	t := inventory.EndpointHost
 	if ip := net.ParseIP(addr); ip != nil {
@@ -300,8 +295,7 @@ func glanceTags(tags []string) []string {
 	return out
 }
 
-// serverTags returns the server's Nova tags; the field is only set at
-// microversion 2.26 or later.
+// serverTags needs microversion 2.26 or later.
 func serverTags(s servers.Server) []string {
 	if s.Tags == nil {
 		return nil
