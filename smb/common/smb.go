@@ -24,6 +24,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -85,7 +86,11 @@ func ParseConfig(config map[string]string) (*Config, error) {
 
 	parsed, err := url.Parse(target)
 	if err != nil {
-		return nil, fmt.Errorf("invalid location %q: %w", target, err)
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
+		return nil, fmt.Errorf("invalid location: %w", err)
 	}
 	if parsed.Scheme != "smb" {
 		return nil, fmt.Errorf("location scheme must be smb://, got %q", parsed.Scheme)
@@ -93,7 +98,7 @@ func ParseConfig(config map[string]string) (*Config, error) {
 
 	host := parsed.Hostname()
 	if host == "" {
-		return nil, fmt.Errorf("missing host in location %q", target)
+		return nil, fmt.Errorf("missing host in location %q", parsed.Redacted())
 	}
 
 	port := parsed.Port()
