@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integrations-private/openstack-inventory
 
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/PlakarKorp/go-inventory-sdk v1.1.2
