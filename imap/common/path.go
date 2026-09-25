@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -195,17 +196,24 @@ func MessageFileName(uid imap.UID, flags []imap.Flag, subject string) string {
 	return name + ".eml"
 }
 
+// flagBlock captures the flag block of a name written by MessageFileName:
+//
+//	^[^,-]*,          the UID, up to the comma that opens the flag block
+//	(                 group 1, the flag block:
+//	  (?:[A-Z]        a system flag token (S, A, F, D, T)
+//	  |\{[^{}]*\})*   or a {keyword}; keywords are percent-encoded, so
+//	)                 they may contain "-" but never "{" or "}"
+//
+// The match ends at the first character outside a token: the "-" that opens
+// the subject, or ".eml".
+var flagBlock = regexp.MustCompile(`^[^,-]*,((?:[A-Z]|\{[^{}]*\})*)`)
+
 // ParseMessageFileName extracts the flag set from a message file name produced
 // by MessageFileName. Unknown names simply yield no flags.
 func ParseMessageFileName(name string) (flags []imap.Flag) {
-	base := strings.TrimSuffix(name, ".eml")
-	// strip "-subject"
-	if i := strings.IndexByte(base, '-'); i >= 0 {
-		base = base[:i]
-	}
-	comma := strings.IndexByte(base, ',')
-	if comma < 0 {
+	m := flagBlock.FindStringSubmatch(name)
+	if m == nil {
 		return nil
 	}
-	return DecodeFlags(base[comma+1:])
+	return DecodeFlags(m[1])
 }
