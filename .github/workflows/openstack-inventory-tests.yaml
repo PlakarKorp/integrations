@@ -3,6 +3,7 @@ name: test openstack-inventory integration
 on:
   push:
     branches:
+      - main
       - integration/openstack-inventory
   pull_request:
     branches:
