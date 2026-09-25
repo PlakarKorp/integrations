@@ -182,7 +182,12 @@ func (h *localRootHandlers) Filecmd(r *sftp.Request) error {
 		attrs := r.Attributes()
 		flags := r.AttrFlags()
 		if flags.Permissions {
-			if err := os.Chmod(p, attrs.FileMode().Perm()); err != nil {
+			// Preserve special bits (setuid/setgid/sticky), not just the
+			// permission bits: FileMode() includes them, FileMode().Perm()
+			// would silently strip them before they ever reach the real
+			// os.Chmod call, making it impossible to test that callers can
+			// restore them.
+			if err := os.Chmod(p, attrs.FileMode()); err != nil {
 				return err
 			}
 		}

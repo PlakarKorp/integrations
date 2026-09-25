@@ -43,7 +43,8 @@ type Sftp struct {
 	rootDir  string
 	excludes *exclude.RuleSet
 
-	setOwner bool
+	setOwner        bool
+	skipPermissions bool
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
@@ -118,6 +119,12 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 			sftp.setOwner, err = strconv.ParseBool(tmp)
 			if err != nil {
 				return nil, fmt.Errorf("set_owner: bad value: %w", err)
+			}
+		}
+		if tmp, ok := config["skip_permissions"]; ok {
+			sftp.skipPermissions, err = strconv.ParseBool(tmp)
+			if err != nil {
+				return nil, fmt.Errorf("skip_permissions: bad value: %w", err)
 			}
 		}
 	}
