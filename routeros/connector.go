@@ -60,8 +60,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, co
 func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string, importerp bool) (*Routeros, error) {
 	loc, err := url.Parse(config["location"])
 	if err != nil {
-		return nil, fmt.Errorf("bad location %q: %w",
-			config["location"], err)
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
+		return nil, fmt.Errorf("bad location: %w", err)
 	}
 
 	user := loc.User.Username()
