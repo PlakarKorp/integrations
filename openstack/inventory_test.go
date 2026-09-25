@@ -300,7 +300,7 @@ func TestNewInventoryRejectsInvalidConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewInventory(t.Context(), tt.params)
-			assert.ErrorIs(t, err, tt.want)
+			require.ErrorIs(t, err, tt.want)
 		})
 	}
 }

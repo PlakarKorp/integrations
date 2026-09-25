@@ -127,7 +127,7 @@ func TestListReportsServiceMissingFromCatalog(t *testing.T) {
 	for _, err := range clients[0].ListVolumes(t.Context()) {
 		got = err
 	}
-	assert.ErrorIs(t, got, errServiceUnavailable)
+	require.ErrorIs(t, got, errServiceUnavailable)
 }
 
 // servers.Server leaves addresses untyped, so check serverAddresses reads
