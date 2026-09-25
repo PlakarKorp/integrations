@@ -23,6 +23,17 @@ import (
 //go:embed schema.json
 var Schema []byte
 
+// datastoreSubClasses maps lowercase Trove datastore types to subclasses;
+// any other datastore is ResourceSubClassUndefined, the map's zero value.
+var datastoreSubClasses = map[string]pkg.ResourceSubClass{
+	"mysql":      pkg.ResourceSubClassMySQL,
+	"mariadb":    pkg.ResourceSubClassMySQL,
+	"percona":    pkg.ResourceSubClassMySQL,
+	"postgresql": pkg.ResourceSubClassPostgreSQL,
+	"mongodb":    pkg.ResourceSubClassMongoDB,
+	"redis":      pkg.ResourceSubClassRedis,
+}
+
 // osInventory scans one project, through one client per region.
 type osInventory struct {
 	apis []openstackAPI
@@ -248,18 +259,7 @@ func databaseEntry(sc scope, d instances.Instance) *inventory.InventoryEntry {
 }
 
 func datastoreSubClass(datastore string) pkg.ResourceSubClass {
-	switch strings.ToLower(datastore) {
-	case "mysql", "mariadb", "percona":
-		return pkg.ResourceSubClassMySQL
-	case "postgresql":
-		return pkg.ResourceSubClassPostgreSQL
-	case "mongodb":
-		return pkg.ResourceSubClassMongoDB
-	case "redis":
-		return pkg.ResourceSubClassRedis
-	default:
-		return pkg.ResourceSubClassUndefined
-	}
+	return datastoreSubClasses[strings.ToLower(datastore)]
 }
 
 func addressEndpoint(addr string) inventory.HostEndpoint {
