@@ -248,7 +248,7 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 }
 
 func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
-	if runtime.GOOS == "windows" { 
+	if runtime.GOOS == "windows" {
 		// os.Chown is unconditionally unsupported on Windows (always
 		// returns syscall.EWINDOWS), so there is no real uid/gid
 		// ownership for this test to verify.
@@ -702,7 +702,7 @@ func TestExport_SkipPermissions(t *testing.T) {
 }
 
 // TestExport_DirectorySetgidSurvivesChownOrdering is a regression test for
-// the ordering of chown vs chmod in permissions().  
+// the ordering of chown vs chmod in permissions().
 // chown clears the setgid bit even when chowning to the *same* uid/gid the file
 // already has (verified empirically: chmod g+s, then chown $(id -u):$(id
 // -g) on an unprivileged process strips the setgid bit). This means:
