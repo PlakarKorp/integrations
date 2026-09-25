@@ -4,10 +4,10 @@ on:
   push:
     branches:
       - main
-      - integration/openstack-inventory
+      - integration/openstack
   pull_request:
     branches:
-      - integration/openstack-inventory
+      - integration/openstack
 
 jobs:
   test:
