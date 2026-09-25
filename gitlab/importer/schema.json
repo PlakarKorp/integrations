@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar GitLab CE Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "location": {
+      "type": "string",
+      "description": "GitLab source URI. Use gitlab://local for local operation, or set ssh_host for remote operation.",
+      "pattern": "^gitlab://.*$"
+    },
+    "backup_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory where gitlab-backup create writes backup archives. Defaults to /var/opt/gitlab/backups."
+    },
+    "config_paths": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Comma-separated GitLab config files to include. Defaults to /etc/gitlab/gitlab.rb,/etc/gitlab/gitlab-secrets.json."
+    },
+    "config_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base config directory used for restore. Defaults to /etc/gitlab."
+    },
+    "gitlab_backup_bin": {
+      "type": "string",
+      "minLength": 1,
+      "description": "gitlab-backup binary name or absolute path. Defaults to gitlab-backup."
+    },
+    "use_sudo": {
+      "type": "boolean",
+      "description": "Prefix local and remote GitLab commands and privileged reads with sudo -n. Defaults to false."
+    },
+    "ssh_host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Remote GitLab host. When set, commands run through ssh instead of locally."
+    },
+    "ssh_user": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH username for remote operation."
+    },
+    "ssh_port": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "SSH port for remote operation."
+    },
+    "ssh_identity_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH private key path for remote operation."
+    },
+    "ssh_bin": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH binary name or absolute path. Defaults to ssh."
+    }
+  }
+}

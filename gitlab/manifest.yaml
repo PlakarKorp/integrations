@@ -1,0 +1,21 @@
+name: gitlab
+display_name: GitLab CE
+description: Integration providing backup and restore capabilities for self-hosted GitLab CE using GitLab native backup tooling.
+api_version: v1.1.0
+homepage: https://github.com/PlakarKorp/integration-gitlab
+license: ISC
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+  - type: importer
+    executable: gitlabImporter
+    protocols: [gitlab]
+    validator: ./importer/schema.json
+    class: devops
+    subclass: gitlab
+  - type: exporter
+    executable: gitlabExporter
+    protocols: [gitlab]
+    validator: ./exporter/schema.json
+    class: devops
+    subclass: gitlab
