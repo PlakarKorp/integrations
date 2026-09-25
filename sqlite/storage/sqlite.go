@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -88,7 +89,17 @@ func (s *Store) connect(addr string) error {
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
 	location := strings.TrimPrefix(s.location, "sqlite://")
-	err := s.connect(location)
+
+	// sqlite creates the -wal and -shm files with the mode of the database
+	fp, err := os.OpenFile(location, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := fp.Close(); err != nil {
+		return err
+	}
+
+	err = s.connect(location)
 	if err != nil {
 		return err
 	}
