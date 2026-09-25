@@ -194,10 +194,6 @@ func (s *Sftp) hardlink(record *connectors.Record, pathname string) error {
 		if err := s.client.Link(canonPath, pathname); err != nil {
 			return fmt.Errorf("could not create hardink %s -> %s", canonPath, pathname)
 		}
-	} else {
-		if err := s.chown(canonPath, record.FileInfo); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -207,11 +203,7 @@ func (s *Sftp) file(record *connectors.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return s.hardlink(record, pathname)
 	}
-	if err := s.writeAtomic(record, pathname); err != nil {
-		return err
-	}
-
-	return s.chown(pathname, record.FileInfo)
+	return s.writeAtomic(record, pathname)
 }
 
 func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
@@ -219,19 +211,7 @@ func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
 	if err != nil {
 		return err
 	}
-
-	if s.skipPermissions {
-		return nil
-	}
-
-	fileinfo := record.FileInfo
-	// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
-	// Use the full mode which includes these special bits, not just Mode().Perm()
-	mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
-	if err := s.client.Chmod(pathname, mode); err != nil {
-		return fmt.Errorf("could not chmod")
-	}
-	return nil
+	return s.permissions(pathname, record.FileInfo)
 }
 
 func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo) error {
