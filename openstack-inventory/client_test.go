@@ -111,6 +111,25 @@ func TestClientsRejectUnknownRegion(t *testing.T) {
 	assert.ErrorContains(t, err, "available: RegionOne")
 }
 
+// The catalog offers only compute, so gophercloud's own lookup fails for Cinder.
+func TestListReportsServiceMissingFromCatalog(t *testing.T) {
+	cfg, err := parseConfig(map[string]string{
+		"openstack_auth_url":                      authURL(t, "RegionOne"),
+		"openstack_application_credential_id":     "id",
+		"openstack_application_credential_secret": "secret",
+	})
+	require.NoError(t, err)
+	clients, err := newGopherClients(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+
+	var got error
+	for _, err := range clients[0].ListVolumes(t.Context()) {
+		got = err
+	}
+	assert.ErrorIs(t, got, errServiceUnavailable)
+}
+
 // servers.Server leaves addresses untyped, so check serverAddresses reads
 // them as Nova sends them.
 func TestServerAddresses(t *testing.T) {
