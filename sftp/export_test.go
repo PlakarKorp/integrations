@@ -745,3 +745,54 @@ func TestExport_DirectorySetgidSurvivesChownOrdering(t *testing.T) {
 	assert.Equal(t, os.FileMode(0750)|os.ModeDir|os.ModeSetgid, info.Mode(),
 		"setgid bit must survive when both chown and chmod(setgid) are requested: chown must be applied before chmod")
 }
+
+// TestExport_FileSetuidSurvivesSetOwner is the file counterpart of
+// TestExport_DirectorySetgidSurvivesChownOrdering: chown clears setuid and
+// setgid on a regular file too, so with set_owner the file must be chowned
+// before its mode is applied, or the restored file silently loses them.
+func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
+	cases := []struct {
+		name   string
+		lnlink uint16
+	}{
+		{name: "regular file", lnlink: 1},
+		{name: "hardlinked file", lnlink: 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+			s := ts.newTestExportSftp(t, "/repo")
+			s.setOwner = true
+			records := make(chan *connectors.Record, 16)
+			results, wait := runExporter(t, s, records)
+
+			content := []byte("setuid test")
+			records <- connectors.NewRecord("/file.bin", "",
+				objects.FileInfo{
+					Lmode:  os.ModeSetuid | os.ModeSetgid | 0755,
+					Luid:   uint64(os.Getuid()),
+					Lgid:   uint64(os.Getgid()),
+					Lnlink: tc.lnlink,
+				},
+				nil,
+				func() (io.ReadCloser, error) {
+					return io.NopCloser(bytes.NewReader(content)), nil
+				},
+			)
+			close(records)
+
+			got := drainResults(results)
+			require.NoError(t, wait())
+			require.Len(t, got, 1)
+			require.NoError(t, got[0].Err)
+
+			info, err := ts.client.Stat("/repo/file.bin")
+			require.NoError(t, err)
+			assert.Equal(t, os.ModeSetuid|os.ModeSetgid|0755, info.Mode(),
+				"setuid/setgid must survive when set_owner is set: chown must be applied before chmod")
+		})
+	}
+}
