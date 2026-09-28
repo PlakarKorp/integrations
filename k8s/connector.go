@@ -59,6 +59,10 @@ type k8s struct {
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
+
+	// objects already applied when remapping to a namespace, to
+	// warn about the ones collapsing onto each other.
+	remapped map[remapKey]string
 }
 
 func init() {
@@ -309,6 +313,8 @@ func New(
 		volumeSnapshotClass:  snapClass,
 		kubeletImage:         kubeletImage,
 		kubeletCapas:         capas,
+
+		remapped: make(map[remapKey]string),
 	}, nil
 }
 

@@ -84,6 +84,15 @@ Restore all the `StatefulSet`s in the `foo` namespace:
 
 	$ plakar restore -to k8s: abcd:/foo/apps/StatefulSet
 
+Restore them into the `bar` namespace instead of the one they were
+backed up from:
+
+	$ plakar restore -to k8s:/bar abcd:/foo/apps/StatefulSet
+
+The namespace is created if missing, and cluster-scoped resources are
+left out.  References to the old namespace *inside* the objects, like
+the subjects of a RoleBinding, are not rewritten.
+
 Backup the PVC `my-pvc` in the `storage` namespace:
 
 	$ plakar backup -o volume_snapshot_class=my-snapclass k8s+csi:/storage/my-pvc

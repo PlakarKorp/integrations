@@ -12,6 +12,7 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/require"
 	yamlv3 "go.yaml.in/yaml/v3"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/client-go/discovery/cached/memory"
 	discoveryfake "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/restmapper"
 	clienttesting "k8s.io/client-go/testing"
@@ -47,6 +49,7 @@ func newApplyTestK8s() *k8s {
 		discovercache: discovercache,
 		mapper:        restmapper.NewDeferredDiscoveryRESTMapperWithContext(discovercache),
 		dclient:       dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
+		remapped:      make(map[remapKey]string),
 	}
 }
 
@@ -501,4 +504,171 @@ data:
 		_, err := objectMeta(obj)
 		require.Error(t, err)
 	})
+}
+
+func TestApplyRemapsNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+data:
+  foo: bar
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	require.Equal(t, "target", captured.namespace,
+		"the object must be applied to the namespace the user asked for")
+	require.Equal(t, "my-cm", captured.name)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.Equal(t, "target", meta["namespace"],
+		"the object itself must carry the new namespace")
+}
+
+func TestApplyRemapsNamespaceOfUnnamespacedObject(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	// a namespaced object whose manifest carries no namespace at
+	// all still has to land in the target one.
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.Equal(t, "target", captured.namespace)
+}
+
+func TestApplySkipsClusterScopedWhenRemapping(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	yaml := `
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: source
+`
+	err := k.apply(t.Context(), "source", strings.NewReader(yaml))
+	require.NoError(t, err, "a skipped resource is not an error")
+	require.False(t, applied, "cluster-scoped resources must not be restored into a namespace")
+}
+
+func TestApplyKeepsNamespaceWithoutRemap(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s() // no k.namespace
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.Equal(t, "source", captured.namespace)
+}
+
+func TestRestoreConfigCreatesTargetNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	k.clientset = k8sfake.NewSimpleClientset()
+
+	_, err := runRestoreConfig(t, k)
+	require.NoError(t, err)
+
+	ns, err := k.clientset.CoreV1().Namespaces().Get(t.Context(), "target", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "target", ns.Name)
+}
+
+func TestRestoreConfigToleratesExistingNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	k.clientset = k8sfake.NewSimpleClientset(&corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "target"},
+	})
+
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+`
+	record := connectors.NewRecord("/source/_/ConfigMap/v1/my-cm.yaml", "",
+		objects.FileInfo{Lmode: 0644}, nil,
+		func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(yaml)), nil
+		})
+
+	results, err := runRestoreConfig(t, k, record)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].Err)
+	require.Equal(t, "target", captured.namespace)
+}
+
+func TestRestoreConfigWithoutNamespaceDoesNotCreateOne(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.clientset = k8sfake.NewSimpleClientset()
+
+	_, err := runRestoreConfig(t, k)
+	require.NoError(t, err)
+
+	list, err := k.clientset.CoreV1().Namespaces().List(t.Context(), metav1.ListOptions{})
+	require.NoError(t, err)
+	require.Empty(t, list.Items)
+}
+
+func TestWarnCollapseTracksSourceNamespaces(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+
+	gk := schema.GroupKind{Kind: "ConfigMap"}
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "config", Namespace: "foo"})
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "config", Namespace: "bar"})
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "other", Namespace: "foo"})
+
+	require.Equal(t, map[remapKey]string{
+		{gk: gk, name: "config"}: "bar",
+		{gk: gk, name: "other"}:  "foo",
+	}, k.remapped)
 }
