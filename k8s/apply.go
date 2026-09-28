@@ -48,6 +48,7 @@ func isRestorable(verbs metav1.Verbs) bool {
 
 var neverRestore = Filters{
 	{Group: "", Kind: "Node"}:                           defaultFilter,
+	{Group: "", Kind: "PersistentVolume"}:               defaultFilter,
 	{Group: "", Kind: "Event"}:                          defaultFilter,
 	{Group: "events.k8s.io", Kind: "Event"}:             defaultFilter,
 	{Group: "storage.k8s.io", Kind: "CSINode"}:          defaultFilter,

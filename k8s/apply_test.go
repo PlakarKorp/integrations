@@ -32,6 +32,10 @@ var applyTestResources = []*metav1.APIResourceList{
 		APIResources: []metav1.APIResource{
 			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "persistentvolumes", Namespaced: false, Kind: "PersistentVolume",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "persistentvolumeclaims", Namespaced: true, Kind: "PersistentVolumeClaim",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "services", Namespaced: true, Kind: "Service",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "namespaces", Namespaced: false, Kind: "Namespace",
@@ -750,4 +754,32 @@ spec:
 
 	spec, _ := captured.object["spec"].(map[string]any)
 	require.Equal(t, "None", spec["clusterIP"])
+}
+
+func TestApplySkipsPersistentVolume(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.restoreFilters = neverRestore
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "persistentvolumes", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	yaml := `
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvc-b0cbb3b8-1c7d-470d-a133-66b008b28628
+spec:
+  csi:
+    driver: hostpath.csi.k8s.io
+    volumeHandle: deadbeef
+`
+	err := k.apply(t.Context(), "pv", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.False(t, applied, "volumes belong to the cluster they came from")
 }
