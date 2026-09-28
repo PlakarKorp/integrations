@@ -375,18 +375,20 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 	if pathname == "." && p.skipRootPermsAndTime {
 		return nil
 	}
+
+	// chown clears setuid/setgid, so it must come before chmod.
+	if os.Geteuid() == 0 && !p.skipOwnership {
+		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
+			return fmt.Errorf("chown(%s): %w", pathname, err)
+		}
+	}
+
 	if fileinfo.Mode()&os.ModeSymlink == 0 && !p.skipPerms {
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
 		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 		if err := p.root.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("chmod(%s): %w", pathname, err)
-		}
-	}
-
-	if os.Geteuid() == 0 && !p.skipOwnership {
-		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
-			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
 	}
 
