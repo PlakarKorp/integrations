@@ -32,6 +32,8 @@ var applyTestResources = []*metav1.APIResourceList{
 		APIResources: []metav1.APIResource{
 			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "services", Namespaced: true, Kind: "Service",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "namespaces", Namespaced: false, Kind: "Namespace",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 		},
@@ -671,4 +673,81 @@ func TestWarnCollapseTracksSourceNamespaces(t *testing.T) {
 		{gk: gk, name: "config"}: "bar",
 		{gk: gk, name: "other"}:  "foo",
 	}, k.remapped)
+}
+
+func TestApplyStripsResourceVersion(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	// the resource version from the backup is a precondition the
+	// apply would fail on as soon as the object already exists.
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: default
+  resourceVersion: "12345"
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.NotContains(t, meta, "resourceVersion")
+}
+
+func TestApplyStripsServiceClusterIP(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "services")
+
+	yaml := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+  namespace: default
+spec:
+  clusterIP: 10.96.47.153
+  clusterIPs:
+    - 10.96.47.153
+  ports:
+    - port: 80
+`
+	err := k.apply(t.Context(), "my-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.NotContains(t, spec, "clusterIP")
+	require.NotContains(t, spec, "clusterIPs")
+	require.Contains(t, spec, "ports", "the rest of the spec must be left alone")
+}
+
+func TestApplyKeepsHeadlessService(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "services")
+
+	// "None" is not an allocated address, it's what makes the
+	// service headless: dropping it would change its behaviour.
+	yaml := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+  namespace: default
+spec:
+  clusterIP: None
+  ports:
+    - port: 80
+`
+	err := k.apply(t.Context(), "my-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.Equal(t, "None", spec["clusterIP"])
 }

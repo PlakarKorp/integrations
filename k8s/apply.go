@@ -77,6 +77,31 @@ func (k *k8s) skipRestore(gvk schema.GroupVersionKind, meta metav1.ObjectMeta) (
 	return "", nil
 }
 
+// restorable drops the source cluster-specific info that don't make
+// sense when restoring, or that might fail alltogether.
+func restorable(obj *unstructured.Unstructured) {
+	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+	unstructured.RemoveNestedField(obj.Object, "metadata", "uid")
+
+	// the resource version is a precondition for the apply: keeping
+	// the one from the backup makes every restore over an existing
+	// object fail with a conflict.
+	unstructured.RemoveNestedField(obj.Object, "metadata", "resourceVersion")
+
+	switch obj.GroupVersionKind() {
+	case schema.GroupVersionKind{Version: "v1", Kind: "Service"}:
+		// drop the cluster IP since it might not be
+		// re-allocated as-is.  None is not an address though,
+		// so keep it.
+		ip, _, _ := unstructured.NestedString(obj.Object, "spec", "clusterIP")
+		if ip == corev1.ClusterIPNone {
+			return
+		}
+		unstructured.RemoveNestedField(obj.Object, "spec", "clusterIP")
+		unstructured.RemoveNestedField(obj.Object, "spec", "clusterIPs")
+	}
+}
+
 func (k *k8s) apply(ctx context.Context, name string, rd io.Reader) error {
 	var (
 		obj = &unstructured.Unstructured{Object: map[string]any{}}
@@ -87,8 +112,7 @@ func (k *k8s) apply(ctx context.Context, name string, rd io.Reader) error {
 		return err
 	}
 
-	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
-	unstructured.RemoveNestedField(obj.Object, "metadata", "uid")
+	restorable(obj)
 
 	gvk := obj.GroupVersionKind()
 
