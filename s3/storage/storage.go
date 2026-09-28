@@ -148,7 +148,16 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 			return nil, err
 		}
 
-		prefixDir = strings.TrimPrefix(u.Path, "/")
+		// The bucket is in the hostname, so root carries the prefix only.
+		urlPrefix := strings.Trim(u.Path, "/")
+		rootPrefix := strings.Trim(root, "/")
+		if urlPrefix != "" && rootPrefix != "" && urlPrefix != rootPrefix {
+			return nil, fmt.Errorf("location path %q conflicts with root %q", u.Path, root)
+		}
+		prefixDir = urlPrefix
+		if rootPrefix != "" {
+			prefixDir = rootPrefix
+		}
 	} else {
 		if endpoint != "" {
 			if u.Host != endpoint {
@@ -181,6 +190,11 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create default transport: %w", err)
 	}
+
+	// All requests go to one host, so the per-host idle cap is the one that
+	// bites: above it, each finished request drops its connection and the
+	// next one redials.
+	transport.MaxIdleConnsPerHost = transport.MaxIdleConns
 
 	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
