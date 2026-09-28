@@ -14,7 +14,13 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 )
 
+const testClusterUID = "cafe-1234"
+
 func newInventoryTest(objs ...runtime.Object) *inventory {
+	kubeSystem := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: testClusterUID},
+	}
+	objs = append([]runtime.Object{kubeSystem}, objs...)
 	return &inventory{clientset: k8sfake.NewSimpleClientset(objs...), namespaces: []string{""}}
 }
 
@@ -48,6 +54,7 @@ func TestInventoryListPVCs(t *testing.T) {
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		clusterEntry(),
 		{
 			Class:     pkg.ResourceClassBlockStorage,
 			SubClass:  pkg.ResourceSubClassPVC,
@@ -87,7 +94,7 @@ func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls, "listPVC must follow the Continue token until it's empty")
-	require.Len(t, entries, 2)
+	require.Len(t, entries, 3, "two PVCs plus the cluster itself")
 }
 
 func TestInventoryListPVCsError(t *testing.T) {
@@ -101,7 +108,10 @@ func TestInventoryListPVCsError(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.ErrorContains(t, err, "apiserver unreachable")
-	require.Empty(t, entries)
+	for _, e := range entries {
+		require.NotEqual(t, pkg.ResourceSubClassPVC, e.SubClass,
+			"no PVC entry when the listing failed")
+	}
 }
 
 func TestInventoryClose(t *testing.T) {
@@ -109,4 +119,59 @@ func TestInventoryClose(t *testing.T) {
 
 	inv := newInventoryTest()
 	require.NoError(t, inv.Close(t.Context()))
+}
+
+// clusterEntry is what listConfig emits for the cluster itself.
+func clusterEntry() *sdk.InventoryEntry {
+	return &sdk.InventoryEntry{
+		URN:       "k8s:" + testClusterUID + ":cluster",
+		Name:      "cluster",
+		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
+	}
+}
+
+func TestInventoryListsTheCluster(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.Equal(t, []*sdk.InventoryEntry{clusterEntry()}, entries,
+		"with no namespace given, the cluster itself is the only thing to back up")
+}
+
+func TestInventoryListsEachGivenNamespace(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	inv.namespaces = []string{"ns1", "ns2"}
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		{
+			URN:       "k8s:" + testClusterUID + ":ns1",
+			Name:      "ns1",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+		},
+		{
+			URN:       "k8s:" + testClusterUID + ":ns2",
+			Name:      "ns2",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+		},
+	}, entries, "no cluster-wide entry when namespaces were given")
+}
+
+func TestInventoryUnidentifiableCluster(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	clientset := inv.clientset.(*k8sfake.Clientset)
+	clientset.PrependReactor("get", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+
+	_, err := runInventoryList(t, inv)
+	require.ErrorContains(t, err, "failed to identify the cluster")
 }

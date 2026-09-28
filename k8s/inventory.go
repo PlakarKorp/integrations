@@ -102,6 +102,39 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 	return &inv, nil
 }
 
+func (inv *inventory) clusterUID(ctx context.Context) (string, error) {
+	ns, err := inv.clientset.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to identify the cluster: %w", err)
+	}
+	return string(ns.UID), nil
+}
+
+func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	uid, err := inv.clusterUID(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, ns := range inv.namespaces {
+		name, endpoint := "cluster", "/"
+		if ns != "" {
+			name, endpoint = ns, "/"+ns
+		}
+
+		resources <- &sdk.InventoryEntry{
+			URN:  "k8s:" + uid + ":" + name,
+			Name: name,
+			Endpoints: []sdk.HostEndpoint{{
+				Type:     sdk.EndpointIdentifier,
+				Endpoint: endpoint,
+			}},
+		}
+	}
+
+	return nil
+}
+
 func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
 	for _, ns := range inv.namespaces {
 		if err := inv.listPVCInNs(ctx, ns, resources); err != nil {
@@ -199,6 +232,7 @@ func (inv *inventory) List(ctx context.Context, resources chan<- *sdk.InventoryE
 
 	wg, ctx := errgroup.WithContext(ctx)
 
+	wg.Go(func() error { return inv.listConfig(ctx, resources) })
 	wg.Go(func() error { return inv.listPVC(ctx, resources) })
 	wg.Go(func() error { return inv.listVM(ctx, resources) })
 
