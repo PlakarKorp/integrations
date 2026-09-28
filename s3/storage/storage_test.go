@@ -200,3 +200,76 @@ func TestGetReusesConnections(t *testing.T) {
 		t.Fatalf("%d connections dialed for %d concurrent requests over %d rounds, want at most %d", n, inflight, rounds, inflight)
 	}
 }
+
+func TestNewStoreVirtualHostPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		location   string
+		root       string
+		wantPrefix string
+		wantErr    bool
+	}{
+		{name: "no root", location: "s3://bucket.s3.fr-par.scw.cloud", wantPrefix: "/"},
+		{name: "default root", location: "s3://bucket.s3.fr-par.scw.cloud", root: "/", wantPrefix: "/"},
+		{name: "root is the prefix", location: "s3://bucket.s3.fr-par.scw.cloud", root: "/data/plakar", wantPrefix: "/data/plakar/"},
+		{name: "bare bucket host with root", location: "s3://bucket", root: "/data", wantPrefix: "/data/"},
+		{name: "root that repeats the bucket is kept", location: "s3://bucket.s3.fr-par.scw.cloud", root: "/bucket/data", wantPrefix: "/bucket/data/"},
+		{name: "location path only", location: "s3://bucket.s3.fr-par.scw.cloud/data", wantPrefix: "/data/"},
+		{name: "location path and same root", location: "s3://bucket.s3.fr-par.scw.cloud/data", root: "/data/", wantPrefix: "/data/"},
+		{name: "location path and other root", location: "s3://bucket.s3.fr-par.scw.cloud/data", root: "/other", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := map[string]string{
+				"location":          tt.location,
+				"access_key":        "access",
+				"secret_access_key": "secret",
+				"virtual_host":      "true",
+				"endpoint":          "https://s3.fr-par.scw.cloud",
+			}
+			if tt.root != "" {
+				config["root"] = tt.root
+			}
+
+			st, err := NewStore(context.Background(), "s3", config)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got prefix %q", st.(*Store).prefixDir)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+
+			s := st.(*Store)
+			if s.bucket != "bucket" {
+				t.Errorf("bucket = %q, want %q", s.bucket, "bucket")
+			}
+			if s.host != "s3.fr-par.scw.cloud" {
+				t.Errorf("host = %q, want %q", s.host, "s3.fr-par.scw.cloud")
+			}
+			if s.prefixDir != tt.wantPrefix {
+				t.Errorf("prefixDir = %q, want %q", s.prefixDir, tt.wantPrefix)
+			}
+		})
+	}
+}
+
+func TestNewStorePathStyleRootIncludesBucket(t *testing.T) {
+	st, err := NewStore(context.Background(), "s3", map[string]string{
+		"location":          "s3://s3.fr-par.scw.cloud",
+		"access_key":        "access",
+		"secret_access_key": "secret",
+		"root":              "/bucket/data",
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	s := st.(*Store)
+	if s.bucket != "bucket" || s.prefixDir != "/data/" {
+		t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, "bucket", "/data/")
+	}
+}
