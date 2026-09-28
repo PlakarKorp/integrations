@@ -132,3 +132,16 @@ by kubevirt.
 Restore that same VM:
 
 	$ plakar restore -to k8s+vm: abcdef:
+
+
+## Caveats
+
+If an object belongs to the source cluster, it is not restored.  This
+includes PV and, for example, Endpoints.  The endpoints controller
+rebuilds them from the Service selector, so trying to apply them
+manually is going to just generate conflicts.
+
+The exception is a Service without a selector, whose `Endpoints` are
+written by hand and point to something else, like an external database
+for instance.  Nothing recreates these, so they won't be restored.
+The `Endpoints` API is deprecated since kubernetes 1.33 onwards.
