@@ -74,7 +74,13 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 
 	config.SetData(&mapconfig{name: typ, data: rconfig})
 
-	f, err := rclonefs.NewFs(ctx, fmt.Sprintf("%s:%s", typ, base))
+	// The context received here is the one of the Init RPC, which is
+	// canceled as soon as Init returns. rclone's oauthutil keeps it
+	// around (TokenSource.ctx) and uses it as the request context of
+	// every token refresh, so pass a context that outlives Init or
+	// the first refresh needed past the access token expiry (~1h)
+	// fails with "context canceled".
+	f, err := rclonefs.NewFs(context.WithoutCancel(ctx), fmt.Sprintf("%s:%s", typ, base))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rclone fs: %w", err)
 	}
