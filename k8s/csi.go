@@ -585,6 +585,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		Architecture:    runtime.GOOS,
 		CWD:             podpath,
 		MaxConcurrency:  k.opts.MaxConcurrency,
+		Excludes:        rebaseExcludes(k.opts.Excludes, prefix, podpath),
 	}
 
 	importer, err := gimporter.NewImporter(ctx, client, opts, proto, map[string]string{

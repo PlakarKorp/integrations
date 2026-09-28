@@ -23,6 +23,12 @@ or without.
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 - `ignore_resources`: optional, used only for configuration restore.  Semicolon-separated list of `group/Kind` to leave out of the restore.
 
+plakar's ignore patterns (`-ignore` and `-ignore-file`) are honoured on PVC and VM
+disk backups: they're rewritten against the mount point inside the kubelet pod
+and handed to the importer running there, so the excluded files are never read
+nor sent over the wire.  Write them against the paths as they appear in the
+snapshot, i.e. including the `/<disk>/data/` prefix for VM disks.
+
 
 ## Permissions
 
