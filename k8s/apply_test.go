@@ -756,6 +756,69 @@ spec:
 	require.Equal(t, "None", spec["clusterIP"])
 }
 
+func TestApplyUnbindsPVC(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "persistentvolumeclaims")
+
+	// the volume from the backup belongs to the source cluster:
+	// keeping it leaves the restored claim Lost.
+	yaml := `
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-pvc
+  namespace: default
+  annotations:
+    pv.kubernetes.io/bind-completed: "yes"
+    pv.kubernetes.io/bound-by-controller: "yes"
+    volume.kubernetes.io/storage-provisioner: hostpath.csi.k8s.io
+    volume.beta.kubernetes.io/storage-provisioner: hostpath.csi.k8s.io
+    example.com/keep-me: "true"
+spec:
+  volumeName: pvc-b0cbb3b8-1c7d-470d-a133-66b008b28628
+  storageClassName: csi-hostpath-sc
+  accessModes: [ReadWriteOnce]
+`
+	err := k.apply(t.Context(), "data-pvc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.NotContains(t, spec, "volumeName")
+	require.Equal(t, "csi-hostpath-sc", spec["storageClassName"],
+		"the rest of the spec must be left alone")
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	annotations, _ := meta["annotations"].(map[string]any)
+	require.Equal(t, map[string]any{"example.com/keep-me": "true"}, annotations,
+		"only the binding annotations go away")
+}
+
+func TestApplyDropsEmptyPVCAnnotations(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "persistentvolumeclaims")
+
+	yaml := `
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-pvc
+  namespace: default
+  annotations:
+    pv.kubernetes.io/bind-completed: "yes"
+spec:
+  volumeName: pvc-deadbeef
+`
+	err := k.apply(t.Context(), "data-pvc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.NotContains(t, meta, "annotations")
+}
+
 func TestApplySkipsPersistentVolume(t *testing.T) {
 	t.Parallel()
 
