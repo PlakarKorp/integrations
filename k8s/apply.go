@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"slices"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	yamlv3 "go.yaml.in/yaml/v3"
@@ -78,6 +80,22 @@ func (k *k8s) skipRestore(gvk schema.GroupVersionKind, meta metav1.ObjectMeta) (
 	return "", nil
 }
 
+// unboundAnnotations removes the annotations that binds the PVC to
+// its PV.  Returns a new map.
+func unboundAnnotations(annotations map[string]string) map[string]string {
+	annotations = maps.Clone(annotations)
+	maps.DeleteFunc(annotations, func(key, _ string) bool {
+		return strings.HasPrefix(key, "pv.kubernetes.io/") ||
+			strings.HasPrefix(key, "volume.kubernetes.io/") ||
+			strings.HasPrefix(key, "volume.beta.kubernetes.io/")
+	})
+
+	if len(annotations) == 0 {
+		return nil
+	}
+	return annotations
+}
+
 // restorable drops the source cluster-specific info that don't make
 // sense when restoring, or that might fail alltogether.
 func restorable(obj *unstructured.Unstructured) {
@@ -90,6 +108,13 @@ func restorable(obj *unstructured.Unstructured) {
 	unstructured.RemoveNestedField(obj.Object, "metadata", "resourceVersion")
 
 	switch obj.GroupVersionKind() {
+	case schema.GroupVersionKind{Version: "v1", Kind: "PersistentVolumeClaim"}:
+		// volumeName references a PV on the old cluster,
+		// cannot be restored, otherwise it'll come up as
+		// "Lost".
+		unstructured.RemoveNestedField(obj.Object, "spec", "volumeName")
+		obj.SetAnnotations(unboundAnnotations(obj.GetAnnotations()))
+
 	case schema.GroupVersionKind{Version: "v1", Kind: "Service"}:
 		// drop the cluster IP since it might not be
 		// re-allocated as-is.  None is not an address though,

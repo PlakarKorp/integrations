@@ -321,19 +321,6 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 // restorablepvc transforms the given pvc into something that we can
 // reapply: we don't restore the original PV.
 func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeClaim {
-	var annotations map[string]string
-	for key, value := range pvc.Annotations {
-		if strings.HasPrefix(key, "pv.kubernetes.io/") ||
-			strings.HasPrefix(key, "volume.kubernetes.io/") ||
-			strings.HasPrefix(key, "volume.beta.kubernetes.io/") {
-			continue
-		}
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		annotations[key] = value
-	}
-
 	return &corev1.PersistentVolumeClaim{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
@@ -343,7 +330,7 @@ func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeCl
 			Name:        pvc.Name,
 			Namespace:   pvc.Namespace, // apply() remaps ns
 			Labels:      pvc.Labels,
-			Annotations: annotations,
+			Annotations: unboundAnnotations(pvc.Annotations),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      pvc.Spec.AccessModes,
