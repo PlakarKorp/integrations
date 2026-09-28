@@ -32,6 +32,8 @@ var applyTestResources = []*metav1.APIResourceList{
 		APIResources: []metav1.APIResource{
 			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "endpoints", Namespaced: true, Kind: "Endpoints",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "persistentvolumes", Namespaced: false, Kind: "PersistentVolume",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "persistentvolumeclaims", Namespaced: true, Kind: "PersistentVolumeClaim",
@@ -845,4 +847,36 @@ spec:
 	err := k.apply(t.Context(), "pv", strings.NewReader(yaml))
 	require.NoError(t, err)
 	require.False(t, applied, "volumes belong to the cluster they came from")
+}
+
+func TestApplySkipsEndpoints(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.restoreFilters = neverRestore
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "endpoints", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	// the endpoints controller owns the subsets, applying ours
+	// conflicts with it and it would overwrite them anyway.
+	yaml := `
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: app-svc
+  namespace: default
+subsets:
+  - addresses:
+      - ip: 10.244.0.99
+    ports:
+      - port: 80
+`
+	err := k.apply(t.Context(), "app-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.False(t, applied, "endpoints are rebuilt from the service")
 }
