@@ -166,6 +166,6 @@ Then, merge the integration's release tag into the main branch:
 	$ got merge refs/tags/foo/v1.1.0 # got versions < 0.127 do not support merging of tags, try using the branch name integration/foo instead
 	$ got send
 
-Finally, don't forget to update
-[hub.git](https://github.com/PlakarKorp/hub.git) and bump the version
-there as well.
+Finally, don't forget to make a release on github with the changelog and
+update [hub.git](https://github.com/PlakarKorp/hub.git) by bumping the
+version there as well.
