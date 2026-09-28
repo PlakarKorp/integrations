@@ -341,7 +341,7 @@ func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeCl
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvc.Name,
-			Namespace:   pvc.Namespace, // XXX should be overwriteable
+			Namespace:   pvc.Namespace, // apply() remaps ns
 			Labels:      pvc.Labels,
 			Annotations: annotations,
 		},
@@ -492,6 +492,9 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 }
 
 func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	// best effort to create the target ns
+	k.ensureNamespace(ctx, ns)
+
 	var (
 		vmconf     []byte
 		currentexp *tee.Exporter
@@ -559,6 +562,10 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 				results <- record.Error(err)
 				return err
 			}
+
+			// apply() is going to remap the manifest
+			// anyway, keep track of the right namespace.
+			pvc.Namespace = ns
 
 			b, err = yaml.Marshal(pvc)
 			if err != nil {

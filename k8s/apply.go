@@ -9,6 +9,9 @@ import (
 
 	"github.com/PlakarKorp/kloset/connectors"
 	yamlv3 "go.yaml.in/yaml/v3"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -110,6 +113,18 @@ func (k *k8s) apply(ctx context.Context, name string, rd io.Reader) error {
 
 	gvr := rest.Resource
 
+	if k.namespace != "" {
+		// cannot map cluster-scoped resource to namespace
+		if rest.Scope.Name() != apimeta.RESTScopeNameNamespace {
+			log.Printf("skipping %s: %s is cluster-scoped and we're restoring into %s",
+				name, gvk.Kind, k.namespace)
+			return nil
+		}
+
+		k.warnCollapse(gvk.GroupKind(), meta)
+		obj.SetNamespace(k.namespace)
+	}
+
 	verbs, err := resourceVerbs(ctx, k.discovercache, gvr)
 	if err != nil {
 		return err
@@ -132,7 +147,52 @@ func (k *k8s) apply(ctx context.Context, name string, rd io.Reader) error {
 	return err
 }
 
+// remapKey identifies an object regardless of the namespace it was
+// backed up from.
+type remapKey struct {
+	gk   schema.GroupKind
+	name string
+}
+
+// warnCollapse warns when two objects from different namespaces are
+// remapped onto the same name: the second apply silently overwrites the
+// first one.
+func (k *k8s) warnCollapse(gk schema.GroupKind, meta metav1.ObjectMeta) {
+	key := remapKey{gk: gk, name: meta.Name}
+
+	if prev, ok := k.remapped[key]; ok && prev != meta.Namespace {
+		log.Printf("%s %s from namespace %s overwrites the one from %s: both are restored into %s",
+			gk.Kind, meta.Name, meta.Namespace, prev, k.namespace)
+	}
+
+	k.remapped[key] = meta.Namespace
+}
+
+// ensureNamespace creates the namespace we're restoring into.  it's a
+// best effort, the namespace might already be there or we might not
+// be allowed to create it.
+func (k *k8s) ensureNamespace(ctx context.Context, ns string) {
+	obj := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: ns},
+	}
+
+	_, err := k.clientset.CoreV1().Namespaces().Create(ctx, obj, metav1.CreateOptions{})
+	switch {
+	case err == nil:
+		log.Printf("created namespace %s", ns)
+	case apierrors.IsAlreadyExists(err):
+		// nothing
+	default:
+		// we'll fail later anyway
+		log.Printf("failed to create namespace %s: %s", ns, err)
+	}
+}
+
 func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	if k.namespace != "" {
+		k.ensureNamespace(ctx, k.namespace)
+	}
+
 	for record := range records {
 		if record.Err != nil || record.IsXattr || !record.FileInfo.Lmode.IsRegular() {
 			results <- record.Ok()
