@@ -88,6 +88,13 @@ Backup the PVC `my-pvc` in the `storage` namespace:
 
 	$ plakar backup -o volume_snapshot_class=my-snapclass k8s+csi:/storage/my-pvc
 
+Same, but leaving out the `lost+found` that ext4 puts at the root of the
+volume.  It belongs to the filesystem, not to the data, and restoring it
+over the one already there could fail:
+
+	$ plakar backup -ignore /lost+found \
+	    -o volume_snapshot_class=my-snapclass k8s+csi:/storage/my-pvc
+
 Restore inside a new, pristine, PersistentVolumeClaim:
 
 	$ kubectl create -f -
