@@ -65,6 +65,11 @@
       "type": "boolean",
       "default": false,
       "description": "Set the owner and group for restored files, needs super user permissions."
+    },
+    "skip_permissions": {
+      "type": "boolean",
+      "default": false,
+      "description": "Skip restoring permission bits (including setuid/setgid/sticky) on restored files and directories."
     }
   },
   "allOf": [
