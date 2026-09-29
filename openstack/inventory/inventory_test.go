@@ -1,8 +1,9 @@
-package openstack
+package inventory
 
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/PlakarKorp/go-inventory-sdk/inventory"
+	"github.com/PlakarKorp/integrations-private/openstack/common"
+	"github.com/PlakarKorp/integrations-private/openstack/common/keystonetest"
 	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
@@ -28,7 +31,7 @@ type stubAPI struct {
 	servers    []servers.Server
 	volumes    []volumes.Volume
 	images     []images.Image
-	containers []container
+	containers []common.Container
 	databases  []instances.Instance
 
 	serversErr, volumesErr, imagesErr, containersErr, databasesErr error
@@ -58,14 +61,14 @@ func (s *stubAPI) ListVolumes(context.Context) iter.Seq2[volumes.Volume, error] 
 func (s *stubAPI) ListImages(context.Context) iter.Seq2[images.Image, error] {
 	return seq(s.images, s.imagesErr)
 }
-func (s *stubAPI) ListContainers(context.Context) iter.Seq2[container, error] {
+func (s *stubAPI) ListContainers(context.Context) iter.Seq2[common.Container, error] {
 	return seq(s.containers, s.containersErr)
 }
 func (s *stubAPI) ListDatabases(context.Context) iter.Seq2[instances.Instance, error] {
 	return seq(s.databases, s.databasesErr)
 }
-func (s *stubAPI) Scope() scope {
-	return scope{ProjectID: "p1", Region: cmp.Or(s.region, "RegionOne")}
+func (s *stubAPI) Scope() common.Scope {
+	return common.Scope{ProjectID: "p1", Region: cmp.Or(s.region, "RegionOne")}
 }
 
 func listAll(t *testing.T, apis ...openstackAPI) ([]*inventory.InventoryEntry, error) {
@@ -93,7 +96,7 @@ func TestListMapsEveryResource(t *testing.T) {
 				Properties: map[string]any{"image_type": "snapshot"}, Tags: []string{"golden", "owner:peeyush", "env:prod"}},
 			{ID: "i2", Name: "bfv-snap", Status: images.ImageStatusActive, Visibility: images.ImageVisibilityPrivate}, // no data: skipped
 		},
-		containers: []container{{Container: containers.Container{Name: "media", Count: 3, Bytes: 42}, URL: "http://swift:8080/v1/AUTH_p1/media"}},
+		containers: []common.Container{{Container: containers.Container{Name: "media", Count: 3, Bytes: 42}, URL: "http://swift:8080/v1/AUTH_p1/media"}},
 		databases: []instances.Instance{{ID: "d1", Name: "orders", Status: "ACTIVE", Hostname: "db.example",
 			Datastore: datastores.DatastorePartial{Type: "postgresql"}, Addresses: []instances.Address{{Address: "10.0.0.9"}}}},
 	}
@@ -145,13 +148,13 @@ func TestListMapsEveryResource(t *testing.T) {
 }
 
 func TestListSkipsServicesMissingFromCatalog(t *testing.T) {
-	missing := fmt.Errorf("volumes: %w", errServiceUnavailable)
+	missing := fmt.Errorf("volumes: %w", common.ErrServiceUnavailable)
 	api := &stubAPI{
 		servers:       []servers.Server{{ID: "s1"}},
 		volumesErr:    missing,
-		imagesErr:     fmt.Errorf("images: %w", errServiceUnavailable),
-		containersErr: fmt.Errorf("containers: %w", errServiceUnavailable),
-		databasesErr:  fmt.Errorf("databases: %w", errServiceUnavailable),
+		imagesErr:     fmt.Errorf("images: %w", common.ErrServiceUnavailable),
+		containersErr: fmt.Errorf("containers: %w", common.ErrServiceUnavailable),
+		databasesErr:  fmt.Errorf("databases: %w", common.ErrServiceUnavailable),
 	}
 
 	got, err := listAll(t, api)
@@ -162,33 +165,13 @@ func TestListSkipsServicesMissingFromCatalog(t *testing.T) {
 func TestListSkipsServicesThatDenyAccess(t *testing.T) {
 	api := &stubAPI{
 		servers:       []servers.Server{{ID: "s1"}},
-		containersErr: fmt.Errorf("list containers: %w", errAccessDenied),
-		databasesErr:  fmt.Errorf("list databases: %w", errAccessDenied),
+		containersErr: fmt.Errorf("list containers: %w", common.ErrAccessDenied),
+		databasesErr:  fmt.Errorf("list databases: %w", common.ErrAccessDenied),
 	}
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"nova"}, serviceNames(got), "the refusing services should be skipped")
-}
-
-// Passwords and secrets may legitimately start or end with spaces.
-func TestParseConfigKeepsSecretsAsGiven(t *testing.T) {
-	cfg, err := parseConfig(map[string]string{
-		"openstack_auth_url":   "http://keystone/v3/",
-		"openstack_username":   "user-a",
-		"openstack_password":   " pass word ",
-		"openstack_project_id": "p1",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, " pass word ", cfg.auth.Password)
-
-	cfg, err = parseConfig(map[string]string{
-		"openstack_auth_url":                      "http://keystone/v3/",
-		"openstack_application_credential_id":     "id",
-		"openstack_application_credential_secret": " s3cret ",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, " s3cret ", cfg.auth.ApplicationCredentialSecret)
 }
 
 func TestListStopsOnError(t *testing.T) {
@@ -209,7 +192,7 @@ func TestListCoversEveryRegion(t *testing.T) {
 	two := &stubAPI{
 		region:     "RegionTwo",
 		servers:    []servers.Server{{ID: "s2"}},
-		volumesErr: fmt.Errorf("volumes: %w", errServiceUnavailable),
+		volumesErr: fmt.Errorf("volumes: %w", common.ErrServiceUnavailable),
 	}
 
 	got, err := listAll(t, one, two)
@@ -228,6 +211,18 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 	assert.ErrorContains(t, err, `region "RegionTwo"`)
 }
 
+// servers.Server leaves addresses untyped, so check serverAddresses reads
+// them as Nova sends them.
+func TestServerAddresses(t *testing.T) {
+	var s servers.Server
+	err := json.Unmarshal([]byte(`{"id":"s1","addresses":{
+		"b-net":[{"addr":"10.0.0.2","version":4}],
+		"a-net":[{"addr":"192.0.2.1","version":4},{"addr":"2001:db8::1","version":6}]}}`), &s)
+	require.NoError(t, err)
+	// Sorted by network name.
+	assert.Equal(t, []string{"192.0.2.1", "2001:db8::1", "10.0.0.2"}, serverAddresses(s))
+}
+
 func TestGlanceTags(t *testing.T) {
 	assert.Equal(t,
 		[]string{"owner=peeyush", "golden", "url=https://x", ":odd"},
@@ -237,7 +232,7 @@ func TestGlanceTags(t *testing.T) {
 
 // Older Trove releases report addresses only in the deprecated ip field.
 func TestDatabaseEntryFallsBackToIP(t *testing.T) {
-	e := databaseEntry(scope{}, instances.Instance{ID: "d1", IP: []string{"10.0.0.7"}})
+	e := databaseEntry(common.Scope{}, instances.Instance{ID: "d1", IP: []string{"10.0.0.7"}})
 	assert.Equal(t, []inventory.HostEndpoint{{Type: inventory.EndpointInet4, Endpoint: "10.0.0.7"}}, e.Endpoints)
 }
 
@@ -268,32 +263,32 @@ func TestNewInventoryRejectsInvalidConfig(t *testing.T) {
 		{
 			name:   "no auth url",
 			params: map[string]string{"openstack_username": "u", "openstack_password": "p", "openstack_project_name": "p"},
-			want:   ErrMissingAuthURL,
+			want:   common.ErrMissingAuthURL,
 		},
 		{
 			name:   "no credentials",
 			params: map[string]string{"openstack_auth_url": "http://keystone/v3/"},
-			want:   ErrMissingAuth,
+			want:   common.ErrMissingAuth,
 		},
 		{
 			name:   "password without username",
 			params: map[string]string{"openstack_auth_url": "http://keystone/v3/", "openstack_password": "p", "openstack_project_name": "p"},
-			want:   ErrMissingAuth,
+			want:   common.ErrMissingAuth,
 		},
 		{
 			name:   "password without project",
 			params: map[string]string{"openstack_auth_url": "http://keystone/v3/", "openstack_username": "u", "openstack_password": "p"},
-			want:   ErrMissingProject,
+			want:   common.ErrMissingProject,
 		},
 		{
 			name:   "application credential without secret",
 			params: map[string]string{"openstack_auth_url": "http://keystone/v3/", "openstack_application_credential_id": "id"},
-			want:   ErrPartialAppCred,
+			want:   common.ErrPartialAppCred,
 		},
 		{
 			name:   "application credential without id",
 			params: map[string]string{"openstack_auth_url": "http://keystone/v3/", "openstack_application_credential_secret": "s"},
-			want:   ErrPartialAppCred,
+			want:   common.ErrPartialAppCred,
 		},
 	}
 
@@ -311,7 +306,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 		params      map[string]string
 		wantMethods []string
 		wantScope   map[string]any
-		check       func(t *testing.T, got *authRequest)
+		check       func(t *testing.T, got *keystonetest.AuthRequest)
 	}{
 		{
 			name: "password scoped by project name defaults the domain",
@@ -325,7 +320,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 				"name":   "tenant-a",
 				"domain": map[string]any{"name": "Default"},
 			}},
-			check: func(t *testing.T, got *authRequest) {
+			check: func(t *testing.T, got *keystonetest.AuthRequest) {
 				p := got.Auth.Identity.Password
 				require.NotNil(t, p)
 				assert.Equal(t, "user-a", p.User.Name)
@@ -344,7 +339,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 			},
 			wantMethods: []string{"password"},
 			wantScope:   map[string]any{"project": map[string]any{"id": "abc123"}},
-			check: func(t *testing.T, got *authRequest) {
+			check: func(t *testing.T, got *keystonetest.AuthRequest) {
 				p := got.Auth.Identity.Password
 				require.NotNil(t, p)
 				assert.Equal(t, "corp", p.User.Domain.Name)
@@ -358,7 +353,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 				"openstack_username":                      "ignored",
 			},
 			wantMethods: []string{"application_credential"},
-			check: func(t *testing.T, got *authRequest) {
+			check: func(t *testing.T, got *keystonetest.AuthRequest) {
 				ac := got.Auth.Identity.ApplicationCredential
 				require.NotNil(t, ac)
 				assert.Equal(t, "id", ac.ID)
@@ -369,7 +364,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, got := keystone(t, http.StatusCreated)
+			url, got := keystonetest.Serve(t, http.StatusCreated)
 			tt.params["openstack_auth_url"] = url
 
 			inv, err := NewInventory(t.Context(), tt.params)
@@ -384,7 +379,7 @@ func TestNewInventoryAuthenticates(t *testing.T) {
 }
 
 func TestNewInventoryReportsRejectedCredentials(t *testing.T) {
-	url, _ := keystone(t, http.StatusUnauthorized)
+	url, _ := keystonetest.Serve(t, http.StatusUnauthorized)
 	_, err := NewInventory(t.Context(), map[string]string{
 		"openstack_auth_url":     url,
 		"openstack_username":     "user-a",
@@ -395,7 +390,7 @@ func TestNewInventoryReportsRejectedCredentials(t *testing.T) {
 }
 
 func TestListClosesChannel(t *testing.T) {
-	url, _ := keystone(t, http.StatusCreated) // no regions: an empty catalog
+	url, _ := keystonetest.Serve(t, http.StatusCreated) // no regions: an empty catalog
 	inv, err := NewInventory(t.Context(), map[string]string{
 		"openstack_auth_url":                      url,
 		"openstack_application_credential_id":     "id",

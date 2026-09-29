@@ -4,9 +4,9 @@ import (
 	"os"
 
 	"github.com/PlakarKorp/go-inventory-sdk/sdk/server"
-	osinv "github.com/PlakarKorp/integrations-private/openstack"
+	"github.com/PlakarKorp/integrations-private/openstack/inventory"
 )
 
 func main() {
-	server.Entrypoint(os.Args, osinv.NewInventory)
+	server.Entrypoint(os.Args, inventory.NewInventory)
 }

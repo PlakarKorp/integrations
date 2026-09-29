@@ -1,4 +1,4 @@
-package openstack
+package common
 
 import (
 	"errors"
@@ -16,19 +16,19 @@ var (
 	ErrMissingProject = errors.New("openstack_project_id or openstack_project_name is required with password authentication")
 )
 
-type config struct {
+type Config struct {
 	auth gophercloud.AuthOptions
 	// regions restricts the scan to these catalog regions; empty scans them all.
 	regions []string
 }
 
-func parseConfig(params map[string]string) (*config, error) {
+func ParseConfig(params map[string]string) (*Config, error) {
 	authURL := params["openstack_auth_url"]
 	if authURL == "" {
 		return nil, ErrMissingAuthURL
 	}
 
-	cfg := &config{
+	cfg := &Config{
 		auth: gophercloud.AuthOptions{
 			IdentityEndpoint: authURL,
 			AllowReauth:      true,

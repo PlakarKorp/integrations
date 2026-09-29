@@ -1,4 +1,4 @@
-package openstack
+package inventory
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/PlakarKorp/go-inventory-sdk/inventory"
+	"github.com/PlakarKorp/integrations-private/openstack/common"
 	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
@@ -34,6 +35,19 @@ var datastoreSubClasses = map[string]pkg.ResourceSubClass{
 	"redis":      pkg.ResourceSubClassRedis,
 }
 
+// openstackAPI is what the inventory needs from an OpenStack cloud, scoped to
+// one project and region.
+type openstackAPI interface {
+	ListServers(ctx context.Context) iter.Seq2[servers.Server, error]
+	ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, error]
+	// ListImages lists the Glance images owned by the client's project.
+	ListImages(ctx context.Context) iter.Seq2[images.Image, error]
+	ListContainers(ctx context.Context) iter.Seq2[common.Container, error]
+	ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error]
+
+	Scope() common.Scope
+}
+
 // osInventory scans one project, through one client per region.
 type osInventory struct {
 	apis []openstackAPI
@@ -43,12 +57,12 @@ type osInventory struct {
 // token's project across every region in its catalog, or only the regions
 // listed in openstack_region.
 func NewInventory(ctx context.Context, params map[string]string) (inventory.Inventory, error) {
-	cfg, err := parseConfig(params)
+	cfg, err := common.ParseConfig(params)
 	if err != nil {
 		return nil, err
 	}
 
-	clients, err := newGopherClients(ctx, cfg)
+	clients, err := common.Connect(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +112,7 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 			}
 			for _, source := range sources {
 				for entry, err := range source {
-					if errors.Is(err, errServiceUnavailable) || errors.Is(err, errAccessDenied) {
+					if errors.Is(err, common.ErrServiceUnavailable) || errors.Is(err, common.ErrAccessDenied) {
 						log.Printf("openstack-inventory: region %q: skipping: %v", sc.Region, err)
 						break
 					}
@@ -116,7 +130,7 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 }
 
 // entriesOf drops the items toEntry returns nil for.
-func entriesOf[T any](sc scope, seq iter.Seq2[T, error], toEntry func(scope, T) *inventory.InventoryEntry) iter.Seq2[*inventory.InventoryEntry, error] {
+func entriesOf[T any](sc common.Scope, seq iter.Seq2[T, error], toEntry func(common.Scope, T) *inventory.InventoryEntry) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
 		for item, err := range seq {
 			if err != nil {
@@ -138,11 +152,11 @@ func entriesOf[T any](sc scope, seq iter.Seq2[T, error], toEntry func(scope, T) 
 }
 
 // urn follows the other inventories: urn:openstack:<project>:<service>:<region>:<type>:<id>.
-func urn(sc scope, service, resourceType, id string) string {
+func urn(sc common.Scope, service, resourceType, id string) string {
 	return fmt.Sprintf("urn:openstack:%s:%s:%s:%s:%s", sc.ProjectID, service, sc.Region, resourceType, id)
 }
 
-func serverEntry(sc scope, s servers.Server) *inventory.InventoryEntry {
+func serverEntry(sc common.Scope, s servers.Server) *inventory.InventoryEntry {
 	e := &inventory.InventoryEntry{
 		Class:     pkg.ResourceClassCompute,
 		SubClass:  pkg.ResourceSubClassUndefined,
@@ -176,7 +190,7 @@ func serverAddresses(s servers.Server) []string {
 	return out
 }
 
-func volumeEntry(sc scope, v volumes.Volume) *inventory.InventoryEntry {
+func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 	e := &inventory.InventoryEntry{
 		Class:     pkg.ResourceClassBlockStorage,
 		SubClass:  pkg.ResourceSubClassUndefined,
@@ -196,7 +210,7 @@ func volumeEntry(sc scope, v volumes.Volume) *inventory.InventoryEntry {
 
 // imageEntry leaves out images without data: a snapshot of a boot-from-volume
 // server is an empty Glance image whose disks live in Cinder snapshots.
-func imageEntry(sc scope, i images.Image) *inventory.InventoryEntry {
+func imageEntry(sc common.Scope, i images.Image) *inventory.InventoryEntry {
 	if i.SizeBytes == 0 {
 		return nil
 	}
@@ -218,7 +232,7 @@ func imageEntry(sc scope, i images.Image) *inventory.InventoryEntry {
 	return e
 }
 
-func containerEntry(sc scope, c container) *inventory.InventoryEntry {
+func containerEntry(sc common.Scope, c common.Container) *inventory.InventoryEntry {
 	return &inventory.InventoryEntry{
 		Class:     pkg.ResourceClassObjectStorage,
 		SubClass:  pkg.ResourceSubClassUndefined,
@@ -232,7 +246,7 @@ func containerEntry(sc scope, c container) *inventory.InventoryEntry {
 }
 
 // The trove API is yet to be tested against a real cloud, so the entry is best-effort.
-func databaseEntry(sc scope, d instances.Instance) *inventory.InventoryEntry {
+func databaseEntry(sc common.Scope, d instances.Instance) *inventory.InventoryEntry {
 	e := &inventory.InventoryEntry{
 		Class:    pkg.ResourceClassDatabase,
 		SubClass: datastoreSubClass(d.Datastore.Type),

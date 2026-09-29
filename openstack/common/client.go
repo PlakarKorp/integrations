@@ -1,4 +1,4 @@
-package openstack
+package common
 
 import (
 	"cmp"
@@ -22,47 +22,34 @@ import (
 	"github.com/gophercloud/gophercloud/v2/pagination"
 )
 
-// errServiceUnavailable means the region's catalog lacks the service, as
+// ErrServiceUnavailable means the region's catalog lacks the service, as
 // DevStack lacks Swift. Callers skip it.
-var errServiceUnavailable = errors.New("service not in catalog")
+var ErrServiceUnavailable = errors.New("service not in catalog")
 
-// errAccessDenied means the service refused the credential (401 or 403), e.g.
+// ErrAccessDenied means the service refused the credential (401 or 403), e.g.
 // Swift without an object-store role. Callers skip it.
-var errAccessDenied = errors.New("access denied")
+var ErrAccessDenied = errors.New("access denied")
 
-// openstackAPI is what the inventory needs from an OpenStack cloud, scoped to
-// one project and region. Listings yield gophercloud's own types.
-type openstackAPI interface {
-	ListServers(ctx context.Context) iter.Seq2[servers.Server, error]
-	ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, error]
-	// ListImages lists the Glance images owned by the client's project.
-	ListImages(ctx context.Context) iter.Seq2[images.Image, error]
-	ListContainers(ctx context.Context) iter.Seq2[container, error]
-	ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error]
-
-	Scope() scope
-}
-
-type scope struct {
+type Scope struct {
 	ProjectID string
 	Region    string
 }
 
-// container adds the URL the Swift listing lacks.
-type container struct {
+// Container adds the URL the Swift listing lacks.
+type Container struct {
 	containers.Container
 	URL string
 }
 
-type gopherClient struct {
+type Client struct {
 	provider *gophercloud.ProviderClient
 	endpoint gophercloud.EndpointOpts
-	scope    scope
+	scope    Scope
 }
 
-// newGopherClients authenticates once and returns one client per region: the
+// Connect authenticates once and returns one client per region: the
 // configured ones, or every region with a public endpoint in the catalog.
-func newGopherClients(ctx context.Context, cfg *config) ([]*gopherClient, error) {
+func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 	provider, err := gcopenstack.AuthenticatedClient(ctx, cfg.auth)
 	if err != nil {
 		return nil, fmt.Errorf("authenticate against %q: %w", cfg.auth.IdentityEndpoint, err)
@@ -88,12 +75,12 @@ func newGopherClients(ctx context.Context, cfg *config) ([]*gopherClient, error)
 		regions = []string{""}
 	}
 
-	clients := make([]*gopherClient, 0, len(regions))
+	clients := make([]*Client, 0, len(regions))
 	for _, region := range regions {
-		clients = append(clients, &gopherClient{
+		clients = append(clients, &Client{
 			provider: provider,
 			endpoint: gophercloud.EndpointOpts{Region: region},
-			scope:    scope{ProjectID: project, Region: region},
+			scope:    Scope{ProjectID: project, Region: region},
 		})
 	}
 	return clients, nil
@@ -124,7 +111,7 @@ func tokenScope(provider *gophercloud.ProviderClient) (string, []string) {
 	return project, regions
 }
 
-func (c *gopherClient) Scope() scope { return c.scope }
+func (c *Client) Scope() Scope { return c.scope }
 
 // serviceFactory is the signature of gcopenstack.NewComputeV2 and its siblings.
 type serviceFactory func(*gophercloud.ProviderClient, gophercloud.EndpointOpts) (*gophercloud.ServiceClient, error)
@@ -169,15 +156,15 @@ var (
 	}
 )
 
-func (c *gopherClient) ListServers(ctx context.Context) iter.Seq2[servers.Server, error] {
+func (c *Client) ListServers(ctx context.Context) iter.Seq2[servers.Server, error] {
 	return list(ctx, c, serverResource)
 }
 
-func (c *gopherClient) ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, error] {
+func (c *Client) ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, error] {
 	return list(ctx, c, volumeResource)
 }
 
-func (c *gopherClient) ListImages(ctx context.Context) iter.Seq2[images.Image, error] {
+func (c *Client) ListImages(ctx context.Context) iter.Seq2[images.Image, error] {
 	return list(ctx, c, ownedImageResource(c.scope.ProjectID))
 }
 
@@ -194,20 +181,20 @@ func ownedImageResource(project string) resource[images.Image] {
 }
 
 // ListContainers builds each container's URL from the catalog's account URL.
-func (c *gopherClient) ListContainers(ctx context.Context) iter.Seq2[container, error] {
-	return func(yield func(container, error) bool) {
+func (c *Client) ListContainers(ctx context.Context) iter.Seq2[Container, error] {
+	return func(yield func(Container, error) bool) {
 		sc, err := c.service(containerResource.name, containerResource.newService)
 		if err != nil {
-			yield(container{}, err)
+			yield(Container{}, err)
 			return
 		}
 		account := strings.TrimSuffix(sc.Endpoint, "/")
 		for ct, err := range pages(ctx, sc, containerResource) {
 			if err != nil {
-				yield(container{}, err)
+				yield(Container{}, err)
 				return
 			}
-			if !yield(container{Container: ct, URL: containerURL(account, ct.Name)}, nil) {
+			if !yield(Container{Container: ct, URL: containerURL(account, ct.Name)}, nil) {
 				return
 			}
 		}
@@ -219,23 +206,23 @@ func containerURL(account, name string) string {
 	return account + "/" + url.PathEscape(name)
 }
 
-func (c *gopherClient) ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error] {
+func (c *Client) ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error] {
 	return list(ctx, c, databaseResource)
 }
 
-// service maps a service missing from the catalog to errServiceUnavailable.
-func (c *gopherClient) service(name string, newService serviceFactory) (*gophercloud.ServiceClient, error) {
+// service maps a service missing from the catalog to ErrServiceUnavailable.
+func (c *Client) service(name string, newService serviceFactory) (*gophercloud.ServiceClient, error) {
 	sc, err := newService(c.provider, c.endpoint)
 	if err != nil {
 		if _, ok := errors.AsType[*gophercloud.ErrEndpointNotFound](err); ok {
-			err = errServiceUnavailable
+			err = ErrServiceUnavailable
 		}
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return sc, nil
 }
 
-func list[T any](ctx context.Context, c *gopherClient, res resource[T]) iter.Seq2[T, error] {
+func list[T any](ctx context.Context, c *Client, res resource[T]) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		sc, err := c.service(res.name, res.newService)
 		if err != nil {
@@ -275,7 +262,7 @@ func pages[T any](ctx context.Context, sc *gophercloud.ServiceClient, res resour
 
 func listError(name string, err error) error {
 	if gophercloud.ResponseCodeIs(err, http.StatusUnauthorized) || gophercloud.ResponseCodeIs(err, http.StatusForbidden) {
-		return fmt.Errorf("list %s: %w: %w", name, errAccessDenied, err)
+		return fmt.Errorf("list %s: %w: %w", name, ErrAccessDenied, err)
 	}
 	return fmt.Errorf("list %s: %w", name, err)
 }

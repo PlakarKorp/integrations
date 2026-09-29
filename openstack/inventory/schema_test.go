@@ -1,9 +1,10 @@
-package openstack
+package inventory
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/PlakarKorp/integrations-private/openstack/common"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,9 +121,9 @@ func TestSchema(t *testing.T) {
 				assert.Error(t, err)
 			}
 
-			// parseConfig must agree, so the schema rejects what would fail at startup.
-			_, err = parseConfig(tt.params)
-			assert.Equal(t, tt.valid, err == nil, "parseConfig: %v", err)
+			// ParseConfig must agree, so the schema rejects what would fail at startup.
+			_, err = common.ParseConfig(tt.params)
+			assert.Equal(t, tt.valid, err == nil, "ParseConfig: %v", err)
 		})
 	}
 }
