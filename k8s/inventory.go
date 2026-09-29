@@ -30,14 +30,25 @@ type inventory struct {
 	config         *rest.Config
 	clientset      kubernetes.Interface
 	kubevirtClient kubevirt.Interface
+
+	clusterID func(context.Context, *rest.Config) (string, error)
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
+	return Inventory(ctx, params, nil)
+}
+
+func Inventory(ctx context.Context, params map[string]string, clusterID func(context.Context, *rest.Config) (string, error)) (sdk.Inventory, error) {
 	var (
 		inv          inventory
 		kubeconf     []byte
 		kubeconfpath string
 	)
+
+	inv.clusterID = clusterID
+	if inv.clusterID == nil {
+		inv.clusterID = clusterUID
+	}
 
 	for k, v := range params {
 		switch k {
@@ -102,8 +113,12 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 	return &inv, nil
 }
 
-func (inv *inventory) clusterUID(ctx context.Context) (string, error) {
-	ns, err := inv.clientset.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
+func clusterUID(ctx context.Context, config *rest.Config) (string, error) {
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to build the clientset: %w", err)
+	}
+	ns, err := clientset.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to identify the cluster: %w", err)
 	}
@@ -111,7 +126,7 @@ func (inv *inventory) clusterUID(ctx context.Context) (string, error) {
 }
 
 func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
-	uid, err := inv.clusterUID(ctx)
+	uid, err := inv.clusterID(ctx, inv.config)
 	if err != nil {
 		return err
 	}
