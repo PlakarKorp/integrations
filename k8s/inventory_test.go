@@ -128,6 +128,7 @@ func TestInventoryClose(t *testing.T) {
 // clusterEntry is what listConfig emits for the cluster itself.
 func clusterEntry() *sdk.InventoryEntry {
 	return &sdk.InventoryEntry{
+		Class:     pkg.ResourceClassCompute,
 		URN:       "k8s:" + testClusterUID + ":cluster",
 		Name:      "cluster",
 		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
@@ -155,11 +156,13 @@ func TestInventoryListsEachGivenNamespace(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
 		{
+			Class:     pkg.ResourceClassCompute,
 			URN:       "k8s:" + testClusterUID + ":ns1",
 			Name:      "ns1",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
+			Class:     pkg.ResourceClassCompute,
 			URN:       "k8s:" + testClusterUID + ":ns2",
 			Name:      "ns2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
