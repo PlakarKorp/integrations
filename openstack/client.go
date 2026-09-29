@@ -74,14 +74,14 @@ func newGopherClients(ctx context.Context, cfg *config) ([]*gopherClient, error)
 	if project == "" {
 		return nil, fmt.Errorf("the token from %q is not scoped to a project", cfg.auth.IdentityEndpoint)
 	}
-	regions := available
-	if len(cfg.regions) > 0 {
-		for _, region := range cfg.regions {
-			if !slices.Contains(available, region) {
-				return nil, fmt.Errorf("region %q is not in the service catalog (available: %s)", region, strings.Join(available, ", "))
-			}
+	for _, region := range cfg.regions {
+		if !slices.Contains(available, region) {
+			return nil, fmt.Errorf("region %q is not in the service catalog (available: %s)", region, strings.Join(available, ", "))
 		}
-		regions = cfg.regions
+	}
+	regions := cfg.regions
+	if len(regions) == 0 {
+		regions = available
 	}
 	// With no region, gophercloud matches catalog endpoints of any region.
 	if len(regions) == 0 {
