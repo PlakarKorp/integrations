@@ -11,7 +11,7 @@ PTAR   := openstack_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 all: build
 
 build:
-	${GO} build -v -o openstack-inventory${EXT} ./plugin
+	${GO} build -v -o openstack-inventory${EXT} ./plugin/inventory
 
 test:
 	${GO} vet ./...
