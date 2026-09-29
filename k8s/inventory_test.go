@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,17 +12,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 )
 
 const testClusterUID = "cafe-1234"
 
 func newInventoryTest(objs ...runtime.Object) *inventory {
-	kubeSystem := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: testClusterUID},
+	return &inventory{
+		clientset:  k8sfake.NewSimpleClientset(objs...),
+		namespaces: []string{""},
+		clusterID: func(context.Context, *rest.Config) (string, error) {
+			return testClusterUID, nil
+		},
 	}
-	objs = append([]runtime.Object{kubeSystem}, objs...)
-	return &inventory{clientset: k8sfake.NewSimpleClientset(objs...), namespaces: []string{""}}
 }
 
 func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
@@ -167,11 +171,10 @@ func TestInventoryUnidentifiableCluster(t *testing.T) {
 	t.Parallel()
 
 	inv := newInventoryTest()
-	clientset := inv.clientset.(*k8sfake.Clientset)
-	clientset.PrependReactor("get", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
-		return true, nil, errors.New("forbidden")
-	})
+	inv.clusterID = func(context.Context, *rest.Config) (string, error) {
+		return "", errors.New("forbidden")
+	}
 
 	_, err := runInventoryList(t, inv)
-	require.ErrorContains(t, err, "failed to identify the cluster")
+	require.ErrorContains(t, err, "forbidden")
 }
