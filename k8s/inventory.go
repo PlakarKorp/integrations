@@ -138,8 +138,9 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 		}
 
 		resources <- &sdk.InventoryEntry{
-			URN:  "k8s:" + uid + ":" + name,
-			Name: name,
+			Class: pkg.ResourceClassCompute,
+			URN:   "k8s:" + uid + ":" + name,
+			Name:  name,
 			Endpoints: []sdk.HostEndpoint{{
 				Type:     sdk.EndpointIdentifier,
 				Endpoint: endpoint,
