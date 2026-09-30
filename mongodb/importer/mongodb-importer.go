@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -165,6 +166,12 @@ func cleanupTempFile(f *os.File) {
 	}
 }
 
+type commandResult struct {
+	stderr []byte
+	err    error
+	exit   bool
+}
+
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
@@ -214,13 +221,39 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		return err
 	}
 
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	read_stderr := func(c chan (commandResult)) {
+		rd := bufio.NewReader(stderr)
+
+		for {
+			buf, err := rd.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				c <- commandResult{err: fmt.Errorf("%s", buf)}
+				return
+			}
+
+			if len(buf) > 0 {
+				c <- commandResult{stderr: buf}
+			}
+		}
+	}
+
 	if err := cmd.Start(); err != nil {
 		cleanupTempFile(f)
 		return err
 	}
 
+	c := make(chan commandResult, 1)
+
 	// reap process
-	go func() { _ = cmd.Wait(); cleanupTempFile(f) }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err : err} }()
 
 	fi := objects.FileInfo{
 		Lname:      backupFilename,
@@ -238,7 +271,31 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	records <- connectors.NewRecord("/", "", fi, nil,
 		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
 
-	return nil
+	go func() {
+		read_stderr(c)
+	}()
+
+	var res commandResult
+	for err == nil && res.exit == false {
+		select {
+		case r := <-c:
+			if len(r.stderr) > 0 {
+				res.stderr = append(res.stderr, r.stderr...)
+			}
+			if res.exit == false {
+				res.exit = r.exit
+			}
+			if r.err != nil {
+				err = r.err
+			}
+		}
+	}
+
+	if err != nil && res.exit == true && len(res.stderr) > 0 {
+		err = fmt.Errorf("%s: %s", err, res.stderr)
+	}
+
+	return err
 }
 
 func (i *mongodbImporter) Close(ctx context.Context) error {
