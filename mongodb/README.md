@@ -26,14 +26,27 @@ The optional configuration parameters are as follows:
 - `use_tls`: Indicates whether to use an encrypted TLS/SSL connection. Defaults to true.
 - `tls_ca_cert`: Path to a custom CA certificate to use for verifying the MongoDB server's certificate.
 - `tls_client_cert`: Path to a client certificate for mTLS authentication to the MongoDB server.
+- `auth_mechanism`: Name of authentication mechanism to use with the MongoDB server.
 
 ## Tests
 
 Tests can be run with:
 
 ```bash
+make -C tests prepare
 make -C tests
+make -C tests clean
 ```
+
+By default the tests run with mongod configured to allow both plaintext
+and TLS connections. To run the tests with TLS connections only, use:
+
+```bash
+make -C tests TLS_MODE=requireTLS prepare
+make -C tests TLS_MODE=requireTLS
+make -C tests TLS_MODE=requireTLS clean
+```
+
 At time of writing the tests only work on Linux.
 
 The following programs are required in $PATH:

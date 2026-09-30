@@ -27,7 +27,7 @@ ${CA_KEY}:
 
 ${CA_CSR}: ${CA_KEY}
 	openssl req -batch -new -key "${CA_KEY}" \
-		-subj "/C=FR/O=Plakar/CN=TestCA" \
+		-subj "/C=FR/O=Plakar/OU=TestCA/CN=TestCA" \
 		-addext "basicConstraints=CA:true" \
 		-out "$@"
 
@@ -42,7 +42,7 @@ ${MONGODB_KEY}:
 
 ${MONGODB_CSR}: ${MONGODB_KEY}
 	openssl req -batch -new -key "${MONGODB_KEY}" \
-		-subj "/C=FR/O=Plakar/CN=TestServer" \
+		-subj "/C=FR/O=Plakar/OU=TestServer/CN=TestServer" \
 		-addext "subjectAltName=IP:127.0.0.1" \
 		-out "$@"
 
@@ -61,7 +61,7 @@ ${CLIENT_KEY}:
 
 ${CLIENT_CSR}: ${CLIENT_KEY}
 	openssl req -batch -new -key "${CLIENT_KEY}" \
-		-subj "/C=FR/O=Plakar/CN=TestClient" \
+		-subj "/C=FR/O=Plakar/OU=TestClient/CN=TestClient" \
 		-out "$@"
 
 ${CLIENT_CRT}: ${CLIENT_CSR} ${CLIENT_KEY}
@@ -124,9 +124,11 @@ test_backup:
 	d=`cat testdir`; \
 	env MONGODB_PORT=${MONGODB_PORT} \
 		MONGODB_DOCKER_NAME=${MONGODB_DOCKER_NAME} \
+		TLS_MODE=${TLS_MODE} \
 		CA_CRT="$$d/${CA_CRT}" \
 		CLIENT_PEM="$$d/${CLIENT_PEM}" \
 		PLAKAR_MONGODB_ADDR=${PLAKAR_MONGODB_ADDR} \
+		MONGODB_TESTCLIENT="CN=TestClient,OU=TestClient,O=Plakar,C=FR" \
 		./test_backup.sh; ret=$$?; \
 	if [ $$ret -eq 0 ]; then echo "All tests passed"; fi; exit $$ret
 
@@ -136,8 +138,10 @@ test_restore:
 	d=`cat testdir`; \
 	env MONGODB_PORT=${MONGODB_PORT} \
 		MONGODB_DOCKER_NAME=${MONGODB_DOCKER_NAME} \
+		TLS_MODE=${TLS_MODE} \
 		CA_CRT="$$d/${CA_CRT}" \
 		CLIENT_PEM="$$d/${CLIENT_PEM}" \
 		PLAKAR_MONGODB_ADDR=${PLAKAR_MONGODB_ADDR} \
+		MONGODB_TESTCLIENT="CN=TestClient,OU=TestClient,O=Plakar,C=FR" \
 		./test_restore.sh; ret=$$?; \
 	if [ $$ret -eq 0 ]; then echo "All tests passed"; fi; exit $$ret
