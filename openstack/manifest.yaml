@@ -1,7 +1,7 @@
 name: openstack
 display_name: OpenStack
 description: OpenStack Inventory of servers, volumes, images, Swift containers and Trove databases.
-homepage: https://github.com/PlakarKorp/integrations-private/openstack
+homepage: https://github.com/PlakarKorp/integrations/openstack
 license: ISC
 api_version: v1.1.0
 connectors:

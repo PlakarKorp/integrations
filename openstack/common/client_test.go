@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/PlakarKorp/integrations-private/openstack/common/keystonetest"
+	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/gophercloud/gophercloud/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
