@@ -230,7 +230,11 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	if err != nil {
 		return err
 	}
+	return p.dumpDatabases(ctx, records, databases)
+}
 
+// dumpDatabases emits one pg_dump record per selected database.
+func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors.Record, databases []string) error {
 	n := 0
 	for _, dbname := range databases {
 		if p.database != "" && dbname != p.database {
@@ -238,6 +242,9 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 		}
 		if _, excluded := p.excludeDatabases[dbname]; excluded {
 			continue
+		}
+		if err := pgconn.ValidDatabaseName(dbname); err != nil {
+			return fmt.Errorf("backing up database: %w", err)
 		}
 		n++
 		args := append(p.conn.Args(), "-Fc")
