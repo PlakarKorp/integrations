@@ -19,6 +19,8 @@ package common
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -123,12 +125,94 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 	return &VolumeImage{Volume: vol, Snapshot: snap, Image: img}, nil
 }
 
-// Cleanup records the temporary resources of one volume backup: the
-// snapshot, the temporary volume and the image.
+// Deleting the temporary resources.
+
+// Defaults, as variables so tests can shorten them. waitTimeout suits volumes
+// of a few hundred GiB; it can become a connector option once larger ones need
+// it.
+var (
+	deleteTimeout = 30 * time.Second // one delete request
+	waitTimeout   = 15 * time.Minute // Cinder finishing what blocks a delete
+)
+
+// Cleanup deletes the temporary resources of one volume backup: the image,
+// the temporary volume, then the snapshot it was made from. It tries each once
+// and logs a failure, as plakar ignores the errors of both the disk's Close and
+// the importer's.
 type Cleanup struct {
 	mu                            sync.Mutex
 	block, image                  *gophercloud.ServiceClient
 	snapshotID, volumeID, imageID string
+}
+
+// Run ignores cancellation of ctx, so it still cleans up once Import's context
+// is done. It cannot run if plakar kills the plugin, as it does on Ctrl-C or
+// SIGTERM: the resources are then left behind.
+func (c *Cleanup) Run(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ctx = context.WithoutCancel(ctx)
+
+	if c.imageID != "" {
+		logFailure("image", c.imageID, c.deleteImage(ctx))
+		c.imageID = ""
+	}
+
+	volumeDeleted := false
+	if c.volumeID != "" {
+		err := c.deleteVolume(ctx)
+		logFailure("volume", c.volumeID, err)
+		volumeDeleted = isDeleted(err)
+	}
+
+	if c.snapshotID != "" {
+		logFailure("snapshot", c.snapshotID, c.deleteSnapshot(ctx, volumeDeleted))
+		c.snapshotID = ""
+	}
+	c.volumeID = ""
+}
+
+func (c *Cleanup) deleteImage(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
+	defer cancel()
+	return images.Delete(ctx, c.image, c.imageID).ExtractErr()
+}
+
+func (c *Cleanup) deleteVolume(ctx context.Context) error {
+	if err := waitDeletable(ctx, getVolume(c.block, c.volumeID)); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
+	defer cancel()
+	return volumes.Delete(ctx, c.block, c.volumeID, volumes.DeleteOpts{}).ExtractErr()
+}
+
+func (c *Cleanup) deleteSnapshot(ctx context.Context, volumeDeleted bool) error {
+	if volumeDeleted {
+		// Wait for the temporary volume to be gone before deleting the snapshot,
+		// as some backends block it until then.
+		if err := waitGone(ctx, getVolume(c.block, c.volumeID)); err != nil {
+			return err
+		}
+	}
+	// Cinder refuses to delete a snapshot that is still creating.
+	if err := waitDeletable(ctx, getSnapshot(c.block, c.snapshotID)); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
+	defer cancel()
+	return snapshots.Delete(ctx, c.block, c.snapshotID).ExtractErr()
+}
+
+// isDeleted counts a resource already gone as deleted.
+func isDeleted(err error) bool {
+	return err == nil || gophercloud.ResponseCodeIs(err, http.StatusNotFound)
+}
+
+func logFailure(kind, id string, err error) {
+	if !isDeleted(err) {
+		log.Printf("openstack: cleanup: delete %s %q: %v", kind, id, err)
+	}
 }
 
 // Polling resource status.
@@ -182,4 +266,28 @@ func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want
 		return status == want, nil
 	})
 	return got, err
+}
+
+// waitDeletable waits for a Cinder resource to leave its transient states:
+// Cinder refuses to delete a snapshot or volume that is still creating or
+// uploading.
+func waitDeletable[T any](ctx context.Context, get getter[T]) error {
+	ctx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+	return gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
+		_, s, err := get(ctx)
+		return s == "available" || s == "error", err
+	})
+}
+
+func waitGone[T any](ctx context.Context, get getter[T]) error {
+	ctx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+	return gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
+		_, _, err := get(ctx)
+		if gophercloud.ResponseCodeIs(err, http.StatusNotFound) {
+			return true, nil
+		}
+		return false, err
+	})
 }
