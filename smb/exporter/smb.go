@@ -158,10 +158,19 @@ func (p *Exporter) writeFile(record *connectors.Record, pathname string) error {
 	return nil
 }
 
-// safe guards against records carrying ".." segments that would escape the
-// share root.
+// safe guards against records carrying ".." segments (or an unclean root)
+// that would escape the share root.
 func (p *Exporter) safe(pathname string) bool {
+	root := path.Clean(p.rootDir)
 	clean := path.Clean(pathname)
-	root := strings.TrimRight(p.rootDir, "/")
-	return clean == p.rootDir || root == "" || strings.HasPrefix(clean, root+"/")
+
+	if clean == root {
+		return true
+	}
+
+	prefix := root
+	if prefix != "/" {
+		prefix += "/"
+	}
+	return strings.HasPrefix(clean, prefix)
 }
