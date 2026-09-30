@@ -99,8 +99,10 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 }
 
 func cleanupTempFile(f *os.File) {
-	os.Remove(f.Name())
-	f.Close()
+	if f != nil {
+		os.Remove(f.Name())
+		f.Close()
+	}
 }
 
 func (e *mongodbExporter) commonArgs() []string {

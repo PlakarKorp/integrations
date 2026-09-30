@@ -159,8 +159,10 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 }
 
 func cleanupTempFile(f *os.File) {
-	os.Remove(f.Name())
-	f.Close()
+	if f != nil {
+		os.Remove(f.Name())
+		f.Close()
+	}
 }
 
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
