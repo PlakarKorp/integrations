@@ -83,8 +83,6 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 }
 
 func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
-	defer wg.Done()
-
 	if err := ctx.Err(); err != nil {
 		return
 	}
@@ -99,17 +97,14 @@ func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client
 		entryPath := path.Join(root, entry.Name())
 
 		if entry.IsDir() {
-			wg.Add(1)
-			go p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg)
+			wg.Go(func() { p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg) })
 		} else {
 			filePaths <- entryPath
 		}
 	}
 }
 
-func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record) {
 	for filePath := range filePaths {
 		info, err := client.Stat(filePath)
 		if err != nil {
@@ -169,8 +164,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	)
 
 	// Walk directory tree
-	walkerWG.Add(1)
-	go p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG)
+	walkerWG.Go(func() { p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG) })
 
 	// Close filePaths only after all walk goroutines are done
 	go func() {
@@ -181,8 +175,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	// Launch worker goroutines to process file paths
 	numWorkers := 64
 	for range numWorkers {
-		workerWG.Add(1)
-		go p.processFiles(client, filePaths, records, &workerWG)
+		workerWG.Go(func() { p.processFiles(client, filePaths, records) })
 	}
 
 	// Close results channel after all workers complete
