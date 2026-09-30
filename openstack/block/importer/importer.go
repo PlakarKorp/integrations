@@ -18,6 +18,7 @@ package importer
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"regexp"
 	"strings"
@@ -31,6 +32,9 @@ import (
 )
 
 const protocol = "openstack-block"
+
+//go:embed schema.json
+var ImporterSchema []byte
 
 // The volume ID names the disk file, so it must be a single path segment.
 //
