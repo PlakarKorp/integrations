@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/PlakarKorp/go-inventory-sdk/inventory"
-	"github.com/PlakarKorp/integrations-private/openstack/common"
-	"github.com/PlakarKorp/integrations-private/openstack/common/keystonetest"
+	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"

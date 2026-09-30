@@ -1,4 +1,4 @@
-module github.com/PlakarKorp/integrations-private/openstack
+module github.com/PlakarKorp/integrations/openstack
 
 go 1.27.1
 
