@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"path"
@@ -82,22 +81,25 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}, nil
 }
 
-func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, dir string, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	entries, err := client.ReadDir(root)
+	entries, err := client.ReadDir(dir)
 	if err != nil {
-		log.Printf("[FTPImporter] Error reading directory %s: %v", root, err)
+		records <- connectors.NewError(dir, err)
 		return
 	}
+	p.collectEntries(ctx, client, dir, entries, filePaths, records, wg)
+}
 
+func (p *Importer) collectEntries(ctx context.Context, client *goftp.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	for _, entry := range entries {
-		entryPath := path.Join(root, entry.Name())
+		entryPath := path.Join(dir, entry.Name())
 
 		if entry.IsDir() {
-			wg.Go(func() { p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg) })
+			wg.Go(func() { p.walkAndCollectFiles(ctx, client, entryPath, filePaths, records, wg) })
 		} else {
 			filePaths <- entryPath
 		}
@@ -156,6 +158,12 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	}
 	p.client = client
 
+	// List root first to return an error, not an empty backup
+	entries, err := client.ReadDir(p.rootDir)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", p.rootDir, err)
+	}
+
 	filePaths := make(chan string, 1000)
 
 	var (
@@ -164,7 +172,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	)
 
 	// Walk directory tree
-	walkerWG.Go(func() { p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG) })
+	walkerWG.Go(func() { p.collectEntries(ctx, client, p.rootDir, entries, filePaths, records, &walkerWG) })
 
 	// Close filePaths only after all walk goroutines are done
 	go func() {
