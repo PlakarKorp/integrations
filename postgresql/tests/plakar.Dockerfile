@@ -8,7 +8,7 @@
 #   docker build --build-arg PLAKAR_SHA=abc1234 -t plakar-test -f tests/plakar.Dockerfile .
 ARG PLAKAR_SHA=main
 
-FROM golang:1.25
+FROM golang:1.26
 
 ARG PLAKAR_SHA
 
