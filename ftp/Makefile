@@ -25,9 +25,12 @@ reinstall: uninstall install
 test:
 	${GO} test -v ./...
 
+test-short:
+	${GO} test -v -short ./...
+
 check: test
 
 clean:
 	rm -f ftpImporter${EXT} ftpExporter${EXT} ftpIntegration_*.ptar
 
-.PHONY: all build package uninstall install reinstall test check clean
+.PHONY: all build package uninstall install reinstall test test-short check clean

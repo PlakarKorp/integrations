@@ -7,6 +7,7 @@ require (
 	github.com/PlakarKorp/kloset v1.1.0-beta.2
 	github.com/moby/moby/api v1.55.0
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4
+	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	golang.org/x/sync v0.22.0
 )
@@ -58,7 +59,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shirou/gopsutil/v4 v4.26.6 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tink-crypto/tink-go/v2 v2.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
