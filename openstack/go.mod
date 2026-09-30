@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/PlakarKorp/go-inventory-sdk v1.1.2
+	github.com/PlakarKorp/kloset v1.1.6
 	github.com/PlakarKorp/pkg v1.1.7
 	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
@@ -15,7 +16,6 @@ require (
 	github.com/PlakarKorp/go-human2duration v0.1.6 // indirect
 	github.com/PlakarKorp/integrations/fs v1.1.7 // indirect
 	github.com/PlakarKorp/integrations/ptar v1.1.1 // indirect
-	github.com/PlakarKorp/kloset v1.1.6 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
