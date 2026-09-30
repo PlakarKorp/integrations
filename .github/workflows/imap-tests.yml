@@ -1,0 +1,37 @@
+name: imap tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/imap
+    paths:
+      - .github/workflows/imap-tests.yml
+      - 'imap/**'
+  pull_request:
+    paths:
+      - .github/workflows/imap-tests.yml
+      - 'imap/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the imap integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: imap/go.mod
+          cache-dependency-path: imap/go.sum
+
+      - name: build
+        working-directory: imap
+        run: go build ./...
+
+      - name: test
+        working-directory: imap
+        run: go test -race ./...
