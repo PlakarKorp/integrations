@@ -1,12 +1,23 @@
-package common
+package conn
 
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strconv"
 	"time"
 
 	"github.com/secsy/goftp"
+)
+
+// TLS selects the transport: TLSExplicit upgrades the control connection
+// with AUTH TLS, TLSImplicit wraps it from the start, TLSNone is plain FTP.
+type TLS string
+
+const (
+	TLSExplicit TLS = "explicit"
+	TLSImplicit TLS = "implicit"
+	TLSNone     TLS = "none"
 )
 
 // Options carries the connection settings shared by the importer and the
@@ -15,9 +26,7 @@ type Options struct {
 	Username string
 	Password string
 
-	// TLS selects the transport: "explicit" upgrades the control connection
-	// with AUTH TLS, "implicit" wraps it from the start, "none" is plain FTP.
-	TLS string
+	TLS TLS
 
 	// InsecureSkipVerify disables certificate verification.  Only honoured
 	// when TLS is in use.
@@ -34,13 +43,13 @@ func ParseOptions(config map[string]string) (Options, error) {
 	opts := Options{
 		Username: config["username"],
 		Password: config["password"],
-		TLS:      "explicit",
+		TLS:      TLSExplicit,
 	}
 
 	if v, ok := config["tls"]; ok && v != "" {
-		switch v {
-		case "explicit", "implicit", "none":
-			opts.TLS = v
+		switch t := TLS(v); t {
+		case TLSExplicit, TLSImplicit, TLSNone:
+			opts.TLS = t
 		default:
 			return Options{}, fmt.Errorf("invalid tls value %q (accepted: explicit, implicit, none)", v)
 		}
@@ -54,7 +63,7 @@ func ParseOptions(config map[string]string) (Options, error) {
 		opts.InsecureSkipVerify = b
 	}
 
-	if opts.TLS == "none" && !opts.InsecureSkipVerify {
+	if opts.TLS == TLSNone && !opts.InsecureSkipVerify {
 		return Options{}, fmt.Errorf("tls=none sends credentials and data in cleartext; " +
 			"set tls_insecure_no_verify=true as well to acknowledge it, or use tls=explicit")
 	}
@@ -69,9 +78,9 @@ func ConnectToFTP(host string, opts Options) (*goftp.Client, error) {
 		Timeout:  10 * time.Second,
 	}
 
-	if opts.TLS != "none" {
+	if opts.TLS != TLSNone {
 		hostname := host
-		if h, _, err := splitHostPort(host); err == nil {
+		if h, _, err := net.SplitHostPort(host); err == nil {
 			hostname = h
 		}
 
@@ -80,7 +89,7 @@ func ConnectToFTP(host string, opts Options) (*goftp.Client, error) {
 			InsecureSkipVerify: opts.InsecureSkipVerify, //nolint:gosec // opt-in, see ParseOptions
 			MinVersion:         tls.VersionTLS12,
 		}
-		if opts.TLS == "implicit" {
+		if opts.TLS == TLSImplicit {
 			config.TLSMode = goftp.TLSImplicit
 		} else {
 			config.TLSMode = goftp.TLSExplicit

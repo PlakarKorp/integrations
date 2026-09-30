@@ -10,7 +10,7 @@ import (
 	"path"
 	"sync"
 
-	"github.com/PlakarKorp/integrations/ftp/common"
+	"github.com/PlakarKorp/integrations/ftp/conn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -25,7 +25,7 @@ func init() {
 type Importer struct {
 	host     string
 	rootDir  string
-	connOpts common.Options
+	connOpts conn.Options
 	port     string
 
 	client *goftp.Client
@@ -38,7 +38,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		return nil, err
 	}
 
-	connOpts, err := common.ParseOptions(config)
+	connOpts, err := conn.ParseOptions(config)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (rc readerCloser) Close() error {
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
-	client, err := common.ConnectToFTP(p.host, p.connOpts)
+	client, err := conn.ConnectToFTP(p.host, p.connOpts)
 	if err != nil {
 		return err
 	}

@@ -27,7 +27,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PlakarKorp/integrations/ftp/common"
+	"github.com/PlakarKorp/integrations/ftp/conn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -56,7 +56,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		return nil, err
 	}
 
-	connOpts, err := common.ParseOptions(config)
+	connOpts, err := conn.ParseOptions(config)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		host = fmt.Sprintf("%s:%s", parsed.Host, port)
 	}
 
-	client, err := common.ConnectToFTP(host, connOpts)
+	client, err := conn.ConnectToFTP(host, connOpts)
 	if err != nil {
 		return nil, err
 	}
