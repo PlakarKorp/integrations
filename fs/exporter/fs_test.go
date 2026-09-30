@@ -12,6 +12,7 @@ import (
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -465,6 +466,32 @@ func TestExport_SkipOwnership(t *testing.T) {
 				"ownership set to recorded value, uid=%d gid=%d", uid, gid)
 		})
 	}
+}
+
+// Linux clears setuid/setgid on chown, even as root, so ownership must be
+// restored before the mode.
+func TestExport_ChownBeforeChmod(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to exercise chown")
+	}
+
+	root := filepath.Join(t.TempDir(), "restore")
+	exp := newExporter(t, root)
+
+	rec := setuidRecord("/file", "content")
+	rec.FileInfo.Luid = 1
+	rec.FileInfo.Lgid = 1
+
+	errs := run(t, exp, rec)
+	require.NoError(t, errs[0])
+
+	fi, err := os.Stat(filepath.Join(root, "file"))
+	require.NoError(t, err)
+	uid, gid := fileOwner(t, fi)
+
+	assert.Equal(t, uint32(1), uid)
+	assert.Equal(t, uint32(1), gid)
+	assert.Equal(t, os.ModeSetuid|os.ModeSetgid|0755, fi.Mode())
 }
 
 // TestExport_SkipRootPermsAndTime verifies that skip_root_perms_and_time
