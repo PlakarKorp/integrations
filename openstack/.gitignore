@@ -1,3 +1,4 @@
 /openstack-inventory
 *.ptar
 coverage.*
+/openstack-block-importer
