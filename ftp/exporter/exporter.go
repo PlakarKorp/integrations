@@ -134,6 +134,9 @@ func (p *Exporter) Ping(ctx context.Context) error {
 }
 
 func (p *Exporter) Close(ctx context.Context) error {
+	if p.client != nil {
+		return p.client.Close()
+	}
 	return nil
 }
 
