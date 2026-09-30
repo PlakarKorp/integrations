@@ -1,4 +1,4 @@
-package common
+package conn
 
 import "testing"
 
@@ -7,7 +7,7 @@ func TestParseOptionsDefaultsToTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.TLS != "explicit" {
+	if opts.TLS != TLSExplicit {
 		t.Errorf("TLS = %q, want explicit", opts.TLS)
 	}
 	if opts.InsecureSkipVerify {
@@ -25,7 +25,7 @@ func TestParseOptionsRequiresAcknowledgingCleartext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit opt-in rejected: %v", err)
 	}
-	if opts.TLS != "none" {
+	if opts.TLS != TLSNone {
 		t.Errorf("TLS = %q, want none", opts.TLS)
 	}
 }
