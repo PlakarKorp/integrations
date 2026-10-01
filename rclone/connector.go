@@ -195,8 +195,8 @@ func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, 
 			continue
 		}
 
-		// we don't support exporting other file types
-		results <- record.Ok()
+		// we don't support exporting other file types (symlinks, devices, sockets, FIFOs)
+		results <- record.Error(fmt.Errorf("skipping %q: %w", record.Pathname, errors.ErrUnsupported))
 	}
 
 	return nil
