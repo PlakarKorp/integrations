@@ -2,45 +2,35 @@ package storage
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"path/filepath"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPutLockRenewalUpdatesData(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "repo.db")
 
 	st, err := NewStore(ctx, "sqlite", map[string]string{"location": "sqlite://" + path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Create(ctx, []byte("config")); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, st.Create(ctx, []byte("config")))
 	defer st.Close(ctx)
 
 	id := objects.MAC{1}
 	for _, data := range []string{"lock-v1", "lock-v2"} {
-		if _, err := st.Put(ctx, storage.StorageResourceLock, id, bytes.NewReader([]byte(data))); err != nil {
-			t.Fatal(err)
-		}
+		_, err := st.Put(ctx, storage.StorageResourceLock, id, bytes.NewReader([]byte(data)))
+		require.NoError(t, err)
 	}
 
 	rd, err := st.Get(ctx, storage.StorageResourceLock, id, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer rd.Close()
 	got, err := io.ReadAll(rd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "lock-v2" {
-		t.Fatalf("got lock data %q, want %q", got, "lock-v2")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "lock-v2", string(got))
 }
