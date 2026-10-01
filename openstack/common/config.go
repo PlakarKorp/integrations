@@ -14,6 +14,8 @@ var (
 	ErrMissingAuth    = errors.New("an application credential or openstack_username and openstack_password are required")
 	ErrPartialAppCred = errors.New("openstack_application_credential_id and openstack_application_credential_secret must be set together")
 	ErrMissingProject = errors.New("openstack_project_id or openstack_project_name is required with password authentication")
+	ErrMissingRegion  = errors.New("openstack_region is required")
+	ErrManyRegions    = errors.New("openstack_region: bad value: a connector takes a single region")
 )
 
 type Config struct {
@@ -75,6 +77,19 @@ func ParseConfig(params map[string]string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// ParseConnectorConfig is ParseConfig for connectors, which work in exactly one
+// region.
+func ParseConnectorConfig(params map[string]string) (*Config, error) {
+	region := params["openstack_region"]
+	if strings.Contains(region, ",") {
+		return nil, ErrManyRegions
+	}
+	if strings.TrimSpace(region) == "" {
+		return nil, ErrMissingRegion
+	}
+	return ParseConfig(params)
 }
 
 func paramList(params map[string]string, key string) []string {
