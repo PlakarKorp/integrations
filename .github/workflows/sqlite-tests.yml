@@ -1,0 +1,37 @@
+name: sqlite tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/sqlite
+    paths:
+      - .github/workflows/sqlite-tests.yml
+      - 'sqlite/**'
+  pull_request:
+    paths:
+      - .github/workflows/sqlite-tests.yml
+      - 'sqlite/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the sqlite integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sqlite/go.mod
+          cache-dependency-path: sqlite/go.sum
+
+      - name: build
+        working-directory: sqlite
+        run: go build ./...
+
+      - name: test
+        working-directory: sqlite
+        run: go test -race ./...
