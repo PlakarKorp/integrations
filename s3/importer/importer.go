@@ -174,11 +174,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		}
 		host = parsed.Host
 
-		source := parsed.Path
-		if root != "" {
-			source = root
+		bucket, scanDir, err = common.SplitPathStyle(parsed.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		bucket, scanDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {
