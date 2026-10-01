@@ -341,7 +341,7 @@ const volumeAttempts = 3
 // UploadTempImage uploads r to a new private image and waits for it to become
 // active. It deletes the image on failure.
 func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, diskFormat string) (*images.Image, error) {
-	image, err := c.service(serviceImages, gcopenstack.NewImageV2)
+	image, err := c.glance()
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +375,7 @@ func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, 
 
 // DeleteTempImage logs a failure, as Cleanup does.
 func (c *Client) DeleteTempImage(ctx context.Context, imageID string) {
-	image, err := c.service(serviceImages, gcopenstack.NewImageV2)
+	image, err := c.glance()
 	if err != nil {
 		logFailure(kindImage, imageID, err)
 		return
@@ -386,7 +386,7 @@ func (c *Client) DeleteTempImage(ctx context.Context, imageID string) {
 // CreateVolumeFromImage creates a volume shaped like src. A volume that does
 // not become available is deleted, and one in "error" is created again.
 func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
-	block, err := c.service(serviceVolumes, gcopenstack.NewBlockStorageV3)
+	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
