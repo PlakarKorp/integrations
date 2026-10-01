@@ -32,12 +32,34 @@ import (
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
 
+const (
+	serviceVolumes = "volumes"
+	serviceImages  = "images"
+
+	kindVolume   = "volume"
+	kindSnapshot = "snapshot"
+	kindImage    = "image"
+
+	statusAvailable = "available"
+	statusError     = "error"
+	statusActive    = "active"
+	statusKilled    = "killed"
+
+	// Names of the resources a backup creates.
+	backupPrefix = "plakar-backup-"
+	tmpPrefix    = "plakar-tmp-"
+
+	// DefaultDiskFormat is the format backups upload.
+	DefaultDiskFormat = "qcow2"
+	containerFormat   = "bare"
+)
+
 func (c *Client) cinder() (*gophercloud.ServiceClient, error) {
-	return c.service("volumes", gcopenstack.NewBlockStorageV3)
+	return c.service(serviceVolumes, gcopenstack.NewBlockStorageV3)
 }
 
 func (c *Client) glance() (*gophercloud.ServiceClient, error) {
-	return c.service("images", gcopenstack.NewImageV2)
+	return c.service(serviceImages, gcopenstack.NewImageV2)
 }
 
 // Creating the volume image.
@@ -83,41 +105,41 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 
 	created, err := snapshots.Create(ctx, block, snapshots.CreateOpts{
 		VolumeID: volumeID,
-		Name:     fmt.Sprintf("plakar-backup-%s-%d", volumeID, time.Now().UTC().UnixNano()),
+		Name:     fmt.Sprintf("%s%s-%d", backupPrefix, volumeID, time.Now().UTC().UnixNano()),
 		Force:    true, // required for in-use volumes; the snapshot is crash-consistent
 	}).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("snapshot volume %q: %w", volumeID, err)
 	}
 	cleanup.snapshotID = created.ID
-	snap, err := waitStatus(ctx, "snapshot", created.ID, getSnapshot(block, created.ID), "available", "error")
+	snap, err := waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
 	if err != nil {
 		return nil, err
 	}
 
 	tmp, err := volumes.Create(ctx, block, volumes.CreateOpts{
 		SnapshotID: snap.ID,
-		Name:       "plakar-tmp-" + snap.ID,
+		Name:       tmpPrefix + snap.ID,
 		Size:       snap.Size,
 	}, nil).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("create volume from snapshot %q: %w", snap.ID, err)
 	}
 	cleanup.volumeID = tmp.ID
-	if _, err := waitStatus(ctx, "volume", tmp.ID, getVolume(block, tmp.ID), "available", "error"); err != nil {
+	if _, err := waitStatus(ctx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusAvailable, statusError); err != nil {
 		return nil, err
 	}
 
 	upload, err := volumes.UploadImage(ctx, block, tmp.ID, volumes.UploadImageOpts{
-		ImageName:       "plakar-tmp-" + snap.ID,
-		DiskFormat:      "qcow2",
-		ContainerFormat: "bare",
+		ImageName:       tmpPrefix + snap.ID,
+		DiskFormat:      DefaultDiskFormat,
+		ContainerFormat: containerFormat,
 	}).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("upload volume %q to an image: %w", tmp.ID, err)
 	}
 	cleanup.imageID = upload.ImageID
-	img, err := waitStatus(ctx, "image", upload.ImageID, getImage(image, upload.ImageID), "active", "killed", "error")
+	img, err := waitStatus(ctx, kindImage, upload.ImageID, getImage(image, upload.ImageID), statusActive, statusKilled, statusError)
 	if err != nil {
 		return nil, err
 	}
@@ -154,19 +176,19 @@ func (c *Cleanup) Run(ctx context.Context) {
 	ctx = context.WithoutCancel(ctx)
 
 	if c.imageID != "" {
-		logFailure("image", c.imageID, c.deleteImage(ctx))
+		logFailure(kindImage, c.imageID, c.deleteImage(ctx))
 		c.imageID = ""
 	}
 
 	volumeDeleted := false
 	if c.volumeID != "" {
 		err := c.deleteVolume(ctx)
-		logFailure("volume", c.volumeID, err)
+		logFailure(kindVolume, c.volumeID, err)
 		volumeDeleted = isDeleted(err)
 	}
 
 	if c.snapshotID != "" {
-		logFailure("snapshot", c.snapshotID, c.deleteSnapshot(ctx, volumeDeleted))
+		logFailure(kindSnapshot, c.snapshotID, c.deleteSnapshot(ctx, volumeDeleted))
 		c.snapshotID = ""
 	}
 	c.volumeID = ""
@@ -276,7 +298,7 @@ func waitDeletable[T any](ctx context.Context, get getter[T]) error {
 	defer cancel()
 	return gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
 		_, s, err := get(ctx)
-		return s == "available" || s == "error", err
+		return s == statusAvailable || s == statusError, err
 	})
 }
 
