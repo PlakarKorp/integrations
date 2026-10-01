@@ -26,31 +26,18 @@ func drainImporter(t *testing.T, imp *FSImporter) map[string]bool {
 	t.Helper()
 
 	records := make(chan *connectors.Record, 64)
-	results := make(chan *connectors.Result, 64)
 
-	// connectors.Record.Ok() sends back on results; we don't care about the
-	// content here, just drain it so Import can complete without blocking.
-	done := make(chan struct{})
+	importDone := make(chan error, 1)
 	go func() {
-		defer close(done)
-		for range results {
-		}
+		importDone <- imp.Import(context.Background(), records, nil)
 	}()
 
 	out := map[string]bool{}
-	importDone := make(chan error, 1)
-	go func() {
-		importDone <- imp.Import(context.Background(), records, results)
-	}()
-
 	for rec := range records {
 		if rec.Err == nil {
 			out[rec.Pathname] = true
 		}
-		results <- rec.Ok()
 	}
-	close(results)
-	<-done
 
 	if err := <-importDone; err != nil {
 		t.Fatalf("Import returned error: %v", err)
