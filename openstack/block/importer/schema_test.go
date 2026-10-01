@@ -21,6 +21,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
@@ -66,7 +67,7 @@ func TestImporterSchema(t *testing.T) {
 			}
 
 			// NewImporter must agree, so the schema rejects what would fail at startup.
-			_, err = NewImporter(t.Context(), nil, protocol, p)
+			_, err = NewImporter(t.Context(), nil, block.Protocol, p)
 			assert.Equal(t, tt.valid, err == nil, "NewImporter: %v", err)
 		})
 	}

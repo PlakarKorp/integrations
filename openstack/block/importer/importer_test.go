@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -48,7 +49,7 @@ func params(authURL, location string) map[string]string {
 
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
-	imp, err := NewImporter(t.Context(), nil, protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
+	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
 	require.NoError(t, err)
 	return imp
 }
@@ -241,7 +242,7 @@ func TestPingFindsVolume(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	require.NoError(t, newImporter(t, cloud).Ping(t.Context()))
 
-	imp, err := NewImporter(t.Context(), nil, protocol, params(cloud.AuthURL, "openstack-block://vol-2"))
+	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-2"))
 	require.NoError(t, err)
 	assert.ErrorContains(t, imp.Ping(t.Context()), `"vol-2"`)
 }
@@ -267,7 +268,7 @@ func TestNewImporterLocation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.location, func(t *testing.T) {
-			imp, err := NewImporter(t.Context(), nil, protocol, params(cloud.AuthURL, tt.location))
+			imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, tt.location))
 			if tt.volumeID == "" {
 				assert.ErrorContains(t, err, "location: bad value")
 				return

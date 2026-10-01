@@ -20,10 +20,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -31,17 +31,8 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 )
 
-const protocol = "openstack-block"
-
 //go:embed schema.json
 var ImporterSchema []byte
-
-// The volume ID names the disk file, so it must be a single path segment.
-//
-//	^              start
-//	[0-9A-Za-z_-]+ one or more of: digit, letter, underscore, dash
-//	$              end
-var volumeIDFormat = regexp.MustCompile(`^[0-9A-Za-z_-]+$`)
 
 type Importer struct {
 	client   *common.Client
@@ -54,7 +45,7 @@ type Importer struct {
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
 	volumeID := strings.TrimPrefix(params["location"], proto+"://")
-	if !volumeIDFormat.MatchString(volumeID) {
+	if !block.VolumeIDFormat.MatchString(volumeID) {
 		return nil, fmt.Errorf("location: bad value: %q is not %s://<volume-id>", params["location"], proto)
 	}
 	cfg, err := common.ParseConnectorConfig(params)
@@ -72,7 +63,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 }
 
 func (imp *Importer) Origin() string        { return imp.volumeID }
-func (imp *Importer) Type() string          { return protocol }
+func (imp *Importer) Type() string          { return block.Protocol }
 func (imp *Importer) Root() string          { return "/" }
 func (imp *Importer) Flags() location.Flags { return 0 }
 
@@ -95,7 +86,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 
 	// Emit the disk. Plakar downloads it when it reads the record, and closing
 	// the download deletes the temporary resources.
-	disk := imp.volumeID + ".qcow2"
+	disk := block.DiskName(imp.volumeID)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -118,8 +109,8 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case records <- connectors.NewRecord("/.METADATA.json", "", objects.FileInfo{
-		Lname:    ".METADATA.json",
+	case records <- connectors.NewRecord("/"+block.MetadataName, "", objects.FileInfo{
+		Lname:    block.MetadataName,
 		Lmode:    0600,
 		Lsize:    -1,
 		LmodTime: time.Unix(0, 0),
