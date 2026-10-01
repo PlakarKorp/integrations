@@ -16,13 +16,14 @@ func init() {
 	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (_ importer.Importer, err error) {
+func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	cleanup := true
 	defer func() {
-		if err != nil {
+		if cleanup {
 			conn.Cleanup()
 		}
 	}()
@@ -53,5 +54,6 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 	imp.TokenProvider = func(ctx context.Context) (string, error) {
 		return awsauth.GenerateDBAuthToken(ctx, conn.Host, conn.Port, conn.Username, region)
 	}
+	cleanup = false
 	return imp, nil
 }

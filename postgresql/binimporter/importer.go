@@ -39,13 +39,14 @@ func (p *BinImporter) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
-func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (_ importer.Importer, err error) {
+func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	cleanup := true
 	defer func() {
-		if err != nil {
+		if cleanup {
 			conn.Cleanup()
 		}
 	}()
@@ -59,6 +60,7 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 		imp.pgBinDir = v
 	}
 
+	cleanup = false
 	return imp, nil
 }
 

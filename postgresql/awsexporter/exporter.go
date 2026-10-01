@@ -15,13 +15,14 @@ func init() {
 	exporter.Register("postgres+aws", 0, NewAWSExporter)
 }
 
-func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (_ exporter.Exporter, err error) {
+func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
+	cleanup := true
 	defer func() {
-		if err != nil {
+		if cleanup {
 			conn.Cleanup()
 		}
 	}()
@@ -45,5 +46,6 @@ func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name strin
 	exp.TokenProvider = func(ctx context.Context) (string, error) {
 		return awsauth.GenerateDBAuthToken(ctx, conn.Host, conn.Port, conn.Username, region)
 	}
+	cleanup = false
 	return exp, nil
 }
