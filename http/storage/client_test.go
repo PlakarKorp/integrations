@@ -22,6 +22,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The auth token is a bearer credential; over http:// it is readable on path.
@@ -55,6 +58,53 @@ func TestNewStoreRefusesTokenOverCleartext(t *testing.T) {
 	}); err != nil {
 		t.Errorf("tokenless http rejected: %v", err)
 	}
+}
+
+// tls_no_verify disables certificate verification, which is just as
+// insecure for a bearer credential as plain http://.
+func TestNewStoreRefusesTokenOverUnverifiedTLS(t *testing.T) {
+	_, err := NewStore(context.Background(), "https", map[string]string{
+		"location":      "https://repo.example/backups",
+		"auth_token":    "s3cret",
+		"tls_no_verify": "true",
+	})
+	require.Error(t, err, "auth_token over tls_no_verify was accepted")
+
+	_, err = NewStore(context.Background(), "https", map[string]string{
+		"location":      "https://repo.example/backups",
+		"auth_token":    "s3cret",
+		"tls_no_verify": "true",
+		"insecure":      "true",
+	})
+	assert.NoError(t, err, "explicit opt-in rejected")
+}
+
+// URL userinfo is sent as Basic Auth by net/http on every request, so it is
+// a credential just like auth_token.
+func TestNewStoreRefusesURLUserinfoOverInsecureChannel(t *testing.T) {
+	_, err := NewStore(context.Background(), "http", map[string]string{
+		"location": "http://user:pass@repo.example/backups",
+	})
+	require.Error(t, err, "URL userinfo over http:// was accepted")
+
+	_, err = NewStore(context.Background(), "http", map[string]string{
+		"location": "http://user:pass@repo.example/backups",
+		"insecure": "true",
+	})
+	assert.NoError(t, err, "explicit opt-in rejected")
+
+	_, err = NewStore(context.Background(), "https", map[string]string{
+		"location":      "https://user:pass@repo.example/backups",
+		"tls_no_verify": "true",
+	})
+	require.Error(t, err, "URL userinfo over tls_no_verify was accepted")
+
+	_, err = NewStore(context.Background(), "https", map[string]string{
+		"location":      "https://user:pass@repo.example/backups",
+		"tls_no_verify": "true",
+		"insecure":      "true",
+	})
+	assert.NoError(t, err, "explicit opt-in rejected")
 }
 
 func TestNewStoreSetsATimeout(t *testing.T) {
