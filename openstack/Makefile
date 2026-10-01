@@ -13,6 +13,7 @@ all: build
 build:
 	${GO} build -v -o openstack-inventory${EXT} ./plugin/inventory
 	${GO} build -v -o openstack-block-importer${EXT} ./plugin/blockImporter
+	${GO} build -v -o openstack-block-exporter${EXT} ./plugin/blockExporter
 
 test:
 	${GO} vet ./...
@@ -31,6 +32,6 @@ install: package
 reinstall: uninstall install
 
 clean:
-	rm -f openstack-inventory openstack-block-importer *.ptar
+	rm -f openstack-inventory openstack-block-importer openstack-block-exporter *.ptar
 
 .PHONY: all build test package uninstall install reinstall clean
