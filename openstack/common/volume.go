@@ -33,8 +33,8 @@ import (
 )
 
 // Creating the volume image.
+
 // VolumeImage is a Glance image of a Cinder volume, taken from a snapshot.
-// Volume -> Snapshot -> Temporary Volume -> Glance Image.
 type VolumeImage struct {
 	Volume   *volumes.Volume
 	Snapshot *snapshots.Snapshot
@@ -66,8 +66,6 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 	if err != nil {
 		return nil, err
 	}
-	// These clients are reused to poll the resources' status and delete them,
-	// so they must be kept until cleanup runs.
 	cleanup.block, cleanup.image = block, image
 
 	vol, err := c.GetVolume(ctx, volumeID)
@@ -84,8 +82,6 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("snapshot volume %q: %w", volumeID, err)
 	}
 	cleanup.snapshotID = created.ID
-	// Wait for the snapshot to become available before creating a temporary
-	// volume from it.
 	snap, err := waitStatus(ctx, "snapshot", created.ID, getSnapshot(block, created.ID), "available", "error")
 	if err != nil {
 		return nil, err
@@ -100,8 +96,6 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("create volume from snapshot %q: %w", snap.ID, err)
 	}
 	cleanup.volumeID = tmp.ID
-	// Wait for the temporary volume to become available before uploading it to
-	// Glance.
 	if _, err := waitStatus(ctx, "volume", tmp.ID, getVolume(block, tmp.ID), "available", "error"); err != nil {
 		return nil, err
 	}
@@ -115,8 +109,6 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("upload volume %q to an image: %w", tmp.ID, err)
 	}
 	cleanup.imageID = upload.ImageID
-	// Wait for the image to become active before returning it, so that plakar
-	// can read it.
 	img, err := waitStatus(ctx, "image", upload.ImageID, getImage(image, upload.ImageID), "active", "killed", "error")
 	if err != nil {
 		return nil, err
