@@ -18,6 +18,7 @@ package exporter
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
 )
+
+//go:embed schema.json
+var ExporterSchema []byte
 
 type Exporter struct {
 	client *common.Client
