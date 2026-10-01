@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,9 @@ type Cloud struct {
 	// CreatingPolls is how many reads report a new snapshot or volume as
 	// creating.
 	CreatingPolls int
+	// SavingPolls is how many reads report an image that just received its
+	// data as saving.
+	SavingPolls int
 	// UploadingPolls is how many reads report a volume uploading to Glance as
 	// uploading, and its image as saving.
 	UploadingPolls int
@@ -56,12 +60,37 @@ type Cloud struct {
 	// snapshots and images end in, instead of available and active.
 	SnapshotStatus string
 	ImageStatus    string
+	// FailImageData makes uploading an image's data fail with a 500.
+	FailImageData bool
+	// VolumeErrors is how many volumes created from an image end in error.
+	VolumeErrors int
+	// FailVolumeList makes listing volumes fail with a 500.
+	FailVolumeList bool
 
 	t         *testing.T
 	mu        sync.Mutex
 	next      int
 	resources map[string]*resource
 	vanished  map[string]bool
+	uploads   []Upload
+	requests  []VolumeRequest
+}
+
+// Upload is an image created through Glance, and the data uploaded to it.
+type Upload struct {
+	ID, Name, DiskFormat, Visibility string
+	Data                             []byte
+}
+
+// VolumeRequest is a request to create a volume from an image.
+type VolumeRequest struct {
+	ImageID          string            `json:"imageRef"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	VolumeType       string            `json:"volume_type"`
+	AvailabilityZone string            `json:"availability_zone"`
+	Size             int               `json:"size"`
+	Metadata         map[string]string `json:"metadata"`
 }
 
 type resource struct {
@@ -72,6 +101,9 @@ type resource struct {
 	uploading int    // reads left reporting uploading
 	deleting  int    // reads left reporting deleting, once deleted
 	deleted   bool
+	queued    bool   // an image created through Glance, waiting for its data
+	format    string // an image's disk_format, when not qcow2
+	final     string // the status a volume ends in, when not available
 }
 
 // NewCloud serves a cloud holding the given volumes.
@@ -104,6 +136,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			},
 		}})
 	})
+	mux.HandleFunc("GET "+block+"/volumes/detail", func(w http.ResponseWriter, r *http.Request) {
+		if c.FailVolumeList {
+			c.reply(w, http.StatusInternalServerError, nil)
+			return
+		}
+		c.reply(w, http.StatusOK, map[string]any{"volumes": []any{}})
+	})
 	mux.HandleFunc("GET "+block+"/volumes/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		status, ok := c.read(id, "volume")
@@ -117,10 +156,17 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		var body struct {
 			Volume struct {
 				SnapshotID string `json:"snapshot_id"`
+				VolumeRequest
 			} `json:"volume"`
 		}
 		c.decode(r, &body)
-		id, ok := c.create("volume", "tmp", body.Volume.SnapshotID)
+		var id string
+		var ok bool
+		if body.Volume.ImageID != "" {
+			id, ok = c.createFromImage(body.Volume.VolumeRequest)
+		} else {
+			id, ok = c.create("volume", "tmp", body.Volume.SnapshotID)
+		}
 		if !ok {
 			c.unexpected(w, r)
 			return
@@ -176,6 +222,30 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			map[string]any{"id": "v2.16", "status": "CURRENT"},
 		}})
 	})
+	mux.HandleFunc("POST /image/v2/images", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name       string `json:"name"`
+			DiskFormat string `json:"disk_format"`
+			Visibility string `json:"visibility"`
+		}
+		c.decode(r, &body)
+		id := c.createImage(Upload{Name: body.Name, DiskFormat: body.DiskFormat, Visibility: body.Visibility})
+		c.reply(w, http.StatusCreated, map[string]any{
+			"id": id, "name": body.Name, "status": "queued", "disk_format": body.DiskFormat, "container_format": "bare",
+		})
+	})
+	mux.HandleFunc("PUT /image/v2/images/{id}/file", func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(r.Body)
+		assert.NoError(c.t, err, "read the image data")
+		switch status := c.storeImageData(r.PathValue("id"), data); status {
+		case 0:
+			c.unexpected(w, r)
+		case http.StatusNoContent:
+			w.WriteHeader(status)
+		default:
+			c.reply(w, status, nil)
+		}
+	})
 	mux.HandleFunc("GET /image/v2/images/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		status, ok := c.read(id, "image")
@@ -184,7 +254,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			return
 		}
 		c.reply(w, http.StatusOK, map[string]any{
-			"id": id, "status": status, "disk_format": "qcow2", "container_format": "bare", "size": len(c.Disk),
+			"id": id, "status": status, "disk_format": c.imageFormat(id), "container_format": "bare", "size": len(c.Disk),
 		})
 	})
 	mux.HandleFunc("GET /image/v2/images/{id}/file", func(w http.ResponseWriter, r *http.Request) {
@@ -217,6 +287,21 @@ func (c *Cloud) Leftovers() []string {
 	return out
 }
 
+// Uploads lists the images created through Glance, in order.
+func (c *Cloud) Uploads() []Upload {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.uploads)
+}
+
+// VolumeRequests lists the requests to create a volume from an image, in
+// order.
+func (c *Cloud) VolumeRequests() []VolumeRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.requests)
+}
+
 // Vanish deletes resources behind the client's back, as another user would.
 // Reading or deleting them then gets a 404.
 func (c *Cloud) Vanish(ids ...string) {
@@ -226,6 +311,71 @@ func (c *Cloud) Vanish(ids ...string) {
 		delete(c.resources, id)
 		c.vanished[id] = true
 	}
+}
+
+// createImage creates an image through Glance: queued until its data comes.
+func (c *Cloud) createImage(u Upload) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.next++
+	id := fmt.Sprintf("image-%d", c.next)
+	c.resources[id] = &resource{kind: "image", ours: true, queued: true, format: u.DiskFormat}
+	u.ID = id
+	c.uploads = append(c.uploads, u)
+	return id
+}
+
+// storeImageData returns the status of an image data upload, or 0 for one the
+// client must not make: only a queued image takes data.
+func (c *Cloud) storeImageData(id string, data []byte) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	res, ok := c.resources[id]
+	if !ok || res.kind != "image" || !res.queued {
+		return 0
+	}
+	if c.FailImageData {
+		return http.StatusInternalServerError
+	}
+	res.queued = false
+	res.creating = c.SavingPolls
+	for i := range c.uploads {
+		if c.uploads[i].ID == id {
+			c.uploads[i].Data = data
+		}
+	}
+	return http.StatusNoContent
+}
+
+func (c *Cloud) imageFormat(id string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if res, ok := c.resources[id]; ok && res.format != "" {
+		return res.format
+	}
+	return "qcow2"
+}
+
+// createFromImage creates a volume from an active image, ending in error for
+// the first VolumeErrors of them.
+func (c *Cloud) createFromImage(req VolumeRequest) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	img, ok := c.resources[req.ImageID]
+	// Cinder only creates a volume from an active image.
+	if !ok || img.kind != "image" || img.queued || img.creating > 0 || img.deleted {
+		return "", false
+	}
+	c.next++
+	id := fmt.Sprintf("restored-%d", c.next)
+	r := &resource{kind: "volume", ours: true, source: req.ImageID, creating: c.CreatingPolls}
+	if c.VolumeErrors > 0 {
+		c.VolumeErrors--
+		r.final = "error"
+	}
+	c.resources[id] = r
+	c.requests = append(c.requests, req)
+	return id, true
 }
 
 func (c *Cloud) create(kind, prefix, source string) (string, bool) {
@@ -262,12 +412,19 @@ func (c *Cloud) read(id, kind string) (string, bool) {
 	case r.deleted:
 		delete(c.resources, id)
 		return "", false
+	case r.creating > 0 && kind == "image":
+		r.creating--
+		return "saving", true
 	case r.creating > 0:
 		r.creating--
 		return "creating", true
 	case r.uploading > 0:
 		r.uploading--
 		return "uploading", true
+	case r.final != "":
+		return r.final, true
+	case kind == "image" && r.queued:
+		return "queued", true
 	case kind == "image" && c.resources[r.source] != nil && c.resources[r.source].uploading > 0:
 		return "saving", true
 	case kind == "image":
@@ -303,7 +460,8 @@ func (c *Cloud) applyDelete(id string) int {
 	switch {
 	case !ok || !res.ours || res.deleted:
 		return 0
-	case res.creating > 0 || res.uploading > 0 || c.dependedOn(id):
+	// Glance deletes an image in any state; Cinder refuses a busy resource.
+	case res.kind != "image" && (res.creating > 0 || res.uploading > 0), res.kind == "snapshot" && c.dependedOn(id):
 		return http.StatusBadRequest
 	case c.FailDeletes > 0:
 		c.FailDeletes--
