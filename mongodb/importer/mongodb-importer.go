@@ -48,6 +48,7 @@ type mongodbImporter struct {
 	use_tls	bool
 	tls_ca_cert string
 	tls_client_cert string
+	auth_mechanism string
 }
 
 func init() {
@@ -94,6 +95,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		use_tls: use_tls,
 		tls_ca_cert: params["tls_ca_cert"],
 		tls_client_cert: params["tls_client_cert"],
+		auth_mechanism: params["auth_mechanism"],
 	}
 
 	return i, nil
@@ -116,6 +118,11 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 			args = append(args, "--tlsCertificateKeyFile")
 			args = append(args, i.tls_client_cert) 
 		}
+	}
+	if len (i.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, i.auth_mechanism)
+		
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
@@ -194,6 +201,10 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 			args = append(args, i.tls_client_cert) 
 		}
 	}
+	if len (i.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, i.auth_mechanism)
+	}	
 	if len(i.username) > 0 {
 		args = append(args, "--username")
 		args = append(args, i.username)

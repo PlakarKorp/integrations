@@ -47,6 +47,7 @@ type mongodbExporter struct {
 	use_tls	bool
 	tls_ca_cert string
 	tls_client_cert string
+	auth_mechanism	string
 	stdin	io.WriteCloser
 	stdout	io.ReadCloser
 	stderr	io.ReadCloser
@@ -93,6 +94,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		use_tls: use_tls,
 		tls_ca_cert: params["tls_ca_cert"],
 		tls_client_cert: params["tls_client_cert"],
+		auth_mechanism: params["auth_mechanism"],
 	}
 
 	return e, nil
@@ -128,6 +130,10 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 			args = append(args, "--tlsCertificateKeyFile")
 			args = append(args, e.tls_client_cert) 
 		}
+	}
+	if len(e.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, e.auth_mechanism)
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
@@ -195,6 +201,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 			args = append(args, "--sslPEMKeyFile")
 			args = append(args, e.tls_client_cert) 
 		}
+	}
+	if len(e.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, e.auth_mechanism)
 	}
 	if len(e.username) > 0 {
 		args = append(args, "--username")
