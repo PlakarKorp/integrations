@@ -167,11 +167,10 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		}
 		host = u.Host
 
-		source := u.Path
-		if root != "" {
-			source = root
+		bucket, prefixDir, err = common.SplitPathStyle(u.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		bucket, prefixDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {
