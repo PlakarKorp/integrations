@@ -113,7 +113,12 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if err != nil {
 		return nil, err
 	}
-	return NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
+	imp, err := NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
+	if err != nil {
+		conn.Cleanup()
+		return nil, err
+	}
+	return imp, nil
 }
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {

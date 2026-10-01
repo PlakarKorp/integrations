@@ -44,6 +44,12 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 	if err != nil {
 		return nil, err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			conn.Cleanup()
+		}
+	}()
 	if dbPath != "" {
 		return nil, fmt.Errorf("postgres+bin: subpath %q is not allowed (pg_basebackup backs up the entire cluster)", dbPath)
 	}
@@ -54,6 +60,7 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 		imp.pgBinDir = v
 	}
 
+	cleanup = false
 	return imp, nil
 }
 

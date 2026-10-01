@@ -127,7 +127,12 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	if err != nil {
 		return nil, err
 	}
-	return NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
+	exp, err := NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
+	if err != nil {
+		conn.Cleanup()
+		return nil, err
+	}
+	return exp, nil
 }
 
 func (p *Exporter) Root() string          { return "/" }
