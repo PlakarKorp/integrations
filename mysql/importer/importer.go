@@ -106,7 +106,10 @@ func (i *Importer) Type() string                   { return i.Proto }
 func (i *Importer) Root() string                   { return "/" }
 func (i *Importer) Flags() location.Flags          { return location.FLAG_STREAM }
 func (i *Importer) Ping(ctx context.Context) error { return i.Conn.Ping(ctx) }
-func (i *Importer) Close(_ context.Context) error  { return nil }
+func (i *Importer) Close(_ context.Context) error {
+	i.Conn.Cleanup()
+	return nil
+}
 
 // CommonManifestOptions returns the shared ManifestOptions.
 // The caller should set any provider-specific fields before use.

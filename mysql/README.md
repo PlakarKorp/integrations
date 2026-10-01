@@ -145,8 +145,11 @@ corresponding URI component when both are provided.
 | `hex_blob`           | boolean | `false`  | Encode BINARY/BLOB columns as hex (`--hex-blob`) |
 | `ssl_mode`           | string  | —        | TLS mode: `disabled`, `preferred`, `required`, `verify_ca`, `verify_identity` |
 | `ssl_cert`           | string  | —        | Path to client SSL certificate (PEM) |
+| `ssl_cert_data`      | string  | —        | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert` |
 | `ssl_key`            | string  | —        | Path to client SSL private key (PEM) |
+| `ssl_key_data`       | string  | —        | Inline PEM content of the client SSL private key. Alternative to `ssl_key` |
 | `ssl_ca`             | string  | —        | Path to CA certificate (PEM) |
+| `ssl_ca_data`        | string  | —        | Inline PEM content of the CA certificate. Alternative to `ssl_ca` |
 
 ### MySQL-only options
 
@@ -197,8 +200,11 @@ plakar source add mydb \
 | `force`      | boolean | `false` | Pass `--force` to continue on SQL errors |
 | `ssl_mode`   | string  | —       | TLS mode (same values as importer) |
 | `ssl_cert`   | string  | —       | Client SSL certificate path |
+| `ssl_cert_data` | string | —    | Inline PEM content of the client SSL certificate. Alternative to `ssl_cert` |
 | `ssl_key`    | string  | —       | Client SSL private key path |
+| `ssl_key_data`  | string | —    | Inline PEM content of the client SSL private key. Alternative to `ssl_key` |
 | `ssl_ca`     | string  | —       | CA certificate path |
+| `ssl_ca_data`   | string | —    | Inline PEM content of the CA certificate. Alternative to `ssl_ca` |
 
 ### MySQL-only options
 
