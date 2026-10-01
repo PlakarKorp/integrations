@@ -50,8 +50,15 @@ func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader) (in
 		return 0, fmt.Errorf("could not close %s: %w", pathname, err)
 	}
 
-	if err := sftpClient.Rename(tmpName, pathname); err != nil {
-		return 0, fmt.Errorf("could not create %s: %w", pathname, err)
+	// On storage we fail early, in restore this is a best effort.
+	if _, ok := sftpClient.HasExtension("posix-rename@openssh.com"); ok {
+		if err := sftpClient.PosixRename(tmpName, pathname); err != nil {
+			return 0, fmt.Errorf("could not create %s: %w", pathname, err)
+		}
+	} else {
+		if err := sftpClient.Rename(tmpName, pathname); err != nil {
+			return 0, fmt.Errorf("could not create %s: %w", pathname, err)
+		}
 	}
 
 	ok = true
