@@ -23,7 +23,7 @@ import (
 
 // drainImporter runs imp.Import to completion and returns the set of pathnames
 // (excluding errored records) that the importer surfaced as records.
-func drainImporter(t *testing.T, imp *FSImporter) map[string]bool {
+func drainImporter(t *testing.T, imp *FSImporter) map[string]struct{} {
 	t.Helper()
 
 	records := make(chan *connectors.Record, 64)
@@ -33,10 +33,10 @@ func drainImporter(t *testing.T, imp *FSImporter) map[string]bool {
 		importDone <- imp.Import(context.Background(), records, nil)
 	}()
 
-	out := map[string]bool{}
+	out := map[string]struct{}{}
 	for rec := range records {
 		if rec.Err == nil {
-			out[rec.Pathname] = true
+			out[rec.Pathname] = struct{}{}
 		}
 	}
 
@@ -115,7 +115,7 @@ func TestImporter_IgnoreNegation_PlakarKorpPlakar2120(t *testing.T) {
 
 	// index.html must be in the output (re-included by the negation rule).
 	indexPath := path.Join(toslash(frontend), "index.html")
-	if !got[indexPath] {
+	if _, ok := got[indexPath]; !ok {
 		var paths []string
 		for p := range got {
 			paths = append(paths, p)
@@ -131,14 +131,14 @@ func TestImporter_IgnoreNegation_PlakarKorpPlakar2120(t *testing.T) {
 			continue
 		}
 		p := filepath.Join(frontend, name)
-		if got[p] {
+		if _, ok := got[p]; ok {
 			t.Errorf("expected %s to be excluded by '**/frontend/*'; but it was included", p)
 		}
 	}
 
 	// Sanity: README.md outside frontend/ should be included.
 	readme := path.Join(toslash(root), "ui", "README.md")
-	if !got[readme] {
+	if _, ok := got[readme]; !ok {
 		t.Errorf("expected %s (outside frontend/) to be included", readme)
 	}
 }
@@ -161,11 +161,11 @@ func TestImporter_ExcludedFileDoesNotSkipSiblings(t *testing.T) {
 
 	for _, name := range []string{"b.txt", "c.txt", "d.txt"} {
 		p := path.Join(toslash(root), name)
-		if !got[p] {
+		if _, ok := got[p]; !ok {
 			t.Errorf("sibling %s of an excluded file was incorrectly dropped", p)
 		}
 	}
-	if got[filepath.Join(root, "a.log")] {
+	if _, ok := got[filepath.Join(root, "a.log")]; ok {
 		t.Errorf("a.log should have been excluded")
 	}
 }
@@ -189,10 +189,10 @@ func TestImporter_ExcludedDirectoryPrunesSubtree(t *testing.T) {
 	imp := newImporter(t, root, []string{"node_modules/"})
 	got := drainImporter(t, imp)
 
-	if got[path.Join(toslash(nm), "index.js")] {
+	if _, ok := got[path.Join(toslash(nm), "index.js")]; ok {
 		t.Errorf("descended into node_modules/ even though it is excluded")
 	}
-	if !got[path.Join(toslash(root), "main.go")] {
+	if _, ok := got[path.Join(toslash(root), "main.go")]; !ok {
 		t.Errorf("main.go (outside node_modules/) should be included")
 	}
 }
