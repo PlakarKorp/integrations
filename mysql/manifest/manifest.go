@@ -112,8 +112,12 @@ func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) er
 	}
 
 	// Collect users (best-effort — may fail without mysql.user access).
-	if users, err := collectUsers(ctx, db); err == nil {
-		m.Users = users
+	// Only for whole-server backups: scoping to one database has no
+	// equivalent for an account listing, so skip it rather than leak it.
+	if cfg.Database == "" {
+		if users, err := collectUsers(ctx, db); err == nil {
+			m.Users = users
+		}
 	}
 
 	// Collect database list.
