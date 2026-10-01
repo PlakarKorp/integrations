@@ -54,7 +54,10 @@ func (e *Exporter) Type() string                   { return e.proto }
 func (e *Exporter) Root() string                   { return "/" }
 func (e *Exporter) Flags() location.Flags          { return 0 }
 func (e *Exporter) Ping(ctx context.Context) error { return e.conn.Ping(ctx) }
-func (e *Exporter) Close(_ context.Context) error  { return nil }
+func (e *Exporter) Close(_ context.Context) error {
+	e.conn.Cleanup()
+	return nil
+}
 
 func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
