@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 
-	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/imagedata"
 )
 
@@ -31,7 +30,7 @@ import (
 // closed.
 func (c *Client) ImageReader(ctx context.Context, imageID string, cleanup *Cleanup) func() (io.ReadCloser, error) {
 	return func() (io.ReadCloser, error) {
-		image, err := c.service("images", gcopenstack.NewImageV2)
+		image, err := c.glance()
 		if err != nil {
 			return nil, err
 		}

@@ -32,6 +32,14 @@ import (
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
 
+func (c *Client) cinder() (*gophercloud.ServiceClient, error) {
+	return c.service("volumes", gcopenstack.NewBlockStorageV3)
+}
+
+func (c *Client) glance() (*gophercloud.ServiceClient, error) {
+	return c.service("images", gcopenstack.NewImageV2)
+}
+
 // Creating the volume image.
 
 // VolumeImage is a Glance image of a Cinder volume, taken from a snapshot.
@@ -42,7 +50,7 @@ type VolumeImage struct {
 }
 
 func (c *Client) GetVolume(ctx context.Context, volumeID string) (*volumes.Volume, error) {
-	block, err := c.service("volumes", gcopenstack.NewBlockStorageV3)
+	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +66,11 @@ func (c *Client) GetVolume(ctx context.Context, volumeID string) (*volumes.Volum
 // resource goes into cleanup as soon as it exists, so a failure leaves nothing
 // behind once cleanup runs.
 func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup *Cleanup) (*VolumeImage, error) {
-	block, err := c.service("volumes", gcopenstack.NewBlockStorageV3)
+	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
-	image, err := c.service("images", gcopenstack.NewImageV2)
+	image, err := c.glance()
 	if err != nil {
 		return nil, err
 	}
