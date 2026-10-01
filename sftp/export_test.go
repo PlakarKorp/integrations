@@ -31,7 +31,7 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"syscall"
+	"runtime"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -248,6 +248,13 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 }
 
 func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// os.Chown is unconditionally unsupported on Windows (always
+		// returns syscall.EWINDOWS), so there is no real uid/gid
+		// ownership for this test to verify.
+		t.Skip()
+	}
+
 	ts := newTestServer(t)
 	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
 		t.Fatalf("mkdir /repo: %v", err)
@@ -279,10 +286,9 @@ func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
 	// Verify the file was written and ownership matches.
 	info, err := ts.realStat("/repo/file.txt")
 	require.NoError(t, err)
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	require.True(t, ok, "expected *syscall.Stat_t from file info")
-	assert.Equal(t, uid, uint64(stat.Uid), "file uid must match the record's Luid")
-	assert.Equal(t, gid, uint64(stat.Gid), "file gid must match the record's Lgid")
+	gotUid, gotGid := fileOwner(t, info)
+	assert.Equal(t, uid, gotUid, "file uid must match the record's Luid")
+	assert.Equal(t, gid, gotGid, "file gid must match the record's Lgid")
 }
 
 func TestExport_HardlinkCanonicalOnce(t *testing.T) {
@@ -633,6 +639,160 @@ func TestIsContained(t *testing.T) {
 			if got := isContained(tt.root, tt.joined); got != tt.want {
 				t.Errorf("isContained(%q, %q) = %v; want %v", tt.root, tt.joined, got, tt.want)
 			}
+		})
+	}
+}
+
+// TestExport_SkipPermissions covers the skip_permissions knob against both
+// the writeAtomic (file) and permissions (directory) paths: by default the
+// special bits recorded in the snapshot are preserved, and with
+// skip_permissions set, chmod never runs so they aren't applied.
+func TestExport_SkipPermissions(t *testing.T) {
+	cases := []struct {
+		name            string
+		isDir           bool
+		skipPermissions bool
+	}{
+		{name: "file preserves setuid/setgid by default", isDir: false, skipPermissions: false},
+		{name: "file skips chmod when skip_permissions is set", isDir: false, skipPermissions: true},
+		{name: "directory preserves setgid by default", isDir: true, skipPermissions: false},
+		{name: "directory skips chmod when skip_permissions is set", isDir: true, skipPermissions: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+				t.Fatalf("mkdir /repo: %v", err)
+			}
+
+			s := ts.newTestExportSftp(t, "/repo")
+			s.skipPermissions = tc.skipPermissions
+			records := make(chan *connectors.Record, 16)
+			results, wait := runExporter(t, s, records)
+
+			pathname := "/repo/file.txt"
+			specialBits := os.ModeSetuid | os.ModeSetgid
+			if tc.isDir {
+				pathname = "/repo/dir"
+				records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750}, nil, nil)
+			} else {
+				content := []byte("setuid test")
+				records <- connectors.NewRecord("/file.txt", "",
+					objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | 0755},
+					nil,
+					func() (io.ReadCloser, error) {
+						return io.NopCloser(bytes.NewReader(content)), nil
+					},
+				)
+			}
+			close(records)
+
+			got := drainResults(results)
+			require.NoError(t, wait())
+			require.Len(t, got, 1)
+			assert.NoError(t, got[0].Err)
+
+			info, err := ts.client.Stat(pathname)
+			require.NoError(t, err)
+			require.Equal(t, !tc.skipPermissions, info.Mode()&specialBits != 0,
+				"special bits present, mode %v", info.Mode())
+		})
+	}
+}
+
+// TestExport_DirectorySetgidSurvivesChownOrdering is a regression test for
+// the ordering of chown vs chmod in permissions().
+// chown clears the setgid bit even when chowning to the *same* uid/gid the file
+// already has (verified empirically: chmod g+s, then chown $(id -u):$(id
+// -g) on an unprivileged process strips the setgid bit). This means:
+//
+//   - chmod (restoring setgid) THEN chown -> setgid is stripped by the
+//     chown call, even though setOwner asked for it.
+//   - chown THEN chmod (restoring setgid) -> setgid survives, since nothing
+//     runs after the chmod to strip it.
+//
+// This test does not require root: it chowns to the current process's own
+// uid/gid, which is enough to trigger the kernel's clearing behaviour.
+func TestExport_DirectorySetgidSurvivesChownOrdering(t *testing.T) {
+	ts := newTestServer(t)
+	t.Cleanup(func() {
+		_ = os.Chmod(ts.realPath("/repo/dir"), 0750)
+	})
+	if err := os.MkdirAll(ts.realPath("/repo"), 0750); err != nil {
+		t.Fatalf("mkdir /repo: %v", err)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	s.setOwner = true
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	uid := uint64(os.Getuid())
+	gid := uint64(os.Getgid())
+	records <- connectors.NewRecord("/dir", "",
+		objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750, Luid: uid, Lgid: gid},
+		nil, nil)
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	require.Len(t, got, 1)
+	assert.NoError(t, got[0].Err)
+
+	info, err := ts.client.Stat("/repo/dir")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0750)|os.ModeDir|os.ModeSetgid, info.Mode(),
+		"setgid bit must survive when both chown and chmod(setgid) are requested: chown must be applied before chmod")
+}
+
+// TestExport_FileSetuidSurvivesSetOwner is the file counterpart of
+// TestExport_DirectorySetgidSurvivesChownOrdering: chown clears setuid and
+// setgid on a regular file too, so with set_owner the file must be chowned
+// before its mode is applied, or the restored file silently loses them.
+func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
+	cases := []struct {
+		name   string
+		lnlink uint16
+	}{
+		{name: "regular file", lnlink: 1},
+		{name: "hardlinked file", lnlink: 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+			s := ts.newTestExportSftp(t, "/repo")
+			s.setOwner = true
+			records := make(chan *connectors.Record, 16)
+			results, wait := runExporter(t, s, records)
+
+			content := []byte("setuid test")
+			records <- connectors.NewRecord("/file.bin", "",
+				objects.FileInfo{
+					Lmode:  os.ModeSetuid | os.ModeSetgid | 0755,
+					Luid:   uint64(os.Getuid()),
+					Lgid:   uint64(os.Getgid()),
+					Lnlink: tc.lnlink,
+				},
+				nil,
+				func() (io.ReadCloser, error) {
+					return io.NopCloser(bytes.NewReader(content)), nil
+				},
+			)
+			close(records)
+
+			got := drainResults(results)
+			require.NoError(t, wait())
+			require.Len(t, got, 1)
+			require.NoError(t, got[0].Err)
+
+			info, err := ts.client.Stat("/repo/file.bin")
+			require.NoError(t, err)
+			assert.Equal(t, os.ModeSetuid|os.ModeSetgid|0755, info.Mode(),
+				"setuid/setgid must survive when set_owner is set: chown must be applied before chmod")
 		})
 	}
 }

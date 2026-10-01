@@ -43,7 +43,8 @@ type Sftp struct {
 	rootDir  string
 	excludes *exclude.RuleSet
 
-	setOwner bool
+	setOwner        bool
+	skipPermissions bool
 
 	hlCreate singleflight.Group // key -> ensures canonical exists, returns canonical abs path
 	hlCanon  sync.Map           // key -> canonical abs path string
@@ -120,11 +121,25 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 				return nil, fmt.Errorf("set_owner: bad value: %w", err)
 			}
 		}
+		if tmp, ok := config["skip_permissions"]; ok {
+			sftp.skipPermissions, err = strconv.ParseBool(tmp)
+			if err != nil {
+				return nil, fmt.Errorf("skip_permissions: bad value: %w", err)
+			}
+		}
 	}
 
 	sftp.client, err = Connect(sftp.endpoint, config)
 	if err != nil {
 		return nil, fmt.Errorf("SSH connection to %q failed: %w\n", parsed.Host, err)
+	}
+
+	switch kind {
+	case "storage":
+		if _, ok := sftp.client.HasExtension("posix-rename@openssh.com"); !ok {
+			sftp.client.Close()
+			return nil, fmt.Errorf("%q does not support the posix-rename@openssh.com extension, required for storage", parsed.Host)
+		}
 	}
 
 	return &sftp, nil
