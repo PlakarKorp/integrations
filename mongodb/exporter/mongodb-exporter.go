@@ -320,8 +320,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	go func() {
 		for record := range records {
+			// The importer writes the dump at the root only. Any
+			// other file with that name is not ours to restore.
 			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+			    record.Pathname != "/"+backupFilename {
 				results <- record.Ok()
 				continue
 			}
