@@ -19,13 +19,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -40,15 +41,15 @@ const defaultMongoDBPort = 27017
 const backupFilename = "mongodb-backup.bson"
 
 type mongodbImporter struct {
-	url     *url.URL
-	port	string
-	username string
-	password string
-	options *connectors.Options
-	use_tls	bool
-	tls_ca_cert string
+	url             *url.URL
+	port            string
+	username        string
+	password        string
+	options         *connectors.Options
+	use_tls         bool
+	tls_ca_cert     string
 	tls_client_cert string
-	auth_mechanism string
+	auth_mechanism  string
 }
 
 func init() {
@@ -87,15 +88,15 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	i := &mongodbImporter{
-		url:     parsed,
-		port:  port,
-		username: params["username"],
-		password: params["password"],
-		options: opts,
-		use_tls: use_tls,
-		tls_ca_cert: params["tls_ca_cert"],
+		url:             parsed,
+		port:            port,
+		username:        params["username"],
+		password:        params["password"],
+		options:         opts,
+		use_tls:         use_tls,
+		tls_ca_cert:     params["tls_ca_cert"],
 		tls_client_cert: params["tls_client_cert"],
-		auth_mechanism: params["auth_mechanism"],
+		auth_mechanism:  params["auth_mechanism"],
 	}
 
 	return i, nil
@@ -112,17 +113,17 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 		args = append(args, "--tls")
 		if len(i.tls_ca_cert) > 0 {
 			args = append(args, "--tlsCAFile")
-			args = append(args, i.tls_ca_cert) 
+			args = append(args, i.tls_ca_cert)
 		}
 		if len(i.tls_client_cert) > 0 {
 			args = append(args, "--tlsCertificateKeyFile")
-			args = append(args, i.tls_client_cert) 
+			args = append(args, i.tls_client_cert)
 		}
 	}
-	if len (i.auth_mechanism) > 0 {
+	if len(i.auth_mechanism) > 0 {
 		args = append(args, "--authenticationMechanism")
 		args = append(args, i.auth_mechanism)
-		
+
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
@@ -173,6 +174,27 @@ func cleanupTempFile(f *os.File) {
 	}
 }
 
+// mongo-tools parse --config as YAML. A JSON string is a valid YAML
+// double-quoted scalar, which escapes quotes, backslashes and newlines.
+func writePasswordConfig(password string) (*os.File, error) {
+	quoted, err := json.Marshal(password)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := os.CreateTemp("", "plakar-mongodb")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = fmt.Fprintf(f, "password: %s\n", quoted); err != nil {
+		cleanupTempFile(f)
+		return nil, err
+	}
+
+	return f, nil
+}
+
 type commandResult struct {
 	stderr []byte
 	err    error
@@ -194,31 +216,27 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		args = append(args, "--ssl")
 		if len(i.tls_ca_cert) > 0 {
 			args = append(args, "--sslCAFile")
-			args = append(args, i.tls_ca_cert) 
+			args = append(args, i.tls_ca_cert)
 		}
 		if len(i.tls_client_cert) > 0 {
 			args = append(args, "--sslPEMKeyFile")
-			args = append(args, i.tls_client_cert) 
+			args = append(args, i.tls_client_cert)
 		}
 	}
-	if len (i.auth_mechanism) > 0 {
+	if len(i.auth_mechanism) > 0 {
 		args = append(args, "--authenticationMechanism")
 		args = append(args, i.auth_mechanism)
-	}	
+	}
 	if len(i.username) > 0 {
 		args = append(args, "--username")
 		args = append(args, i.username)
 	}
 	if len(i.password) > 0 {
-		f, err = os.CreateTemp("", "plakar-mongodb")
+		f, err = writePasswordConfig(i.password)
 		if err != nil {
 			return err
 		}
-
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
-			cleanupTempFile(f)
-			return err
-		}
+		defer cleanupTempFile(f)
 		args = append(args, "--config")
 		args = append(args, f.Name())
 	}
@@ -228,7 +246,6 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cleanupTempFile(f)
 		return err
 	}
 
@@ -257,14 +274,13 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	}
 
 	if err := cmd.Start(); err != nil {
-		cleanupTempFile(f)
 		return err
 	}
 
 	c := make(chan commandResult, 1)
 
 	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err : err} }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
 	fi := objects.FileInfo{
 		Lname:      backupFilename,

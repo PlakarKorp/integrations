@@ -19,6 +19,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -105,6 +106,27 @@ func cleanupTempFile(f *os.File) {
 		os.Remove(f.Name())
 		f.Close()
 	}
+}
+
+// mongo-tools parse --config as YAML. A JSON string is a valid YAML
+// double-quoted scalar, which escapes quotes, backslashes and newlines.
+func writePasswordConfig(password string) (*os.File, error) {
+	quoted, err := json.Marshal(password)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := os.CreateTemp("", "plakar-mongodb")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = fmt.Fprintf(f, "password: %s\n", quoted); err != nil {
+		cleanupTempFile(f)
+		return nil, err
+	}
+
+	return f, nil
 }
 
 func (e *mongodbExporter) commonArgs() []string {
@@ -211,15 +233,11 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 		args = append(args, e.username)
 	}
 	if len(e.password) > 0 {
-		f, err = os.CreateTemp("", "plakar-mongodb")
+		f, err = writePasswordConfig(e.password)
 		if err != nil {
 			return err
 		}
 		defer cleanupTempFile(f)
-
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", e.password); err != nil {
-			return err
-		}
 		args = append(args, "--config")
 		args = append(args, f.Name())
 	}
@@ -302,8 +320,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	go func() {
 		for record := range records {
+			// The importer writes the dump at the root only. Any
+			// other file with that name is not ours to restore.
 			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+			    record.Pathname != "/"+backupFilename {
 				results <- record.Ok()
 				continue
 			}
