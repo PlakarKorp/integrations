@@ -216,9 +216,9 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		if err != nil {
 			return err
 		}
+		defer cleanupTempFile(f)
 
 		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
-			cleanupTempFile(f)
 			return err
 		}
 		args = append(args, "--config")
@@ -231,7 +231,6 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cleanupTempFile(f)
 		return err
 	}
 
@@ -260,7 +259,6 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	}
 
 	if err := cmd.Start(); err != nil {
-		cleanupTempFile(f)
 		return err
 	}
 
