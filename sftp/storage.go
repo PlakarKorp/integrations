@@ -161,6 +161,13 @@ func (s *Sftp) Get(ctx context.Context, res storage.StorageResource, mac objects
 }
 
 func (s *Sftp) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	// OpenSSH in readonly mode doesn't expose this extension, yet it's okay to
+	// use it as a storage, so we can't check at init time, we have to check on the
+	// first Put call.
+	if _, ok := s.client.HasExtension("posix-rename@openssh.com"); !ok {
+		return 0, fmt.Errorf("%q does not support the posix-rename@openssh.com extension, required for storage", s.endpoint.Host)
+	}
+
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
