@@ -3,7 +3,7 @@
   "title": "Plakar MongoDB Exporter Config",
   "type": "object",
   "additionalProperties": false,
-  "required": ["location", "username", "password" ],
+  "required": ["location"],
   "properties": {
     "location": {
       "type": "string",
@@ -36,8 +36,15 @@
     },
     "tls_ca_cert": {
       "type": "string",
-      "default": true,
       "description": "Path to a custom CA certificate to use for verifying the MongoDB server's certificate."
+    },
+    "tls_client_cert": {
+      "type": "string",
+      "description": "Path to a client certificate and key in PEM format for mTLS authentication to the MongoDB server."
+    },
+    "auth_mechanism": {
+      "type": "string",
+      "description": "Authentication mechanism to use with the MongoDB server, such as SCRAM-SHA-256 or MONGODB-X509."
     }
   }
 }
