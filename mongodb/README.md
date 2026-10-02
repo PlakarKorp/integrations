@@ -10,7 +10,11 @@ This integration allows:
 - Seamless export of MongoDB data into a Kloset repository.
 - Direct restoration of data from Kloset to MongoDB
 
-This integration uses the mongosh, mongodump, and mongorestore utlities.
+This integration uses the mongosh, mongodump, and mongorestore utilities.
+
+Warning:
+    The restore uses `mongorestore --drop`.
+    If you restore an admin database, any existing users and roles will be deleted and replaced with the snapshot's content.
 
 ## Configuration
 \
