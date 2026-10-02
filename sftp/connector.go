@@ -134,14 +134,6 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 		return nil, fmt.Errorf("SSH connection to %q failed: %w\n", parsed.Host, err)
 	}
 
-	switch kind {
-	case "storage":
-		if _, ok := sftp.client.HasExtension("posix-rename@openssh.com"); !ok {
-			sftp.client.Close()
-			return nil, fmt.Errorf("%q does not support the posix-rename@openssh.com extension, required for storage", parsed.Host)
-		}
-	}
-
 	return &sftp, nil
 }
 
