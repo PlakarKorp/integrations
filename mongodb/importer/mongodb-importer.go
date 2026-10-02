@@ -19,6 +19,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -173,6 +174,27 @@ func cleanupTempFile(f *os.File) {
 	}
 }
 
+// mongo-tools parse --config as YAML. A JSON string is a valid YAML
+// double-quoted scalar, which escapes quotes, backslashes and newlines.
+func writePasswordConfig(password string) (*os.File, error) {
+	quoted, err := json.Marshal(password)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := os.CreateTemp("", "plakar-mongodb")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = fmt.Fprintf(f, "password: %s\n", quoted); err != nil {
+		cleanupTempFile(f)
+		return nil, err
+	}
+
+	return f, nil
+}
+
 type commandResult struct {
 	stderr []byte
 	err    error
@@ -210,15 +232,11 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		args = append(args, i.username)
 	}
 	if len(i.password) > 0 {
-		f, err = os.CreateTemp("", "plakar-mongodb")
+		f, err = writePasswordConfig(i.password)
 		if err != nil {
 			return err
 		}
 		defer cleanupTempFile(f)
-
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
-			return err
-		}
 		args = append(args, "--config")
 		args = append(args, f.Name())
 	}
