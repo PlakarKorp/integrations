@@ -8,8 +8,8 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "MongoDB server hostname or IP address",
-      "pattern": "^[a-zA-Z0-9.:-\\]+$"
+      "description": "MongoDB server URL",
+      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-\\]+$"
     },
     "port": {
       "type": "integer",

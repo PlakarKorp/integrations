@@ -107,19 +107,13 @@ func cleanupTempFile(f *os.File) {
 	}
 }
 
-func (e *mongodbExporter) commonArgs() []string {
+func (e *mongodbExporter) Ping(ctx context.Context) error {
 	var args []string
 
-	args = append(args, "--host")
-	args = append(args, e.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, e.port)
-
-	return args;
-}
-
-func (e *mongodbExporter) Ping(ctx context.Context) error {
-	args := e.commonArgs()
+	if e.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, e.port)
+	}
 	if e.use_tls {
 		args = append(args, "--tls")
 		if len(e.tls_ca_cert) > 0 {
@@ -137,6 +131,8 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
+
+	args = append(args, fmt.Sprintf("%s://%s", e.url.Scheme, e.url.Hostname()))
 	cmd := exec.Command("mongosh", args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -189,8 +185,12 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	var f *os.File
 	var err error
+	var args []string
 
-	args := e.commonArgs()
+	if e.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, e.port)
+	}
 	if e.use_tls {
 		args = append(args, "--ssl")
 		if len(e.tls_ca_cert) > 0 {
@@ -227,6 +227,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	args = append(args, "--objcheck")
 	args = append(args, "--archive")
 
+	args = append(args, fmt.Sprintf("%s://%s", e.url.Scheme, e.url.Hostname()))
 	cmd := exec.Command("mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()

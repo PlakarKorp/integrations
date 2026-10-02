@@ -16,7 +16,7 @@ This integration uses the mongosh, mongodump, and mongorestore utlities.
 \
 The required configuration parameters are as follows:
 
-- `location`: A URL to the MongoDB server. On the command line this URL must begin with mongodb://`
+- `location`: A URL to the MongoDB server. On the command line this URL must begin with `mongodb://` or `mongodb+srv://`
 
 The optional configuration parameters are as follows:
 
