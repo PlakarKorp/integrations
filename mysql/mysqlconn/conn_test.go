@@ -35,7 +35,7 @@ func TestParseConnConfig_SSLDataParams(t *testing.T) {
 			"ssl_key":      "/etc/ssl/client-key.pem",
 			"ssl_key_data": "fake-key-content",
 		})
-		require.ErrorContains(t, err, "ssl_key and ssl_key_data are mutually exclusive")
+		require.ErrorContains(t, err, `"ssl_key" and "ssl_key_data" are mutually exclusive`)
 	})
 
 	t.Run("all three file params support inline data", func(t *testing.T) {

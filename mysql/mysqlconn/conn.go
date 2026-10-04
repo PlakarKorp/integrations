@@ -145,7 +145,7 @@ func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
 		data, hasData := config[p.dataKey]
 		if hasPath && path != "" && hasData && data != "" {
 			cc.Cleanup()
-			return cc, fmt.Errorf("%s and %s are mutually exclusive", p.pathKey, p.dataKey)
+			return cc, fmt.Errorf("%q and %q are mutually exclusive", p.pathKey, p.dataKey)
 		}
 		if hasPath && path != "" {
 			*p.field = path
