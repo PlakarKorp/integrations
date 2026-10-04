@@ -19,6 +19,7 @@ package rclone
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"path"
@@ -242,6 +243,29 @@ func TestExportSkipsXattr(t *testing.T) {
 	assert.ErrorIs(t, err, rclonefs.ErrorObjectNotFound)
 }
 
+func TestExportUnsupportedTypeIsAnError(t *testing.T) {
+	r := newRclone(t)
+
+	records := make(chan *connectors.Record)
+	results, wait := runExporter(t, r, records)
+
+	go func() {
+		records <- &connectors.Record{
+			Pathname: "link",
+			Target:   "target",
+			FileInfo: objects.FileInfo{Lname: "link", Lmode: fs.ModeSymlink | 0777},
+		}
+		close(records)
+	}()
+
+	res := <-results
+	assert.ErrorIs(t, res.Err, errors.ErrUnsupported)
+	require.NoError(t, wait())
+
+	_, err := r.fs.NewObject(t.Context(), "link")
+	assert.ErrorIs(t, err, rclonefs.ErrorObjectNotFound)
+}
+
 func TestExportSkipsRoot(t *testing.T) {
 	r := newRclone(t)
 
@@ -261,7 +285,6 @@ func TestExportSkipsRoot(t *testing.T) {
 	}
 	require.NoError(t, wait())
 }
-
 
 func TestStorageCreateOpen(t *testing.T) {
 	r := newRclone(t)
