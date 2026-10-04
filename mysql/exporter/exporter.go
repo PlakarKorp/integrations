@@ -55,6 +55,10 @@ func (e *Exporter) Root() string                   { return "/" }
 func (e *Exporter) Flags() location.Flags          { return 0 }
 func (e *Exporter) Ping(ctx context.Context) error { return e.conn.Ping(ctx) }
 func (e *Exporter) Close(_ context.Context) error {
+	// conn is a value, not *mysqlconn.ConnConfig, so it can't itself be nil; guard the receiver instead.
+	if e == nil {
+		return nil
+	}
 	e.conn.Cleanup()
 	return nil
 }

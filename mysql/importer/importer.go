@@ -107,6 +107,10 @@ func (i *Importer) Root() string                   { return "/" }
 func (i *Importer) Flags() location.Flags          { return location.FLAG_STREAM }
 func (i *Importer) Ping(ctx context.Context) error { return i.Conn.Ping(ctx) }
 func (i *Importer) Close(_ context.Context) error {
+	// Conn is a value, not *mysqlconn.ConnConfig, so it can't itself be nil; guard the receiver instead.
+	if i == nil {
+		return nil
+	}
 	i.Conn.Cleanup()
 	return nil
 }
