@@ -48,6 +48,38 @@ type ConnConfig struct {
 	// When using SqlCloud this is the real host (the instance connection name)
 	// that was given, host will always be 127.0.0.1
 	TrueHost string
+
+	tmpFiles []string // temp files written for inline SSL content; removed by Cleanup
+}
+
+// Cleanup removes any temporary files that were created for inline SSL content.
+// It should be called when the connector is closed.
+func (cc *ConnConfig) Cleanup() {
+	for _, f := range cc.tmpFiles {
+		_ = os.Remove(f)
+	}
+	cc.tmpFiles = nil
+}
+
+// sslFileParam describes one SSL file parameter and its inline-content variant.
+type sslFileParam struct {
+	pathKey string  // config key for the file path, e.g. "ssl_cert"
+	dataKey string  // config key for inline content, e.g. "ssl_cert_data"
+	field   *string // pointer to the ConnConfig field to set
+}
+
+// writeTempFile writes content to a temporary PEM file and returns its path.
+func writeTempFile(label, content string) (string, error) {
+	f, err := os.CreateTemp("", "plakar-mysql-"+label+"-*")
+	if err != nil {
+		return "", fmt.Errorf("%s_data: create temp file: %w", label, err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%s_data: write temp file: %w", label, err)
+	}
+	return f.Name(), nil
 }
 
 func (cc ConnConfig) clientBin() string {
@@ -104,14 +136,28 @@ func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
 		}
 		cc.SSLMode = v
 	}
-	if v := config["ssl_cert"]; v != "" {
-		cc.SSLCert = v
-	}
-	if v := config["ssl_key"]; v != "" {
-		cc.SSLKey = v
-	}
-	if v := config["ssl_ca"]; v != "" {
-		cc.SSLCA = v
+	for _, p := range []sslFileParam{
+		{"ssl_cert", "ssl_cert_data", &cc.SSLCert},
+		{"ssl_key", "ssl_key_data", &cc.SSLKey},
+		{"ssl_ca", "ssl_ca_data", &cc.SSLCA},
+	} {
+		path, hasPath := config[p.pathKey]
+		data, hasData := config[p.dataKey]
+		if hasPath && path != "" && hasData && data != "" {
+			cc.Cleanup()
+			return cc, fmt.Errorf("%q and %q are mutually exclusive", p.pathKey, p.dataKey)
+		}
+		if hasPath && path != "" {
+			*p.field = path
+		} else if hasData && data != "" {
+			tmp, err := writeTempFile(p.pathKey, data)
+			if err != nil {
+				cc.Cleanup()
+				return cc, err
+			}
+			*p.field = tmp
+			cc.tmpFiles = append(cc.tmpFiles, tmp)
+		}
 	}
 	// Both mysql_bin_dir and mariadb_bin_dir map to BinDir; only one is present per plugin.
 	if v := config["mysql_bin_dir"]; v != "" {
