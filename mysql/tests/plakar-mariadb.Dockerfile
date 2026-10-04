@@ -7,7 +7,7 @@
 #   docker build --build-arg PLAKAR_SHA=main -t plakar-mariadb-test -f tests/plakar-mariadb.Dockerfile .
 ARG PLAKAR_SHA=main
 
-FROM golang:1.25-bookworm
+FROM golang:1.26-bookworm
 
 ARG PLAKAR_SHA
 
