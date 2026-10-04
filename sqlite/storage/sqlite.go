@@ -31,9 +31,6 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/repository"
-
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type Store struct {
@@ -293,13 +290,7 @@ func (s *Store) putState(context context.Context, mac objects.MAC, rd io.Reader)
 	_, err = statement.Exec(mac[:], data)
 	s.wrMutex.Unlock()
 	if err != nil {
-		var sqliteErr *sqlite.Error
-		if !errors.As(err, &sqliteErr) {
-			return 0, err
-		}
-		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
-			return 0, err
-		}
+		return 0, err
 	}
 
 	return int64(len(data)), nil
@@ -369,13 +360,7 @@ func (s *Store) putPackfile(context context.Context, mac objects.MAC, rd io.Read
 	_, err = statement.Exec(mac[:], data)
 	s.wrMutex.Unlock()
 	if err != nil {
-		var sqliteErr *sqlite.Error
-		if !errors.As(err, &sqliteErr) {
-			return 0, err
-		}
-		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
-			return 0, err
-		}
+		return 0, err
 	}
 
 	return int64(len(data)), nil
@@ -455,7 +440,7 @@ func (s *Store) putLock(context context.Context, lockID objects.MAC, rd io.Reade
 		return 0, err
 	}
 
-	statement, err := s.conn.Prepare(`INSERT INTO locks (mac, data) VALUES(?, ?)`)
+	statement, err := s.conn.Prepare(`INSERT INTO locks (mac, data) VALUES(?, ?) ON CONFLICT(mac) DO UPDATE SET data=excluded.data`)
 	if err != nil {
 		return 0, err
 	}
@@ -465,13 +450,7 @@ func (s *Store) putLock(context context.Context, lockID objects.MAC, rd io.Reade
 	_, err = statement.Exec(hex.EncodeToString(lockID[:]), data)
 	s.wrMutex.Unlock()
 	if err != nil {
-		var sqliteErr *sqlite.Error
-		if !errors.As(err, &sqliteErr) {
-			return 0, err
-		}
-		if sqliteErr.Code() != sqlite3.SQLITE_CONSTRAINT {
-			return 0, err
-		}
+		return 0, err
 	}
 
 	return int64(len(data)), nil
