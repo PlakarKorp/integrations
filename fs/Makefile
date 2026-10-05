@@ -2,7 +2,7 @@ GO=go
 EXT=
 
 PLAKAR  ?= plakar
-VERSION ?= v2.0.0
+VERSION ?= v1.1.0
 
 GOOS   := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
