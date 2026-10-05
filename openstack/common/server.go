@@ -26,7 +26,10 @@ import (
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/attachinterfaces"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+<<<<<<< HEAD
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/volumeattach"
+=======
+>>>>>>> baf0a3f (openstack/common: snapshot a server's root disk into a Glance image)
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
