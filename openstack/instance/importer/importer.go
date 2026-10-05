@@ -21,6 +21,8 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +99,10 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
+	if err := imp.emitDir(ctx, records, "/block-storage"); err != nil {
+		return err
+	}
+
 	rootCleanup := imp.addCleanup()
 	image, err := imp.client.CreateServerImage(ctx, server, rootCleanup)
 	if err != nil {
@@ -127,13 +133,31 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	return nil
 }
 
-// emitDisk emits dir's .METADATA.json then its disk.qcow2, reading the disk
-// from imageID and running cleanup once that read closes.
+// emitDisk emits dir itself, then its .METADATA.json and its disk.qcow2,
+// reading the disk from imageID and running cleanup once that read closes.
 func (imp *Importer) emitDisk(ctx context.Context, records chan<- *connectors.Record, dir string, metadata *common.DiskMetadata, imageID string, cleanup *common.Cleanup) error {
+	if err := imp.emitDir(ctx, records, dir); err != nil {
+		return err
+	}
 	if err := imp.emit(ctx, records, dir+"/"+instance.MetadataName, common.JSONReader(metadata)); err != nil {
 		return err
 	}
 	return imp.emit(ctx, records, dir+"/"+instance.DiskName, imp.client.ImageReader(ctx, imageID, cleanup))
+}
+
+// emitDir emits a directory record. Kloset needs one for every directory a
+// file's path crosses; it doesn't infer them from file paths alone.
+func (imp *Importer) emitDir(ctx context.Context, records chan<- *connectors.Record, pathname string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case records <- connectors.NewRecord(pathname, "", objects.FileInfo{
+		Lname:    path.Base(pathname),
+		Lmode:    os.ModeDir | 0700,
+		LmodTime: time.Unix(0, 0),
+	}, nil, nil):
+	}
+	return nil
 }
 
 func (imp *Importer) emit(ctx context.Context, records chan<- *connectors.Record, pathname string, readerFunc func() (io.ReadCloser, error)) error {
@@ -141,7 +165,7 @@ func (imp *Importer) emit(ctx context.Context, records chan<- *connectors.Record
 	case <-ctx.Done():
 		return ctx.Err()
 	case records <- connectors.NewRecord(pathname, "", objects.FileInfo{
-		Lname:    pathname,
+		Lname:    path.Base(pathname),
 		Lmode:    0600,
 		Lsize:    -1,
 		LmodTime: time.Unix(0, 0),
