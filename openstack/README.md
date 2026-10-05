@@ -1,7 +1,7 @@
 # OpenStack
 
-Plakar inventory, Cinder volume backup and restore, and Nova server backup for
-OpenStack.
+Plakar inventory, Cinder volume backup and restore, and Nova server backup and
+restore for OpenStack.
 
 ## Inventory
 
@@ -204,4 +204,45 @@ plakar source add myvm openstack-instance://c0ce1a7f-9397-4440-b8a6-3046be0613ce
     openstack_application_credential_secret=<secret> \
     openstack_region=RegionOne
 plakar backup @myvm
+```
+
+## VM restore
+
+The `openstack-instance` exporter restores a VM backup into a new Nova
+server: a new root disk, and a new, reattached Cinder volume for each
+attached one the backup holds. The original server is never touched.
+
+The server's flavor and networks are resolved by ID first, falling back to
+name if the ID no longer exists on the target cloud (a different project or
+region than the one backed up); restore fails if neither resolves. Security
+groups are attached by name, as saved, with no resolution. Each volume is
+reattached to its original device (e.g. `/dev/vdb`) when the backup recorded
+one, or left for Nova to pick otherwise.
+
+Each disk's restore image goes through the same temporary Glance upload as
+the volume restore, and is deleted once the server or the volume is created
+from it, or when the exporter closes if a later disk's restore fails first.
+
+### Configuration
+
+The authentication keys of the inventory, plus:
+
+| Key | Description |
+|-----|-------------|
+| `location` | `openstack-instance://` |
+| `openstack_region` | The region to restore into. Exactly one is required. |
+
+The credential needs Nova server create and volume-attach rights, Glance
+image create, upload and delete rights, Neutron network read rights, and the
+Cinder rights the volume restore needs, on the target project.
+
+### Usage
+
+```sh
+plakar destination add myvmdst openstack-instance:// \
+    openstack_auth_url=https://keystone.example.com:5000/v3 \
+    openstack_application_credential_id=<id> \
+    openstack_application_credential_secret=<secret> \
+    openstack_region=RegionOne
+plakar restore -to @myvmdst <snapshot-id>
 ```
