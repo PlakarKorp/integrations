@@ -66,6 +66,9 @@ type Cloud struct {
 	VolumeErrors int
 	// FailVolumeList makes listing volumes fail with a 500.
 	FailVolumeList bool
+	// BootFromVolume makes every image carry a block_device_mapping
+	// property, as the one Nova creates for a boot-from-volume server does.
+	BootFromVolume bool
 
 	t         *testing.T
 	mu        sync.Mutex
@@ -256,9 +259,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.reply(w, http.StatusNotFound, nil)
 			return
 		}
-		c.reply(w, http.StatusOK, map[string]any{
+		body := map[string]any{
 			"id": id, "status": status, "disk_format": c.imageFormat(id), "container_format": "bare", "size": len(c.Disk),
-		})
+		}
+		if c.BootFromVolume {
+			body["block_device_mapping"] = "[]"
+		}
+		c.reply(w, http.StatusOK, body)
 	})
 	mux.HandleFunc("GET /image/v2/images/{id}/file", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := c.read(r.PathValue("id"), "image"); !ok {
@@ -333,6 +340,14 @@ func (c *Cloud) Vanish(ids ...string) {
 		delete(c.resources, id)
 		c.vanished[id] = true
 	}
+}
+
+// SeedImage registers an image Nova created directly from a server snapshot,
+// bypassing the Cinder upload-to-image flow createImage tracks.
+func (c *Cloud) SeedImage(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resources[id] = &resource{kind: "image", ours: true, creating: c.SavingPolls}
 }
 
 // createImage creates an image through Glance: queued until its data comes.
