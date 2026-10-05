@@ -35,7 +35,7 @@ For S3-compatible storage providers, you may also need to specify:
 ## Authentication
 
 Set both `access_key` and `secret_access_key` to authenticate with static
-credentials. If both are omitted, the connector uses the credentials of the
+credentials. If both are omitted or invalid credentials are provided, the connector uses the credentials of the
 environment it runs in:
 
 - EC2 instance profile (IAM role attached to the instance)
