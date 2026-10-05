@@ -8,6 +8,8 @@ connectors:
     executable: ./routeros-importer
     protocols: [routeros+export, routeros+backup]
     flags: [needack]
+    validator: ./cmd/importer/schema.json
   - type: exporter
     executable: ./routeros-exporter
     protocols: [routeros]
+    validator: ./cmd/exporter/schema.json

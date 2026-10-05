@@ -1,0 +1,37 @@
+name: routeros tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/routeros
+    paths:
+      - .github/workflows/routeros-tests.yml
+      - 'routeros/**'
+  pull_request:
+    paths:
+      - .github/workflows/routeros-tests.yml
+      - 'routeros/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the routeros integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: routeros/go.mod
+          cache-dependency-path: routeros/go.sum
+
+      - name: build
+        working-directory: routeros
+        run: go build ./...
+
+      - name: test
+        working-directory: routeros
+        run: go test -race ./...

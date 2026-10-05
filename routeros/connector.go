@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 type Mode string
@@ -31,9 +33,11 @@ const (
 var ErrAlreadyDone = errors.New("restore already done")
 
 type Routeros struct {
-	addr       string
-	user       string
-	authMethod ssh.AuthMethod
+	addr        string
+	user        string
+	authMethod  ssh.AuthMethod
+	hostKeyCall ssh.HostKeyCallback
+	agentConn   net.Conn
 
 	mode Mode // for backup
 
@@ -60,8 +64,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, co
 func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string, importerp bool) (*Routeros, error) {
 	loc, err := url.Parse(config["location"])
 	if err != nil {
-		return nil, fmt.Errorf("bad location %q: %w",
-			config["location"], err)
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
+		return nil, fmt.Errorf("bad location: %w", err)
 	}
 
 	user := loc.User.Username()
@@ -74,7 +81,13 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		return nil, fmt.Errorf("user not specified")
 	}
 
+	hostKeyCall, err := hostKeyCallback(config)
+	if err != nil {
+		return nil, err
+	}
+
 	var authm ssh.AuthMethod
+	var agentConn net.Conn
 
 	if p, ok := config["password"]; ok {
 		authm = ssh.Password(p)
@@ -90,7 +103,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 
 		var signer ssh.Signer
 		if pass != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(p))
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(pass))
 		} else {
 			signer, err = ssh.ParsePrivateKey(c)
 		}
@@ -100,6 +113,17 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		}
 
 		authm = ssh.PublicKeys(signer)
+	} else if sock, ok := os.LookupEnv("SSH_AUTH_SOCK"); ok {
+		agentConn, err = net.Dial("unix", sock)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to the agent at %s: %w",
+				sock, err)
+		}
+
+		ag := agent.NewClient(agentConn)
+		authm = ssh.PublicKeysCallback(ag.Signers)
+	} else {
+		return nil, fmt.Errorf("a password, a private key or $SSH_AUTH_SOCK needs to be specified")
 	}
 
 	var mode Mode
@@ -133,11 +157,13 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}
 
 	return &Routeros{
-		addr:       host,
-		user:       user,
-		authMethod: authm,
-		mode:       mode,
-		dryRun:     dryrun,
+		addr:        host,
+		user:        user,
+		authMethod:  authm,
+		hostKeyCall: hostKeyCall,
+		agentConn:   agentConn,
+		mode:        mode,
+		dryRun:      dryrun,
 	}, nil
 }
 
@@ -157,7 +183,7 @@ func (m *Routeros) connect() error {
 	client, err := ssh.Dial("tcp", m.addr, &ssh.ClientConfig{
 		User:            m.user,
 		Auth:            []ssh.AuthMethod{m.authMethod},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // XXX
+		HostKeyCallback: m.hostKeyCall,
 		Timeout:         10 * time.Second,
 		AuthCallback:    nil,
 	})
@@ -336,9 +362,12 @@ func (m *Routeros) Export(ctx context.Context, records <-chan *connectors.Record
 	return nil
 }
 
-func (m *Routeros) Close(ctx context.Context) error {
-	if m.client != nil {
-		return m.client.Close()
+func (m *Routeros) Close(ctx context.Context) (err error) {
+	if m.agentConn != nil {
+		err = errors.Join(err, m.agentConn.Close())
 	}
-	return nil
+	if m.client != nil {
+		err = errors.Join(err, m.client.Close())
+	}
+	return err
 }
