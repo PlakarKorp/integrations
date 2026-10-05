@@ -209,7 +209,7 @@ func TestImporter_ExcludedDirectoryPrunesSubtree(t *testing.T) {
 	}
 }
 
-func TetToSlash(t *testing.T) {
+func TestToSlash(t *testing.T) {
 	suite := []struct {
 		t string
 		e string
