@@ -134,6 +134,8 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			"catalog": []any{
 				catalogEntry("volumev3", srv.URL+block),
 				catalogEntry("image", srv.URL+"/image/"),
+				catalogEntry("compute", srv.URL+"/compute/"),
+				catalogEntry("network", srv.URL+"/network/"),
 			},
 		}})
 	})
@@ -271,6 +273,17 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		_, _ = w.Write(c.Disk)
 	})
 	mux.HandleFunc("DELETE /image/v2/images/{id}", c.delete)
+	// Nova and Neutron's catalog URLs are unversioned, like Glance's.
+	mux.HandleFunc("GET /compute/{$}", func(w http.ResponseWriter, r *http.Request) {
+		c.reply(w, http.StatusMultipleChoices, map[string]any{"versions": []any{
+			map[string]any{"id": "v2.1", "status": "CURRENT"},
+		}})
+	})
+	mux.HandleFunc("GET /network/{$}", func(w http.ResponseWriter, r *http.Request) {
+		c.reply(w, http.StatusMultipleChoices, map[string]any{"versions": []any{
+			map[string]any{"id": "v2.0", "status": "CURRENT"},
+		}})
+	})
 	mux.HandleFunc("/", c.unexpected)
 	c.mux = mux
 	return c
