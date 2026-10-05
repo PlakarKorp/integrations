@@ -22,8 +22,19 @@ import (
 
 	"github.com/gophercloud/gophercloud/v2"
 	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/attachinterfaces"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
+
+// ServerMetadata is the /.METADATA.json of an instance snapshot's server
+// entry. Its JSON is a persisted format: do not rename or drop fields.
+type ServerMetadata struct {
+	Server   *servers.Server     `json:"server"`
+	Flavor   *flavors.Flavor     `json:"flavor"`
+	Networks []*networks.Network `json:"networks"`
+}
 
 const (
 	serviceServers  = "servers"
@@ -48,4 +59,45 @@ func (c *Client) GetServer(ctx context.Context, serverID string) (*servers.Serve
 		return nil, fmt.Errorf("get server %q: %w", serverID, err)
 	}
 	return server, nil
+}
+
+// ServerMetadata reads what a restore needs to recreate the server: its
+// flavor and the networks of its interfaces, in interface order.
+func (c *Client) ServerMetadata(ctx context.Context, server *servers.Server) (*ServerMetadata, error) {
+	nova, err := c.nova()
+	if err != nil {
+		return nil, err
+	}
+	flavorID, _ := server.Flavor["id"].(string)
+	if flavorID == "" {
+		return nil, fmt.Errorf("server %q: flavor id missing", server.ID)
+	}
+	flavor, err := flavors.Get(ctx, nova, flavorID).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("get flavor %q: %w", flavorID, err)
+	}
+
+	page, err := attachinterfaces.List(nova, server.ID).AllPages(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list interfaces of server %q: %w", server.ID, err)
+	}
+	ifaces, err := attachinterfaces.ExtractInterfaces(page)
+	if err != nil {
+		return nil, fmt.Errorf("list interfaces of server %q: %w", server.ID, err)
+	}
+
+	neutron, err := c.neutron()
+	if err != nil {
+		return nil, err
+	}
+	nets := make([]*networks.Network, 0, len(ifaces))
+	for _, iface := range ifaces {
+		net, err := networks.Get(ctx, neutron, iface.NetID).Extract()
+		if err != nil {
+			return nil, fmt.Errorf("get network %q: %w", iface.NetID, err)
+		}
+		nets = append(nets, net)
+	}
+
+	return &ServerMetadata{Server: server, Flavor: flavor, Networks: nets}, nil
 }
