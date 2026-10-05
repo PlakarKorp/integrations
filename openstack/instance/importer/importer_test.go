@@ -92,14 +92,26 @@ func TestImportBacksUpServer(t *testing.T) {
 
 	records, err := importAll(t.Context(), imp)
 	require.NoError(t, err)
-	require.Len(t, records, 5)
+	require.Len(t, records, 8)
 	assert.Equal(t, "/.METADATA.json", records[0].Pathname)
-	assert.Equal(t, "/block-storage/glance-image-1/.METADATA.json", records[1].Pathname)
-	assert.Equal(t, "/block-storage/glance-image-1/disk.qcow2", records[2].Pathname)
-	assert.Equal(t, "/block-storage/cinder-vol-1/.METADATA.json", records[3].Pathname)
-	assert.Equal(t, "/block-storage/cinder-vol-1/disk.qcow2", records[4].Pathname)
+	assert.Equal(t, "/block-storage", records[1].Pathname)
+	assert.True(t, records[1].FileInfo.IsDir())
+	assert.Equal(t, "/block-storage/glance-image-1", records[2].Pathname)
+	assert.True(t, records[2].FileInfo.IsDir())
+	assert.Equal(t, "/block-storage/glance-image-1/.METADATA.json", records[3].Pathname)
+	assert.Equal(t, "/block-storage/glance-image-1/disk.qcow2", records[4].Pathname)
+	assert.Equal(t, "/block-storage/cinder-vol-1", records[5].Pathname)
+	assert.True(t, records[5].FileInfo.IsDir())
+	assert.Equal(t, "/block-storage/cinder-vol-1/.METADATA.json", records[6].Pathname)
+	assert.Equal(t, "/block-storage/cinder-vol-1/disk.qcow2", records[7].Pathname)
 	for _, r := range records {
 		assert.NoError(t, r.Err, r.Pathname)
+		// Lname must be the bare basename: kloset's vfs rejects a slash in
+		// it (https://.../snapshot/vfs/entry.go's Entry.validate).
+		assert.NotContains(t, r.FileInfo.Lname, "/", r.Pathname)
+		if r.FileInfo.IsDir() {
+			continue
+		}
 		// A disk record's cleanup runs once its reader is opened and
 		// closed, as plakar does; metadata records have no cleanup.
 		_, readErr := io.ReadAll(r.Reader)
