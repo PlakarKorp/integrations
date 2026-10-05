@@ -69,6 +69,8 @@ type Cloud struct {
 	// BootFromVolume makes every image carry a block_device_mapping
 	// property, as the one Nova creates for a boot-from-volume server does.
 	BootFromVolume bool
+	// FailVolumeAttach makes attaching a volume to a server fail with a 400.
+	FailVolumeAttach bool
 
 	t         *testing.T
 	mu        sync.Mutex
@@ -289,6 +291,32 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	mux.HandleFunc("GET /network/{$}", func(w http.ResponseWriter, r *http.Request) {
 		c.reply(w, http.StatusMultipleChoices, map[string]any{"versions": []any{
 			map[string]any{"id": "v2.0", "status": "CURRENT"},
+		}})
+	})
+	mux.HandleFunc("POST /compute/servers", func(w http.ResponseWriter, r *http.Request) {
+		c.mu.Lock()
+		c.next++
+		id := fmt.Sprintf("server-%d", c.next)
+		c.mu.Unlock()
+		c.reply(w, http.StatusAccepted, map[string]any{"server": map[string]any{"id": id, "status": "BUILD"}})
+	})
+	mux.HandleFunc("POST /compute/servers/{id}/os-volume_attachments", func(w http.ResponseWriter, r *http.Request) {
+		if c.FailVolumeAttach {
+			c.reply(w, http.StatusBadRequest, nil)
+			return
+		}
+		var body struct {
+			VolumeAttachment struct {
+				VolumeID string `json:"volumeId"`
+				Device   string `json:"device"`
+			} `json:"volumeAttachment"`
+		}
+		c.decode(r, &body)
+		c.reply(w, http.StatusOK, map[string]any{"volumeAttachment": map[string]any{
+			"id":       body.VolumeAttachment.VolumeID,
+			"volumeId": body.VolumeAttachment.VolumeID,
+			"device":   body.VolumeAttachment.Device,
+			"serverId": r.PathValue("id"),
 		}})
 	})
 	mux.HandleFunc("/", c.unexpected)
