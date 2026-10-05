@@ -24,3 +24,8 @@ connectors:
     validator: ./instance/importer/schema.json
     protocols: [openstack-instance]
     class: compute
+  - type: exporter
+    executable: openstack-instance-exporter
+    validator: ./instance/exporter/schema.json
+    protocols: [openstack-instance]
+    class: compute

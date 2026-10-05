@@ -4,3 +4,4 @@ coverage.*
 /openstack-block-importer
 /openstack-block-exporter
 /openstack-instance-importer
+/openstack-instance-exporter
