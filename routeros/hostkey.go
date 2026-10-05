@@ -34,7 +34,7 @@ func hostKeyCallback(config map[string]string) (ssh.HostKeyCallback, error) {
 		return ssh.FixedHostKey(key), nil
 	}
 
-	path := config["known_hosts"]
+	path := config["known_hosts_file"]
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -47,7 +47,7 @@ func hostKeyCallback(config map[string]string) (ssh.HostKeyCallback, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("%s does not exist: add the device's key to it, "+
-				"or set host_key, known_hosts, or insecure_ignore_host_key=true", path)
+				"or set host_key, known_hosts_file, or insecure_ignore_host_key=true", path)
 		}
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}

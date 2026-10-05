@@ -36,10 +36,10 @@ func TestHostKeyDefaultsToUserKnownHosts(t *testing.T) {
 
 func TestHostKeyKnownHosts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "known_hosts")
-	require.Error(t, newWithHostKeyConfig(t, map[string]string{"known_hosts": path}))
+	require.Error(t, newWithHostKeyConfig(t, map[string]string{"known_hosts_file": path}))
 
 	require.NoError(t, os.WriteFile(path, []byte("host "+testHostKey+"\n"), 0600))
-	assert.NoError(t, newWithHostKeyConfig(t, map[string]string{"known_hosts": path}))
+	assert.NoError(t, newWithHostKeyConfig(t, map[string]string{"known_hosts_file": path}))
 }
 
 func TestHostKeyInsecureIgnore(t *testing.T) {
@@ -47,11 +47,11 @@ func TestHostKeyInsecureIgnore(t *testing.T) {
 
 	assert.NoError(t, newWithHostKeyConfig(t, map[string]string{
 		"insecure_ignore_host_key": "true",
-		"known_hosts":              missing,
+		"known_hosts_file":         missing,
 	}))
 	assert.Error(t, newWithHostKeyConfig(t, map[string]string{
 		"insecure_ignore_host_key": "false",
-		"known_hosts":              missing,
+		"known_hosts_file":         missing,
 	}), "false must not disable verification")
 	assert.Error(t, newWithHostKeyConfig(t, map[string]string{
 		"insecure_ignore_host_key": "maybe",
@@ -62,8 +62,8 @@ func TestHostKeyPinned(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "known_hosts")
 
 	assert.NoError(t, newWithHostKeyConfig(t, map[string]string{
-		"host_key":    testHostKey,
-		"known_hosts": missing,
+		"host_key":         testHostKey,
+		"known_hosts_file": missing,
 	}), "a pinned key must not need known_hosts")
 	assert.Error(t, newWithHostKeyConfig(t, map[string]string{
 		"host_key": "not a key",
