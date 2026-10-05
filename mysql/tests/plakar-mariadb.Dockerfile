@@ -29,5 +29,5 @@ RUN set -e && \
     go build -o mariadbExporter  ./plugin/mariadb-exporter && \
     PTAR="mysql_v0.0.1_$(go env GOOS)_$(go env GOARCH).ptar" && \
     plakar pkg create ./manifest.yaml v0.0.1 && \
-    plakar pkg add "./${PTAR}" && \
+    plakar pkg add --allow-unsigned "./${PTAR}" && \
     rm -rf /go/src
