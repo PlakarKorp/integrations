@@ -24,8 +24,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -39,18 +39,18 @@ const backupFilename = "mongodb-backup.bson"
 const debug = false
 
 type mongodbExporter struct {
-	url     *url.URL
-	port	string
-	username string
-	password string
-	options *connectors.Options
-	use_tls	bool
-	tls_ca_cert string
+	url             *url.URL
+	port            string
+	username        string
+	password        string
+	options         *connectors.Options
+	use_tls         bool
+	tls_ca_cert     string
 	tls_client_cert string
-	auth_mechanism	string
-	stdin	io.WriteCloser
-	stdout	io.ReadCloser
-	stderr	io.ReadCloser
+	auth_mechanism  string
+	stdin           io.WriteCloser
+	stdout          io.ReadCloser
+	stderr          io.ReadCloser
 }
 
 func init() {
@@ -86,15 +86,15 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	e := &mongodbExporter{
-		url:     parsed,
-		port:    port,
-		username: params["username"],
-		password: params["password"],
-		options: opts,
-		use_tls: use_tls,
-		tls_ca_cert: params["tls_ca_cert"],
+		url:             parsed,
+		port:            port,
+		username:        params["username"],
+		password:        params["password"],
+		options:         opts,
+		use_tls:         use_tls,
+		tls_ca_cert:     params["tls_ca_cert"],
 		tls_client_cert: params["tls_client_cert"],
-		auth_mechanism: params["auth_mechanism"],
+		auth_mechanism:  params["auth_mechanism"],
 	}
 
 	return e, nil
@@ -118,11 +118,11 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		args = append(args, "--tls")
 		if len(e.tls_ca_cert) > 0 {
 			args = append(args, "--tlsCAFile")
-			args = append(args, e.tls_ca_cert) 
+			args = append(args, e.tls_ca_cert)
 		}
 		if len(e.tls_client_cert) > 0 {
 			args = append(args, "--tlsCertificateKeyFile")
-			args = append(args, e.tls_client_cert) 
+			args = append(args, e.tls_client_cert)
 		}
 	}
 	if len(e.auth_mechanism) > 0 {
@@ -195,11 +195,11 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 		args = append(args, "--ssl")
 		if len(e.tls_ca_cert) > 0 {
 			args = append(args, "--sslCAFile")
-			args = append(args, e.tls_ca_cert) 
+			args = append(args, e.tls_ca_cert)
 		}
 		if len(e.tls_client_cert) > 0 {
 			args = append(args, "--sslPEMKeyFile")
-			args = append(args, e.tls_client_cert) 
+			args = append(args, e.tls_client_cert)
 		}
 	}
 	if len(e.auth_mechanism) > 0 {
@@ -291,7 +291,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	c := make(chan commandResult, 1)
 
 	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err : err} }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
 	go func() {
 		read_stdout(c)
@@ -304,7 +304,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	go func() {
 		for record := range records {
 			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+				strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
 				results <- record.Ok()
 				continue
 			}
