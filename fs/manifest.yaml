@@ -12,8 +12,5 @@ connectors:
   homepage: https://github.com/PlakarKorp/integration-fs
   license: ISC
   protocols: [fs]
-- type: storage
-  executable: fs-storage
-  homepage: https://github.com/PlakarKorp/integration-fs
-  license: ISC
-  protocols: [fs]
+# storage is kept out because we don't want fs storage on PCP
+# the way we handle this exception might change in the future
