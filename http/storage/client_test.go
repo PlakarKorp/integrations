@@ -60,6 +60,26 @@ func TestNewStoreRefusesTokenOverCleartext(t *testing.T) {
 	}
 }
 
+func mustRequest(t *testing.T, rawurl string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest("GET", rawurl, nil)
+	require.NoError(t, err)
+	return req
+}
+
+func TestCheckRedirect(t *testing.T) {
+	origin := mustRequest(t, "https://repo.example/backups")
+
+	err := checkRedirect(mustRequest(t, "http://repo.example/backups"), []*http.Request{origin})
+	assert.Error(t, err, "scheme downgrade was accepted")
+
+	err = checkRedirect(mustRequest(t, "https://evil.example/backups"), []*http.Request{origin})
+	assert.Error(t, err, "redirect to a different host was accepted")
+
+	err = checkRedirect(mustRequest(t, "https://repo.example/elsewhere"), []*http.Request{origin})
+	assert.NoError(t, err, "same scheme and host rejected")
+}
+
 // tls_no_verify disables certificate verification, which is just as
 // insecure for a bearer credential as plain http://.
 func TestNewStoreRefusesTokenOverUnverifiedTLS(t *testing.T) {
