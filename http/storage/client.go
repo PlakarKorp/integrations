@@ -73,15 +73,18 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 	authToken := storeConfig["auth_token"]
 
-	// The auth token is a bearer credential: over http:// it is readable by
-	// anyone on path.  Both schemes are registered here, so make the
-	// cleartext one deliberate rather than incidental, the way the webdav
-	// connector gates dav://.
-	if location.Scheme == "http" && authToken != "" {
+	// auth_token and URL userinfo are bearer credentials: over http://, or
+	// over https:// without certificate verification, they are readable by
+	// anyone on path or on the other end of a spoofed cert.  Both schemes
+	// are registered here, to make the insecure case deliberate rather than
+	// incidental, the way the webdav connector gates dav://.
+	insecureChannel := location.Scheme == "http" || storeConfig["tls_no_verify"] == "true"
+	if insecureChannel && (authToken != "" || location.User != nil) {
 		insecure, _ := strconv.ParseBool(storeConfig["insecure"])
 		if !insecure {
-			return nil, fmt.Errorf("auth_token would be sent in cleartext over http://; " +
-				"use https:// or set insecure=true to acknowledge it")
+			return nil, fmt.Errorf("credentials would be exposed over an insecure channel " +
+				"(http:// or tls_no_verify=true); use https:// with certificate verification " +
+				"or set insecure=true to acknowledge it")
 		}
 	}
 
