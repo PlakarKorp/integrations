@@ -74,6 +74,7 @@ type Cloud struct {
 	vanished  map[string]bool
 	uploads   []Upload
 	requests  []VolumeRequest
+	mux       *http.ServeMux
 }
 
 // Upload is an image created through Glance, and the data uploaded to it.
@@ -271,7 +272,15 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	})
 	mux.HandleFunc("DELETE /image/v2/images/{id}", c.delete)
 	mux.HandleFunc("/", c.unexpected)
+	c.mux = mux
 	return c
+}
+
+// Overrule registers a handler for pattern (as http.ServeMux expects, e.g.
+// "GET /servers/{id}"), checked ahead of Cloud's own routes. For endpoints
+// Cloud does not fake, such as Nova and Neutron.
+func (c *Cloud) Overrule(pattern string, handler http.HandlerFunc) {
+	c.mux.HandleFunc(pattern, handler)
 }
 
 // Leftovers lists the resources the test created that still exist.
