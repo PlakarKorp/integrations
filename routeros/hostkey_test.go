@@ -57,3 +57,15 @@ func TestHostKeyInsecureIgnore(t *testing.T) {
 		"insecure_ignore_host_key": "maybe",
 	}))
 }
+
+func TestHostKeyPinned(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "known_hosts")
+
+	assert.NoError(t, newWithHostKeyConfig(t, map[string]string{
+		"host_key":    testHostKey,
+		"known_hosts": missing,
+	}), "a pinned key must not need known_hosts")
+	assert.Error(t, newWithHostKeyConfig(t, map[string]string{
+		"host_key": "not a key",
+	}))
+}
