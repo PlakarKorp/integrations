@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar RouterOS Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RouterOS device URI: routeros://[<user>@]<host>[:<port>]",
+      "pattern": "^routeros://[^/?#\\s]+/?$"
+    },
+    "user": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SSH user, if not given in the location"
+    },
+    "password": {
+      "type": "string",
+      "description": "SSH password"
+    },
+    "private_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the SSH private key"
+    },
+    "private_key_passphrase": {
+      "type": "string",
+      "description": "Passphrase to unlock private_key"
+    },
+    "host_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The device host key, as a public key or a known_hosts line"
+    },
+    "insecure_ignore_host_key": {
+      "type": "boolean",
+      "default": false,
+      "description": "Accept any host key (dangerous; anyone on path can impersonate the device)"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "Import the .rsc file with dry-run=yes: the device checks it without applying it"
+    }
+  }
+}
