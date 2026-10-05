@@ -17,23 +17,19 @@
 package common
 
 import (
-	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/snapshots"
-	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
-	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
+	"github.com/gophercloud/gophercloud/v2"
+	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 )
-
-// DiskMetadata is the .METADATA.json next to a disk. Image.DiskFormat is the
-// disk's real format, whatever its file is named.
-type DiskMetadata struct {
-	Origin   DiskOrigin          `json:"origin"`
-	Image    *images.Image       `json:"image,omitempty"`
-	Volume   *volumes.Volume     `json:"volume,omitempty"`
-	Snapshot *snapshots.Snapshot `json:"snapshot,omitempty"`
-}
-
-type DiskOrigin string
 
 const (
-	DiskOriginCinder DiskOrigin = "cinder"
-	DiskOriginGlance DiskOrigin = "glance"
+	serviceServers  = "servers"
+	serviceNetworks = "networks"
 )
+
+func (c *Client) nova() (*gophercloud.ServiceClient, error) {
+	return c.service(serviceServers, gcopenstack.NewComputeV2)
+}
+
+func (c *Client) neutron() (*gophercloud.ServiceClient, error) {
+	return c.service(serviceNetworks, gcopenstack.NewNetworkV2)
+}
