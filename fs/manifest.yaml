@@ -4,12 +4,12 @@ version: v2.0.0
 connectors:
 - type: importer
   executable: fs-importer
-  homepage: https://github.com/PlakarKorp/integration-fs
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
   license: ISC
   protocols: [fs]
 - type: exporter
   executable: fs-exporter
-  homepage: https://github.com/PlakarKorp/integration-fs
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
   license: ISC
   protocols: [fs]
 # storage is kept out because we don't want fs storage on PCP
