@@ -60,8 +60,15 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.Static{Value: credentials.Value{AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey, SessionToken: "", SignerType: credentials.SignatureV4}},
+			&credentials.IAM{},
+		},
+	)
+
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Creds:     creds,
 		Secure:    useSsl,
 		Transport: transport,
 		Region:    region,
@@ -79,16 +86,12 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	target := config["location"]
 
 	var accessKey string
-	if tmp, ok := config["access_key"]; !ok {
-		return nil, fmt.Errorf("missing access_key")
-	} else {
+	if tmp, ok := config["access_key"]; ok {
 		accessKey = tmp
 	}
 
 	var secretAccessKey string
-	if tmp, ok := config["secret_access_key"]; !ok {
-		return nil, fmt.Errorf("missing secret_access_key")
-	} else {
+	if tmp, ok := config["secret_access_key"]; ok {
 		secretAccessKey = tmp
 	}
 

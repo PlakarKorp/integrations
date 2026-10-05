@@ -21,16 +21,32 @@ This integration allows:
 The configuration parameters are as follows:
 
 - `location` (required): The path to the location in the bucket where data will be taken, restored, or stored (e.g., `s3://my-bucket/path/to/data`)
-- `access_key` (required): AWS access key ID
+- `access_key` (optional): AWS access key ID
+- `secret_access_key` (optional): AWS secret access key
 - `use_tls` (optional): Whether to use TLS for secure connections (defaults to `true`)
 - `tls_insecure_no_verify` (optional): If set to `true`, disables certificate verification (defaults to `false`)
-- `secret_access_key` (required): AWS secret access key
 - `virtual_host` (optional): whether the host name includes the bucket name (defaults to `false`)
 - `sse_customer_key` (optional): base64-encoded 256-bit (32-byte) AES-256 customer-provided key for SSE-C server-side encryption
 
 For S3-compatible storage providers, you may also need to specify:
 - `storage_class`: The storage class to use (e.g., `STANDARD`, `GLACIER`)
 - `region`: The region to use when signing requests. Leave unset for AWS. Some S3-compatible providers whose endpoint hostname isn't of the form `s3.<region>.amazonaws.com` reject the SDK's automatic region-discovery request, causing `SignatureDoesNotMatch` errors on every operation. Setting this explicitly avoids that
+
+## Authentication
+
+Set both `access_key` and `secret_access_key` to authenticate with static
+credentials. If both are omitted, the connector uses the credentials of the
+environment it runs in:
+
+- EC2 instance profile (IAM role attached to the instance)
+- ECS task role
+- EKS IAM Roles for Service Accounts / Pod Identity
+
+Environment variables (`AWS_ACCESS_KEY_ID`, ...) and `~/.aws/credentials`
+are not used.
+
+If no credentials are found, requests are sent unauthenticated, which
+usually shows up as `AccessDenied` errors.
 
 ## Examples
 
