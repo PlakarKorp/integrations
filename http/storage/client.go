@@ -58,8 +58,9 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {
 		return errors.New("stopped after 5 redirects")
 	}
-	if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
-		return fmt.Errorf("refusing redirect to a different endpoint: %s", req.URL.Redacted())
+	if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing redirect from https to %s: %s",
+			req.URL.Scheme, req.URL.Redacted())
 	}
 	return nil
 }
