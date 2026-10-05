@@ -97,3 +97,49 @@ func TestServerMetadataNeedsAFlavorID(t *testing.T) {
 	_, err := client.ServerMetadata(t.Context(), &servers.Server{ID: "server-1"})
 	require.ErrorContains(t, err, `server "server-1": flavor id missing`)
 }
+
+// fakeCreateImage overrules the createImage action to hand back image-1, and
+// seeds it so the existing Glance image-status route serves it.
+func fakeCreateImage(cloud *keystonetest.Cloud) {
+	cloud.Overrule("POST /compute/servers/{id}/action", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-OpenStack-Nova-API-Version", "2.90")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"image_id":"image-1"}`))
+	})
+	cloud.SeedImage("image-1")
+}
+
+func TestCreateServerImage(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	fakeCreateImage(cloud)
+	client := connectCloud(t, cloud)
+
+	server := &servers.Server{ID: "server-1", Image: map[string]any{"id": "orig-image"}}
+	var cleanup Cleanup
+	img, err := client.CreateServerImage(t.Context(), server, &cleanup)
+	require.NoError(t, err)
+	assert.Equal(t, "image-1", img.ID)
+}
+
+func TestCreateServerImageRefusesBootFromVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	client := connectCloud(t, cloud)
+
+	server := &servers.Server{ID: "server-1"}
+	var cleanup Cleanup
+	_, err := client.CreateServerImage(t.Context(), server, &cleanup)
+	require.ErrorContains(t, err, `server "server-1": boot-from-volume servers are not supported`)
+}
+
+func TestCreateServerImageRefusesBlockDeviceMapping(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.BootFromVolume = true
+	fakeCreateImage(cloud)
+	client := connectCloud(t, cloud)
+
+	server := &servers.Server{ID: "server-1", Image: map[string]any{"id": "orig-image"}}
+	var cleanup Cleanup
+	_, err := client.CreateServerImage(t.Context(), server, &cleanup)
+	require.ErrorContains(t, err, `server "server-1": boot-from-volume servers are not supported`)
+}

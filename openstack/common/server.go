@@ -19,12 +19,14 @@ package common
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
 	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/attachinterfaces"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
 
@@ -100,4 +102,42 @@ func (c *Client) ServerMetadata(ctx context.Context, server *servers.Server) (*S
 	}
 
 	return &ServerMetadata{Server: server, Flavor: flavor, Networks: nets}, nil
+}
+
+// CreateServerImage snapshots the server's root disk into a Glance image.
+// Refuses a boot-from-volume server (no root disk to snapshot): its
+// server.Image has no "id", and as a second guard, the image Nova still
+// creates for one carries a "block_device_mapping" property. The image goes
+// into cleanup as soon as it exists, so a failure leaves nothing behind once
+// cleanup runs.
+func (c *Client) CreateServerImage(ctx context.Context, server *servers.Server, cleanup *Cleanup) (*images.Image, error) {
+	if server.Image == nil {
+		return nil, fmt.Errorf("server %q: boot-from-volume servers are not supported", server.ID)
+	}
+	nova, err := c.nova()
+	if err != nil {
+		return nil, err
+	}
+	image, err := c.glance()
+	if err != nil {
+		return nil, err
+	}
+	cleanup.image = image
+
+	imageID, err := servers.CreateImage(ctx, nova, server.ID, servers.CreateImageOpts{
+		Name: fmt.Sprintf("%s%s-%d", backupPrefix, server.ID, time.Now().UTC().UnixNano()),
+	}).ExtractImageID()
+	if err != nil {
+		return nil, fmt.Errorf("snapshot server %q: %w", server.ID, err)
+	}
+	cleanup.imageID = imageID
+
+	img, err := waitStatus(ctx, kindImage, imageID, getImage(image, imageID), statusActive, statusKilled, statusError)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := img.Properties["block_device_mapping"]; ok {
+		return nil, fmt.Errorf("server %q: boot-from-volume servers are not supported", server.ID)
+	}
+	return img, nil
 }
