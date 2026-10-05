@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar OpenStack Instance Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "openstack_auth_url",
+    "openstack_region"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "pattern": "^openstack-instance://$",
+      "$comment": "^ start, openstack-instance:// literal, $ end: the server is created new, so the location names nothing",
+      "description": "openstack-instance://, restoring into a new server"
+    },
+    "openstack_auth_url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Keystone v3 endpoint, e.g. https://keystone.example.com:5000/v3"
+    },
+    "openstack_region": {
+      "type": "string",
+      "pattern": "^[^,]*[^,\\s][^,]*$",
+      "$comment": "^ start, [^,]* no comma, [^,\\s] one character that is neither a comma nor a space, [^,]* no comma, $ end",
+      "description": "Region to restore the server in"
+    },
+    "openstack_application_credential_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Application credential ID; takes precedence over password authentication"
+    },
+    "openstack_application_credential_secret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Application credential secret"
+    },
+    "openstack_username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Username, for password authentication"
+    },
+    "openstack_password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Password, for password authentication"
+    },
+    "openstack_project_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project ID, for password authentication; this or openstack_project_name is required"
+    },
+    "openstack_project_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project name, for password authentication; ignored if openstack_project_id is set"
+    },
+    "openstack_domain_name": {
+      "type": "string",
+      "default": "Default",
+      "description": "Domain of the user, and of the project when given by name, for password authentication"
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "An application credential needs both its ID and its secret.",
+      "dependentRequired": {
+        "openstack_application_credential_id": [
+          "openstack_application_credential_secret"
+        ],
+        "openstack_application_credential_secret": [
+          "openstack_application_credential_id"
+        ]
+      }
+    },
+    {
+      "$comment": "Authenticate with an application credential, or with a username and password.",
+      "anyOf": [
+        {
+          "required": [
+            "openstack_application_credential_id"
+          ]
+        },
+        {
+          "required": [
+            "openstack_username",
+            "openstack_password"
+          ]
+        }
+      ]
+    },
+    {
+      "$comment": "Password authentication must name the project to scope the token to.",
+      "if": {
+        "not": {
+          "required": [
+            "openstack_application_credential_id"
+          ]
+        }
+      },
+      "then": {
+        "anyOf": [
+          {
+            "required": [
+              "openstack_project_id"
+            ]
+          },
+          {
+            "required": [
+              "openstack_project_name"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
