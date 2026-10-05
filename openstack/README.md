@@ -1,6 +1,7 @@
 # OpenStack
 
-Plakar inventory and Cinder volume backup and restore for OpenStack.
+Plakar inventory, Cinder volume backup and restore, and Nova server backup for
+OpenStack.
 
 ## Inventory
 
@@ -158,4 +159,49 @@ plakar destination add myvoldst openstack-block:// \
     openstack_application_credential_secret=<secret> \
     openstack_region=RegionOne
 plakar restore -to @myvoldst <snapshot-id>
+```
+
+## VM backup
+
+The `openstack-instance` importer backs up one Nova server: its metadata
+(flavor and networks), its root disk, and each attached Cinder volume. The root
+disk and the volumes are captured at different moments, not atomically.
+Boot-from-volume servers are refused: their root disk is a Cinder volume, out
+of scope for this connector.
+
+The root disk is snapshotted into a Glance image directly through Nova, then
+deleted once it has been read, or when the importer closes if it never is.
+Each attached volume goes through the same snapshot-to-Glance path as the
+`openstack-block` importer, with its own cleanup.
+
+The snapshot holds:
+
+- `/.METADATA.json`: the server, its flavor and its networks.
+- `/block-storage/glance-<image-id>/disk.qcow2` and `.METADATA.json`: the root
+  disk.
+- `/block-storage/cinder-<volume-id>/disk.qcow2` and `.METADATA.json`, one per
+  attached volume.
+
+### Configuration
+
+The authentication keys of the inventory, plus:
+
+| Key | Description |
+|-----|-------------|
+| `location` | `openstack-instance://<server-id>` |
+| `openstack_region` | The server's region. Exactly one is required. |
+
+The credential needs Nova server read and snapshot rights, Glance image
+download and delete rights, Neutron network read rights, and the Cinder and
+Glance rights the volume backup needs, on the server's project.
+
+### Usage
+
+```sh
+plakar source add myvm openstack-instance://c0ce1a7f-9397-4440-b8a6-3046be0613ce \
+    openstack_auth_url=https://keystone.example.com:5000/v3 \
+    openstack_application_credential_id=<id> \
+    openstack_application_credential_secret=<secret> \
+    openstack_region=RegionOne
+plakar backup @myvm
 ```

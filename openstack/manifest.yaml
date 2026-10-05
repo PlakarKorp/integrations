@@ -1,6 +1,6 @@
 name: openstack
 display_name: OpenStack
-description: OpenStack inventory of servers, volumes, images, Swift containers and Trove databases, and Cinder volume backup and restore.
+description: OpenStack inventory of servers, volumes, images, Swift containers and Trove databases, Cinder volume backup and restore, and Nova server backup.
 homepage: https://github.com/PlakarKorp/integrations/openstack
 license: ISC
 api_version: v1.1.0
@@ -19,3 +19,8 @@ connectors:
     validator: ./block/exporter/schema.json
     protocols: [openstack-block]
     class: block-storage
+  - type: importer
+    executable: openstack-instance-importer
+    validator: ./instance/importer/schema.json
+    protocols: [openstack-instance]
+    class: compute
