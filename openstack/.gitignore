@@ -2,3 +2,4 @@
 *.ptar
 coverage.*
 /openstack-block-importer
+/openstack-block-exporter

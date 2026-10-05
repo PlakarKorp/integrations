@@ -18,7 +18,9 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"slices"
@@ -29,6 +31,7 @@ import (
 	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/snapshots"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/imagedata"
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
 
@@ -45,11 +48,13 @@ const (
 	statusActive    = "active"
 	statusKilled    = "killed"
 
-	// Names of the resources a backup creates.
-	backupPrefix = "plakar-backup-"
-	tmpPrefix    = "plakar-tmp-"
+	// Names of the resources a backup and a restore create.
+	backupPrefix  = "plakar-backup-"
+	tmpPrefix     = "plakar-tmp-"
+	RestorePrefix = "plakar-restore-"
 
-	// DefaultDiskFormat is the format backups upload.
+	// DefaultDiskFormat is the format backups upload, and the one assumed
+	// when .METADATA.json records none.
 	DefaultDiskFormat = "qcow2"
 	containerFormat   = "bare"
 )
@@ -157,19 +162,19 @@ var (
 	waitTimeout   = 15 * time.Minute // Cinder finishing what blocks a delete
 )
 
-// Cleanup deletes the temporary resources of one volume backup: the image,
-// the temporary volume, then the snapshot it was made from. It tries each once
-// and logs a failure, as plakar ignores the errors of both the disk's Close and
-// the importer's.
+// Cleanup deletes temporary resources: the image, the temporary volume, then
+// the snapshot it was made from, skipping those it does not hold. It tries each
+// once and logs a failure, as plakar ignores the errors of the importer's and
+// exporter's Close.
 type Cleanup struct {
 	mu                            sync.Mutex
 	block, image                  *gophercloud.ServiceClient
 	snapshotID, volumeID, imageID string
 }
 
-// Run ignores cancellation of ctx, so it still cleans up once Import's context
-// is done. It cannot run if plakar kills the plugin, as it does on Ctrl-C or
-// SIGTERM: the resources are then left behind.
+// Run ignores cancellation of ctx, so it still cleans up once the backup's or
+// restore's context is done. It cannot run if plakar kills the plugin, as it
+// does on Ctrl-C or SIGTERM: the resources are then left behind.
 func (c *Cleanup) Run(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -272,8 +277,18 @@ func getImage(image *gophercloud.ServiceClient, id string) getter[*images.Image]
 	}
 }
 
-// waitStatus waits for the resource to reach want, and fails once it reaches
-// one of failed.
+// failedStatusError is waitStatus's error when the resource reaches a failed
+// status.
+type failedStatusError struct {
+	kind, id, status string
+}
+
+func (e *failedStatusError) Error() string {
+	return fmt.Sprintf("%s %q entered %s", e.kind, e.id, e.status)
+}
+
+// waitStatus waits for the resource to reach want, and fails with a
+// *failedStatusError once it reaches one of failed.
 func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want string, failed ...string) (T, error) {
 	var got T
 	err := gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
@@ -282,11 +297,15 @@ func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want
 			return false, fmt.Errorf("get %s %q: %w", kind, id, err)
 		}
 		if slices.Contains(failed, status) {
-			return false, fmt.Errorf("%s %q entered %s", kind, id, status)
+			return false, &failedStatusError{kind: kind, id: id, status: status}
 		}
 		got = r
 		return status == want, nil
 	})
+	// WaitFor returns the context's error as it is, which names nothing.
+	if err != nil && ctx.Err() != nil {
+		err = fmt.Errorf("wait for %s %q to be %s: %w", kind, id, want, err)
+	}
 	return got, err
 }
 
@@ -312,4 +331,100 @@ func waitGone[T any](ctx context.Context, get getter[T]) error {
 		}
 		return false, err
 	})
+}
+
+// Restoring a volume from an image.
+
+// Some Cinder backends put a fresh volume in "error".
+const volumeAttempts = 3
+
+// UploadTempImage uploads r to a new private image and waits for it to become
+// active. It deletes the image on failure.
+func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, diskFormat string) (*images.Image, error) {
+	image, err := c.glance()
+	if err != nil {
+		return nil, err
+	}
+
+	visibility := images.ImageVisibilityPrivate
+	created, err := images.Create(ctx, image, images.CreateOpts{
+		Name:            name,
+		ContainerFormat: containerFormat,
+		DiskFormat:      diskFormat,
+		Visibility:      &visibility,
+	}).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("create image %q: %w", name, err)
+	}
+
+	// net/http closes a request body that is an io.ReadCloser; r is the
+	// caller's to close, and plakar's record reader panics if closed twice.
+	if err := imagedata.Upload(ctx, image, created.ID, struct{ io.Reader }{r}).ExtractErr(); err != nil {
+		(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
+		return nil, fmt.Errorf("upload image %q: %w", created.ID, err)
+	}
+
+	// Cinder only creates a volume from an active image.
+	img, err := waitStatus(ctx, kindImage, created.ID, getImage(image, created.ID), statusActive, statusKilled, statusError)
+	if err != nil {
+		(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
+		return nil, err
+	}
+	return img, nil
+}
+
+// DeleteTempImage logs a failure, as Cleanup does.
+func (c *Client) DeleteTempImage(ctx context.Context, imageID string) {
+	image, err := c.glance()
+	if err != nil {
+		logFailure(kindImage, imageID, err)
+		return
+	}
+	(&Cleanup{image: image, imageID: imageID}).Run(ctx)
+}
+
+// CreateVolumeFromImage creates a volume shaped like src. A volume that does
+// not become available is deleted, and one in "error" is created again.
+func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+	block, err := c.cinder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Guessing a size risks a volume too small for the image.
+	if src == nil || src.Size <= 0 {
+		return nil, errors.New("create volume from image: the source volume has no size")
+	}
+
+	opts := volumes.CreateOpts{
+		ImageID:          imageID,
+		Name:             src.Name,
+		Size:             src.Size,
+		VolumeType:       src.VolumeType,
+		AvailabilityZone: src.AvailabilityZone,
+		Description:      src.Description,
+		Metadata:         src.Metadata,
+	}
+	if opts.Name == "" {
+		opts.Name = RestorePrefix + src.ID
+	}
+
+	for attempt := 1; ; attempt++ {
+		created, err := volumes.Create(ctx, block, opts, nil).Extract()
+		if err != nil {
+			return nil, fmt.Errorf("create volume from image %q: %w", imageID, err)
+		}
+
+		vol, err := waitStatus(ctx, kindVolume, created.ID, getVolume(block, created.ID), statusAvailable, statusError)
+		if err == nil {
+			return vol, nil
+		}
+
+		// The volume is of no use, whether it failed or the wait did.
+		(&Cleanup{block: block, volumeID: created.ID}).Run(ctx)
+		if _, failed := errors.AsType[*failedStatusError](err); !failed || attempt == volumeAttempts {
+			return nil, err
+		}
+		log.Printf("openstack: %v; creating it again", err)
+	}
 }

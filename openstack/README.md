@@ -1,6 +1,6 @@
 # OpenStack
 
-Plakar inventory and Cinder volume backup for OpenStack.
+Plakar inventory and Cinder volume backup and restore for OpenStack.
 
 ## Inventory
 
@@ -121,4 +121,41 @@ plakar source add myvol openstack-block://c0ce1a7f-9397-4440-b8a6-3046be0613ce \
     openstack_application_credential_secret=<secret> \
     openstack_region=RegionOne
 plakar backup @myvol
+```
+
+## Volume restore
+
+The `openstack-block` exporter restores a volume backup into a new Cinder
+volume. It uploads the disk to a temporary Glance image, with the disk format
+recorded in `.METADATA.json`, creates the volume from it, then deletes the
+image. The original volume is never touched, and the new one is left detached.
+
+The new volume takes the original's size, type, availability zone, description
+and metadata, and its name, or `plakar-restore-<volume-id>` if it had none. The
+type and availability zone must exist where it is restored. A volume Cinder
+puts in `error` is deleted and created again, in up to three attempts.
+
+Image properties, such as `hw_*`, are not restored.
+
+### Configuration
+
+The authentication keys of the inventory, plus:
+
+| Key | Description |
+|-----|-------------|
+| `location` | `openstack-block://` |
+| `openstack_region` | The region to restore into. Exactly one is required. |
+
+The credential needs Glance image create, upload and delete rights, and Cinder
+volume create and delete rights, on the target project.
+
+### Usage
+
+```sh
+plakar destination add myvoldst openstack-block:// \
+    openstack_auth_url=https://keystone.example.com:5000/v3 \
+    openstack_application_credential_id=<id> \
+    openstack_application_credential_secret=<secret> \
+    openstack_region=RegionOne
+plakar restore -to @myvoldst <snapshot-id>
 ```
