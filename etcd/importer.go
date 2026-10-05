@@ -48,9 +48,10 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 	}
 
 	client, err := clientv3.New(clientv3.Config{
-		Endpoints: endpoints,
-		Username:  config["username"],
-		Password:  config["password"],
+		Endpoints:   endpoints,
+		Username:    config["username"],
+		Password:    config["password"],
+		DialTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		return nil, err
