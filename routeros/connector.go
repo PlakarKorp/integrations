@@ -97,7 +97,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 
 		var signer ssh.Signer
 		if pass != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(p))
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(c, []byte(pass))
 		} else {
 			signer, err = ssh.ParsePrivateKey(c)
 		}
