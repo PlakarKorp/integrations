@@ -17,8 +17,12 @@
 package common
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/gophercloud/gophercloud/v2"
 	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 )
 
 const (
@@ -32,4 +36,16 @@ func (c *Client) nova() (*gophercloud.ServiceClient, error) {
 
 func (c *Client) neutron() (*gophercloud.ServiceClient, error) {
 	return c.service(serviceNetworks, gcopenstack.NewNetworkV2)
+}
+
+func (c *Client) GetServer(ctx context.Context, serverID string) (*servers.Server, error) {
+	nova, err := c.nova()
+	if err != nil {
+		return nil, err
+	}
+	server, err := servers.Get(ctx, nova, serverID).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("get server %q: %w", serverID, err)
+	}
+	return server, nil
 }
