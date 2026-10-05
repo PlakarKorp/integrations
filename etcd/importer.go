@@ -29,14 +29,17 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 	location := config["location"]
 	switch proto {
 	case "etcd":
-		location = "http" + location[len(proto):]
+		location = "http" + strings.TrimPrefix(location, proto)
 	case "etcd+http", "etcd+https":
-		location = location[len("etcd+"):]
+		location = strings.TrimPrefix(location, "etcd+")
 	}
 
 	// extract the "hostname" from location, needed for Origin(),
 	// i.e. metadata.
-	origin := location[len(proto)+3:] // +3 for ://
+	origin := location
+	if _, rest, found := strings.Cut(origin, "://"); found {
+		origin = rest
+	}
 	origin, _, _ = strings.Cut(origin, "/")
 
 	endpoints := []string{location}
