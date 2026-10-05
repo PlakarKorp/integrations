@@ -17,6 +17,12 @@ The configuration parameters are as follows:
 - endpoints (optional): comma-separated list of node endpoints to
   connect to, takes priority over the location.
 - username and password (optional)
+- ca_file (optional): CA certificate used to verify the server, in PEM
+  format.  The system roots are used by default.
+- cert_file and key_file (optional): client certificate and key, in PEM
+  format, for servers that require one.
+- tls_insecure_no_verify (optional): do not verify the server
+  certificate.  Anyone on path can then impersonate the server.
 
 
 ## Examples

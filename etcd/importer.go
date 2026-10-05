@@ -47,11 +47,17 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 		endpoints = strings.Split(es, ",")
 	}
 
+	tlsConfig, err := etcdTLS(config)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		Username:    config["username"],
 		Password:    config["password"],
 		DialTimeout: 30 * time.Second,
+		TLS:         tlsConfig,
 	})
 	if err != nil {
 		return nil, err

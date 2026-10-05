@@ -25,6 +25,11 @@
     "endpoints": {
       "type": "string",
       "description": "Comma-separated list of endpoints"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; anyone could impersonate the server)"
     }
   }
 }
