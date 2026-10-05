@@ -3,6 +3,7 @@ module github.com/PlakarKorp/integrations/fs
 go 1.25.0
 
 require (
+	github.com/PlakarKorp/go-kloset-sdk v1.1.0
 	github.com/PlakarKorp/kloset v1.1.1
 	github.com/pkg/xattr v0.4.12
 	github.com/stretchr/testify v1.11.1
@@ -12,6 +13,7 @@ require (
 
 require (
 	github.com/PlakarKorp/go-cdc-chunkers v1.0.3 // indirect
+	github.com/PlakarKorp/integration-grpc v1.1.0 // indirect
 	github.com/cockroachdb/crlib v0.0.0-20250718215705-7ff5051265b9 // indirect
 	github.com/cockroachdb/errors v1.12.0 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
@@ -40,7 +42,10 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
+	google.golang.org/grpc v1.81.1 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.72.3 // indirect
