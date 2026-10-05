@@ -28,17 +28,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImporterSchema(t *testing.T) {
+func TestImporterSchemaAccepts(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	schema := compileSchema(t)
 
 	tests := []struct {
-		name  string
-		edit  map[string]string
-		drop  []string
-		valid bool
+		name string
+		edit map[string]string
+		drop []string
 	}{
-		{name: "volume", valid: true},
+		{name: "volume"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := editedParams(cloud.AuthURL, "openstack-block://vol-1", tt.edit, tt.drop)
+
+			assert.NoError(t, schema.Validate(instance(p)))
+
+			// NewImporter must agree, so the schema accepts what would work at startup.
+			_, err := NewImporter(t.Context(), nil, block.Protocol, p)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestImporterSchemaRejects(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	schema := compileSchema(t)
+
+	tests := []struct {
+		name string
+		edit map[string]string
+		drop []string
+	}{
 		{name: "no location", drop: []string{"location"}},
 		{name: "location with a slash", edit: map[string]string{"location": "openstack-block://vol-1/x"}},
 		{name: "no region", drop: []string{"openstack_region"}},
@@ -53,24 +75,25 @@ func TestImporterSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := params(cloud.AuthURL, "openstack-block://vol-1")
-			maps.Copy(p, tt.edit)
-			for _, k := range tt.drop {
-				delete(p, k)
-			}
+			p := editedParams(cloud.AuthURL, "openstack-block://vol-1", tt.edit, tt.drop)
 
-			err := schema.Validate(instance(p))
-			if tt.valid {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-			}
+			assert.Error(t, schema.Validate(instance(p)))
 
 			// NewImporter must agree, so the schema rejects what would fail at startup.
-			_, err = NewImporter(t.Context(), nil, block.Protocol, p)
-			assert.Equal(t, tt.valid, err == nil, "NewImporter: %v", err)
+			_, err := NewImporter(t.Context(), nil, block.Protocol, p)
+			assert.Error(t, err)
 		})
 	}
+}
+
+// editedParams is valid params with edit applied and drop deleted.
+func editedParams(authURL, location string, edit map[string]string, drop []string) map[string]string {
+	p := params(authURL, location)
+	maps.Copy(p, edit)
+	for _, k := range drop {
+		delete(p, k)
+	}
+	return p
 }
 
 func TestImporterSchemaRejectsUnknownSettings(t *testing.T) {
