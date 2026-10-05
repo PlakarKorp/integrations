@@ -1,0 +1,37 @@
+name: mysql tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/mysql
+    paths:
+      - .github/workflows/mysql-tests.yml
+      - 'mysql/**'
+  pull_request:
+    paths:
+      - .github/workflows/mysql-tests.yml
+      - 'mysql/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the mysql integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: mysql/go.mod
+          cache-dependency-path: mysql/go.sum
+
+      - name: build
+        working-directory: mysql
+        run: go build ./...
+
+      - name: test
+        working-directory: mysql
+        run: go test -race ./...
