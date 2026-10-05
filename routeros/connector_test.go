@@ -34,9 +34,10 @@ func TestNewPrivateKeyPassphrase(t *testing.T) {
 	newImporter := func(pass string) error {
 		_, err := NewImporter(context.Background(), nil, "routeros+export",
 			map[string]string{
-				"location":               "routeros+export://user@host",
-				"private_key":            key,
-				"private_key_passphrase": pass,
+				"location":                 "routeros+export://user@host",
+				"private_key":              key,
+				"private_key_passphrase":   pass,
+				"insecure_ignore_host_key": "true",
 			})
 		return err
 	}

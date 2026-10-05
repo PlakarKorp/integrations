@@ -33,10 +33,11 @@ const (
 var ErrAlreadyDone = errors.New("restore already done")
 
 type Routeros struct {
-	addr       string
-	user       string
-	authMethod ssh.AuthMethod
-	agentConn  net.Conn
+	addr        string
+	user        string
+	authMethod  ssh.AuthMethod
+	hostKeyCall ssh.HostKeyCallback
+	agentConn   net.Conn
 
 	mode Mode // for backup
 
@@ -78,6 +79,11 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}
 	if user == "" {
 		return nil, fmt.Errorf("user not specified")
+	}
+
+	hostKeyCall, err := hostKeyCallback(config)
+	if err != nil {
+		return nil, err
 	}
 
 	var authm ssh.AuthMethod
@@ -151,12 +157,13 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}
 
 	return &Routeros{
-		addr:       host,
-		user:       user,
-		authMethod: authm,
-		agentConn:  agentConn,
-		mode:       mode,
-		dryRun:     dryrun,
+		addr:        host,
+		user:        user,
+		authMethod:  authm,
+		hostKeyCall: hostKeyCall,
+		agentConn:   agentConn,
+		mode:        mode,
+		dryRun:      dryrun,
 	}, nil
 }
 
@@ -176,7 +183,7 @@ func (m *Routeros) connect() error {
 	client, err := ssh.Dial("tcp", m.addr, &ssh.ClientConfig{
 		User:            m.user,
 		Auth:            []ssh.AuthMethod{m.authMethod},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // XXX
+		HostKeyCallback: m.hostKeyCall,
 		Timeout:         10 * time.Second,
 		AuthCallback:    nil,
 	})

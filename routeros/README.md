@@ -17,6 +17,10 @@ All these parameters are optional.
 - `password`: the password for ssh
 - `private_key`: the private key to use for ssh
 - `private_key_passphrase`: an eventual passphrase to unlock the private key.
+- `known_hosts`: the known_hosts file used to verify the device's host
+  key, `~/.ssh/known_hosts` by default.
+- `insecure_ignore_host_key`: accept any host key.  Anyone on path can
+  then impersonate the device and collect the credentials.
 
 Restore-specific options:
 
