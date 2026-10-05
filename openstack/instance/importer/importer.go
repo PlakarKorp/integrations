@@ -18,6 +18,7 @@ package importer
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"strings"
@@ -32,6 +33,9 @@ import (
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 )
+
+//go:embed schema.json
+var ImporterSchema []byte
 
 type Importer struct {
 	client   *common.Client
