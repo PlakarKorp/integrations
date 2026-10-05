@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -209,7 +210,12 @@ func TestImporter_ExcludedDirectoryPrunesSubtree(t *testing.T) {
 	}
 }
 
-func TetToSlash(t *testing.T) {
+func TestToSlash(t *testing.T) {
+	// backslash is only a separator on windows
+	if runtime.GOOS != "windows" {
+		t.Skip()
+	}
+
 	suite := []struct {
 		t string
 		e string
