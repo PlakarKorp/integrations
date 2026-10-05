@@ -2,7 +2,9 @@ package etcd
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,13 +28,16 @@ type etcd struct {
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
-	location := config["location"]
-	switch proto {
-	case "etcd":
-		location = "http" + strings.TrimPrefix(location, proto)
-	case "etcd+http", "etcd+https":
-		location = strings.TrimPrefix(location, "etcd+")
+	plaintext := false
+	if v := config["plaintext"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid plaintext value %q", v)
+		}
+		plaintext = b
 	}
+
+	location := endpoint(proto, config["location"], plaintext)
 
 	// extract the "hostname" from location, needed for Origin(),
 	// i.e. metadata.
@@ -103,4 +108,18 @@ func (e *etcd) Import(ctx context.Context, records chan<- *connectors.Record, re
 
 func (e *etcd) Close(ctx context.Context) error {
 	return e.client.Close()
+}
+
+func endpoint(proto, location string, plaintext bool) string {
+	switch proto {
+	case "etcd":
+		scheme := "https"
+		if plaintext {
+			scheme = "http"
+		}
+		return scheme + strings.TrimPrefix(location, proto)
+	case "etcd+http", "etcd+https":
+		return strings.TrimPrefix(location, "etcd+")
+	}
+	return location
 }

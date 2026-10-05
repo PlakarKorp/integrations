@@ -13,10 +13,13 @@ cluster for later recovery.
 The configuration parameters are as follows:
 
 - location: use the `etcd`, `etcd+http` or `etcd+https` protocol, plus
-  the hostname and optional port to a node of the etcd cluster.
+  the hostname and optional port to a node of the etcd cluster.  `etcd`
+  uses https.
 - endpoints (optional): comma-separated list of node endpoints to
   connect to, takes priority over the location.
 - username and password (optional)
+- plaintext (optional): make `etcd` use plain http.  The username and
+  password then travel in cleartext.
 - ca_file (optional): CA certificate used to verify the server, in PEM
   format.  The system roots are used by default.
 - cert_file and key_file (optional): client certificate and key, in PEM
@@ -29,11 +32,11 @@ The configuration parameters are as follows:
 
 Backup etcd by connecting to a node over http without authentication:
 
-	$ plakar backup etcd://node1:2379
+	$ plakar backup etcd+http://node1:2379
 
 Like the previous but using HTTPS and authentication:
 
-	$ plakar backup -o username=chunky.ptarson -o password=secure! etcd+https://node1:2379
+	$ plakar backup -o username=chunky.ptarson -o password=secure! etcd://node1:2379
 
 Finally, passing a list of nodes to connect to:
 

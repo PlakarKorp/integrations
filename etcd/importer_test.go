@@ -25,3 +25,30 @@ func TestOrigin(t *testing.T) {
 		imp.Close(context.Background())
 	}
 }
+
+func TestEndpoint(t *testing.T) {
+	for _, tc := range []struct {
+		proto, location string
+		plaintext       bool
+		want            string
+	}{
+		{"etcd", "etcd://host:2379", false, "https://host:2379"},
+		{"etcd", "etcd://host:2379", true, "http://host:2379"},
+		{"etcd+http", "etcd+http://host:2379", false, "http://host:2379"},
+		{"etcd+https", "etcd+https://host:2379", false, "https://host:2379"},
+		{"etcd+https", "etcd+https://host:2379", true, "https://host:2379"},
+	} {
+		if got := endpoint(tc.proto, tc.location, tc.plaintext); got != tc.want {
+			t.Errorf("endpoint(%q, %q, %v) = %q, want %q",
+				tc.proto, tc.location, tc.plaintext, got, tc.want)
+		}
+	}
+}
+
+func TestNewImporterInvalidInsecure(t *testing.T) {
+	_, err := NewImporter(context.Background(), nil, "etcd",
+		map[string]string{"location": "etcd://host:2379", "plaintext": "maybe"})
+	if err == nil {
+		t.Error("invalid plaintext value accepted")
+	}
+}

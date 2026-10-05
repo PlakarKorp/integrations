@@ -26,6 +26,11 @@
       "type": "string",
       "description": "Comma-separated list of endpoints"
     },
+    "plaintext": {
+      "type": "boolean",
+      "default": false,
+      "description": "Connect over plain http for an etcd:// location (dangerous; credentials travel in cleartext)"
+    },
     "tls_insecure_no_verify": {
       "type": "boolean",
       "default": false,
