@@ -26,6 +26,7 @@ import (
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/attachinterfaces"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/volumeattach"
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
@@ -41,10 +42,24 @@ type ServerMetadata struct {
 const (
 	serviceServers  = "servers"
 	serviceNetworks = "networks"
+
+	kindServer = "server"
+
+	statusServerActive = "ACTIVE"
+	statusServerError  = "ERROR"
 )
 
+// novaMicroversion is the minimum that accepts networks: "none" on server
+// create (restore, with no saved network to attach).
+const novaMicroversion = "2.37"
+
 func (c *Client) nova() (*gophercloud.ServiceClient, error) {
-	return c.service(serviceServers, gcopenstack.NewComputeV2)
+	nova, err := c.service(serviceServers, gcopenstack.NewComputeV2)
+	if err != nil {
+		return nil, err
+	}
+	nova.Microversion = novaMicroversion
+	return nova, nil
 }
 
 func (c *Client) neutron() (*gophercloud.ServiceClient, error) {
@@ -140,4 +155,48 @@ func (c *Client) CreateServerImage(ctx context.Context, server *servers.Server, 
 		return nil, fmt.Errorf("server %q: boot-from-volume servers are not supported", server.ID)
 	}
 	return img, nil
+}
+
+func getServer(nova *gophercloud.ServiceClient, id string) getter[*servers.Server] {
+	return func(ctx context.Context) (*servers.Server, string, error) {
+		s, err := servers.Get(ctx, nova, id).Extract()
+		if err != nil {
+			return nil, "", err
+		}
+		return s, s.Status, nil
+	}
+}
+
+// CreateServer spawns a server and waits for it to become active.
+func (c *Client) CreateServer(ctx context.Context, opts servers.CreateOpts) (*servers.Server, error) {
+	nova, err := c.nova()
+	if err != nil {
+		return nil, err
+	}
+	created, err := servers.Create(ctx, nova, opts, nil).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("create server %q: %w", opts.Name, err)
+	}
+	server, err := waitStatus(ctx, kindServer, created.ID, getServer(nova, created.ID), statusServerActive, statusServerError)
+	if err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
+// AttachVolume attaches volumeID to serverID. device is the original
+// attachment's device path (e.g. /dev/vdb), or "" to let Nova pick one.
+func (c *Client) AttachVolume(ctx context.Context, serverID, volumeID, device string) error {
+	nova, err := c.nova()
+	if err != nil {
+		return err
+	}
+	_, err = volumeattach.Create(ctx, nova, serverID, volumeattach.CreateOpts{
+		VolumeID: volumeID,
+		Device:   device,
+	}).Extract()
+	if err != nil {
+		return fmt.Errorf("attach volume %q to server %q: %w", volumeID, serverID, err)
+	}
+	return nil
 }

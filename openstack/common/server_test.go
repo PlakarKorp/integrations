@@ -154,3 +154,43 @@ func TestCreateServerImageRefusesBlockDeviceMapping(t *testing.T) {
 	_, err := client.CreateServerImage(t.Context(), server, &cleanup)
 	require.ErrorContains(t, err, `server "server-1": boot-from-volume servers are not supported`)
 }
+
+func TestCreateServer(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ACTIVE"}}`)
+	})
+	client := connectCloud(t, cloud)
+
+	server, err := client.CreateServer(t.Context(), servers.CreateOpts{Name: "vmtest", ImageRef: "image-1"})
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", server.Status)
+}
+
+func TestCreateServerFailsOnError(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ERROR"}}`)
+	})
+	client := connectCloud(t, cloud)
+
+	_, err := client.CreateServer(t.Context(), servers.CreateOpts{Name: "vmtest", ImageRef: "image-1"})
+	require.ErrorContains(t, err, "entered ERROR")
+}
+
+func TestAttachVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	client := connectCloud(t, cloud)
+
+	err := client.AttachVolume(t.Context(), "server-1", "vol-1", "/dev/vdb")
+	require.NoError(t, err)
+}
+
+func TestAttachVolumeFails(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.FailVolumeAttach = true
+	client := connectCloud(t, cloud)
+
+	err := client.AttachVolume(t.Context(), "server-1", "vol-1", "/dev/vdb")
+	require.ErrorContains(t, err, `attach volume "vol-1" to server "server-1"`)
+}
