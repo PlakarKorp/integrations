@@ -26,10 +26,7 @@ import (
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/attachinterfaces"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
-<<<<<<< HEAD
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/volumeattach"
-=======
->>>>>>> baf0a3f (openstack/common: snapshot a server's root disk into a Glance image)
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
@@ -57,7 +54,12 @@ const (
 const novaMicroversion = "2.37"
 
 func (c *Client) nova() (*gophercloud.ServiceClient, error) {
-	return c.service(serviceServers, gcopenstack.NewComputeV2)
+	nova, err := c.service(serviceServers, gcopenstack.NewComputeV2)
+	if err != nil {
+		return nil, err
+	}
+	nova.Microversion = novaMicroversion
+	return nova, nil
 }
 
 func (c *Client) neutron() (*gophercloud.ServiceClient, error) {
