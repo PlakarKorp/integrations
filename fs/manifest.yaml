@@ -1,6 +1,9 @@
 name: fs
+display_name: File System
 description: file storage but as external plugin
-version: v1.1.0
+homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
+license: ISC
+api_version: v1.1.0
 connectors:
 - type: importer
   executable: fs-importer
