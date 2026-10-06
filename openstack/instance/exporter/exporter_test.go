@@ -217,6 +217,26 @@ func TestExportSpawnsServer(t *testing.T) {
 	require.NoError(t, exp.Close(t.Context()))
 }
 
+// A nil network entry in the server metadata must error, not panic.
+func TestExportRejectsNilNetwork(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	fakeSpawn(cloud)
+	exp := newExporter(t, cloud)
+
+	metadata := serverMetadata()
+	metadata.Networks = append(metadata.Networks, nil)
+
+	_, err := exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, metadata),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
+	)
+	require.ErrorContains(t, err, "nil network")
+}
+
 // A restored volume that fails to attach must not be left behind.
 func TestExportCleansUpVolumeOnAttachFailure(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
