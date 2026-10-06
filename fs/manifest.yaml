@@ -8,14 +8,10 @@ connectors:
 - type: importer
   executable: fs-importer
   validator: ./plugin/importer/fs.json
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
-  license: ISC
   protocols: [fs]
 - type: exporter
   executable: fs-exporter
   validator: ./plugin/exporter/fs.json
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
-  license: ISC
   protocols: [fs]
 # storage is kept out because we don't want fs storage on PCP
 # the way we handle this exception might change in the future
