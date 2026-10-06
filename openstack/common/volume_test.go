@@ -64,6 +64,39 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 	assert.Empty(t, cloud.Leftovers())
 }
 
+// A transient error reading a resource's status, such as Glance briefly
+// 500ing right after Cinder hands back an image ID, must not abort the wait.
+func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.FailImageReads = 2
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// A status read that never recovers still gives up, instead of polling
+// forever.
+func TestWaitStatusGivesUpOnPersistentGetErrors(t *testing.T) {
+	defer func(n int) { maxTransientGetFailures = n }(maxTransientGetFailures)
+	maxTransientGetFailures = 2
+
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.FailImageReads = 100
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `get image "image-`)
+
+	cleanup.Run(t.Context())
+}
+
 // A snapshot that never becomes deletable is left behind, and logged.
 func TestCleanupLogsWhenWaitGivesUp(t *testing.T) {
 	defer func(d time.Duration) { waitTimeout = d }(waitTimeout)

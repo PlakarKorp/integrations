@@ -287,15 +287,25 @@ func (e *failedStatusError) Error() string {
 	return fmt.Sprintf("%s %q entered %s", e.kind, e.id, e.status)
 }
 
+// Consecutive transient get errors waitStatus tolerates before giving up.
+var maxTransientGetFailures = 5
+
 // waitStatus waits for the resource to reach want, and fails with a
-// *failedStatusError once it reaches one of failed.
+// *failedStatusError once it reaches one of failed. A single get error does
+// not abort it, up to maxTransientGetFailures.
 func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want string, failed ...string) (T, error) {
 	var got T
+	failures := 0
 	err := gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
 		r, status, err := get(ctx)
 		if err != nil {
-			return false, fmt.Errorf("get %s %q: %w", kind, id, err)
+			failures++
+			if failures > maxTransientGetFailures {
+				return false, fmt.Errorf("get %s %q: %w", kind, id, err)
+			}
+			return false, nil
 		}
+		failures = 0
 		if slices.Contains(failed, status) {
 			return false, &failedStatusError{kind: kind, id: id, status: status}
 		}

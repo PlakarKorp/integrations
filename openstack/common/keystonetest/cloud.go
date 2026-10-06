@@ -71,6 +71,8 @@ type Cloud struct {
 	BootFromVolume bool
 	// FailVolumeAttach makes attaching a volume to a server fail with a 400.
 	FailVolumeAttach bool
+	// FailImageReads is how many image reads fail with a 500 before succeeding.
+	FailImageReads int
 
 	t         *testing.T
 	mu        sync.Mutex
@@ -255,6 +257,10 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		}
 	})
 	mux.HandleFunc("GET /image/v2/images/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if c.consumeFailImageRead() {
+			c.reply(w, http.StatusInternalServerError, nil)
+			return
+		}
 		id := r.PathValue("id")
 		status, ok := c.read(id, "image")
 		if !ok {
@@ -460,6 +466,17 @@ func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 	}
 	c.resources[id] = r
 	return id, true
+}
+
+// consumeFailImageRead reports whether this read should fail, decrementing FailImageReads.
+func (c *Cloud) consumeFailImageRead() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.FailImageReads > 0 {
+		c.FailImageReads--
+		return true
+	}
+	return false
 }
 
 // read returns the resource's status, counting down its transient states.
