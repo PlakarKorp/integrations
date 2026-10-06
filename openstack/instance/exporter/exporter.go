@@ -234,6 +234,9 @@ func (exp *Exporter) spawnServer(ctx context.Context, metadata *common.ServerMet
 
 	resolved := make([]*networks.Network, 0, len(metadata.Networks))
 	for _, net := range metadata.Networks {
+		if net == nil {
+			return nil, errors.New("server metadata has a nil network")
+		}
 		r, err := exp.client.ResolveNetwork(ctx, net.ID, net.Name)
 		if err != nil {
 			return nil, err
