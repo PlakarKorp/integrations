@@ -217,6 +217,28 @@ func TestExportSpawnsServer(t *testing.T) {
 	require.NoError(t, exp.Close(t.Context()))
 }
 
+// A restored volume that fails to attach must not be left behind.
+func TestExportCleansUpVolumeOnAttachFailure(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.FailVolumeAttach = true
+	fakeSpawn(cloud)
+	exp := newExporter(t, cloud)
+
+	_, err := exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
+		dirRecord("/block-storage/cinder-vol-1"),
+		diskMetadataRecord(t, "/block-storage/cinder-vol-1", volumeDiskMetadata()),
+		diskRecord("/block-storage/cinder-vol-1"),
+	)
+	require.ErrorContains(t, err, "attach volume")
+	assert.Empty(t, cloud.Leftovers())
+}
+
 func TestExportRequiresServerMetadata(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	exp := newExporter(t, cloud)
