@@ -28,7 +28,7 @@ uninstall:
 	-$(PLAKAR) pkg rm fs
 
 install: package
-	$(PLAKAR) pkg add ./$(PTAR)
+	$(PLAKAR) pkg add -allow-unsigned ./$(PTAR)
 
 reinstall: uninstall install
 
