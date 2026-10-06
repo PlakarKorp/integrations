@@ -132,6 +132,17 @@ func TestCreateServerImageRefusesBootFromVolume(t *testing.T) {
 	require.ErrorContains(t, err, `server "server-1": boot-from-volume servers are not supported`)
 }
 
+// Nova represents a boot-from-volume server's image as "" or {}, not null.
+func TestCreateServerImageRefusesEmptyImage(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	client := connectCloud(t, cloud)
+
+	server := &servers.Server{ID: "server-1", Image: map[string]any{}}
+	var cleanup Cleanup
+	_, err := client.CreateServerImage(t.Context(), server, &cleanup)
+	require.ErrorContains(t, err, `server "server-1": boot-from-volume servers are not supported`)
+}
+
 func TestCreateServerImageRefusesBlockDeviceMapping(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.BootFromVolume = true

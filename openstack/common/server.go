@@ -111,7 +111,7 @@ func (c *Client) ServerMetadata(ctx context.Context, server *servers.Server) (*S
 // into cleanup as soon as it exists, so a failure leaves nothing behind once
 // cleanup runs.
 func (c *Client) CreateServerImage(ctx context.Context, server *servers.Server, cleanup *Cleanup) (*images.Image, error) {
-	if server.Image == nil {
+	if id, _ := server.Image["id"].(string); id == "" {
 		return nil, fmt.Errorf("server %q: boot-from-volume servers are not supported", server.ID)
 	}
 	nova, err := c.nova()
