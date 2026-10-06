@@ -54,12 +54,7 @@ const (
 const novaMicroversion = "2.37"
 
 func (c *Client) nova() (*gophercloud.ServiceClient, error) {
-	nova, err := c.service(serviceServers, gcopenstack.NewComputeV2)
-	if err != nil {
-		return nil, err
-	}
-	nova.Microversion = novaMicroversion
-	return nova, nil
+	return c.service(serviceServers, gcopenstack.NewComputeV2)
 }
 
 func (c *Client) neutron() (*gophercloud.ServiceClient, error) {
@@ -173,6 +168,9 @@ func (c *Client) CreateServer(ctx context.Context, opts servers.CreateOpts) (*se
 	if err != nil {
 		return nil, err
 	}
+	// networks: "none" (set by the caller for a restore with no saved
+	// network) needs this microversion; nothing else here does.
+	nova.Microversion = novaMicroversion
 	created, err := servers.Create(ctx, nova, opts, nil).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("create server %q: %w", opts.Name, err)
