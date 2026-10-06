@@ -40,6 +40,8 @@ func TestGetServer(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		// The restore-only microversion must not leak into backup calls.
+		assert.Empty(t, r.Header.Get("X-OpenStack-Nova-API-Version"))
 		writeJSON(w, `{"server":{"id":"server-1","name":"vmtest","status":"ACTIVE"}}`)
 	})
 	client := connectCloud(t, cloud)
@@ -158,6 +160,7 @@ func TestCreateServerImageRefusesBlockDeviceMapping(t *testing.T) {
 func TestCreateServer(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, novaMicroversion, r.Header.Get("X-OpenStack-Nova-API-Version"))
 		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ACTIVE"}}`)
 	})
 	client := connectCloud(t, cloud)
