@@ -292,25 +292,18 @@ var maxTransientGetFailures = 5
 
 // waitStatus waits for the resource to reach want, and fails with a
 // *failedStatusError once it reaches one of failed. A single get error does
-// not abort it, up to maxTransientGetFailures; each one is logged.
+// not abort it, up to maxTransientGetFailures.
 func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want string, failed ...string) (T, error) {
 	var got T
 	failures := 0
-	start := time.Now()
 	err := gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
 		r, status, err := get(ctx)
 		if err != nil {
 			failures++
-			log.Printf("openstack: get %s %q: attempt %d/%d failed after %s: %v",
-				kind, id, failures, maxTransientGetFailures, time.Since(start).Round(time.Millisecond), err)
 			if failures > maxTransientGetFailures {
 				return false, fmt.Errorf("get %s %q: %w", kind, id, err)
 			}
 			return false, nil
-		}
-		if failures > 0 {
-			log.Printf("openstack: get %s %q: recovered after %d failed attempt(s), %s elapsed",
-				kind, id, failures, time.Since(start).Round(time.Millisecond))
 		}
 		failures = 0
 		if slices.Contains(failed, status) {
