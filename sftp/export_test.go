@@ -194,8 +194,8 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	records := make(chan *connectors.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	// Create a symlink from /link.txt to /file.txt
-	records <- connectors.NewRecord("/link.txt", "/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	// Create a symlink from /link.txt to /repo/file.txt
+	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -217,7 +217,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	// Verify that the symlink points to the correct target.
 	target, err := ts.client.ReadLink("/repo/link.txt")
 	require.NoError(t, err, "expected ReadLink to succeed for the created symlink")
-	assert.Equal(t, "/file.txt", target, "unexpected target for the created symlink")
+	assert.Equal(t, "/repo/file.txt", target, "unexpected target for the created symlink")
 }
 
 func TestExport_SymlinkFailsIfExists(t *testing.T) {
@@ -235,7 +235,7 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	records := make(chan *connectors.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/link.txt", "/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -245,6 +245,38 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
 	assert.Error(t, got[0].Err, "expected a per-record error when symlink target already exists")
+}
+
+func TestExport_SymlinkTargetEscape(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"absolute", "/etc/passwd"},
+		{"relative", "../outside"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0o700))
+
+			s := ts.newTestExportSftp(t, "/repo")
+			records := make(chan *connectors.Record, 1)
+			results, wait := runExporter(t, s, records)
+
+			records <- connectors.NewRecord("/link.txt", tt.target, objects.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
+			close(records)
+
+			got := drainResults(results)
+			require.NoError(t, wait())
+			require.Len(t, got, 1)
+			assert.Error(t, got[0].Err)
+
+			_, err := os.Lstat(ts.realPath("/repo/link.txt"))
+			assert.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
 }
 
 func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {

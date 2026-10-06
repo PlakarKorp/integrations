@@ -162,6 +162,13 @@ func (s *Sftp) directory(record *connectors.Record, pathname string) error {
 }
 
 func (s *Sftp) symlink(record *connectors.Record, pathname string) error {
+	resolved := record.Target
+	if !path.IsAbs(resolved) {
+		resolved = path.Join(path.Dir(pathname), resolved)
+	}
+	if !isContained(s.Root(), resolved) {
+		return fmt.Errorf("symlink target %q escapes restore root", record.Target)
+	}
 	if err := s.client.Symlink(record.Target, pathname); err != nil {
 		return fmt.Errorf("could not create symlink")
 	}
