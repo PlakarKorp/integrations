@@ -55,6 +55,18 @@ func TestResolveFlavorFallsBackToName(t *testing.T) {
 	assert.Equal(t, "flavor-2", flavor.ID)
 }
 
+// A non-404 error from the ID lookup must not fall back to the name lookup.
+func TestResolveFlavorByIDPropagatesOtherErrors(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	client := connectCloud(t, cloud)
+
+	_, err := client.ResolveFlavor(t.Context(), "flavor-1", "m1.small")
+	require.ErrorContains(t, err, `get flavor "flavor-1"`)
+}
+
 func TestResolveFlavorNameNotFound(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/flavors/detail", func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +118,18 @@ func TestResolveNetworkFallsBackToName(t *testing.T) {
 	network, err := client.ResolveNetwork(t.Context(), "gone-net", "private")
 	require.NoError(t, err)
 	assert.Equal(t, "net-2", network.ID)
+}
+
+// A non-404 error from the ID lookup must not fall back to the name lookup.
+func TestResolveNetworkByIDPropagatesOtherErrors(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.Overrule("GET /network/v2.0/networks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	client := connectCloud(t, cloud)
+
+	_, err := client.ResolveNetwork(t.Context(), "net-1", "private")
+	require.ErrorContains(t, err, `get network "net-1"`)
 }
 
 func TestResolveNetworkNameNotFound(t *testing.T) {
