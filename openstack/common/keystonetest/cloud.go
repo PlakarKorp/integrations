@@ -112,6 +112,16 @@ type resource struct {
 	queued    bool   // an image created through Glance, waiting for its data
 	format    string // an image's disk_format, when not qcow2
 	final     string // the status a volume ends in, when not available
+	encrypted bool   // a volume of an encrypted type
+}
+
+// Encrypt marks an existing volume as being of an encrypted type.
+func (c *Cloud) Encrypt(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r, ok := c.resources[id]; ok {
+		r.encrypted = true
+	}
 }
 
 // NewCloud serves a cloud holding the given volumes.
@@ -160,7 +170,11 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.reply(w, http.StatusNotFound, nil)
 			return
 		}
-		c.reply(w, http.StatusOK, map[string]any{"volume": volume(id, status)})
+		v := volume(id, status)
+		if c.isEncrypted(id) {
+			v["encrypted"] = true
+		}
+		c.reply(w, http.StatusOK, map[string]any{"volume": v})
 	})
 	mux.HandleFunc("POST "+block+"/volumes", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -184,9 +198,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		c.reply(w, http.StatusAccepted, map[string]any{"volume": volume(id, "creating")})
 	})
 	mux.HandleFunc("POST "+block+"/volumes/{id}/action", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]json.RawMessage
+		var body struct {
+			Upload *struct {
+				DiskFormat string `json:"disk_format"`
+			} `json:"os-volume_upload_image"`
+		}
 		c.decode(r, &body)
-		if _, ok := body["os-volume_upload_image"]; !ok {
+		if body.Upload == nil {
 			c.unexpected(w, r)
 			return
 		}
@@ -199,6 +217,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.unexpected(w, r)
 			return
 		}
+		c.setImageFormat(id, body.Upload.DiskFormat)
 		c.reply(w, http.StatusAccepted, map[string]any{"os-volume_upload_image": map[string]any{"image_id": id}})
 	})
 	mux.HandleFunc("DELETE "+block+"/volumes/{id}", c.delete)
@@ -425,6 +444,23 @@ func (c *Cloud) imageFormat(id string) string {
 		return res.format
 	}
 	return "qcow2"
+}
+
+// setImageFormat records the disk_format an upload requested, so a later read
+// of the image reflects it.
+func (c *Cloud) setImageFormat(id, format string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if res, ok := c.resources[id]; ok {
+		res.format = format
+	}
+}
+
+func (c *Cloud) isEncrypted(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.resources[id]
+	return ok && r.encrypted
 }
 
 // createFromImage creates a volume from an active image, ending in error for

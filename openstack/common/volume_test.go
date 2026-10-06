@@ -64,6 +64,34 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 	assert.Empty(t, cloud.Leftovers())
 }
 
+// Cinder rejects any disk format but raw for a volume of an encrypted type.
+func TestCreateVolumeImageUsesRawForEncryptedVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.Encrypt("vol-1")
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+	assert.Equal(t, "raw", vi.Image.DiskFormat)
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// An unencrypted volume keeps the default, qcow2.
+func TestCreateVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+	assert.Equal(t, "qcow2", vi.Image.DiskFormat)
+
+	cleanup.Run(t.Context())
+}
+
 // A transient error reading a resource's status, such as Glance briefly
 // 500ing right after Cinder hands back an image ID, must not abort the wait.
 func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
