@@ -4,9 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "location",
-    "access_key",
-    "secret_access_key"
+    "location"
   ],
   "properties": {
     "location": {

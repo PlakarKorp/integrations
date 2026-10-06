@@ -55,17 +55,13 @@ func init() {
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
 	var accessKey string
-	if value, ok := storeConfig["access_key"]; !ok {
-		return nil, fmt.Errorf("missing access_key")
-	} else {
-		accessKey = value
+	if tmp, ok := storeConfig["access_key"]; ok {
+		accessKey = tmp
 	}
 
 	var secretAccessKey string
-	if value, ok := storeConfig["secret_access_key"]; !ok {
-		return nil, fmt.Errorf("missing secret_access_key")
-	} else {
-		secretAccessKey = value
+	if tmp, ok := storeConfig["secret_access_key"]; ok {
+		secretAccessKey = tmp
 	}
 
 	useSsl := true
@@ -200,9 +196,16 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.Static{Value: credentials.Value{AccessKeyID: accessKey, SecretAccessKey: secretAccessKey, SessionToken: "", SignerType: credentials.SignatureV4}},
+			&credentials.IAM{},
+		},
+	)
+
 	// Initialize minio client object.
 	client, err := minio.New(host, &minio.Options{
-		Creds:     credentials.NewStaticV4(accessKey, secretAccessKey, ""),
+		Creds:     creds,
 		Secure:    useSsl,
 		Transport: transport,
 		Region:    region,
