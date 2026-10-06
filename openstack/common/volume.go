@@ -57,6 +57,8 @@ const (
 	// when .METADATA.json records none.
 	DefaultDiskFormat = "qcow2"
 	containerFormat   = "bare"
+
+	encryptedDiskFormat = "raw"
 )
 
 func (c *Client) cinder() (*gophercloud.ServiceClient, error) {
@@ -135,9 +137,14 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, err
 	}
 
+	diskFormat := DefaultDiskFormat
+	if vol.Encrypted {
+		// Cinder rejects any other disk format for an encrypted volume type.
+		diskFormat = encryptedDiskFormat
+	}
 	upload, err := volumes.UploadImage(ctx, block, tmp.ID, volumes.UploadImageOpts{
 		ImageName:       tmpPrefix + snap.ID,
-		DiskFormat:      DefaultDiskFormat,
+		DiskFormat:      diskFormat,
 		ContainerFormat: containerFormat,
 	}).Extract()
 	if err != nil {
