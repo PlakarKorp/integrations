@@ -383,6 +383,16 @@ func (c *Client) DeleteTempImage(ctx context.Context, imageID string) {
 	(&Cleanup{image: image, imageID: imageID}).Run(ctx)
 }
 
+// DeleteTempVolume logs a failure, as Cleanup does.
+func (c *Client) DeleteTempVolume(ctx context.Context, volumeID string) {
+	block, err := c.cinder()
+	if err != nil {
+		logFailure(kindVolume, volumeID, err)
+		return
+	}
+	(&Cleanup{block: block, volumeID: volumeID}).Run(ctx)
+}
+
 // CreateVolumeFromImage creates a volume shaped like src. A volume that does
 // not become available is deleted, and one in "error" is created again.
 func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {

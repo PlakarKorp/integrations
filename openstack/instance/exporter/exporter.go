@@ -273,6 +273,7 @@ func (exp *Exporter) restoreVolume(ctx context.Context, serverID, volumeID strin
 	restore.imageID = ""
 
 	if err := exp.client.AttachVolume(ctx, serverID, vol.ID, volumeDevice(restore.metadata)); err != nil {
+		exp.client.DeleteTempVolume(ctx, vol.ID)
 		return err
 	}
 	log.Printf("openstack-instance: attached volume %q to server %q", vol.ID, serverID)
