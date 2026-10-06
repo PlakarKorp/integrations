@@ -323,18 +323,25 @@ func (p *FSExporter) file(record *connectors.Record, pathname string) error {
 	return p.writeAtomic(record, pathname)
 }
 
-// createTemp is os.CreateTemp confined to the restore root.  The name is drawn
-// from crypto/rand so a concurrent writer on the same directory cannot predict
-// and pre-create it; O_EXCL means we lose the race loudly rather than silently
-// writing into someone else's file.
-func (p *FSExporter) createTemp(dir string) (*os.File, string, error) {
+// tempName returns a temporary name in dir.  It is drawn from crypto/rand so a
+// concurrent writer on the same directory cannot predict and pre-create it.
+func (p *FSExporter) tempName(dir string) (string, error) {
 	var buf [10]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
+	return filepath.Join(dir, ".plakar-"+suffix), nil
+}
+
+// createTemp is os.CreateTemp confined to the restore root.  O_EXCL means we
+// lose the race loudly rather than silently writing into someone else's file.
+func (p *FSExporter) createTemp(dir string) (*os.File, string, error) {
 	for range 1000 {
-		if _, err := rand.Read(buf[:]); err != nil {
+		name, err := p.tempName(dir)
+		if err != nil {
 			return nil, "", err
 		}
-		suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
-		name := filepath.Join(dir, ".plakar-"+suffix)
 
 		f, err := p.root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 		if os.IsExist(err) {
