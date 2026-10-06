@@ -62,10 +62,12 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	return &Importer{client: clients[0], volumeID: volumeID}, nil
 }
 
-func (imp *Importer) Origin() string        { return imp.volumeID }
-func (imp *Importer) Type() string          { return block.Protocol }
-func (imp *Importer) Root() string          { return "/" }
-func (imp *Importer) Flags() location.Flags { return 0 }
+func (imp *Importer) Origin() string { return imp.volumeID }
+func (imp *Importer) Type() string   { return block.Protocol }
+func (imp *Importer) Root() string   { return "/" }
+
+// FLAG_STREAM: Import is not safe to call twice, it creates a real snapshot.
+func (imp *Importer) Flags() location.Flags { return location.FLAG_STREAM }
 
 func (imp *Importer) Ping(ctx context.Context) error {
 	_, err := imp.client.GetVolume(ctx, imp.volumeID)

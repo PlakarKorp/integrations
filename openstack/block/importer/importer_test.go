@@ -33,6 +33,7 @@ import (
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,6 +64,12 @@ func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record
 		out = append(out, r)
 	}
 	return out, <-errc
+}
+
+// Without FLAG_STREAM, plakar calls Import twice to count records.
+func TestImporterDeclaresStreamFlag(t *testing.T) {
+	imp := newImporter(t, keystonetest.NewCloud(t, "vol-1"))
+	assert.NotZero(t, imp.Flags()&location.FLAG_STREAM)
 }
 
 func TestImportBacksUpVolume(t *testing.T) {
