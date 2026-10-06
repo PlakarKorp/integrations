@@ -116,9 +116,21 @@ func TestHardlinks(t *testing.T) {
 
 	canonSt, err := os.Stat(canonPath)
 	require.NoError(t, err)
-	linkSt, err := os.Stat(linkPath)
-	require.NoError(t, err)
-	require.True(t, os.SameFile(canonSt, linkSt), "%s and %s are not the same inode", canonPath, linkPath)
+	require.True(t, os.SameFile(canonSt, fi), "%s and %s are not the same inode", canonPath, linkPath)
+}
+
+// A record forged to share dev:ino with an already-restored file, but whose
+// content differs, must be rejected rather than silently linked.
+func TestHardlinkForgedDevInoRejected(t *testing.T) {
+	dir := t.TempDir()
+	p := newExporter(t, dir)
+
+	errs := run(t, p, hardlinkRecord("/canon", "hello", 2), hardlinkRecord("/link", "other", 2))
+	require.NoError(t, errs[0])
+	require.Error(t, errs[1])
+
+	_, err := os.Lstat(filepath.Join(dir, "link"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "forged hardlink target must not be created")
 }
 
 // A record whose pathname climbs out of the restore root must not write

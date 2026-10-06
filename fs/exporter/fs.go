@@ -19,6 +19,7 @@ package exporter
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base32"
 	"errors"
 	"fmt"
@@ -44,8 +45,8 @@ type FSExporter struct {
 
 	root *os.Root
 
-	hlCreate singleflight.Group // key -> ensures canonical exists, returns root-relative path
-	hlCanon  sync.Map           // key -> canonical root-relative path string
+	hlCreate singleflight.Group // key -> ensures canonical exists, returns hlCanonical
+	hlCanon  sync.Map           // key -> hlCanonical
 
 	skipRootPermsAndTime bool // we sometimes can't restore them when on a mountpoint, needed for openshift
 	skipOwnership        bool
@@ -158,6 +159,11 @@ func (p *FSExporter) Ping(ctx context.Context) error {
 
 func (p *FSExporter) Close(ctx context.Context) error {
 	return p.root.Close()
+}
+
+type hlCanonical struct {
+	pathname string
+	sum      [sha256.Size]byte
 }
 
 type dirPerm struct {
@@ -295,25 +301,39 @@ func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error 
 		if v, ok := p.hlCanon.Load(key); ok {
 			return v, nil
 		}
-		if err := p.writeAtomic(record, pathname); err != nil {
-			return "", err
+		tmpName, sum, err := p.writeTemp(record, pathname)
+		if err != nil {
+			return nil, err
 		}
-		p.hlCanon.Store(key, pathname)
-		return pathname, nil
+		if err := p.commit(tmpName, pathname, fileinfo); err != nil {
+			return nil, err
+		}
+		canon := hlCanonical{pathname: pathname, sum: sum}
+		p.hlCanon.Store(key, canon)
+		return canon, nil
 	})
 	if err != nil {
 		return err
 	}
-	canonPath := v.(string)
+	canon := v.(hlCanonical)
 
-	// If we are not the canonical path, create a hardlink
-	if canonPath != pathname {
-		if err := p.root.Link(canonPath, pathname); err != nil {
-			return err
-		}
+	if canon.pathname == pathname {
+		return nil
 	}
 
-	return nil
+	// dev:ino comes from untrusted snapshot metadata, only link if the content matches.
+	tmpName, sum, err := p.writeTemp(record, pathname)
+	if err != nil {
+		return err
+	}
+	if sum != canon.sum {
+		_ = p.root.Remove(tmpName)
+		return fmt.Errorf("hardlink %q: content does not match canonical file %q: dev:ino metadata is forged", pathname, canon.pathname)
+	}
+	if err := p.root.Remove(tmpName); err != nil {
+		return err
+	}
+	return p.root.Link(canon.pathname, pathname)
 }
 
 func (p *FSExporter) file(record *connectors.Record, pathname string) error {
@@ -349,34 +369,43 @@ func (p *FSExporter) createTemp(dir string) (*os.File, string, error) {
 }
 
 func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) error {
-	tmp, tmpName, err := p.createTemp(filepath.Dir(pathname))
+	tmpName, _, err := p.writeTemp(record, pathname)
 	if err != nil {
 		return err
 	}
+	return p.commit(tmpName, pathname, record.FileInfo)
+}
 
-	ok := false
-	defer func() {
-		if !ok {
-			p.root.Remove(tmpName)
-		}
-	}()
+func (p *FSExporter) writeTemp(record *connectors.Record, pathname string) (string, [sha256.Size]byte, error) {
+	var sum [sha256.Size]byte
 
-	if _, err := io.Copy(tmp, record.Reader); err != nil {
-		tmp.Close()
-		return err
+	tmp, tmpName, err := p.createTemp(filepath.Dir(pathname))
+	if err != nil {
+		return "", sum, err
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), record.Reader); err != nil {
+		_ = tmp.Close()
+		_ = p.root.Remove(tmpName)
+		return "", sum, err
 	}
 
 	if err := tmp.Close(); err != nil {
-		return err
+		_ = p.root.Remove(tmpName)
+		return "", sum, err
 	}
 
+	h.Sum(sum[:0])
+	return tmpName, sum, nil
+}
+
+func (p *FSExporter) commit(tmpName, pathname string, fileinfo objects.FileInfo) error {
 	if err := p.root.Rename(tmpName, pathname); err != nil {
+		_ = p.root.Remove(tmpName)
 		return err
 	}
-
-	ok = true
-
-	return p.permissions(pathname, record.FileInfo)
+	return p.permissions(pathname, fileinfo)
 }
 
 func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
