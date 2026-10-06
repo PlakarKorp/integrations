@@ -27,7 +27,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -54,7 +53,7 @@ type Importer struct {
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
 	// A server ID reaches a URL path: validate it as a volume ID is.
 	serverID := strings.TrimPrefix(params["location"], proto+"://")
-	if !block.VolumeIDFormat.MatchString(serverID) {
+	if !common.IDFormat.MatchString(serverID) {
 		return nil, fmt.Errorf("location: bad value: %q is not %s://<server-id>", params["location"], proto)
 	}
 	cfg, err := common.ParseConnectorConfig(params)

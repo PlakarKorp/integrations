@@ -45,7 +45,7 @@ type Importer struct {
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
 	volumeID := strings.TrimPrefix(params["location"], proto+"://")
-	if !block.VolumeIDFormat.MatchString(volumeID) {
+	if !common.IDFormat.MatchString(volumeID) {
 		return nil, fmt.Errorf("location: bad value: %q is not %s://<volume-id>", params["location"], proto)
 	}
 	cfg, err := common.ParseConnectorConfig(params)

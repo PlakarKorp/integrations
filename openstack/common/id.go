@@ -14,38 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-package block
+package common
 
-import (
-	"strings"
+import "regexp"
 
-	"github.com/PlakarKorp/integrations/openstack/common"
-)
-
-// The snapshot layout the importer writes and the exporter reads.
-
-const Protocol = "openstack-block"
-
-// MetadataName is the file holding the disk's common.DiskMetadata.
-const MetadataName = ".METADATA.json"
-
-const diskExt = ".qcow2"
-
-// DiskName is <volume-id>.qcow2 whatever the disk's format: .METADATA.json
-// records the real one.
-func DiskName(volumeID string) string {
-	return volumeID + diskExt
-}
-
-// VolumeID returns the ID in a /<volume-id>.qcow2 path.
-func VolumeID(path string) (string, bool) {
-	name, ok := strings.CutPrefix(path, "/")
-	if !ok {
-		return "", false
-	}
-	id, ok := strings.CutSuffix(name, diskExt)
-	if !ok || !common.IDFormat.MatchString(id) {
-		return "", false
-	}
-	return id, true
-}
+// IDFormat is a volume or server ID: it names a disk file, so it must be a
+// single path segment.
+var IDFormat = regexp.MustCompile(`^[0-9A-Za-z_-]+$`)
