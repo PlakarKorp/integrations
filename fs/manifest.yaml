@@ -1,4 +1,4 @@
-name: fs
+name: FS
 display_name: File System
 description: file storage but as external plugin
 homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
