@@ -19,7 +19,9 @@ package common
 import (
 	"context"
 	"fmt"
+	"net/http"
 
+	"github.com/gophercloud/gophercloud/v2"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
@@ -33,8 +35,12 @@ func (c *Client) ResolveFlavor(ctx context.Context, flavorID, flavorName string)
 		return nil, err
 	}
 	if flavorID != "" {
-		if flavor, err := flavors.Get(ctx, nova, flavorID).Extract(); err == nil {
+		flavor, err := flavors.Get(ctx, nova, flavorID).Extract()
+		if err == nil {
 			return flavor, nil
+		}
+		if !gophercloud.ResponseCodeIs(err, http.StatusNotFound) {
+			return nil, fmt.Errorf("get flavor %q: %w", flavorID, err)
 		}
 	}
 
@@ -69,8 +75,12 @@ func (c *Client) ResolveNetwork(ctx context.Context, networkID, networkName stri
 		return nil, err
 	}
 	if networkID != "" {
-		if network, err := networks.Get(ctx, neutron, networkID).Extract(); err == nil {
+		network, err := networks.Get(ctx, neutron, networkID).Extract()
+		if err == nil {
 			return network, nil
+		}
+		if !gophercloud.ResponseCodeIs(err, http.StatusNotFound) {
+			return nil, fmt.Errorf("get network %q: %w", networkID, err)
 		}
 	}
 
