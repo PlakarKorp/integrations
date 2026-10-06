@@ -209,8 +209,8 @@ plakar backup @myvm
 ## VM restore
 
 The `openstack-instance` exporter restores a VM backup into a new Nova
-server: a new root disk, and a new, reattached Cinder volume for each
-attached one the backup holds. The original server is never touched.
+server: a new root disk, and a new Cinder volume recreated and reattached
+for each volume the backup holds. The original server is never touched.
 
 The server's flavor and networks are resolved by ID first, falling back to
 name if the ID no longer exists on the target cloud (a different project or
