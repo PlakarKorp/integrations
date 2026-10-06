@@ -7,11 +7,13 @@ api_version: v1.1.0
 connectors:
 - type: importer
   executable: fs-importer
+  validator: ./plugin/importer/fs.json
   homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
   license: ISC
   protocols: [fs]
 - type: exporter
   executable: fs-exporter
+  validator: ./plugin/exporter/fs.json
   homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
   license: ISC
   protocols: [fs]
