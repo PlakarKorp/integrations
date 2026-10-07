@@ -113,7 +113,12 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if err != nil {
 		return nil, err
 	}
-	return NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
+	imp, err := NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
+	if err != nil {
+		conn.Cleanup()
+		return nil, err
+	}
+	return imp, nil
 }
 
 func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
@@ -230,7 +235,11 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	if err != nil {
 		return err
 	}
+	return p.dumpDatabases(ctx, records, databases)
+}
 
+// dumpDatabases emits one pg_dump record per selected database.
+func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors.Record, databases []string) error {
 	n := 0
 	for _, dbname := range databases {
 		if p.database != "" && dbname != p.database {
@@ -238,6 +247,9 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 		}
 		if _, excluded := p.excludeDatabases[dbname]; excluded {
 			continue
+		}
+		if err := pgconn.ValidDatabaseName(dbname); err != nil {
+			return fmt.Errorf("backing up database: %w", err)
 		}
 		n++
 		args := append(p.conn.Args(), "-Fc")

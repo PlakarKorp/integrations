@@ -21,6 +21,12 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 	if err != nil {
 		return nil, err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			conn.Cleanup()
+		}
+	}()
 
 	region := cfg["region"]
 	if region == "" {
@@ -48,5 +54,6 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 	imp.TokenProvider = func(ctx context.Context) (string, error) {
 		return awsauth.GenerateDBAuthToken(ctx, conn.Host, conn.Port, conn.Username, region)
 	}
+	cleanup = false
 	return imp, nil
 }

