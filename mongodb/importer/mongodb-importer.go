@@ -19,6 +19,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/url"
@@ -218,7 +219,11 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		}
 		defer cleanupTempFile(f)
 
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
+		escaped, err := json.Marshal(i.password)
+		if err != nil {
+			return err
+		}
+		if _, err = fmt.Fprintf(f, "password: %s\n", escaped); err != nil {
 			return err
 		}
 		args = append(args, "--config")
