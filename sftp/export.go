@@ -90,11 +90,12 @@ loop:
 				err := s.directory(record, pathname)
 				results <- record.Error(err)
 
-				// later patching
-				dirPerms = append(dirPerms, dirPerm{
-					Pathname: pathname,
-					Fileinfo: record.FileInfo,
-				})
+				if err == nil && restoreMode(record.FileInfo)&0700 != 0700 {
+					dirPerms = append(dirPerms, dirPerm{
+						Pathname: pathname,
+						Fileinfo: record.FileInfo,
+					})
+				}
 
 				continue
 			}
@@ -123,7 +124,7 @@ loop:
 	}
 
 	for i := len(dirPerms) - 1; i >= 0; i-- {
-		if err := s.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
+		if err := s.chmod(dirPerms[i].Pathname, dirPerms[i].Fileinfo, restoreMode(dirPerms[i].Fileinfo)); err != nil {
 			return err
 		}
 	}
@@ -158,7 +159,9 @@ func (s *Sftp) directory(record *connectors.Record, pathname string) error {
 	if err != nil {
 		return fmt.Errorf("mkdir %s failed: %w", pathname, err)
 	}
-	return nil
+	// Owner rwx stays until the end of the restore so that a read-only
+	// directory can still be populated; group and other get their final bits.
+	return s.permissions(pathname, record.FileInfo, restoreMode(record.FileInfo)|0700)
 }
 
 func (s *Sftp) symlink(record *connectors.Record, pathname string) error {
@@ -218,19 +221,25 @@ func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
 	if err != nil {
 		return err
 	}
-	return s.permissions(pathname, record.FileInfo)
+	return s.permissions(pathname, record.FileInfo, restoreMode(record.FileInfo))
 }
 
-func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo) error {
+// Preserve setuid (04000), setgid (02000) and sticky (01000), not just Mode().Perm().
+func restoreMode(fileinfo objects.FileInfo) os.FileMode {
+	return fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
+}
+
+func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo, mode os.FileMode) error {
 	// Apply ownership before mode bits so that any setuid/setgid bits are
 	// never set while the file is still owned by an unintended uid/gid.
 	if err := s.chown(pathname, fileinfo); err != nil {
 		return err
 	}
+	return s.chmod(pathname, fileinfo, mode)
+}
+
+func (s *Sftp) chmod(pathname string, fileinfo objects.FileInfo, mode os.FileMode) error {
 	if fileinfo.Mode()&os.ModeSymlink == 0 && !s.skipPermissions {
-		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
-		// Use the full mode which includes these special bits, not just Mode().Perm()
-		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 		if err := s.client.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("could not chmod")
 		}

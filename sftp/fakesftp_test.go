@@ -226,11 +226,11 @@ func (h *localRootHandlers) Filecmd(r *sftp.Request) error {
 	case "Rmdir":
 		return os.Remove(p)
 
-	// Mkdir creates a new directory with a fixed, non-restrictive mode;
+	// Mkdir creates a new directory with sftp-server's default mode;
 	// tests that care about specific directory permissions should chmod
 	// afterwards via Setstat.
 	case "Mkdir":
-		return os.Mkdir(p, 0700)
+		return os.Mkdir(p, 0755)
 
 	// Remove deletes a single file (not a directory).
 	case "Remove":
