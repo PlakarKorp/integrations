@@ -44,6 +44,7 @@ type openstackAPI interface {
 	ListImages(ctx context.Context) iter.Seq2[images.Image, error]
 	ListContainers(ctx context.Context) iter.Seq2[common.Container, error]
 	ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error]
+	SupportsVolumes() bool
 
 	Scope() common.Scope
 }
@@ -106,8 +107,9 @@ func (inv *osInventory) staticEntries() []*inventory.InventoryEntry {
 		sc := api.Scope()
 		// An empty region is gophercloud's "match any region" fallback for a
 		// client scoped to no catalog region at all: not a real place to
-		// offer "create a volume" for.
-		if sc.Region == "" {
+		// offer "create a volume" for. Nor is a region whose catalog has no
+		// Cinder at all, which Ping would fail on anyway.
+		if sc.Region == "" || !api.SupportsVolumes() {
 			continue
 		}
 		out = append(out, volumeSpawnerEntry(sc))

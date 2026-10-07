@@ -58,6 +58,9 @@ func (s *stubAPI) ListServers(context.Context) iter.Seq2[servers.Server, error] 
 func (s *stubAPI) ListVolumes(context.Context) iter.Seq2[volumes.Volume, error] {
 	return seq(s.volumes, s.volumesErr)
 }
+func (s *stubAPI) SupportsVolumes() bool {
+	return !errors.Is(s.volumesErr, common.ErrServiceUnavailable)
+}
 func (s *stubAPI) ListImages(context.Context) iter.Seq2[images.Image, error] {
 	return seq(s.images, s.imagesErr)
 }
@@ -167,7 +170,7 @@ func TestListSkipsServicesMissingFromCatalog(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the placeholder is offered regardless; only the server should otherwise be listed")
+	assert.Equal(t, []string{"nova"}, serviceNames(got), "no placeholder without Cinder in the catalog")
 }
 
 func TestListSkipsServicesThatDenyAccess(t *testing.T) {
@@ -211,10 +214,9 @@ func TestListCoversEveryRegion(t *testing.T) {
 	}
 	assert.Equal(t, []string{
 		"urn:openstack:p1:cinder:RegionOne:spawner:spawn",
-		"urn:openstack:p1:cinder:RegionTwo:spawner:spawn",
 		"urn:openstack:p1:nova:RegionOne:server:s1",
 		"urn:openstack:p1:nova:RegionTwo:server:s2",
-	}, urns, "the placeholder is offered for every region up front, before any real entries")
+	}, urns, "the placeholder is offered up front for every region with Cinder; RegionTwo has none")
 }
 
 func TestListNamesTheFailingRegion(t *testing.T) {

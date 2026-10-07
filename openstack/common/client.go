@@ -164,6 +164,13 @@ func (c *Client) ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, erro
 	return list(ctx, c, volumeResource)
 }
 
+// SupportsVolumes reports whether Cinder is in this client's region catalog.
+// A local catalog lookup, not an API call.
+func (c *Client) SupportsVolumes() bool {
+	_, err := c.service(volumeResource.name, volumeResource.newService)
+	return err == nil
+}
+
 func (c *Client) ListImages(ctx context.Context) iter.Seq2[images.Image, error] {
 	return list(ctx, c, ownedImageResource(c.scope.ProjectID))
 }
