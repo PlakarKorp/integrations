@@ -210,11 +210,19 @@ func (s *Sftp) file(record *connectors.Record, pathname string) error {
 }
 
 func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
-	_, err := writeFileAtomic(s.client, pathname, record.Reader)
+	fileinfo := record.FileInfo
+
+	var mode *os.FileMode
+	if !s.skipPermissions {
+		perm := fileinfo.Mode().Perm()
+		mode = &perm
+	}
+
+	_, err := writeFileAtomic(s.client, pathname, record.Reader, mode)
 	if err != nil {
 		return err
 	}
-	return s.permissions(pathname, record.FileInfo, restoreMode(record.FileInfo))
+	return s.permissions(pathname, fileinfo, restoreMode(fileinfo))
 }
 
 // Preserve setuid (04000), setgid (02000) and sticky (01000), not just Mode().Perm().

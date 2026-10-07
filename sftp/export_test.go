@@ -29,9 +29,14 @@ package sftp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -822,4 +827,87 @@ func TestExport_DirectoryModeAppliedBeforeChildrenRestore(t *testing.T) {
 
 	close(records)
 	require.NoError(t, wait())
+}
+
+// broaderThanFinal lists files holding data and directories holding entries
+// whose on-disk mode grants more than their final mode, as seen between two
+// SFTP requests. Temporary files count against the file they will become.
+func broaderThanFinal(root string, final map[string]os.FileMode) []string {
+	var found []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if i := strings.Index(rel, ".tmp."); i >= 0 {
+			rel = rel[:i]
+		}
+		want, ok := final[rel]
+		if !ok {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&^want == 0 {
+			return nil
+		}
+		populated := info.Size() > 0
+		if d.IsDir() {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				return err
+			}
+			populated = len(entries) > 0
+		}
+		if populated {
+			found = append(found, fmt.Sprintf("%s: %v", rel, info.Mode()))
+		}
+		return nil
+	})
+	if err != nil {
+		found = append(found, err.Error())
+	}
+	return found
+}
+
+func TestExport_FileNeverExposesBroaderMode(t *testing.T) {
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+	final := map[string]os.FileMode{
+		"secret-key": 0600,
+	}
+
+	var mu sync.Mutex
+	var exposed []string
+	ts.handlers.observe = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		exposed = append(exposed, broaderThanFinal(ts.realPath("/repo"), final)...)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/secret-key", "", objects.FileInfo{Lmode: 0600}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader([]byte("private key"))), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	for _, r := range got {
+		require.NoError(t, r.Err, "%q", r.Record.Pathname)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, exposed)
 }
