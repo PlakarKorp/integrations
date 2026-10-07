@@ -98,9 +98,21 @@ func (inv *osInventory) Close(ctx context.Context) error {
 	return nil
 }
 
-// entries chains every region's listings into one lazy stream.
+// entries chains every region's listings into one lazy stream, a
+// placeholder "create a new volume" entry per region first.
 func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
+		for _, api := range inv.apis {
+			// An empty region is gophercloud's "match any region" fallback
+			// for a client scoped to no catalog region at all: not a real
+			// place to offer "create a volume" for.
+			if sc := api.Scope(); sc.Region != "" {
+				if !yield(volumeSpawnerEntry(sc), nil) {
+					return
+				}
+			}
+		}
+
 		for _, api := range inv.apis {
 			sc := api.Scope()
 			sources := []iter.Seq2[*inventory.InventoryEntry, error]{
@@ -210,6 +222,25 @@ func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 
 // imageEntry leaves out images without data: a snapshot of a boot-from-volume
 // server is an empty Glance image whose disks live in Cinder snapshots.
+// volumeSpawnerEntry is a synthetic entry with no backing Cinder resource:
+// the "create a new volume" choice in a block destination's picker. Class is
+// BlockStorage, not the Compute wildcard, so it only appears there.
+func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
+	return &inventory.InventoryEntry{
+		Class:    pkg.ResourceClassBlockStorage,
+		SubClass: pkg.ResourceSubClassUndefined,
+		URN:      urn(sc, "cinder", "spawner", common.SpawnLocation),
+		Name:     fmt.Sprintf("Create volume in %s", sc.Region),
+		Region:   sc.Region,
+		Service:  "cinder",
+		Resource: "cinder:spawner",
+		Tags:     []string{},
+		Endpoints: []inventory.HostEndpoint{
+			{Type: inventory.EndpointIdentifier, Endpoint: common.SpawnLocation, Attributes: map[string]string{"openstack_region": sc.Region}},
+		},
+	}
+}
+
 func imageEntry(sc common.Scope, i images.Image) *inventory.InventoryEntry {
 	if i.SizeBytes == 0 {
 		return nil
