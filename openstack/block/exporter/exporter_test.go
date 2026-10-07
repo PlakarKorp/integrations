@@ -399,19 +399,23 @@ func TestPingNeedsCinder(t *testing.T) {
 func TestNewExporterLocation(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	for _, tt := range []struct {
-		location string
-		valid    bool
+		location    string
+		errContains string
 	}{
-		{location: "openstack-block://", valid: true},
-		{location: "openstack-block://vol-1"},
-		{location: "s3://bucket"},
+		{location: "openstack-block://"},
+		{location: "openstack-block://spawn"},
+		{location: "openstack-block://vol-1", errContains: "not supported yet"},
+		{location: "openstack-block://.", errContains: "bad value"},
+		{location: "openstack-block://..", errContains: "bad value"},
+		{location: "openstack-block://vol-1/x", errContains: "bad value"},
+		{location: "s3://bucket", errContains: "bad value"},
 	} {
 		t.Run(tt.location, func(t *testing.T) {
 			_, err := NewExporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, tt.location))
-			if tt.valid {
+			if tt.errContains == "" {
 				assert.NoError(t, err)
 			} else {
-				assert.ErrorContains(t, err, "location: bad value")
+				assert.ErrorContains(t, err, tt.errContains)
 			}
 		})
 	}

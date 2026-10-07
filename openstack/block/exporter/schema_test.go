@@ -39,6 +39,7 @@ func TestExporterSchema(t *testing.T) {
 		valid bool
 	}{
 		{name: "new volume", valid: true},
+		{name: "new volume, spawn sentinel", edit: map[string]string{"location": "openstack-block://spawn"}, valid: true},
 		{name: "no location", drop: []string{"location"}},
 		{name: "location naming a volume", edit: map[string]string{"location": "openstack-block://vol-1"}},
 		{name: "no region", drop: []string{"openstack_region"}},

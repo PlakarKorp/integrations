@@ -153,7 +153,7 @@ The authentication keys of the inventory, plus:
 
 | Key | Description |
 |-----|-------------|
-| `location` | `openstack-block://` |
+| `location` | `openstack-block://` or `openstack-block://spawn`, both restoring into a new, detached volume. Naming an existing volume or server is not supported yet. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
 
 The credential needs Glance image create, upload and delete rights, and Cinder
@@ -162,7 +162,7 @@ volume create and delete rights, on the target project.
 ### Usage
 
 ```sh
-plakar destination add myvoldst openstack-block:// \
+plakar destination add myvoldst openstack-block://spawn \
     openstack_auth_url=https://keystone.example.com:5000/v3 \
     openstack_application_credential_id=<id> \
     openstack_application_credential_secret=<secret> \

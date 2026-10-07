@@ -21,3 +21,6 @@ import "regexp"
 // IDFormat is a volume or server ID: it names a disk file, so it must be a
 // single path segment.
 var IDFormat = regexp.MustCompile(`^[0-9A-Za-z_-]+$`)
+
+// SpawnLocation is the location suffix an exporter treats as create-new.
+const SpawnLocation = "spawn"
