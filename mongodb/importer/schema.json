@@ -15,6 +15,7 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 65535,
+      "default": 27017,
       "description": "MongoDB server port number. Defaults to 27017."
     },
     "username": {
