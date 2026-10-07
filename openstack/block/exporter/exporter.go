@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
@@ -40,11 +41,16 @@ type Exporter struct {
 	imageID string
 }
 
-// NewExporter restores into a new volume, so the location names nothing:
-// it must be proto:// alone.
+// NewExporter restores into a new, detached volume: location is bare
+// (proto://) or proto://spawn, both selecting the same, only supported mode.
 func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
-	if params["location"] != proto+"://" {
-		return nil, fmt.Errorf("location: bad value: %q is not %s://", params["location"], proto)
+	suffix, ok := strings.CutPrefix(params["location"], proto+"://")
+	switch {
+	case ok && (suffix == "" || suffix == common.SpawnLocation):
+	case ok && common.IDFormat.MatchString(suffix):
+		return nil, fmt.Errorf("location: restoring onto an existing resource (%q) is not supported yet", suffix)
+	default:
+		return nil, fmt.Errorf("location: bad value: %q is not %s://, %s://spawn, or %s://<id>", params["location"], proto, proto, proto)
 	}
 	cfg, err := common.ParseConnectorConfig(params)
 	if err != nil {

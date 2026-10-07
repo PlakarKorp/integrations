@@ -11,9 +11,9 @@
   "properties": {
     "location": {
       "type": "string",
-      "pattern": "^openstack-block://$",
-      "$comment": "^ start, openstack-block:// literal, $ end: the volume is created new, so the location names nothing",
-      "description": "openstack-block://, restoring into a new, detached volume"
+      "pattern": "^openstack-block://(spawn)?$",
+      "$comment": "^ start, openstack-block:// literal, optional literal \"spawn\", $ end: both spellings restore into a new, detached volume",
+      "description": "openstack-block:// or openstack-block://spawn, restoring into a new, detached volume"
     },
     "openstack_auth_url": {
       "type": "string",
