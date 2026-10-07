@@ -108,6 +108,8 @@ import (
 // an arbitrary directory.
 type localRootHandlers struct {
 	root string // real, absolute path on disk that acts as "/" for the fake server
+
+	observe func()
 }
 
 func (h *localRootHandlers) real(p string) (string, error) {
@@ -141,6 +143,9 @@ func (h *localRootHandlers) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 // methods. The SFTP protocol's open flags (Creat/Trunc/Excl/Append) are
 // translated one-to-one into the equivalent os.O_* flags.
 func (h *localRootHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
+	if h.observe != nil {
+		h.observe()
+	}
 	p, err := h.real(r.Filepath)
 	if err != nil {
 		return nil, err
@@ -170,6 +175,9 @@ func (h *localRootHandlers) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 // operated on; r.Target (when present) is the secondary path used by
 // rename/link/symlink operations.
 func (h *localRootHandlers) Filecmd(r *sftp.Request) error {
+	if h.observe != nil {
+		h.observe()
+	}
 	p, err := h.real(r.Filepath)
 	if err != nil {
 		return err
@@ -351,8 +359,9 @@ func (l listerAt) ListAt(dst []os.FileInfo, offset int64) (int, error) {
 // testServer bundles together a running in-process fake SFTP server, the
 // client wired to it, and the real directory on disk backing it.
 type testServer struct {
-	client *sftp.Client // client connected to the fake server, ready to use
-	root   string       // real path on disk that the fake server treats as "/"
+	client   *sftp.Client // client connected to the fake server, ready to use
+	root     string       // real path on disk that the fake server treats as "/"
+	handlers *localRootHandlers
 }
 
 // newTestServer starts an in-process, disk-backed fake SFTP server rooted
@@ -397,7 +406,7 @@ func newTestServer(t *testing.T) *testServer {
 		<-serveErr
 	})
 
-	return &testServer{client: client, root: root}
+	return &testServer{client: client, root: root, handlers: handlers}
 }
 
 // newTestSftp constructs an *Sftp connector wired directly to this fake
