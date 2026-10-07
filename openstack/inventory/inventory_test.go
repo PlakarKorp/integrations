@@ -106,6 +106,14 @@ func TestListMapsEveryResource(t *testing.T) {
 
 	want := []*inventory.InventoryEntry{
 		{
+			Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+			Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
+			Tags: []string{},
+			Endpoints: []inventory.HostEndpoint{
+				{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+			},
+		},
+		{
 			Class: pkg.ResourceClassCompute, URN: "urn:openstack:p1:nova:RegionOne:server:s1",
 			Name: "web", Region: "RegionOne", Service: "nova", Resource: "nova:server",
 			Tags: []string{"env=prod", "team=web", "frontend"}, // metadata sorted by key, then Nova tags
@@ -159,7 +167,7 @@ func TestListSkipsServicesMissingFromCatalog(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "only the server should be listed")
+	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the placeholder is offered regardless; only the server should otherwise be listed")
 }
 
 func TestListSkipsServicesThatDenyAccess(t *testing.T) {
@@ -171,7 +179,7 @@ func TestListSkipsServicesThatDenyAccess(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "the refusing services should be skipped")
+	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the refusing services should be skipped")
 }
 
 func TestListStopsOnError(t *testing.T) {
@@ -184,7 +192,7 @@ func TestListStopsOnError(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.ErrorIs(t, err, boom)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "entries sent before the error")
+	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the placeholder is offered up front, then entries sent before the error")
 }
 
 func TestListCoversEveryRegion(t *testing.T) {
@@ -201,7 +209,12 @@ func TestListCoversEveryRegion(t *testing.T) {
 	for _, e := range got {
 		urns = append(urns, e.URN)
 	}
-	assert.Equal(t, []string{"urn:openstack:p1:nova:RegionOne:server:s1", "urn:openstack:p1:nova:RegionTwo:server:s2"}, urns)
+	assert.Equal(t, []string{
+		"urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+		"urn:openstack:p1:cinder:RegionTwo:spawner:spawn",
+		"urn:openstack:p1:nova:RegionOne:server:s1",
+		"urn:openstack:p1:nova:RegionTwo:server:s2",
+	}, urns, "the placeholder is offered for every region up front, before any real entries")
 }
 
 func TestListNamesTheFailingRegion(t *testing.T) {
@@ -209,6 +222,18 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 	_, err := listAll(t, &stubAPI{}, &stubAPI{region: "RegionTwo", serversErr: boom})
 	require.ErrorIs(t, err, boom)
 	assert.ErrorContains(t, err, `region "RegionTwo"`)
+}
+
+func TestVolumeSpawnerEntry(t *testing.T) {
+	e := volumeSpawnerEntry(common.Scope{ProjectID: "p1", Region: "RegionOne"})
+	assert.Equal(t, &inventory.InventoryEntry{
+		Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+		Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
+		Tags: []string{},
+		Endpoints: []inventory.HostEndpoint{
+			{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+		},
+	}, e)
 }
 
 // servers.Server leaves addresses untyped, so check serverAddresses reads
