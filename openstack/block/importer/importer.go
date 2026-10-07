@@ -45,6 +45,9 @@ type Importer struct {
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
 	volumeID := strings.TrimPrefix(params["location"], proto+"://")
+	if volumeID == common.SpawnLocation {
+		return nil, fmt.Errorf("location: %q is the create-new placeholder, not a real volume to back up", params["location"])
+	}
 	if !common.IDFormat.MatchString(volumeID) {
 		return nil, fmt.Errorf("location: bad value: %q is not %s://<volume-id>", params["location"], proto)
 	}

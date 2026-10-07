@@ -63,6 +63,7 @@ func TestImporterSchemaRejects(t *testing.T) {
 	}{
 		{name: "no location", drop: []string{"location"}},
 		{name: "location with a slash", edit: map[string]string{"location": "openstack-block://vol-1/x"}},
+		{name: "location is the spawn placeholder", edit: map[string]string{"location": "openstack-block://spawn"}},
 		{name: "no region", drop: []string{"openstack_region"}},
 		{name: "blank region", edit: map[string]string{"openstack_region": " "}},
 		{name: "two regions", edit: map[string]string{"openstack_region": "RegionOne,RegionTwo"}},

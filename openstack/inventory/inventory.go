@@ -238,7 +238,10 @@ func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 // server is an empty Glance image whose disks live in Cinder snapshots.
 // volumeSpawnerEntry is a synthetic entry with no backing Cinder resource:
 // the "create a new volume" choice in a block destination's picker. Class is
-// BlockStorage, not the Compute wildcard, so it only appears there.
+// BlockStorage, not the Compute wildcard, so it only appears there — but the
+// block importer shares that same class, so this also reaches the backup
+// *source* picker; block/importer rejects the spawn location itself, since
+// class alone can't tell source from destination apart.
 func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
 	return &inventory.InventoryEntry{
 		Class:    pkg.ResourceClassBlockStorage,

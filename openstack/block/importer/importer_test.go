@@ -257,8 +257,9 @@ func TestPingFindsVolume(t *testing.T) {
 func TestNewImporterLocation(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	tests := []struct {
-		location string
-		volumeID string // empty when the location is rejected
+		location    string
+		volumeID    string // empty when the location is rejected
+		errContains string // defaults to "location: bad value" when rejected
 	}{
 		{location: "openstack-block://384ba87e-a23e-4965-b3be-8f180e8a8625", volumeID: "384ba87e-a23e-4965-b3be-8f180e8a8625"},
 		{location: "openstack-block://vol_1", volumeID: "vol_1"},
@@ -272,12 +273,13 @@ func TestNewImporterLocation(t *testing.T) {
 		{location: "openstack-block://vol-1?x=1"},
 		{location: "openstack-block:vol-1"},
 		{location: "s3://vol-1"},
+		{location: "openstack-block://spawn", errContains: "create-new placeholder"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.location, func(t *testing.T) {
 			imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, tt.location))
 			if tt.volumeID == "" {
-				assert.ErrorContains(t, err, "location: bad value")
+				assert.ErrorContains(t, err, cmp.Or(tt.errContains, "location: bad value"))
 				return
 			}
 			require.NoError(t, err)
