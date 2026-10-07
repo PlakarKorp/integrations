@@ -98,18 +98,30 @@ func (inv *osInventory) Close(ctx context.Context) error {
 	return nil
 }
 
-// entries chains every region's listings into one lazy stream, a
-// placeholder "create a new volume" entry per region first.
+// staticEntries returns the inventory's synthetic, no-backing-resource
+// entries: one "create a new volume" per region today.
+func (inv *osInventory) staticEntries() []*inventory.InventoryEntry {
+	var out []*inventory.InventoryEntry
+	for _, api := range inv.apis {
+		sc := api.Scope()
+		// An empty region is gophercloud's "match any region" fallback for a
+		// client scoped to no catalog region at all: not a real place to
+		// offer "create a volume" for.
+		if sc.Region == "" {
+			continue
+		}
+		out = append(out, volumeSpawnerEntry(sc))
+	}
+	return out
+}
+
+// entries chains every region's listings into one lazy stream, the static
+// entries first.
 func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
-		for _, api := range inv.apis {
-			// An empty region is gophercloud's "match any region" fallback
-			// for a client scoped to no catalog region at all: not a real
-			// place to offer "create a volume" for.
-			if sc := api.Scope(); sc.Region != "" {
-				if !yield(volumeSpawnerEntry(sc), nil) {
-					return
-				}
+		for _, e := range inv.staticEntries() {
+			if !yield(e, nil) {
+				return
 			}
 		}
 
