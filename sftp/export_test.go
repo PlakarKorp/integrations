@@ -796,3 +796,30 @@ func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
 		})
 	}
 }
+
+// Directory handling runs synchronously in Export's main loop, so draining
+// the result for one directory record guarantees its mkdir (and any
+// immediate chmod) has already completed on the server.
+func TestExport_DirectoryModeAppliedBeforeChildrenRestore(t *testing.T) {
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 1)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/secret", "", objects.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
+
+	r := <-results
+	require.NoError(t, r.Err)
+
+	// Checked before closing records, while Export is still waiting for
+	// more input - the end-of-restore pass has not run yet.
+	info, err := ts.realStat("/repo/secret")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0700), info.Mode().Perm(),
+		"directory must have its final mode as soon as it is created, not only once the restore finishes")
+
+	close(records)
+	require.NoError(t, wait())
+}
