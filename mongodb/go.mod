@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/kloset v1.1.6
+	github.com/PlakarKorp/kloset v1.1.8
 )
 
 require (
