@@ -12,8 +12,11 @@
     "location": {
       "type": "string",
       "pattern": "^openstack-block://[0-9A-Za-z_-]+$",
-      "$comment": "^ start, openstack-block:// literal, [0-9A-Za-z_-]+ the volume ID: digits, letters, underscores and dashes, $ end",
-      "description": "Volume to back up, as openstack-block://<volume-id>"
+      "not": {
+        "pattern": "^openstack-block://spawn$"
+      },
+      "$comment": "^ start, openstack-block:// literal, [0-9A-Za-z_-]+ the volume ID: digits, letters, underscores and dashes, $ end; not: spawn is the exporter's create-new placeholder, not a real volume",
+      "description": "Volume to back up, as openstack-block://<volume-id> (not the spawn placeholder)"
     },
     "openstack_auth_url": {
       "type": "string",
