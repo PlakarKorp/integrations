@@ -7,11 +7,11 @@ license: ISC
 connectors:
   - type: importer
     executable: ./mongodb-importer
-    protocols: [mongodb]
+    protocols: [mongodb, mongodb+srv]
     validator: ./importer/schema.json
     class: database
   - type: exporter
     executable: ./mongodb-exporter
     validator: ./exporter/schema.json
-    protocols: [mongodb]
+    protocols: [mongodb, mongodb+srv]
     class: database

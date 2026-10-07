@@ -3,13 +3,13 @@
   "title": "Plakar MongoDB Importer Config",
   "type": "object",
   "additionalProperties": false,
-  "required": ["location", "username", "password" ],
+  "required": ["location"],
   "properties": {
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "MongoDB server hostname or IP address",
-      "pattern": "^[a-zA-Z0-9.:-\\]+$"
+      "description": "MongoDB server URL",
+      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-\\]+$"
     },
     "port": {
       "type": "integer",
@@ -33,6 +33,18 @@
       "type": "boolean",
       "default": true,
       "description": "Use an encrypted TLS/SSL connection."
+    },
+    "tls_ca_cert": {
+      "type": "string",
+      "description": "Path to a custom CA certificate to use for verifying the MongoDB server's certificate."
+    },
+    "tls_client_cert": {
+      "type": "string",
+      "description": "Path to a client certificate and key in PEM format for mTLS authentication to the MongoDB server."
+    },
+    "auth_mechanism": {
+      "type": "string",
+      "description": "Authentication mechanism to use with the MongoDB server, such as SCRAM-SHA-256 or MONGODB-X509."
     }
   }
 }

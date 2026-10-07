@@ -19,13 +19,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -39,15 +40,18 @@ const backupFilename = "mongodb-backup.bson"
 const debug = false
 
 type mongodbExporter struct {
-	url     *url.URL
-	port	string
-	username string
-	password string
-	options *connectors.Options
-	use_tls	bool
-	stdin	io.WriteCloser
-	stdout	io.ReadCloser
-	stderr	io.ReadCloser
+	url             *url.URL
+	port            string
+	username        string
+	password        string
+	options         *connectors.Options
+	use_tls         bool
+	tls_ca_cert     string
+	tls_client_cert string
+	auth_mechanism  string
+	stdin           io.WriteCloser
+	stdout          io.ReadCloser
+	stderr          io.ReadCloser
 }
 
 func init() {
@@ -83,40 +87,53 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	e := &mongodbExporter{
-		url:     parsed,
-		port:    port,
-		username: params["username"],
-		password: params["password"],
-		options: opts,
-		use_tls: use_tls,
+		url:             parsed,
+		port:            port,
+		username:        params["username"],
+		password:        params["password"],
+		options:         opts,
+		use_tls:         use_tls,
+		tls_ca_cert:     params["tls_ca_cert"],
+		tls_client_cert: params["tls_client_cert"],
+		auth_mechanism:  params["auth_mechanism"],
 	}
 
 	return e, nil
 }
 
 func cleanupTempFile(f *os.File) {
-	os.Remove(f.Name())
-	f.Close()
-}
-
-func (e *mongodbExporter) commonArgs() []string {
-	var args []string
-
-	args = append(args, "--host")
-	args = append(args, e.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, e.port)
-	if e.use_tls {
-		args = append(args, "--tls")
+	if f != nil {
+		os.Remove(f.Name())
+		f.Close()
 	}
-
-	return args;
 }
 
 func (e *mongodbExporter) Ping(ctx context.Context) error {
-	args := e.commonArgs()
+	var args []string
+
+	if e.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, e.port)
+	}
+	if e.use_tls {
+		args = append(args, "--tls")
+		if len(e.tls_ca_cert) > 0 {
+			args = append(args, "--tlsCAFile")
+			args = append(args, e.tls_ca_cert)
+		}
+		if len(e.tls_client_cert) > 0 {
+			args = append(args, "--tlsCertificateKeyFile")
+			args = append(args, e.tls_client_cert)
+		}
+	}
+	if len(e.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, e.auth_mechanism)
+	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
+
+	args = append(args, fmt.Sprintf("%s://%s", e.url.Scheme, e.url.Hostname()))
 	cmd := exec.Command("mongosh", args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -169,8 +186,27 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	var f *os.File
 	var err error
+	var args []string
 
-	args := e.commonArgs()
+	if e.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, e.port)
+	}
+	if e.use_tls {
+		args = append(args, "--ssl")
+		if len(e.tls_ca_cert) > 0 {
+			args = append(args, "--sslCAFile")
+			args = append(args, e.tls_ca_cert)
+		}
+		if len(e.tls_client_cert) > 0 {
+			args = append(args, "--sslPEMKeyFile")
+			args = append(args, e.tls_client_cert)
+		}
+	}
+	if len(e.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, e.auth_mechanism)
+	}
 	if len(e.username) > 0 {
 		args = append(args, "--username")
 		args = append(args, e.username)
@@ -182,7 +218,11 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 		}
 		defer cleanupTempFile(f)
 
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", e.password); err != nil {
+		escaped, err := json.Marshal(e.password)
+		if err != nil {
+			return err
+		}
+		if _, err = fmt.Fprintf(f, "password: %s\n", escaped); err != nil {
 			return err
 		}
 		args = append(args, "--config")
@@ -192,6 +232,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	args = append(args, "--objcheck")
 	args = append(args, "--archive")
 
+	args = append(args, fmt.Sprintf("%s://%s", e.url.Scheme, e.url.Hostname()))
 	cmd := exec.Command("mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()
@@ -255,7 +296,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	c := make(chan commandResult, 1)
 
 	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err : err} }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
 	go func() {
 		read_stdout(c)
@@ -267,8 +308,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	go func() {
 		for record := range records {
+			// The importer writes the dump at the root only. Any
+			// other file with that name is not ours to restore.
 			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-			    strings.Compare(record.FileInfo.Name(), backupFilename) != 0 {
+				record.Pathname != "/"+backupFilename {
 				results <- record.Ok()
 				continue
 			}

@@ -1,10 +1,10 @@
 module github.com/PlakarKorp/integrations-private/mongodb
 
-go 1.25.0
+go 1.27
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/kloset v1.1.6
+	github.com/PlakarKorp/kloset v1.1.8
 )
 
 require (

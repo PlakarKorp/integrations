@@ -8,8 +8,8 @@ github.com/PlakarKorp/go-kloset-sdk v1.1.0 h1:0wB66dyTwFp3Ky0TLAqehiOVwBDhQr3cTi
 github.com/PlakarKorp/go-kloset-sdk v1.1.0/go.mod h1:AOdpltJ9LlbmnKxxrnh48vNttHa/dOQG0FVRzK4z0BQ=
 github.com/PlakarKorp/integration-grpc v1.1.0 h1:ZUa/4m/pZWOmB7XzBfeAA/pOAxev3zbkVHrdi0tqtB4=
 github.com/PlakarKorp/integration-grpc v1.1.0/go.mod h1:QZ55M9kXa3DntUvS9njOLoFY1S09bYbHKR/3kflDi5o=
-github.com/PlakarKorp/kloset v1.1.6 h1:sZiguoAgsac2cTjWwsi/kX01NRYAmCCSSETVUajOxX4=
-github.com/PlakarKorp/kloset v1.1.6/go.mod h1:tDJRg9YBSmgJHQJzNubt+jZiETRcakPUpbO7PFcYUNM=
+github.com/PlakarKorp/kloset v1.1.8 h1:KRIndBfh7kg0Ey5F+bUpge3kK6WT9f0zNjAv6kCEyH4=
+github.com/PlakarKorp/kloset v1.1.8/go.mod h1:tDJRg9YBSmgJHQJzNubt+jZiETRcakPUpbO7PFcYUNM=
 github.com/RaduBerinde/axisds v0.1.0 h1:YItk/RmU5nvlsv/awo2Fjx97Mfpt4JfgtEVAGPrLdz8=
 github.com/RaduBerinde/axisds v0.1.0/go.mod h1:UHGJonU9z4YYGKJxSaC6/TNcLOBptpmM5m2Cksbnw0Y=
 github.com/RaduBerinde/btreemap v0.0.0-20250419174037-3d62b7205d54 h1:bsU8Tzxr/PNz75ayvCnxKZWEYdLMPDkUgticP4a4Bvk=

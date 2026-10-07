@@ -1,0 +1,9 @@
+ca.csr
+ca.key
+ca.pem
+cert.key
+mongodb.crt
+mongodb.csr
+mongodb.key
+mongodb.pem
+testdir

@@ -10,28 +10,47 @@ This integration allows:
 - Seamless export of MongoDB data into a Kloset repository.
 - Direct restoration of data from Kloset to MongoDB
 
-This integration uses the mongosh, mongodump, and mongorestore utlities.
+This integration uses the mongosh, mongodump, and mongorestore utilities.
+
+Warning:
+    The restore uses `mongorestore --drop`.
+    If you restore an admin database, any existing users and roles will be deleted and replaced with the snapshot's content.
 
 ## Configuration
 \
 The required configuration parameters are as follows:
 
-- `location`: A URL to the MongoDB server. On the command line this URL must begin with mongodb://`
+- `location`: A URL to the MongoDB server. On the command line this URL must begin with `mongodb://` or `mongodb+srv://`
 
 The optional configuration parameters are as follows:
 
 - `port`: The MongoDB server port. The default port is 27017.
 - `username`: The username for authentication to MongoDB.
 - `password`: The password for authentication to MongoDB.
-- `use_tls`: Indicates Whether to use an encrypted TLS/SSL connection. Defaults to true.
+- `use_tls`: Indicates whether to use an encrypted TLS/SSL connection. Defaults to true.
+- `tls_ca_cert`: Path to a custom CA certificate to use for verifying the MongoDB server's certificate.
+- `tls_client_cert`: Path to a client certificate for mTLS authentication to the MongoDB server.
+- `auth_mechanism`: Name of authentication mechanism to use with the MongoDB server.
 
 ## Tests
 
 Tests can be run with:
 
 ```bash
+make -C tests prepare
 make -C tests
+make -C tests clean
 ```
+
+By default the tests run with mongod configured to allow both plaintext
+and TLS connections. To run the tests with TLS connections only, use:
+
+```bash
+make -C tests TLS_MODE=requireTLS prepare
+make -C tests TLS_MODE=requireTLS
+make -C tests TLS_MODE=requireTLS clean
+```
+
 At time of writing the tests only work on Linux.
 
 The following programs are required in $PATH:

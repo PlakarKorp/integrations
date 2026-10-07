@@ -19,6 +19,7 @@ export LC_ALL=C
 export TEST_TMPDIR="/tmp"
 export TEST_DATA_FILE="testdata.bson"
 export AUTH_DATA_FILE="mongo-test-authdata"
+export PLAKAR_INSECURE_PLAINTEXT=1
 
 . ./"$AUTH_DATA_FILE"
 export MONGODB_INITDB_ROOT_USERNAME
@@ -64,6 +65,15 @@ test_init()
 	testdata=$(cat $TEST_DATA_FILE)
 	run_mongosh "db.collection.insertOne($testdata)" > /dev/null
 
+	run_mongosh "db.getSiblingDB(\"\$external\").runCommand(
+	  {
+	    createUser: \"$MONGODB_TESTCLIENT\",
+	    roles: [
+	      { role: \"readWrite\", db: \"test\" },
+	    ]
+	  }
+	)" > /dev/null
+
 	echo "$testroot"
 }
 
@@ -77,6 +87,13 @@ run_test()
 		*$testfunc) ;;
 		*) return ;;
 		esac
+	fi
+
+	if [ "${TLS_MODE}"  = "requireTLS" -a "$limits" = "no-tls" ]; then
+		if [ -z "$TEST_QUIET" ]; then
+			echo "$testfunc skipped (no-tls)"
+		fi
+		return
 	fi
 
 	if [ -z "$TEST_QUIET" ]; then
@@ -133,8 +150,14 @@ run_mongosh()
 
 	echo "$*" >> "$script"
 
+	if [ "$TLS_MODE" = "requireTLS" ]; then
+		TLS_FLAGS="--tls --tlsCAFile=\"$CA_CRT\""
+	else
+		TLS_FLAGS=""
+	fi
+
 	cat "$script" | docker exec -i ${MONGODB_DOCKER_NAME} mongosh \
-		--quiet \
+		--quiet $TLS_FLAGS \
 		--port ${MONGODB_PORT} | \
 		sed -e 's/^admin> //' -e 's/^test> //'
 

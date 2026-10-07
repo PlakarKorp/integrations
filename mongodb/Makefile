@@ -20,4 +20,4 @@ package:
 
 install: package
 	plakar pkg rm mongodb
-	plakar pkg add ./mongodb_${V}*.ptar
+	plakar pkg add -allow-unsigned ./mongodb_${V}*.ptar

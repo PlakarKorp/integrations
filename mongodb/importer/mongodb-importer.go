@@ -17,14 +17,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -39,12 +41,15 @@ const defaultMongoDBPort = 27017
 const backupFilename = "mongodb-backup.bson"
 
 type mongodbImporter struct {
-	url     *url.URL
-	port	string
-	username string
-	password string
-	options *connectors.Options
-	use_tls	bool
+	url             *url.URL
+	port            string
+	username        string
+	password        string
+	options         *connectors.Options
+	use_tls         bool
+	tls_ca_cert     string
+	tls_client_cert string
+	auth_mechanism  string
 }
 
 func init() {
@@ -83,12 +88,15 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	i := &mongodbImporter{
-		url:     parsed,
-		port:  port,
-		username: params["username"],
-		password: params["password"],
-		options: opts,
-		use_tls: use_tls,
+		url:             parsed,
+		port:            port,
+		username:        params["username"],
+		password:        params["password"],
+		options:         opts,
+		use_tls:         use_tls,
+		tls_ca_cert:     params["tls_ca_cert"],
+		tls_client_cert: params["tls_client_cert"],
+		auth_mechanism:  params["auth_mechanism"],
 	}
 
 	return i, nil
@@ -97,15 +105,30 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 func (i *mongodbImporter) Ping(ctx context.Context) error {
 	var args []string
 
-	args = append(args, "--host")
-	args = append(args, i.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, i.port)
+	if i.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, i.port)
+	}
 	if i.use_tls {
 		args = append(args, "--tls")
+		if len(i.tls_ca_cert) > 0 {
+			args = append(args, "--tlsCAFile")
+			args = append(args, i.tls_ca_cert)
+		}
+		if len(i.tls_client_cert) > 0 {
+			args = append(args, "--tlsCertificateKeyFile")
+			args = append(args, i.tls_client_cert)
+		}
+	}
+	if len(i.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, i.auth_mechanism)
+
 	}
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
+
+	args = append(args, fmt.Sprintf("%s://%s", i.url.Scheme, i.url.Hostname()))
 	cmd := exec.Command("mongosh", args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -147,8 +170,16 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 }
 
 func cleanupTempFile(f *os.File) {
-	os.Remove(f.Name())
-	f.Close()
+	if f != nil {
+		os.Remove(f.Name())
+		f.Close()
+	}
+}
+
+type commandResult struct {
+	stderr []byte
+	err    error
+	exit   bool
 }
 
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
@@ -158,12 +189,24 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	var f *os.File
 	var err error
 
-	args = append(args, "--host")
-	args = append(args, i.url.Hostname())
-	args = append(args, "--port")
-	args = append(args, i.port)
+	if i.url.Scheme != "mongodb+srv" {
+		args = append(args, "--port")
+		args = append(args, i.port)
+	}
 	if i.use_tls {
 		args = append(args, "--ssl")
+		if len(i.tls_ca_cert) > 0 {
+			args = append(args, "--sslCAFile")
+			args = append(args, i.tls_ca_cert)
+		}
+		if len(i.tls_client_cert) > 0 {
+			args = append(args, "--sslPEMKeyFile")
+			args = append(args, i.tls_client_cert)
+		}
+	}
+	if len(i.auth_mechanism) > 0 {
+		args = append(args, "--authenticationMechanism")
+		args = append(args, i.auth_mechanism)
 	}
 	if len(i.username) > 0 {
 		args = append(args, "--username")
@@ -174,9 +217,13 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		if err != nil {
 			return err
 		}
+		defer cleanupTempFile(f)
 
-		if _, err = fmt.Fprintf(f, "password: \"%s\"\n", i.password); err != nil {
-			cleanupTempFile(f)
+		escaped, err := json.Marshal(i.password)
+		if err != nil {
+			return err
+		}
+		if _, err = fmt.Fprintf(f, "password: %s\n", escaped); err != nil {
 			return err
 		}
 		args = append(args, "--config")
@@ -184,21 +231,46 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	}
 	args = append(args, "--archive")
 
+	args = append(args, fmt.Sprintf("%s://%s", i.url.Scheme, i.url.Hostname()))
 	cmd := exec.Command("mongodump", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cleanupTempFile(f)
 		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	read_stderr := func(c chan (commandResult)) {
+		rd := bufio.NewReader(stderr)
+
+		for {
+			buf, err := rd.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				c <- commandResult{err: fmt.Errorf("%s", buf)}
+				return
+			}
+
+			if len(buf) > 0 {
+				c <- commandResult{stderr: buf}
+			}
+		}
 	}
 
 	if err := cmd.Start(); err != nil {
-		cleanupTempFile(f)
 		return err
 	}
 
+	c := make(chan commandResult, 1)
+
 	// reap process
-	go func() { _ = cmd.Wait(); cleanupTempFile(f) }()
+	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
 	fi := objects.FileInfo{
 		Lname:      backupFilename,
@@ -216,7 +288,31 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	records <- connectors.NewRecord("/", "", fi, nil,
 		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
 
-	return nil
+	go func() {
+		read_stderr(c)
+	}()
+
+	var res commandResult
+	for err == nil && res.exit == false {
+		select {
+		case r := <-c:
+			if len(r.stderr) > 0 {
+				res.stderr = append(res.stderr, r.stderr...)
+			}
+			if res.exit == false {
+				res.exit = r.exit
+			}
+			if r.err != nil {
+				err = r.err
+			}
+		}
+	}
+
+	if err != nil && res.exit == true && len(res.stderr) > 0 {
+		err = fmt.Errorf("%s: %s", err, res.stderr)
+	}
+
+	return err
 }
 
 func (i *mongodbImporter) Close(ctx context.Context) error {
