@@ -39,7 +39,9 @@ const Region = "RegionOne"
 type Cloud struct {
 	AuthURL string
 	// Disk is the content of every image.
-	Disk         []byte
+	Disk []byte
+	// ImageSize overrides an image's reported byte size; 0 means len(Disk).
+	ImageSize    int
 	FailUpload   bool
 	FailDownload bool
 	// FailDeletes is how many deletes fail with a 500, leaving the resource.
@@ -286,8 +288,12 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.reply(w, http.StatusNotFound, nil)
 			return
 		}
+		size := len(c.Disk)
+		if c.ImageSize != 0 {
+			size = c.ImageSize
+		}
 		body := map[string]any{
-			"id": id, "status": status, "disk_format": c.imageFormat(id), "container_format": "bare", "size": len(c.Disk),
+			"id": id, "status": status, "disk_format": c.imageFormat(id), "container_format": "bare", "size": size,
 		}
 		if c.BootFromVolume {
 			body["block_device_mapping"] = "[]"

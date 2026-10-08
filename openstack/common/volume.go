@@ -355,6 +355,13 @@ func waitGone[T any](ctx context.Context, get getter[T]) error {
 // Some Cinder backends put a fresh volume in "error".
 const volumeAttempts = 3
 
+// requiredSizeGiB rounds a byte size up to whole GiB, the unit Cinder uses to
+// reject a volume smaller than the image it is created from.
+func requiredSizeGiB(bytes int64) int {
+	const gib = 1 << 30
+	return int((bytes + gib - 1) / gib)
+}
+
 // UploadTempImage uploads r to a new private image and waits for it to become
 // active. It deletes the image on failure.
 func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, diskFormat string) (*images.Image, error) {
@@ -417,16 +424,33 @@ func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src 
 	if err != nil {
 		return nil, err
 	}
+	image, err := c.glance()
+	if err != nil {
+		return nil, err
+	}
 
 	// Guessing a size risks a volume too small for the image.
 	if src == nil || src.Size <= 0 {
 		return nil, errors.New("create volume from image: the source volume has no size")
 	}
 
+	img, err := images.Get(ctx, image, imageID).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("get image %q: %w", imageID, err)
+	}
+
+	// Cinder rejects a volume smaller than the image's byte size rounded up to
+	// GiB; a volume that was near-full when backed up can exceed its own
+	// nominal src.Size once exported.
+	size := src.Size
+	if min := requiredSizeGiB(img.SizeBytes); min > size {
+		size = min
+	}
+
 	opts := volumes.CreateOpts{
 		ImageID:          imageID,
 		Name:             src.Name,
-		Size:             src.Size,
+		Size:             size,
 		VolumeType:       src.VolumeType,
 		AvailabilityZone: src.AvailabilityZone,
 		Description:      src.Description,
