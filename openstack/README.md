@@ -138,6 +138,15 @@ puts in `error` is deleted and created again, in up to three attempts.
 
 Image properties, such as `hw_*`, are not restored.
 
+### Known gaps
+
+- Encryption is a property of the target cloud's volume type, not something
+  this exporter sets directly: Cinder has no `encrypted` flag on volume
+  create. The original type's *name* is restored verbatim; whether that name
+  exists on the target cloud, and whether it means the same thing there
+  (encrypted or not), is never checked. A type name reused for something
+  unencrypted restores silently unencrypted.
+
 ### Configuration
 
 The authentication keys of the inventory, plus:
