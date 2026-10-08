@@ -17,7 +17,6 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
@@ -25,7 +24,5 @@ import (
 )
 
 func main() {
-	// stdout carries the plugin's RPC protocol with the host.
-	log.SetOutput(os.Stderr)
 	sdk.EntrypointExporter(os.Args, exporter.NewExporter)
 }
