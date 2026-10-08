@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,56 @@ func TestWaitStatusGivesUpOnPersistentGetErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), `get image "image-`)
 
 	cleanup.Run(t.Context())
+}
+
+// Cinder rejects a volume smaller than the image's byte size rounded up to
+// GiB, so CreateVolumeFromImage must request at least that, even when it
+// exceeds the source volume's own nominal size.
+func TestCreateVolumeFromImageSize(t *testing.T) {
+	tests := []struct {
+		name      string
+		imageSize int
+		srcSize   int
+		want      int
+	}{
+		{"image fits in the source size", 1024, 5, 5},
+		{"image exceeds the source size", 2<<30 + 1, 1, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			cloud.ImageSize = tt.imageSize
+			client := connectCloud(t, cloud)
+
+			img, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("data")), "qcow2")
+			require.NoError(t, err)
+
+			_, err = client.CreateVolumeFromImage(t.Context(), img.ID, &volumes.Volume{ID: "src-1", Size: tt.srcSize})
+			require.NoError(t, err)
+
+			reqs := cloud.VolumeRequests()
+			require.Len(t, reqs, 1)
+			assert.Equal(t, tt.want, reqs[0].Size)
+		})
+	}
+}
+
+func TestRequiredSizeGiB(t *testing.T) {
+	const gib = 1 << 30
+	tests := []struct {
+		name  string
+		bytes int64
+		want  int
+	}{
+		{"zero", 0, 0},
+		{"exact multiple", 2 * gib, 2},
+		{"one byte over", 2*gib + 1, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, requiredSizeGiB(tt.bytes))
+		})
+	}
 }
 
 // A snapshot that never becomes deletable is left behind, and logged.
