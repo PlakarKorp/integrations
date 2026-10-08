@@ -264,7 +264,29 @@ loop:
 }
 
 func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
-	if err := p.root.Symlink(record.Target, pathname); err != nil {
+	// Symlink then rename, like writeAtomic, so an existing entry is replaced.
+	var tmpName string
+	for range 1000 {
+		name, err := p.tempName(filepath.Dir(pathname))
+		if err != nil {
+			return err
+		}
+		err = p.root.Symlink(record.Target, name)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		tmpName = name
+		break
+	}
+	if tmpName == "" {
+		return fmt.Errorf("could not create a temporary symlink in %s", filepath.Dir(pathname))
+	}
+
+	if err := p.root.Rename(tmpName, pathname); err != nil {
+		p.root.Remove(tmpName)
 		return err
 	}
 
