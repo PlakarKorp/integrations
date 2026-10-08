@@ -259,27 +259,27 @@ func TestNewImporterLocation(t *testing.T) {
 	tests := []struct {
 		location    string
 		volumeID    string // empty when the location is rejected
-		errContains string // defaults to "location: bad value" when rejected
+		errContains string // required when the location is rejected
 	}{
 		{location: "openstack-block://384ba87e-a23e-4965-b3be-8f180e8a8625", volumeID: "384ba87e-a23e-4965-b3be-8f180e8a8625"},
 		{location: "openstack-block://vol_1", volumeID: "vol_1"},
 		{location: "openstack-block://VOL1", volumeID: "VOL1"},
-		{location: "openstack-block://"},
-		{location: "openstack-block://."},
-		{location: "openstack-block://.."},
-		{location: "openstack-block://vol-1/x"},
-		{location: "openstack-block:// vol-1"},
-		{location: "openstack-block://vol%2F1"},
-		{location: "openstack-block://vol-1?x=1"},
-		{location: "openstack-block:vol-1"},
-		{location: "s3://vol-1"},
+		{location: "openstack-block://", errContains: "location: bad value"},
+		{location: "openstack-block://.", errContains: "location: bad value"},
+		{location: "openstack-block://..", errContains: "location: bad value"},
+		{location: "openstack-block://vol-1/x", errContains: "location: bad value"},
+		{location: "openstack-block:// vol-1", errContains: "location: bad value"},
+		{location: "openstack-block://vol%2F1", errContains: "location: bad value"},
+		{location: "openstack-block://vol-1?x=1", errContains: "location: bad value"},
+		{location: "openstack-block:vol-1", errContains: "location: bad value"},
+		{location: "s3://vol-1", errContains: "location: bad value"},
 		{location: "openstack-block://spawn", errContains: "create-new placeholder"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.location, func(t *testing.T) {
 			imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, tt.location))
 			if tt.volumeID == "" {
-				assert.ErrorContains(t, err, cmp.Or(tt.errContains, "location: bad value"))
+				assert.ErrorContains(t, err, tt.errContains)
 				return
 			}
 			require.NoError(t, err)
