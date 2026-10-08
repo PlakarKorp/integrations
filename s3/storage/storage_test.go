@@ -201,6 +201,107 @@ func TestGetReusesConnections(t *testing.T) {
 	}
 }
 
+const objectLockEnabledXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<ObjectLockEnabled>Enabled</ObjectLockEnabled>
+</ObjectLockConfiguration>`
+
+const objectLockNotFoundXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+	<Code>ObjectLockConfigurationNotFoundError</Code>
+	<Message>Object Lock configuration does not exist for this bucket</Message>
+	<BucketName>bucket</BucketName>
+	<Resource>/bucket</Resource>
+	<RequestId>req</RequestId>
+	<HostId>host</HostId>
+</Error>`
+
+const configVersionsEmptyXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<Prefix>CONFIG</Prefix>
+	<MaxKeys>1</MaxKeys>
+	<IsTruncated>false</IsTruncated>
+</ListVersionsResult>`
+
+const configVersionsDeleteMarkerXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<Prefix>CONFIG</Prefix>
+	<MaxKeys>1</MaxKeys>
+	<IsTruncated>false</IsTruncated>
+	<DeleteMarker>
+		<Key>CONFIG</Key>
+		<VersionId>v1</VersionId>
+		<IsLatest>true</IsLatest>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+	</DeleteMarker>
+</ListVersionsResult>`
+
+// handleBucketExistsAndMissingConfig answers the two calls every Create
+// makes before the object-lock check: bucket exists, CONFIG does not.
+func handleBucketExistsAndMissingConfig(w http.ResponseWriter, r *http.Request) bool {
+	switch {
+	case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
+		w.WriteHeader(http.StatusOK)
+		return true
+	case r.Method == http.MethodHead:
+		w.WriteHeader(http.StatusNotFound)
+		return true
+	}
+	return false
+}
+
+func TestCreateObjectLockHistoryCheck(t *testing.T) {
+	tests := []struct {
+		name        string
+		lockEnabled bool
+		versionsXML string
+		wantErr     string
+	}{
+		{name: "lock not configured skips the version check", lockEnabled: false},
+		{name: "lock enabled, no CONFIG history allows creation", lockEnabled: true, versionsXML: configVersionsEmptyXML},
+		{name: "lock enabled, CONFIG delete marker refuses creation", lockEnabled: true, versionsXML: configVersionsDeleteMarkerXML, wantErr: "bucket already initialized"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var listCalled bool
+			s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+				if handleBucketExistsAndMissingConfig(w, r) {
+					return
+				}
+				w.Header().Set("Content-Type", "application/xml")
+				switch {
+				case r.URL.Query().Has("object-lock") && tt.lockEnabled:
+					w.Write([]byte(objectLockEnabledXML))
+				case r.URL.Query().Has("object-lock"):
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte(objectLockNotFoundXML))
+				case r.URL.Query().Has("versions"):
+					listCalled = true
+					w.Write([]byte(tt.versionsXML))
+				case r.Method == http.MethodPut:
+					w.WriteHeader(http.StatusOK)
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+				}
+			})
+
+			err := s.Create(context.Background(), []byte("config"))
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Fatalf("Create() error = %v, want nil", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Fatalf("Create() error = %v, want %q", err, tt.wantErr)
+			}
+			if !tt.lockEnabled && listCalled {
+				t.Fatalf("Create() listed CONFIG versions despite object lock not being configured")
+			}
+		})
+	}
+}
+
 func TestNewStoreVirtualHostPrefix(t *testing.T) {
 	tests := []struct {
 		name       string

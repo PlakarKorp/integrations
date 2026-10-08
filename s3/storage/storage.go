@@ -252,6 +252,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return fmt.Errorf("bucket already initialized")
 	}
 
+	if err := s.checkObjectLockHistory(ctx); err != nil {
+		return err
+	}
+
 	putObjectOptions := minio.PutObjectOptions{
 		// Some providers (eg. BlackBlaze) return the error
 		// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
@@ -275,6 +279,39 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	}
 
 	return nil
+}
+
+// checkObjectLockHistory refuses creation if Object Lock is enabled and any
+// version of CONFIG already exists, including delete markers: deleting every
+// object from a locked bucket doesn't erase its history, so a second store
+// created on top would make version recovery ambiguous between the two.
+func (s *Store) checkObjectLockHistory(ctx context.Context) error {
+	enabled, _, _, _, err := s.minioClient.GetObjectLockConfig(ctx, s.bucket)
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "ObjectLockConfigurationNotFoundError" {
+			return nil
+		}
+		return fmt.Errorf("get object lock config: %w", err)
+	}
+	if enabled != "Enabled" {
+		return nil
+	}
+
+	listCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	object, ok := <-s.minioClient.ListObjects(listCtx, s.bucket, minio.ListObjectsOptions{
+		Prefix:       s.realpath("CONFIG"),
+		WithVersions: true,
+		MaxKeys:      1,
+	})
+	if !ok {
+		return nil
+	}
+	if object.Err != nil {
+		return fmt.Errorf("list CONFIG versions: %w", object.Err)
+	}
+	return fmt.Errorf("bucket already initialized")
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
