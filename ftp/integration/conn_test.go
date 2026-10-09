@@ -60,3 +60,22 @@ func TestPlainFTPWhenAcknowledged(t *testing.T) {
 	_, err = c.ReadDir("/")
 	require.NoError(t, err)
 }
+
+func TestChmod(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	require.NoError(t, c.Chmod(dir+"/a.txt", 0o600))
+	require.Equal(t, "600", mode(t, dir+"/a.txt"))
+}
+
+func TestChmodReportsRefusal(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+
+	require.Error(t, c.Chmod(testDir(t)+"/missing", 0o600))
+}
