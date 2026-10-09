@@ -156,11 +156,9 @@ func New(
 		kubeconf = []byte(content)
 	} else {
 		kubeconf, err = os.ReadFile(kubeconfpath)
-		if err != nil {
-			if hasKubeConfig {
-				return nil, fmt.Errorf("failed to open %s: %w",
-					kubeconfpath, err)
-			}
+		if err != nil && hasKubeConfig {
+			return nil, fmt.Errorf("failed to open %s: %w",
+				kubeconfpath, err)
 		}
 	}
 
