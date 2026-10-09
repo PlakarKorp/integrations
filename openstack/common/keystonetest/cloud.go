@@ -33,6 +33,12 @@ import (
 
 const Region = "RegionOne"
 
+// imageFields are the image create request's own top-level fields; anything
+// else is a custom property, e.g. cinder_encryption_key_id.
+var imageFields = map[string]struct{}{
+	"name": {}, "disk_format": {}, "visibility": {}, "container_format": {},
+}
+
 // Cloud is a Keystone, Cinder and Glance for one project in Region. Any call
 // it does not expect, including deleting a resource twice or deleting a
 // volume it did not create, fails the test.
@@ -75,6 +81,10 @@ type Cloud struct {
 	FailVolumeAttach bool
 	// FailImageReads is how many image reads fail with a 500 before succeeding.
 	FailImageReads int
+	// EncryptionKeyID, when set, is the cinder_encryption_key_id Glance
+	// reports on an image created from an encrypted volume, including
+	// through a snapshot.
+	EncryptionKeyID string
 
 	t         *testing.T
 	mu        sync.Mutex
@@ -89,6 +99,7 @@ type Cloud struct {
 // Upload is an image created through Glance, and the data uploaded to it.
 type Upload struct {
 	ID, Name, DiskFormat, Visibility string
+	Properties                       map[string]string
 	Data                             []byte
 }
 
@@ -254,15 +265,30 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		}})
 	})
 	mux.HandleFunc("POST /image/v2/images", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Name       string `json:"name"`
-			DiskFormat string `json:"disk_format"`
-			Visibility string `json:"visibility"`
+		var raw map[string]any
+		c.decode(r, &raw)
+		name, _ := raw["name"].(string)
+		diskFormat, _ := raw["disk_format"].(string)
+		visibility, _ := raw["visibility"].(string)
+		// Custom image properties, e.g. cinder_encryption_key_id, ride along
+		// as top-level string fields alongside Glance's own.
+		var properties map[string]string
+		for k, v := range raw {
+			if _, known := imageFields[k]; known {
+				continue
+			}
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+			if properties == nil {
+				properties = make(map[string]string)
+			}
+			properties[k] = s
 		}
-		c.decode(r, &body)
-		id := c.createImage(Upload{Name: body.Name, DiskFormat: body.DiskFormat, Visibility: body.Visibility})
+		id := c.createImage(Upload{Name: name, DiskFormat: diskFormat, Visibility: visibility, Properties: properties})
 		c.reply(w, http.StatusCreated, map[string]any{
-			"id": id, "name": body.Name, "status": "queued", "disk_format": body.DiskFormat, "container_format": "bare",
+			"id": id, "name": name, "status": "queued", "disk_format": diskFormat, "container_format": "bare",
 		})
 	})
 	mux.HandleFunc("PUT /image/v2/images/{id}/file", func(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +323,10 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		}
 		if c.BootFromVolume {
 			body["block_device_mapping"] = "[]"
+		}
+		if c.EncryptionKeyID != "" && c.isEncryptedChain(id) {
+			body["cinder_encryption_key_id"] = c.EncryptionKeyID
+			body["cinder_encryption_key_deletion_policy"] = "on_image_deletion"
 		}
 		c.reply(w, http.StatusOK, body)
 	})
@@ -467,6 +497,28 @@ func (c *Cloud) isEncrypted(id string) bool {
 	defer c.mu.Unlock()
 	r, ok := c.resources[id]
 	return ok && r.encrypted
+}
+
+// isEncryptedChain reports whether id, or whatever it was ultimately
+// snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
+// images created along that chain inherit the source's encrypted type.
+func (c *Cloud) isEncryptedChain(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for range c.resources {
+		r, ok := c.resources[id]
+		if !ok {
+			return false
+		}
+		if r.encrypted {
+			return true
+		}
+		if r.source == "" {
+			return false
+		}
+		id = r.source
+	}
+	return false
 }
 
 // createFromImage creates a volume from an active image, ending in error for
