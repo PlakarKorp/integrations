@@ -372,12 +372,9 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 }
 
 func (i *mongodbImporter) Close(ctx context.Context) error {
-	if i.ca_cert_file != nil {
-		cleanupTempFile(i.ca_cert_file)
-	}
-	if i.client_cert_file != nil {
-		cleanupTempFile(i.client_cert_file)
-	}
+	cleanupTempFile(i.ca_cert_file)
+	cleanupTempFile(i.client_cert_file)
+
 	return nil
 }
 

@@ -419,12 +419,8 @@ func (e *mongodbExporter) Close(ctx context.Context) error {
 	if e.stdin != nil {
 		e.stdin.Close()
 	}
-	if e.ca_cert_file != nil {
-		cleanupTempFile(e.ca_cert_file)
-	}
-	if e.client_cert_file != nil {
-		cleanupTempFile(e.client_cert_file)
-	}
+	cleanupTempFile(e.ca_cert_file)
+	cleanupTempFile(e.client_cert_file)
 
 	return nil
 }
