@@ -146,13 +146,13 @@ func New(
 
 	home, _ := os.UserHomeDir()
 	kubeconfpath := filepath.Join(home, ".kube", "config")
-	if v, ok := params["kubeconfig_file"]; ok {
+	if v := params["kubeconfig_file"]; v != "" {
 		hasKubeConfig = true
 		kubeconfpath = v
 	}
 
 	var kubeconf []byte
-	if content, ok := params["kubeconfig"]; ok {
+	if content := params["kubeconfig"]; content != "" {
 		kubeconf = []byte(content)
 	} else {
 		kubeconf, err = os.ReadFile(kubeconfpath)
@@ -225,7 +225,7 @@ func New(
 			return nil, fmt.Errorf("bad location: slashes in namespace: %s", params["location"])
 		}
 
-		if l, ok := params["labels"]; ok && !export {
+		if l := params["labels"]; l != "" && !export {
 			_, err := labels.Parse(l)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse labels: %w", err)
