@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar NFS Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NFS location URI: nfs://<host>[:<port>][/<export>[/<subpath>]]",
+      "pattern": "^nfs://[^/]+(/.*)?$"
+    },
+    "export": {
+      "type": "string",
+      "pattern": "^/",
+      "description": "Server export to mount, e.g. /exports/data (takes precedence over the export in the location URL)"
+    },
+    "root": {
+      "type": "string",
+      "default": "/",
+      "pattern": "^/",
+      "description": "Path to the repository, relative to the mounted export (default: the export root)"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "NFS/MOUNT service port (default: resolved through the portmapper)"
+    },
+    "uid": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Numeric UID presented to the server as AUTH_UNIX credential"
+    },
+    "gid": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Numeric GID presented to the server as AUTH_UNIX credential"
+    }
+  }
+}

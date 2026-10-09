@@ -1,6 +1,6 @@
 name: nfs
 display_name: NFS
-description: Integration providing import and export capabilities to and from NFSv3 servers.
+description: Integration providing storage, import and export capabilities to and from NFSv3 servers.
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
@@ -17,3 +17,9 @@ connectors:
   license: ISC
   protocols: [nfs]
   validator: ./exporter/schema.json
+- type: storage
+  executable: nfsStorage
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
+  license: ISC
+  protocols: [nfs]
+  validator: ./storage/schema.json

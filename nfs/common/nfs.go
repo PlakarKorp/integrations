@@ -35,6 +35,7 @@ import (
 
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
+	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
 // Conn bundles a mounted NFS export and serializes access to it.
@@ -49,6 +50,7 @@ type Conn struct {
 	mu     sync.Mutex
 	mount  *nfs.Mount
 	target *nfs.Target
+	auth   rpc.Auth
 
 	// Export is the server path that was mounted (the export point).
 	Export string
@@ -82,7 +84,7 @@ func (c *Conn) Readlink(p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return f.Readlink()
 }
 
@@ -106,7 +108,24 @@ func (c *Conn) OpenReader(p string) (io.ReadCloser, error) {
 		c.mu.Unlock()
 		return nil, err
 	}
-	return &lockedFile{conn: c, file: f}, nil
+	return &lockedFile{conn: c, file: f, r: f}, nil
+}
+
+// OpenReaderRange is like OpenReader but starts at offset and reads at most
+// length bytes. Used for partial (packfile blob) reads.
+func (c *Conn) OpenReaderRange(p string, offset, length int64) (io.ReadCloser, error) {
+	c.mu.Lock()
+	f, err := c.target.Open(p)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		_ = f.Close()
+		c.mu.Unlock()
+		return nil, err
+	}
+	return &lockedFile{conn: c, file: f, r: io.LimitReader(f, length)}, nil
 }
 
 // lockedFile is an io.ReadCloser over an NFS file that releases the connection
@@ -114,11 +133,12 @@ func (c *Conn) OpenReader(p string) (io.ReadCloser, error) {
 type lockedFile struct {
 	conn   *Conn
 	file   *nfs.File
+	r      io.Reader // the file itself, or a limited range of it
 	closed bool
 }
 
 func (lf *lockedFile) Read(p []byte) (int, error) {
-	return lf.file.Read(p)
+	return lf.r.Read(p)
 }
 
 func (lf *lockedFile) Close() error {
@@ -141,10 +161,74 @@ func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) error {
 		return err
 	}
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()
+}
+
+// nfsProc3Rename is NFSv3's RENAME procedure number (RFC 1813 §3.3.14).
+// go-nfs-client doesn't implement it, so Rename builds and dispatches the RPC
+// by hand, reusing the library's exported transport (Target.Call) and XDR
+// types: there is no unexported piece that needs forking the module for.
+const nfsProc3Rename = 14
+
+type rename3Args struct {
+	rpc.Header
+	From nfs.Diropargs3
+	To   nfs.Diropargs3
+}
+
+// Rename renames oldPath to newPath, both resolved relative to the export.
+// Callers use this to make writes atomic: write to a temp name, then Rename
+// into place, so a reader never observes a partially written file.
+func (c *Conn) Rename(oldPath, newPath string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	oldDir, oldName := path.Split(oldPath)
+	newDir, newName := path.Split(newPath)
+
+	_, fromFH, err := c.target.Lookup(oldDir)
+	if err != nil {
+		return fmt.Errorf("lookup %q: %w", oldDir, err)
+	}
+	_, toFH, err := c.target.Lookup(newDir)
+	if err != nil {
+		return fmt.Errorf("lookup %q: %w", newDir, err)
+	}
+
+	res, err := c.target.Call(&rename3Args{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    nfs.Nfs3Prog,
+			Vers:    nfs.Nfs3Vers,
+			Proc:    nfsProc3Rename,
+			Cred:    c.auth,
+			Verf:    rpc.AuthNull,
+		},
+		From: nfs.Diropargs3{FH: fromFH, Filename: oldName},
+		To:   nfs.Diropargs3{FH: toFH, Filename: newName},
+	})
+	if err != nil {
+		return err
+	}
+
+	// RENAME3res carries wcc_data for both directories on success; neither
+	// caller here needs it, so it's left undecoded (same as this library's
+	// own Remove/RmDir, which discard it too).
+	status, err := xdr.ReadUint32(res)
+	if err != nil {
+		return err
+	}
+	return nfs.NFS3Error(status)
+}
+
+// Remove deletes the file at p.
+func (c *Conn) Remove(p string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.target.Remove(p)
 }
 
 // Config is the parsed, normalized form of a connector configuration map.
@@ -267,13 +351,14 @@ func Connect(cfg *Config) (*Conn, error) {
 
 	target, err := mount.Mount(cfg.Export, cfg.auth())
 	if err != nil {
-		mount.Close()
+		_ = mount.Close()
 		return nil, fmt.Errorf("mount export %q on %s: %w", cfg.Export, addr, err)
 	}
 
 	return &Conn{
 		mount:  mount,
 		target: target,
+		auth:   cfg.auth(),
 		Export: cfg.Export,
 	}, nil
 }
@@ -289,7 +374,7 @@ func (c *Conn) Close() error {
 		}
 	}
 	if c.mount != nil {
-		c.mount.Unmount()
+		_ = c.mount.Unmount()
 		if err := c.mount.Close(); err != nil && first == nil {
 			first = err
 		}
