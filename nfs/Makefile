@@ -10,6 +10,10 @@ all: build
 build:
 	${GO} build -v -o nfsImporter${EXT} ./plugin/importer
 	${GO} build -v -o nfsExporter${EXT} ./plugin/exporter
+	${GO} build -v -o nfsStorage${EXT} ./plugin/storage
+
+test:
+	${GO} test -v ./...
 
 lint: $(QA_DIR)/golangci.yml $(QA_DIR)/versions
 	${GO} run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@`sed -n 's/^golangci-lint=//p' $(QA_DIR)/versions` \
@@ -24,5 +28,5 @@ $(QA_DIR)/golangci.yml $(QA_DIR)/versions:
 	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
 
 clean:
-	rm -f nfsImporter nfsExporter nfs-*.ptar
+	rm -f nfsImporter nfsExporter nfsStorage nfs-*.ptar
 	rm -rf .qa
