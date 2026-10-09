@@ -81,6 +81,10 @@ type Cloud struct {
 	FailVolumeAttach bool
 	// FailImageReads is how many image reads fail with a 500 before succeeding.
 	FailImageReads int
+	// EncryptionKeyID, when set, is the cinder_encryption_key_id Glance
+	// reports on an image created from an encrypted volume, including
+	// through a snapshot.
+	EncryptionKeyID string
 
 	t         *testing.T
 	mu        sync.Mutex
@@ -320,6 +324,10 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		if c.BootFromVolume {
 			body["block_device_mapping"] = "[]"
 		}
+		if c.EncryptionKeyID != "" && c.isEncryptedChain(id) {
+			body["cinder_encryption_key_id"] = c.EncryptionKeyID
+			body["cinder_encryption_key_deletion_policy"] = "on_image_deletion"
+		}
 		c.reply(w, http.StatusOK, body)
 	})
 	mux.HandleFunc("GET /image/v2/images/{id}/file", func(w http.ResponseWriter, r *http.Request) {
@@ -489,6 +497,28 @@ func (c *Cloud) isEncrypted(id string) bool {
 	defer c.mu.Unlock()
 	r, ok := c.resources[id]
 	return ok && r.encrypted
+}
+
+// isEncryptedChain reports whether id, or whatever it was ultimately
+// snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
+// images created along that chain inherit the source's encrypted type.
+func (c *Cloud) isEncryptedChain(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for range c.resources {
+		r, ok := c.resources[id]
+		if !ok {
+			return false
+		}
+		if r.encrypted {
+			return true
+		}
+		if r.source == "" {
+			return false
+		}
+		id = r.source
+	}
+	return false
 }
 
 // createFromImage creates a volume from an active image, ending in error for

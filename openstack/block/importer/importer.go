@@ -103,10 +103,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	// Emit what restore needs to recreate the volume, including the image's real
 	// disk format.
 	metadata := &common.DiskMetadata{
-		Origin:   common.DiskOriginCinder,
-		Image:    vi.Image,
-		Volume:   vi.Volume,
-		Snapshot: vi.Snapshot,
+		Origin:          common.DiskOriginCinder,
+		Image:           vi.Image,
+		ImageProperties: common.EncryptionImageProperties(vi.Image),
+		Volume:          vi.Volume,
+		Snapshot:        vi.Snapshot,
 	}
 	select {
 	case <-ctx.Done():
