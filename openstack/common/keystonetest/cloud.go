@@ -76,14 +76,15 @@ type Cloud struct {
 	// FailImageReads is how many image reads fail with a 500 before succeeding.
 	FailImageReads int
 
-	t         *testing.T
-	mu        sync.Mutex
-	next      int
-	resources map[string]*resource
-	vanished  map[string]bool
-	uploads   []Upload
-	requests  []VolumeRequest
-	mux       *http.ServeMux
+	t              *testing.T
+	mu             sync.Mutex
+	next           int
+	resources      map[string]*resource
+	vanished       map[string]bool
+	uploads        []Upload
+	requests       []VolumeRequest
+	serversCreated int
+	mux            *http.ServeMux
 }
 
 // Upload is an image created through Glance, and the data uploaded to it.
@@ -328,6 +329,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		c.mu.Lock()
 		c.next++
 		id := fmt.Sprintf("server-%d", c.next)
+		c.serversCreated++
 		c.mu.Unlock()
 		c.reply(w, http.StatusAccepted, map[string]any{"server": map[string]any{"id": id, "status": "BUILD"}})
 	})
@@ -388,6 +390,13 @@ func (c *Cloud) VolumeRequests() []VolumeRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.requests)
+}
+
+// ServersCreated is how many Nova server-create calls this cloud has seen.
+func (c *Cloud) ServersCreated() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.serversCreated
 }
 
 // Vanish deletes resources behind the client's back, as another user would.

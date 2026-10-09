@@ -30,6 +30,7 @@ import (
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
 )
@@ -152,6 +153,28 @@ loop:
 		return err
 	}
 
+	if exp.attachServerID != "" {
+		if _, err := exp.client.GetServer(ctx, exp.attachServerID); err != nil {
+			return err
+		}
+		rootSrc := &volumes.Volume{ID: rootID, Size: 0, AvailabilityZone: serverMetadata.Server.AvailabilityZone}
+		if serverMetadata.Flavor != nil {
+			rootSrc.Size = serverMetadata.Flavor.Disk
+		}
+		if err := exp.restoreDisk(ctx, exp.attachServerID, rootID, root, rootSrc); err != nil {
+			return err
+		}
+		for id, restore := range exp.disks {
+			if id == rootID {
+				continue
+			}
+			if err := exp.restoreDisk(ctx, exp.attachServerID, id, restore, restore.metadata.Volume); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	server, err := exp.spawnServer(ctx, serverMetadata, root.imageID)
 	if err != nil {
 		return err
@@ -164,7 +187,7 @@ loop:
 		if id == rootID {
 			continue
 		}
-		if err := exp.restoreVolume(ctx, server.ID, id, restore); err != nil {
+		if err := exp.restoreDisk(ctx, server.ID, id, restore, restore.metadata.Volume); err != nil {
 			return err
 		}
 	}
@@ -272,17 +295,18 @@ func (exp *Exporter) spawnServer(ctx context.Context, metadata *common.ServerMet
 	})
 }
 
-func (exp *Exporter) restoreVolume(ctx context.Context, serverID, volumeID string, restore *diskRestore) error {
-	if restore.metadata == nil || restore.metadata.Origin != common.DiskOriginCinder {
-		return fmt.Errorf("%q: not a Cinder-origin disk", volumeID)
-	}
+// restoreDisk creates a volume from a disk's restore image and attaches it
+// to serverID. src is the disk's own volume metadata for a Cinder-origin
+// disk, or one synthesized from the server's flavor for the Glance-origin
+// root disk, which never had a real Cinder volume behind it.
+func (exp *Exporter) restoreDisk(ctx context.Context, serverID, diskID string, restore *diskRestore, src *volumes.Volume) error {
 	if restore.imageID == "" {
-		return fmt.Errorf("volume %q: image was not uploaded", volumeID)
+		return fmt.Errorf("disk %q: image was not uploaded", diskID)
 	}
 
-	vol, err := exp.client.CreateVolumeFromImage(ctx, restore.imageID, restore.metadata.Volume)
+	vol, err := exp.client.CreateVolumeFromImage(ctx, restore.imageID, src)
 	if err != nil {
-		return fmt.Errorf("restore volume %q: %w", volumeID, err)
+		return fmt.Errorf("restore volume %q: %w", diskID, err)
 	}
 	exp.client.DeleteTempImage(ctx, restore.imageID)
 	restore.imageID = ""
