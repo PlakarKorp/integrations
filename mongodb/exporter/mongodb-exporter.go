@@ -40,18 +40,23 @@ const backupFilename = "mongodb-backup.bson"
 const debug = false
 
 type mongodbExporter struct {
-	url             *url.URL
-	port            string
-	username        string
-	password        string
-	options         *connectors.Options
-	use_tls         bool
-	tls_ca_cert     string
-	tls_client_cert string
-	auth_mechanism  string
-	stdin           io.WriteCloser
-	stdout          io.ReadCloser
-	stderr          io.ReadCloser
+	url                  *url.URL
+	port                 string
+	username             string
+	password             string
+	options              *connectors.Options
+	use_tls              bool
+	tls_ca_cert          string
+	tls_ca_cert_data     string
+	ca_cert_file         *os.File
+	tls_client_cert      string
+	tls_client_cert_data string
+	tls_client_key_data  string
+	client_cert_file     *os.File
+	auth_mechanism       string
+	stdin                io.WriteCloser
+	stdout               io.ReadCloser
+	stderr               io.ReadCloser
 }
 
 func init() {
@@ -86,16 +91,67 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		port = fmt.Sprintf("%d", defaultMongoDBPort)
 	}
 
+	var tls_ca_cert string
+	var tls_client_cert string
+
+	var ca_cert_file *os.File
+	var client_cert_file *os.File
+
+	if use_tls {
+		ca_cert_data := params["tls_ca_cert_data"]
+		if ca_cert_data != "" {
+			if params["tls_ca_cert"] != "" {
+				return nil, fmt.Errorf("ambiguous CA certificate parameters: " +
+					"both a CA cert file path and inline PEM CA data have been specified")
+			}
+			ca_cert_file, err = os.CreateTemp("", "plakar-mongodb")
+			if err != nil {
+				return nil, err
+			}
+			ca_cert_file.WriteString(ca_cert_data + "\n")
+			ca_cert_file.Sync()
+			tls_ca_cert = ca_cert_file.Name()
+		} else {
+			tls_ca_cert = params["tls_ca_cert"]
+		}
+
+		cert_data := params["tls_client_cert_data"]
+		cert_key := params["tls_client_key_data"]
+
+		if cert_data != "" && cert_key != "" {
+			if params["tls_client_cert"] != "" {
+				return nil, fmt.Errorf("ambiguous client certificate parameters: " +
+					"both a client cert file path and inline PEM cert data " +
+					"have been specified")
+			}
+			client_cert_file, err = os.CreateTemp("", "plakar-mongodb")
+			if err != nil {
+				return nil, err
+			}
+			client_cert_file.WriteString(cert_data + "\n")
+			client_cert_file.WriteString(cert_key + "\n")
+			client_cert_file.Sync()
+			tls_client_cert = client_cert_file.Name()
+		} else if cert_data != "" || cert_key != "" {
+			return nil, fmt.Errorf("tls_client_cert_data and " +
+				"tls_client_key_data must both be specified together")
+		} else {
+			tls_client_cert = params["tls_client_cert"]
+		}
+	}
+
 	e := &mongodbExporter{
-		url:             parsed,
-		port:            port,
-		username:        params["username"],
-		password:        params["password"],
-		options:         opts,
-		use_tls:         use_tls,
-		tls_ca_cert:     params["tls_ca_cert"],
-		tls_client_cert: params["tls_client_cert"],
-		auth_mechanism:  params["auth_mechanism"],
+		url:              parsed,
+		port:             port,
+		username:         params["username"],
+		password:         params["password"],
+		options:          opts,
+		use_tls:          use_tls,
+		tls_ca_cert:      tls_ca_cert,
+		ca_cert_file:     ca_cert_file,
+		tls_client_cert:  tls_client_cert,
+		client_cert_file: client_cert_file,
+		auth_mechanism:   params["auth_mechanism"],
 	}
 
 	return e, nil
@@ -362,6 +418,12 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 func (e *mongodbExporter) Close(ctx context.Context) error {
 	if e.stdin != nil {
 		e.stdin.Close()
+	}
+	if e.ca_cert_file != nil {
+		cleanupTempFile(e.ca_cert_file)
+	}
+	if e.client_cert_file != nil {
+		cleanupTempFile(e.client_cert_file)
 	}
 
 	return nil
