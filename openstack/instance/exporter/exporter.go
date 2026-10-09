@@ -307,7 +307,7 @@ func diskPath(pathname string) (origin common.DiskOrigin, id, name string, ok bo
 		return "", "", "", false
 	}
 	for _, o := range [...]common.DiskOrigin{common.DiskOriginGlance, common.DiskOriginCinder} {
-		if rest, ok := strings.CutPrefix(dir, string(o)+"-"); ok {
+		if rest, ok := strings.CutPrefix(dir, string(o)+"-"); ok && common.IDFormat.MatchString(rest) {
 			return o, rest, name, true
 		}
 	}

@@ -16,26 +16,32 @@
     },
     "openstack_application_credential_id": {
       "type": "string",
+      "minLength": 1,
       "description": "Application credential ID; takes precedence over password authentication"
     },
     "openstack_application_credential_secret": {
       "type": "string",
+      "minLength": 1,
       "description": "Application credential secret"
     },
     "openstack_username": {
       "type": "string",
+      "minLength": 1,
       "description": "Username, for password authentication"
     },
     "openstack_password": {
       "type": "string",
+      "minLength": 1,
       "description": "Password, for password authentication"
     },
     "openstack_project_id": {
       "type": "string",
+      "minLength": 1,
       "description": "Project ID, for password authentication; this or openstack_project_name is required"
     },
     "openstack_project_name": {
       "type": "string",
+      "minLength": 1,
       "description": "Project name, for password authentication; ignored if openstack_project_id is set"
     },
     "openstack_domain_name": {
