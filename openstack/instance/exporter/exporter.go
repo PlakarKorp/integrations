@@ -42,6 +42,9 @@ type Exporter struct {
 	// disks tracks each disk's restore image, until the server (for the
 	// root disk) or a new volume (for an attached one) is created from it.
 	disks map[string]*diskRestore
+	// attachServerID is the existing Nova server to attach every restored
+	// disk to, or "" to spawn a new one.
+	attachServerID string
 }
 
 type diskRestore struct {
@@ -49,11 +52,12 @@ type diskRestore struct {
 	imageID  string
 }
 
-// NewExporter spawns a new server, so the location names nothing: it must
-// be proto:// alone.
+// NewExporter spawns a new server for a bare or proto://spawn location, or
+// restores onto an existing one for proto://<server-id>.
 func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
-	if params["location"] != proto+"://" {
-		return nil, fmt.Errorf("location: bad value: %q is not %s://", params["location"], proto)
+	suffix, ok := strings.CutPrefix(params["location"], proto+"://")
+	if !ok || (suffix != "" && suffix != common.SpawnLocation && !common.IDFormat.MatchString(suffix)) {
+		return nil, fmt.Errorf("location: bad value: %q is not %s://, %s://spawn, or %s://<id>", params["location"], proto, proto, proto)
 	}
 	cfg, err := common.ParseConnectorConfig(params)
 	if err != nil {
@@ -66,7 +70,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
-	return &Exporter{client: clients[0], disks: map[string]*diskRestore{}}, nil
+	attachServerID := suffix
+	if attachServerID == common.SpawnLocation {
+		attachServerID = ""
+	}
+	return &Exporter{client: clients[0], disks: map[string]*diskRestore{}, attachServerID: attachServerID}, nil
 }
 
 func (exp *Exporter) Origin() string        { return "" }
@@ -75,6 +83,10 @@ func (exp *Exporter) Root() string          { return "/" }
 func (exp *Exporter) Flags() location.Flags { return 0 }
 
 func (exp *Exporter) Ping(ctx context.Context) error {
+	if exp.attachServerID != "" {
+		_, err := exp.client.GetServer(ctx, exp.attachServerID)
+		return err
+	}
 	for _, err := range exp.client.ListServers(ctx) {
 		if err != nil {
 			return err

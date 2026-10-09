@@ -309,7 +309,9 @@ func TestNewExporterLocation(t *testing.T) {
 		valid    bool
 	}{
 		{location: "openstack-instance://", valid: true},
-		{location: "openstack-instance://server-1", valid: false},
+		{location: "openstack-instance://spawn", valid: true},
+		{location: "openstack-instance://server-1", valid: true},
+		{location: "openstack-instance://bad!id", valid: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.location, func(t *testing.T) {
