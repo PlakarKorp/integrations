@@ -144,7 +144,7 @@ func serverMetadata() common.ServerMetadata {
 				{"name": "default"},
 			},
 		},
-		Flavor: &flavors.Flavor{ID: "flavor-1", Name: "m1.small"},
+		Flavor: &flavors.Flavor{ID: "flavor-1", Name: "m1.small", Disk: 10},
 		Networks: []*networks.Network{
 			{ID: "net-1", Name: "private"},
 		},
@@ -178,6 +178,18 @@ func fakeSpawn(cloud *keystonetest.Cloud) {
 	})
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ACTIVE"}}`)
+	})
+}
+
+// fakeExistingServer overrules the Nova GET existing-server mode checks:
+// validID exists, anything else 404s.
+func fakeExistingServer(cloud *keystonetest.Cloud, validID string) {
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != validID {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		writeJSON(w, `{"server":{"id":"`+validID+`","status":"ACTIVE"}}`)
 	})
 }
 
@@ -254,6 +266,78 @@ func TestExportCleansUpVolumeOnAttachFailure(t *testing.T) {
 		dirRecord("/block-storage/cinder-vol-1"),
 		diskMetadataRecord(t, "/block-storage/cinder-vol-1", volumeDiskMetadata()),
 		diskRecord("/block-storage/cinder-vol-1"),
+	)
+	require.ErrorContains(t, err, "attach volume")
+	assert.Empty(t, cloud.Leftovers())
+}
+
+func TestExportAttachesAllDisksToExistingServer(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	fakeExistingServer(cloud, "server-1")
+	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
+	require.NoError(t, err)
+
+	results, err := exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
+		dirRecord("/block-storage/cinder-vol-1"),
+		diskMetadataRecord(t, "/block-storage/cinder-vol-1", volumeDiskMetadata()),
+		diskRecord("/block-storage/cinder-vol-1"),
+	)
+	require.NoError(t, err)
+	for _, r := range results {
+		assert.NoError(t, r.Err, r.Record.Pathname)
+	}
+
+	assert.Zero(t, cloud.ServersCreated())
+
+	reqs := cloud.VolumeRequests()
+	require.Len(t, reqs, 2)
+	assert.Equal(t, serverMetadata().Flavor.Disk, reqs[0].Size, "root disk volume size")
+	assert.Equal(t, 3, reqs[1].Size, "data disk volume size")
+
+	require.NoError(t, exp.Close(t.Context()))
+}
+
+func TestExportRejectsMissingExistingServer(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	fakeExistingServer(cloud, "server-1")
+	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-404"))
+	require.NoError(t, err)
+
+	assert.ErrorContains(t, exp.Ping(t.Context()), "get server")
+
+	_, err = exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
+	)
+	require.ErrorContains(t, err, "get server")
+}
+
+// A disk attached to an existing server that fails to attach must not be
+// left behind: same guarantee as spawn mode, in existing-server mode.
+func TestExportCleansUpVolumeOnAttachFailureExistingMode(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	cloud.FailVolumeAttach = true
+	fakeExistingServer(cloud, "server-1")
+	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
+	require.NoError(t, err)
+
+	_, err = exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
 	)
 	require.ErrorContains(t, err, "attach volume")
 	assert.Empty(t, cloud.Leftovers())
