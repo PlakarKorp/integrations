@@ -311,7 +311,7 @@ func (s *Store) checkObjectLockHistory(ctx context.Context) error {
 	if object.Err != nil {
 		return fmt.Errorf("list CONFIG versions: %w", object.Err)
 	}
-	return fmt.Errorf("bucket already initialized")
+	return fmt.Errorf("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
