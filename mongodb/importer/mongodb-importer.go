@@ -161,10 +161,6 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 func (i *mongodbImporter) Ping(ctx context.Context) error {
 	var args []string
 
-	if i.url.Scheme != "mongodb+srv" {
-		args = append(args, "--port")
-		args = append(args, i.port)
-	}
 	if i.use_tls {
 		args = append(args, "--tls")
 		if len(i.tls_ca_cert) > 0 {
@@ -184,7 +180,13 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	args = append(args, "--eval")
 	args = append(args, "db.runCommand({ hello: 1 })")
 
-	args = append(args, fmt.Sprintf("%s://%s", i.url.Scheme, i.url.Hostname()))
+	if i.url.Scheme == "mongodb+srv" {
+		args = append(args, fmt.Sprintf("%s://%s",
+		    i.url.Scheme, i.url.Hostname()))
+	} else {
+		args = append(args, fmt.Sprintf("%s://%s:%s",
+		    i.url.Scheme, i.url.Hostname(), i.port))
+	}
 	cmd := exec.Command("mongosh", args...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -245,10 +247,6 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	var f *os.File
 	var err error
 
-	if i.url.Scheme != "mongodb+srv" {
-		args = append(args, "--port")
-		args = append(args, i.port)
-	}
 	if i.use_tls {
 		args = append(args, "--ssl")
 		if len(i.tls_ca_cert) > 0 {
@@ -287,7 +285,13 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	}
 	args = append(args, "--archive")
 
-	args = append(args, fmt.Sprintf("%s://%s", i.url.Scheme, i.url.Hostname()))
+	if i.url.Scheme == "mongodb+srv" {
+		args = append(args, fmt.Sprintf("%s://%s",
+		    i.url.Scheme, i.url.Hostname()))
+	} else {
+		args = append(args, fmt.Sprintf("%s://%s:%s",
+		    i.url.Scheme, i.url.Hostname(), i.port))
+	}
 	cmd := exec.Command("mongodump", args...)
 
 	stdout, err := cmd.StdoutPipe()
