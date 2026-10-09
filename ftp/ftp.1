@@ -33,3 +33,9 @@ $ plakar at @mystore backup @myftp
 .Pp
 .Sh LIMITATIONS
 The current implementation is currently very simple and lacks many features.
+.Pp
+Restore sets permissions with
+.Cm SITE CHMOD ,
+which is not part of RFC 959.
+On a server that lacks or refuses it, every restored file and directory is
+reported as failed.
