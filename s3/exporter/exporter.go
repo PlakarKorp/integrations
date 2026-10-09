@@ -178,11 +178,10 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		}
 		host = parsed.Host
 
-		source := parsed.Path
-		if root != "" {
-			source = root
+		bucket, restoreDir, err = common.SplitPathStyle(parsed.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		bucket, restoreDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {
