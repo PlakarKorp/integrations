@@ -25,14 +25,13 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/PlakarKorp/integrations/ftp/conn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/secsy/goftp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -45,7 +44,7 @@ type Exporter struct {
 
 	host    string
 	rootDir string
-	client  *goftp.Client
+	client  *conn.Client
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -141,14 +140,16 @@ func (p *Exporter) Close(ctx context.Context) error {
 }
 
 type dirPerm struct {
-	Pathname string
-	Fileinfo objects.FileInfo
+	record   *connectors.Record
+	pathname string
 }
 
 func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
+
+	var dirPerms []dirPerm
 
 loop:
 	for {
@@ -179,14 +180,16 @@ loop:
 			}
 
 			if record.FileInfo.Lmode.IsDir() {
+				// The restore root is the user's target, not ours to chmod.
 				if pathname == p.Root() {
 					results <- record.Ok()
+				} else if _, err := p.client.Mkdir(pathname); err != nil {
+					results <- record.Error(err)
 				} else {
-					if _, err := p.client.Mkdir(pathname); err != nil {
-						results <- record.Error(err)
-					} else {
-						results <- record.Ok()
-					}
+					// Reported once its mode is set, after its
+					// children are written: a read-only
+					// directory would refuse them.
+					dirPerms = append(dirPerms, dirPerm{record, pathname})
 				}
 				continue
 			}
@@ -214,13 +217,13 @@ loop:
 		ret = err
 	}
 
-	/*
-		for i := len(dirPerms) - 1; i >= 0; i-- {
-			if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
-				return err
-			}
+	for _, d := range slices.Backward(dirPerms) {
+		if err := p.client.Chmod(d.pathname, d.record.FileInfo.Lmode); err != nil {
+			results <- d.record.Error(err)
+		} else {
+			results <- d.record.Ok()
 		}
-	*/
+	}
 
 	return ret
 }
@@ -265,9 +268,5 @@ func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error
 	if err := p.client.Rename(tmpName, pathname); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error {
-	return errors.ErrUnsupported
+	return p.client.Chmod(pathname, record.FileInfo.Lmode)
 }

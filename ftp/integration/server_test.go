@@ -109,6 +109,8 @@ func startServer(ctx context.Context) (string, error) {
 	req := testcontainers.ContainerRequest{
 		Image:        image,
 		ExposedPorts: exposed,
+		// The image's default command minus -R, which disables SITE CHMOD.
+		Cmd: []string{"/bin/sh", "-c", "/run.sh -l puredb:/etc/pure-ftpd/pureftpd.pdb -E -j -P $PUBLICHOST"},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			if hc.PortBindings == nil {
 				hc.PortBindings = network.PortMap{}
