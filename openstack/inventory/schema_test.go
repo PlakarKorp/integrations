@@ -110,6 +110,25 @@ func TestSchema(t *testing.T) {
 			},
 			valid: false,
 		},
+		{
+			name: "empty password",
+			params: map[string]string{
+				"openstack_auth_url":   keystoneURL,
+				"openstack_username":   "user",
+				"openstack_password":   "",
+				"openstack_project_id": "p1",
+			},
+			valid: false,
+		},
+		{
+			name: "empty application credential secret",
+			params: map[string]string{
+				"openstack_auth_url":                      keystoneURL,
+				"openstack_application_credential_id":     "id",
+				"openstack_application_credential_secret": "",
+			},
+			valid: false,
+		},
 	}
 
 	for _, tt := range tests {
