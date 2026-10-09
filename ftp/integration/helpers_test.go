@@ -20,6 +20,7 @@ var testDirs atomic.Int64
 // testDir returns a directory name no other test, or other run of the same
 // test under -count, uses on the shared server.
 func testDir(t *testing.T) string {
+	t.Helper()
 	return fmt.Sprintf("/%s-%d", t.Name(), testDirs.Add(1))
 }
 
