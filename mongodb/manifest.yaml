@@ -10,8 +10,10 @@ connectors:
     protocols: [mongodb, mongodb+srv]
     validator: ./importer/schema.json
     class: database
+    subclass: mongodb
   - type: exporter
     executable: ./mongodb-exporter
     validator: ./exporter/schema.json
     protocols: [mongodb, mongodb+srv]
     class: database
+    subclass: mongodb

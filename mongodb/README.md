@@ -29,7 +29,7 @@ The optional configuration parameters are as follows:
 - `password`: The password for authentication to MongoDB.
 - `use_tls`: Indicates whether to use an encrypted TLS/SSL connection. Defaults to true.
 - `tls_ca_cert`: Path to a custom CA certificate to use for verifying the MongoDB server's certificate.
-- `tls_client_cert`: Path to a client certificate for mTLS authentication to the MongoDB server.
+- `tls_client_cert`: Path to a client certificate and key for mTLS authentication to the MongoDB server.
 - `auth_mechanism`: Name of authentication mechanism to use with the MongoDB server.
 
 ## Tests

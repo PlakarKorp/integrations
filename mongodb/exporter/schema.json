@@ -15,6 +15,7 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 65535,
+      "default": 27017,
       "description": "MongoDB server port number. Defaults to 27017."
     },
     "username": {
@@ -38,9 +39,24 @@
       "type": "string",
       "description": "Path to a custom CA certificate to use for verifying the MongoDB server's certificate."
     },
+    "tls_ca_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of a custom CA certificate, as an alternative to providing a path."
+    },
     "tls_client_cert": {
       "type": "string",
       "description": "Path to a client certificate and key in PEM format for mTLS authentication to the MongoDB server."
+    },
+    "tls_client_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of a client certificate for mTLS authentication, as an alternative to providing a path."
+    },
+    "tls_client_key_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of a client key for mTLS authentication, as an alternative to providing a path."
     },
     "auth_mechanism": {
       "type": "string",
