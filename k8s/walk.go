@@ -106,10 +106,6 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 				}
 
 				for _, item := range list.Items {
-					if item.GetLabels()["plakar.io/generated-resource"] == "true" {
-						continue
-					}
-
 					var (
 						gvk   = item.GroupVersionKind()
 						group = "_"
