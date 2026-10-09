@@ -71,7 +71,7 @@ func ParseOptions(config map[string]string) (Options, error) {
 	return opts, nil
 }
 
-func ConnectToFTP(host string, opts Options) (*goftp.Client, error) {
+func ConnectToFTP(host string, opts Options) (*Client, error) {
 	config := goftp.Config{
 		User:     opts.Username,
 		Password: opts.Password,
@@ -96,5 +96,9 @@ func ConnectToFTP(host string, opts Options) (*goftp.Client, error) {
 		}
 	}
 
-	return goftp.DialConfig(config, host)
+	c, err := goftp.DialConfig(config, host)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{Client: c}, nil
 }

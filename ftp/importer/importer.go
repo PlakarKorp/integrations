@@ -14,7 +14,6 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/secsy/goftp"
 )
 
 func init() {
@@ -27,7 +26,7 @@ type Importer struct {
 	connOpts conn.Options
 	port     string
 
-	client *goftp.Client
+	client *conn.Client
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -81,7 +80,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}, nil
 }
 
-func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, dir string, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *conn.Client, dir string, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
@@ -94,7 +93,7 @@ func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client
 	p.collectEntries(ctx, client, dir, entries, filePaths, records, wg)
 }
 
-func (p *Importer) collectEntries(ctx context.Context, client *goftp.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *Importer) collectEntries(ctx context.Context, client *conn.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	for _, entry := range entries {
 		entryPath := path.Join(dir, entry.Name())
 
@@ -106,7 +105,7 @@ func (p *Importer) collectEntries(ctx context.Context, client *goftp.Client, dir
 	}
 }
 
-func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record) {
+func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, results chan<- *connectors.Record) {
 	for filePath := range filePaths {
 		info, err := client.Stat(filePath)
 		if err != nil {

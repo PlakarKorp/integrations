@@ -32,7 +32,6 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/secsy/goftp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -45,7 +44,7 @@ type Exporter struct {
 
 	host    string
 	rootDir string
-	client  *goftp.Client
+	client  *conn.Client
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
