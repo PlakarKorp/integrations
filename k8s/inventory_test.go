@@ -53,7 +53,10 @@ func runInventoryList(t *testing.T, inv *inventory) ([]*sdk.InventoryEntry, erro
 func TestInventoryListPVCs(t *testing.T) {
 	t.Parallel()
 
-	inv := newInventoryTest(pvcObj("ns1", "pvc1"), pvcObj("ns2", "pvc2"))
+	generated := pvcObj("ns1", "from-snap-abcde")
+	generated.Labels = map[string]string{"plakar.io/generated-resource": "true"}
+
+	inv := newInventoryTest(pvcObj("ns1", "pvc1"), pvcObj("ns2", "pvc2"), generated)
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
@@ -73,7 +76,7 @@ func TestInventoryListPVCs(t *testing.T) {
 			Name:      "pvc2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2/pvc2"}},
 		},
-	}, entries)
+	}, entries, "PVCs created by plakar must not be inventoried")
 }
 
 func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {

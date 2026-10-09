@@ -165,8 +165,10 @@ func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan
 
 	for {
 		pvcs, err := inv.clientset.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{
-			Limit:    50,
-			Continue: cont,
+			// Hide the PVCs we create from snapshots during a backup.
+			LabelSelector: "plakar.io/generated-resource!=true",
+			Limit:         50,
+			Continue:      cont,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list PVCs: %w", err)
