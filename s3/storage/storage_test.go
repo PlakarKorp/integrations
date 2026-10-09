@@ -261,7 +261,7 @@ func TestCreateObjectLockHistoryCheck(t *testing.T) {
 	}{
 		{name: "lock not configured skips the version check", lockEnabled: false},
 		{name: "lock enabled, no CONFIG history allows creation", lockEnabled: true, versionsXML: configVersionsEmptyXML},
-		{name: "lock enabled, CONFIG delete marker refuses creation", lockEnabled: true, versionsXML: configVersionsDeleteMarkerXML, wantErr: "bucket already initialized"},
+		{name: "lock enabled, CONFIG delete marker refuses creation", lockEnabled: true, versionsXML: configVersionsDeleteMarkerXML, wantErr: "object lock is enabled and still holds CONFIG's version history"},
 	}
 
 	for _, tt := range tests {
