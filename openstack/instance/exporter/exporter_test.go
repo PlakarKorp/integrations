@@ -318,3 +318,29 @@ func TestNewExporterLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestDiskPath(t *testing.T) {
+	tests := []struct {
+		path   string
+		origin common.DiskOrigin
+		id     string // empty when path is not a disk path
+		name   string
+	}{
+		{path: "/block-storage/glance-384ba87e-a23e-4965-b3be-8f180e8a8625/disk.qcow2", origin: common.DiskOriginGlance, id: "384ba87e-a23e-4965-b3be-8f180e8a8625", name: "disk.qcow2"},
+		{path: "/block-storage/cinder-vol_1/" + instance.MetadataName, origin: common.DiskOriginCinder, id: "vol_1", name: instance.MetadataName},
+		{path: "/block-storage/glance-../../etc/passwd/disk.qcow2"},
+		{path: "/block-storage/nova-vol-1/disk.qcow2"},
+		{path: "/block-storage/glance-/disk.qcow2"},
+		{path: "/block-storage/glance-vol-1"},
+		{path: "/" + instance.MetadataName},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			origin, id, name, ok := diskPath(tt.path)
+			assert.Equal(t, tt.id != "", ok)
+			assert.Equal(t, tt.origin, origin)
+			assert.Equal(t, tt.id, id)
+			assert.Equal(t, tt.name, name)
+		})
+	}
+}
