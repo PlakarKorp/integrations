@@ -363,8 +363,10 @@ func requiredSizeGiB(bytes int64) int {
 }
 
 // UploadTempImage uploads r to a new private image and waits for it to become
-// active. It deletes the image on failure.
-func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, diskFormat string) (*images.Image, error) {
+// active. properties is set on the image as-is, e.g. to carry over the
+// cinder_encryption_key_id of an encrypted source volume. It deletes the
+// image on failure.
+func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, diskFormat string, properties map[string]string) (*images.Image, error) {
 	image, err := c.glance()
 	if err != nil {
 		return nil, err
@@ -376,6 +378,7 @@ func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, 
 		ContainerFormat: containerFormat,
 		DiskFormat:      diskFormat,
 		Visibility:      &visibility,
+		Properties:      properties,
 	}).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("create image %q: %w", name, err)

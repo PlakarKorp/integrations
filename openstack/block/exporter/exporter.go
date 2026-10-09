@@ -177,7 +177,8 @@ func decodeMetadata(record *connectors.Record) (*common.DiskMetadata, error) {
 }
 
 // uploadDisk uploads inline, so the record's answer reports the upload's
-// result. Image properties are not restored.
+// result. Only the image properties a restore needs, e.g.
+// cinder_encryption_key_id, are carried over; the rest are not.
 func uploadDisk(ctx context.Context, client *common.Client, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) (string, error) {
 	if metadata == nil {
 		return "", fmt.Errorf("%s before %s", record.Pathname, block.MetadataName)
@@ -186,7 +187,7 @@ func uploadDisk(ctx context.Context, client *common.Client, record *connectors.R
 		return "", fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
 	}
 
-	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, diskFormat(metadata))
+	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, diskFormat(metadata), common.RestoreImageProperties(metadata))
 	if err != nil {
 		return "", fmt.Errorf("upload disk %q: %w", volumeID, err)
 	}

@@ -188,7 +188,7 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		if restore.imageID != "" {
 			return fmt.Errorf("%s: a second disk for %q", record.Pathname, id)
 		}
-		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, diskFormat(restore.metadata))
+		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, diskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
 		if err != nil {
 			return fmt.Errorf("upload disk %q: %w", id, err)
 		}
