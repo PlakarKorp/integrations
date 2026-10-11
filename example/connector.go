@@ -30,9 +30,9 @@ type testStore struct {
 }
 
 func init() {
-	importer.Register("test", location.FLAG_LOCALFS, NewImporter)
-	exporter.Register("test", location.FLAG_LOCALFS, NewExporter)
-	storage.Register("test", location.FLAG_LOCALFS, NewStore)
+	importer.Register("example", location.FLAG_LOCALFS, NewImporter)
+	exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
+	storage.Register("example", location.FLAG_LOCALFS, NewStore)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
@@ -49,8 +49,8 @@ func NewStore(ctx context.Context, proto string, config map[string]string) (stor
 
 func (f *testConnector) Root() string          { return "/" }
 func (f *testConnector) Origin() string        { return "localhost" }
-func (f *testConnector) Type() string          { return "test" }
-func (f *testConnector) Flags() location.Flags { return 0 }
+func (f *testConnector) Type() string          { return "example" }
+func (f *testConnector) Flags() location.Flags { return location.FLAG_LOCALFS }
 
 func (f *testConnector) Ping(ctx context.Context) error {
 	return nil
@@ -109,8 +109,8 @@ func (f *testConnector) Close(ctx context.Context) error {
 
 func (s *testStore) Origin() string        { return "localhost" }
 func (s *testStore) Root() string          { return "/" }
-func (s *testStore) Type() string          { return "test" }
-func (s *testStore) Flags() location.Flags { return 0 }
+func (s *testStore) Type() string          { return "example" }
+func (s *testStore) Flags() location.Flags { return location.FLAG_LOCALFS }
 
 func (s *testStore) Ping(ctx context.Context) error {
 	return nil
