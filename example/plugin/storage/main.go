@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
@@ -8,5 +9,6 @@ import (
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, connector.NewExporter)
+	ctx := sdk.InterruptableContext(context.Background())
+	sdk.EntrypointStorage(ctx, os.Args, connector.NewStore)
 }
