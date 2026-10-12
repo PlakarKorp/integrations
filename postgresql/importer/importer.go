@@ -147,6 +147,14 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	return p.dumpAllDatabases(ctx, records)
 }
 
+// Some managed instances (e.g. CleverCloud) don't grant CONNECT on "postgres".
+func (p *Importer) connectDatabase() string {
+	if p.database != "" {
+		return p.database
+	}
+	return "postgres"
+}
+
 // canReadPgAuthid checks whether the connected user can read pg_authid.
 // Superusers can; RDS and other restricted environments cannot.
 // The result is used to decide whether to pass --no-role-passwords to pg_dumpall.
@@ -155,11 +163,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 // failure (bad credentials, DNS error, server down) returns true so that
 // pg_dumpall runs without --no-role-passwords and surfaces the real error itself.
 func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
-	connectDB := p.database
-	if connectDB == "" {
-		connectDB = "postgres"
-	}
-	db, err := p.conn.Open(connectDB)
+	db, err := p.conn.Open(p.connectDatabase())
 	if err != nil {
 		return true
 	}
@@ -187,6 +191,9 @@ func (p *Importer) noRolePasswordsArgs(ctx context.Context, args []string) []str
 // listDatabases returns the names of all databases with datallowconn = true,
 // ordered by name.  This matches the set of databases that pg_dumpall dumps.
 func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
+	if p.database != "" {
+		return []string{p.database}, nil
+	}
 	if err := p.refreshToken(ctx); err != nil {
 		return nil, err
 	}
@@ -223,9 +230,16 @@ func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
 // The lexicographic ordering of the filenames guarantees that globals are
 // always restored before any database dump.
 func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
+	if p.database != "" {
+		if err := pgconn.ValidDatabaseName(p.database); err != nil {
+			return fmt.Errorf("backing up database: %w", err)
+		}
+	}
+
 	// Globals first — skipped for data-only backups since globals are schema-only.
 	if !p.dataOnly {
-		globalsArgs := p.noRolePasswordsArgs(ctx, append(p.conn.Args(), "--globals-only"))
+		globalsArgs := append(p.conn.Args(), "--globals-only", "-l", p.connectDatabase())
+		globalsArgs = p.noRolePasswordsArgs(ctx, globalsArgs)
 		if err := p.emitRecord(ctx, records, p.bin("pg_dumpall"), globalsArgs, "/00000-globals.sql"); err != nil {
 			return err
 		}
