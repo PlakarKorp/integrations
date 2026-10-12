@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -198,6 +199,24 @@ func TestGetReusesConnections(t *testing.T) {
 
 	if n := dials.Load(); n > inflight {
 		t.Fatalf("%d connections dialed for %d concurrent requests over %d rounds, want at most %d", n, inflight, rounds, inflight)
+	}
+}
+
+func TestOpenRejectsOversizedConfig(t *testing.T) {
+	data := bytes.Repeat([]byte("a"), maxConfigSize+1)
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/bucket/CONFIG":
+			w.Write(data)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	if _, err := s.Open(context.Background()); err == nil {
+		t.Fatal("want error for a CONFIG object over the size limit")
 	}
 }
 
