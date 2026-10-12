@@ -1,19 +1,34 @@
-VERSION ?= v1.0.0
+GO	= go
+EXT	=
+
+PLAKAR	= plakar
+VERSION	= v1.1.0
 
 all: build
 
 build:
-	go build -v -o example-importer ./plugin/importer
-	go build -v -o example-exporter ./plugin/exporter
-	go build -v -o example-storage ./plugin/storage
+	${GO} build -v -o example-importer${EXT} ./cmd/importer
+	${GO} build -v -o example-exporter${EXT} ./cmd/exporter
+	${GO} build -v -o example-storage${EXT} ./cmd/storage
 
-create:
-	plakar pkg create manifest.yaml $(VERSION)
+package: build
+	rm -f example_${VERSION}_*.ptar
+	${PLAKAR} pkg create ./manifest.yaml ${VERSION}
 
-install:
-	plakar pkg add -allow-unsigned ./example_$(VERSION)_$$(go env GOOS)_$$(go env GOARCH).ptar
+uninstall:
+	-${PLAKAR} pkg rm example
+
+install: package
+	${PLAKAR} pkg add ./example_${VERSION}_*.ptar
+
+reinstall: uninstall install
+
+test:
+	${GO} test -v ./...
+
+check: test
 
 clean:
-	rm -f example-importer example-exporter example-storage example_*.ptar
+	rm -f example-importer${EXT} example-exporter${EXT} example-storage${EXT} example_${VERSION}*.ptar
 
-.PHONY: all build create install clean
+.PHONY: all build package uninstall install reinstall test check clean

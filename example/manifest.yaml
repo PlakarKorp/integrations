@@ -1,4 +1,5 @@
 name: example
+display_name: Example
 description: Example integration with an importer, an exporter and a storage backend
 homepage: https://github.com/PlakarKorp/integrations/tree/main/example
 license: ISC
@@ -6,12 +7,9 @@ connectors:
   - type: importer
     executable: ./example-importer
     protocols: [example]
-    location_flags: [localfs]
   - type: exporter
     executable: ./example-exporter
     protocols: [example]
-    location_flags: [localfs]
   - type: storage
     executable: ./example-storage
     protocols: [example]
-    location_flags: [localfs]

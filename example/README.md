@@ -14,7 +14,7 @@ keeps everything in memory, so a repository is lost when the command exits.
 ```
 .
 ├── connector.go        # Connector implementations and registration
-├── plugin/
+├── cmd/
 │   ├── importer/main.go
 │   ├── exporter/main.go
 │   └── storage/main.go
@@ -23,18 +23,19 @@ keeps everything in memory, so a repository is lost when the command exits.
 ```
 
 To drop a connector type, remove its entry from `manifest.yaml`, its directory
-under `plugin/`, and its registration in `connector.go`.
+under `cmd/`, and its registration in `connector.go`.
 
 ## Build and install
 
 ```sh
 make build      # example-importer, example-exporter, example-storage
-make create     # example_v1.0.0_<os>_<arch>.ptar
-make install    # plakar pkg add -allow-unsigned
+make package    # example_v1.1.0_<os>_<arch>.ptar
+make install    # package, then plakar pkg add
+make reinstall  # plakar pkg rm, then install
 ```
 
 Set `VERSION` to package another version, for example
-`make create install VERSION=v1.2.3`.
+`make install VERSION=v1.2.3`.
 
 ## Usage
 
