@@ -1,0 +1,41 @@
+# Local registries for manual testing:
+#   oci://localhost:5000/<repo> insecure=true                (plain HTTP)
+#   oci://localhost:5443/<repo> tls_insecure_no_verify=true  (self-signed TLS)
+
+services:
+  certs:
+    image: alpine/openssl:3.5.4
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        [ -f /certs/cert.pem ] ||
+        openssl req -x509 -newkey rsa:2048 -nodes -days 365
+        -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1
+        -keyout /certs/key.pem -out /certs/cert.pem
+    volumes:
+      - certs:/certs
+
+  registry:
+    image: registry:2.8.3
+    ports:
+      - "5000:5000"
+    environment:
+      # Plakar deletes lock manifests.
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+  registry-tls:
+    image: registry:2.8.3
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    ports:
+      - "5443:5000"
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certs/cert.pem
+      REGISTRY_HTTP_TLS_KEY: /certs/key.pem
+    volumes:
+      - certs:/certs:ro
+
+volumes:
+  certs:
