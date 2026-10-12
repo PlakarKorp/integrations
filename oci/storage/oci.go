@@ -318,8 +318,8 @@ func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.M
 
 	var out []objects.MAC
 	for _, t := range tl.Tags {
-		if strings.HasPrefix(t, prefix) {
-			b, err := hex.DecodeString(strings.TrimPrefix(t, prefix))
+		if after, ok := strings.CutPrefix(t, prefix); ok {
+			b, err := hex.DecodeString(after)
 			if err != nil || len(b) != 32 {
 				continue
 			}
