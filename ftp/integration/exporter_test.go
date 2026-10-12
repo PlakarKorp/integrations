@@ -38,9 +38,14 @@ func fileRecordMode(pathname, content string, perm fs.FileMode) *connectors.Reco
 // per-record errors, keyed by pathname.
 func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[string]error {
 	t.Helper()
+	return exportConfig(t, ftpConfig(addr, root), recs...)
+}
+
+func exportConfig(t *testing.T, config map[string]string, recs ...*connectors.Record) map[string]error {
+	t.Helper()
 	ctx := t.Context()
 
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 4}, "ftp", ftpConfig(addr, root))
+	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 4}, "ftp", config)
 	require.NoError(t, err)
 	defer func() { _ = exp.Close(ctx) }()
 
@@ -118,6 +123,29 @@ func TestExportRestoresPermissions(t *testing.T) {
 	assert.Equal(t, "600", mode(t, dir+"/nox"))
 	assert.Equal(t, "700", mode(t, dir+"/nox/sub"))
 	assert.Equal(t, "640", mode(t, dir+"/a.txt"))
+}
+
+func TestExportWithoutPermissions(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	mkdirAll(t, c, dir)
+
+	config := ftpConfig(addr, dir)
+	config["skip_permissions"] = "true"
+	errs := exportConfig(t, config,
+		dirRecord("/"),
+		dirRecordMode("/ro", 0o555),
+		fileRecordMode("/ro/a.txt", "alpha", 0o600),
+	)
+	for name, err := range errs {
+		assert.NoError(t, err, name)
+	}
+
+	assert.Equal(t, "alpha", get(t, c, dir+"/ro/a.txt"))
+	assert.Equal(t, "755", mode(t, dir+"/ro"))
+	assert.Equal(t, "644", mode(t, dir+"/ro/a.txt"))
 }
 
 func TestExportLeavesRootAlone(t *testing.T) {
