@@ -29,9 +29,9 @@ type Example struct {
 }
 
 func init() {
-	importer.Register("example", location.FLAG_LOCALFS, NewImporter)
-	exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
-	storage.Register("example", location.FLAG_LOCALFS, NewStore)
+	importer.Register("example", 0, NewImporter)
+	exporter.Register("example", 0, NewExporter)
+	storage.Register("example", 0, NewStore)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
@@ -49,7 +49,7 @@ func NewStore(ctx context.Context, proto string, config map[string]string) (stor
 func (e *Example) Root() string          { return "/" }
 func (e *Example) Origin() string        { return "localhost" }
 func (e *Example) Type() string          { return "example" }
-func (e *Example) Flags() location.Flags { return location.FLAG_LOCALFS }
+func (e *Example) Flags() location.Flags { return 0 }
 
 func (e *Example) Ping(ctx context.Context) error {
 	return nil
