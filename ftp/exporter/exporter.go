@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/integrations/ftp/conn"
@@ -45,6 +46,9 @@ type Exporter struct {
 	host    string
 	rootDir string
 	client  *conn.Client
+
+	// skipPermissions is set for servers that lack SITE CHMOD.
+	skipPermissions bool
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -67,6 +71,14 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	var root string
 	if tmp, ok := config["root"]; ok {
 		root = tmp
+	}
+
+	var skipPermissions bool
+	if v, ok := config["skip_permissions"]; ok && v != "" {
+		skipPermissions, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid skip_permissions value %q", v)
+		}
 	}
 
 	if parsed.User != nil {
@@ -100,8 +112,9 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	return &Exporter{
 		opts: opts,
 		//endpoint: parsed,
-		client:  client,
-		rootDir: rootDir,
+		client:          client,
+		rootDir:         rootDir,
+		skipPermissions: skipPermissions,
 	}, nil
 }
 
@@ -219,7 +232,7 @@ loop:
 	}
 
 	for _, d := range slices.Backward(dirPerms) {
-		if err := p.client.Chmod(d.pathname, d.record.FileInfo.Lmode); err != nil {
+		if err := p.chmod(d.pathname, d.record); err != nil {
 			results <- d.record.Error(err)
 		} else {
 			results <- d.record.Ok()
@@ -268,6 +281,13 @@ func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error
 	}
 	if err := p.client.Rename(tmpName, pathname); err != nil {
 		return err
+	}
+	return p.chmod(pathname, record)
+}
+
+func (p *Exporter) chmod(pathname string, record *connectors.Record) error {
+	if p.skipPermissions {
+		return nil
 	}
 	return p.client.Chmod(pathname, record.FileInfo.Lmode)
 }
