@@ -469,7 +469,12 @@ func (s *ociStore) resolveLocation(loc string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base.ResolveReference(ref).String(), nil
+	resolved := base.ResolveReference(ref)
+	// The upload body follows this URL, so a registry must not point it elsewhere.
+	if resolved.Scheme != base.Scheme || !strings.EqualFold(resolved.Host, base.Host) {
+		return "", fmt.Errorf("registry upload location %q is not on %s", loc, s.base)
+	}
+	return resolved.String(), nil
 }
 
 func (s *ociStore) do(ctx context.Context, method, fullURL string, body io.Reader, headers http.Header) (io.ReadCloser, *http.Response, error) {
