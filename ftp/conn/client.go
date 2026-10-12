@@ -19,10 +19,21 @@ type Client struct {
 	raw goftp.RawConn
 }
 
-// Chmod sets the permission bits of name with SITE CHMOD.  It is not part of
-// RFC 959, and servers may lack or refuse it.
+// Chmod sets the permission, setuid, setgid and sticky bits of name with
+// SITE CHMOD.  It is not part of RFC 959, and servers may lack or refuse it.
 func (c *Client) Chmod(name string, perm fs.FileMode) error {
-	code, msg, err := c.sendCommand("SITE CHMOD %04o %s", perm.Perm(), name)
+	mode := uint32(perm.Perm())
+	if perm&fs.ModeSetuid != 0 {
+		mode |= 0o4000
+	}
+	if perm&fs.ModeSetgid != 0 {
+		mode |= 0o2000
+	}
+	if perm&fs.ModeSticky != 0 {
+		mode |= 0o1000
+	}
+
+	code, msg, err := c.sendCommand("SITE CHMOD %04o %s", mode, name)
 	if err != nil {
 		return fmt.Errorf("chmod %s: %w", name, err)
 	}
