@@ -120,6 +120,20 @@ func TestExportRestoresPermissions(t *testing.T) {
 	assert.Equal(t, "640", mode(t, dir+"/a.txt"))
 }
 
+func TestExportLeavesRootAlone(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	mkdirAll(t, c, dir)
+	chmod(t, dir, "750")
+
+	errs := export(t, addr, dir+"/", dirRecordMode("/", 0o700))
+
+	assert.NoError(t, errs["/"])
+	assert.Equal(t, "750", mode(t, dir))
+}
+
 func TestExportRefusesPathsOutsideRoot(t *testing.T) {
 	t.Parallel()
 	addr := server(t)
