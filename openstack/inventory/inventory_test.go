@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/PlakarKorp/go-inventory-sdk/inventory"
-	"github.com/PlakarKorp/integrations-private/openstack/common"
-	"github.com/PlakarKorp/integrations-private/openstack/common/keystonetest"
+	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
@@ -57,6 +57,9 @@ func (s *stubAPI) ListServers(context.Context) iter.Seq2[servers.Server, error] 
 }
 func (s *stubAPI) ListVolumes(context.Context) iter.Seq2[volumes.Volume, error] {
 	return seq(s.volumes, s.volumesErr)
+}
+func (s *stubAPI) SupportsVolumes() bool {
+	return !errors.Is(s.volumesErr, common.ErrServiceUnavailable)
 }
 func (s *stubAPI) ListImages(context.Context) iter.Seq2[images.Image, error] {
 	return seq(s.images, s.imagesErr)
@@ -105,6 +108,14 @@ func TestListMapsEveryResource(t *testing.T) {
 	require.NoError(t, err)
 
 	want := []*inventory.InventoryEntry{
+		{
+			Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+			Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
+			Tags: []string{},
+			Endpoints: []inventory.HostEndpoint{
+				{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+			},
+		},
 		{
 			Class: pkg.ResourceClassCompute, URN: "urn:openstack:p1:nova:RegionOne:server:s1",
 			Name: "web", Region: "RegionOne", Service: "nova", Resource: "nova:server",
@@ -159,7 +170,7 @@ func TestListSkipsServicesMissingFromCatalog(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "only the server should be listed")
+	assert.Equal(t, []string{"nova"}, serviceNames(got), "no placeholder without Cinder in the catalog")
 }
 
 func TestListSkipsServicesThatDenyAccess(t *testing.T) {
@@ -171,7 +182,7 @@ func TestListSkipsServicesThatDenyAccess(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "the refusing services should be skipped")
+	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the refusing services should be skipped")
 }
 
 func TestListStopsOnError(t *testing.T) {
@@ -184,7 +195,7 @@ func TestListStopsOnError(t *testing.T) {
 
 	got, err := listAll(t, api)
 	require.ErrorIs(t, err, boom)
-	assert.Equal(t, []string{"nova"}, serviceNames(got), "entries sent before the error")
+	assert.Equal(t, []string{"cinder", "nova"}, serviceNames(got), "the placeholder is offered up front, then entries sent before the error")
 }
 
 func TestListCoversEveryRegion(t *testing.T) {
@@ -201,7 +212,11 @@ func TestListCoversEveryRegion(t *testing.T) {
 	for _, e := range got {
 		urns = append(urns, e.URN)
 	}
-	assert.Equal(t, []string{"urn:openstack:p1:nova:RegionOne:server:s1", "urn:openstack:p1:nova:RegionTwo:server:s2"}, urns)
+	assert.Equal(t, []string{
+		"urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+		"urn:openstack:p1:nova:RegionOne:server:s1",
+		"urn:openstack:p1:nova:RegionTwo:server:s2",
+	}, urns, "the placeholder is offered up front for every region with Cinder; RegionTwo has none")
 }
 
 func TestListNamesTheFailingRegion(t *testing.T) {
@@ -209,6 +224,18 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 	_, err := listAll(t, &stubAPI{}, &stubAPI{region: "RegionTwo", serversErr: boom})
 	require.ErrorIs(t, err, boom)
 	assert.ErrorContains(t, err, `region "RegionTwo"`)
+}
+
+func TestVolumeSpawnerEntry(t *testing.T) {
+	e := volumeSpawnerEntry(common.Scope{ProjectID: "p1", Region: "RegionOne"})
+	assert.Equal(t, &inventory.InventoryEntry{
+		Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+		Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
+		Tags: []string{},
+		Endpoints: []inventory.HostEndpoint{
+			{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+		},
+	}, e)
 }
 
 // servers.Server leaves addresses untyped, so check serverAddresses reads

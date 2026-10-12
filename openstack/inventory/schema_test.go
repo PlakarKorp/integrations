@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/PlakarKorp/integrations-private/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

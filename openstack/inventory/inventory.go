@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/PlakarKorp/go-inventory-sdk/inventory"
-	"github.com/PlakarKorp/integrations-private/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
@@ -44,6 +44,7 @@ type openstackAPI interface {
 	ListImages(ctx context.Context) iter.Seq2[images.Image, error]
 	ListContainers(ctx context.Context) iter.Seq2[common.Container, error]
 	ListDatabases(ctx context.Context) iter.Seq2[instances.Instance, error]
+	SupportsVolumes() bool
 
 	Scope() common.Scope
 }
@@ -98,9 +99,34 @@ func (inv *osInventory) Close(ctx context.Context) error {
 	return nil
 }
 
-// entries chains every region's listings into one lazy stream.
+// staticEntries returns the inventory's synthetic, no-backing-resource
+// entries: one "create a new volume" per region today.
+func (inv *osInventory) staticEntries() []*inventory.InventoryEntry {
+	var out []*inventory.InventoryEntry
+	for _, api := range inv.apis {
+		sc := api.Scope()
+		// An empty region is gophercloud's "match any region" fallback for a
+		// client scoped to no catalog region at all: not a real place to
+		// offer "create a volume" for. Nor is a region whose catalog has no
+		// Cinder at all, which Ping would fail on anyway.
+		if sc.Region == "" || !api.SupportsVolumes() {
+			continue
+		}
+		out = append(out, volumeSpawnerEntry(sc))
+	}
+	return out
+}
+
+// entries chains every region's listings into one lazy stream, the static
+// entries first.
 func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
 	return func(yield func(*inventory.InventoryEntry, error) bool) {
+		for _, e := range inv.staticEntries() {
+			if !yield(e, nil) {
+				return
+			}
+		}
+
 		for _, api := range inv.apis {
 			sc := api.Scope()
 			sources := []iter.Seq2[*inventory.InventoryEntry, error]{
@@ -210,6 +236,28 @@ func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 
 // imageEntry leaves out images without data: a snapshot of a boot-from-volume
 // server is an empty Glance image whose disks live in Cinder snapshots.
+// volumeSpawnerEntry is a synthetic entry with no backing Cinder resource:
+// the "create a new volume" choice in a block destination's picker. Class is
+// BlockStorage, not the Compute wildcard, so it only appears there — but the
+// block importer shares that same class, so this also reaches the backup
+// *source* picker; block/importer rejects the spawn location itself, since
+// class alone can't tell source from destination apart.
+func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
+	return &inventory.InventoryEntry{
+		Class:    pkg.ResourceClassBlockStorage,
+		SubClass: pkg.ResourceSubClassUndefined,
+		URN:      urn(sc, "cinder", "spawner", common.SpawnLocation),
+		Name:     fmt.Sprintf("Create volume in %s", sc.Region),
+		Region:   sc.Region,
+		Service:  "cinder",
+		Resource: "cinder:spawner",
+		Tags:     []string{},
+		Endpoints: []inventory.HostEndpoint{
+			{Type: inventory.EndpointIdentifier, Endpoint: common.SpawnLocation, Attributes: map[string]string{"openstack_region": sc.Region}},
+		},
+	}
+}
+
 func imageEntry(sc common.Scope, i images.Image) *inventory.InventoryEntry {
 	if i.SizeBytes == 0 {
 		return nil
