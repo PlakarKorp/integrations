@@ -79,3 +79,15 @@ func TestChmodReportsRefusal(t *testing.T) {
 
 	require.Error(t, c.Chmod(testDir(t)+"/missing", 0o600))
 }
+
+func TestChmodAfterRefusal(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	require.Error(t, c.Chmod(dir+"/missing", 0o600))
+	require.NoError(t, c.Chmod(dir+"/a.txt", 0o600))
+	require.Equal(t, "600", mode(t, dir+"/a.txt"))
+}
