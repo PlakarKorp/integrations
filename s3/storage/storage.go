@@ -39,6 +39,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 )
 
+// maxConfigSize bounds the CONFIG read: it holds a small serialized
+// repository configuration, never anywhere near this size.
+const maxConfigSize = 1 << 20
+
 type Store struct {
 	minioClient  *minio.Client
 	host         string
@@ -327,9 +331,12 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	})
 	defer object.Close()
 
-	data, err := io.ReadAll(object)
+	data, err := io.ReadAll(io.LimitReader(object, maxConfigSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("error reading object: %w", err)
+	}
+	if len(data) > maxConfigSize {
+		return nil, fmt.Errorf("CONFIG object exceeds %d bytes", maxConfigSize)
 	}
 
 	return data, nil
