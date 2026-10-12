@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/PlakarKorp/integrations/ftp/conn"
@@ -70,6 +71,24 @@ func TestChmod(t *testing.T) {
 
 	require.NoError(t, c.Chmod(dir+"/a.txt", 0o600))
 	require.Equal(t, "600", mode(t, dir+"/a.txt"))
+}
+
+func TestChmodSpecialBits(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	for perm, want := range map[fs.FileMode]string{
+		fs.ModeSetuid | 0o755: "4755",
+		fs.ModeSetgid | 0o755: "2755",
+		fs.ModeSticky | 0o755: "1755",
+		fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky | 0o777: "7777",
+	} {
+		require.NoError(t, c.Chmod(dir+"/a.txt", perm))
+		require.Equal(t, want, mode(t, dir+"/a.txt"), "%v", perm)
+	}
 }
 
 func TestChmodReportsRefusal(t *testing.T) {
