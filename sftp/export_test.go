@@ -29,9 +29,14 @@ package sftp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -194,8 +199,8 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	records := make(chan *connectors.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	// Create a symlink from /link.txt to /file.txt
-	records <- connectors.NewRecord("/link.txt", "/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	// Create a symlink from /link.txt to /repo/file.txt
+	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -217,7 +222,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	// Verify that the symlink points to the correct target.
 	target, err := ts.client.ReadLink("/repo/link.txt")
 	require.NoError(t, err, "expected ReadLink to succeed for the created symlink")
-	assert.Equal(t, "/file.txt", target, "unexpected target for the created symlink")
+	assert.Equal(t, "/repo/file.txt", target, "unexpected target for the created symlink")
 }
 
 func TestExport_SymlinkFailsIfExists(t *testing.T) {
@@ -235,7 +240,7 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	records := make(chan *connectors.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/link.txt", "/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -245,6 +250,38 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
 	assert.Error(t, got[0].Err, "expected a per-record error when symlink target already exists")
+}
+
+func TestExport_SymlinkTargetEscape(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"absolute", "/etc/passwd"},
+		{"relative", "../outside"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0o700))
+
+			s := ts.newTestExportSftp(t, "/repo")
+			records := make(chan *connectors.Record, 1)
+			results, wait := runExporter(t, s, records)
+
+			records <- connectors.NewRecord("/link.txt", tt.target, objects.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
+			close(records)
+
+			got := drainResults(results)
+			require.NoError(t, wait())
+			require.Len(t, got, 1)
+			assert.Error(t, got[0].Err)
+
+			_, err := os.Lstat(ts.realPath("/repo/link.txt"))
+			assert.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
 }
 
 func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
@@ -795,4 +832,114 @@ func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
 				"setuid/setgid must survive when set_owner is set: chown must be applied before chmod")
 		})
 	}
+}
+
+// Directory handling runs synchronously in Export's main loop, so draining
+// the result for one directory record guarantees its mkdir (and any
+// immediate chmod) has already completed on the server.
+func TestExport_DirectoryModeAppliedBeforeChildrenRestore(t *testing.T) {
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 1)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/secret", "", objects.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
+
+	r := <-results
+	require.NoError(t, r.Err)
+
+	// Checked before closing records, while Export is still waiting for
+	// more input - the end-of-restore pass has not run yet.
+	info, err := ts.realStat("/repo/secret")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0700), info.Mode().Perm(),
+		"directory must have its final mode as soon as it is created, not only once the restore finishes")
+
+	close(records)
+	require.NoError(t, wait())
+}
+
+// broaderThanFinal lists files holding data and directories holding entries
+// whose on-disk mode grants more than their final mode, as seen between two
+// SFTP requests. Temporary files count against the file they will become.
+func broaderThanFinal(root string, final map[string]os.FileMode) []string {
+	var found []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if i := strings.Index(rel, ".tmp."); i >= 0 {
+			rel = rel[:i]
+		}
+		want, ok := final[rel]
+		if !ok {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&^want == 0 {
+			return nil
+		}
+		populated := info.Size() > 0
+		if d.IsDir() {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				return err
+			}
+			populated = len(entries) > 0
+		}
+		if populated {
+			found = append(found, fmt.Sprintf("%s: %v", rel, info.Mode()))
+		}
+		return nil
+	})
+	if err != nil {
+		found = append(found, err.Error())
+	}
+	return found
+}
+
+func TestExport_FileNeverExposesBroaderMode(t *testing.T) {
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
+
+	final := map[string]os.FileMode{
+		"secret-key": 0600,
+	}
+
+	var mu sync.Mutex
+	var exposed []string
+	ts.handlers.observe = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		exposed = append(exposed, broaderThanFinal(ts.realPath("/repo"), final)...)
+	}
+
+	s := ts.newTestExportSftp(t, "/repo")
+	records := make(chan *connectors.Record, 16)
+	results, wait := runExporter(t, s, records)
+
+	records <- connectors.NewRecord("/secret-key", "", objects.FileInfo{Lmode: 0600}, nil, func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader([]byte("private key"))), nil
+	})
+	close(records)
+
+	got := drainResults(results)
+	require.NoError(t, wait())
+	for _, r := range got {
+		require.NoError(t, r.Err, "%q", r.Record.Pathname)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, exposed)
 }

@@ -25,7 +25,7 @@ import (
 	"github.com/pkg/sftp"
 )
 
-func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader) (int64, error) {
+func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader, mode *os.FileMode) (int64, error) {
 	tmpName := fmt.Sprintf("%s.tmp.%s", pathname, rand.Text())
 
 	tmp, err := sftpClient.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
@@ -39,6 +39,13 @@ func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader) (in
 			sftpClient.Remove(tmpName)
 		}
 	}()
+
+	if mode != nil {
+		if err := sftpClient.Chmod(tmpName, *mode); err != nil {
+			tmp.Close()
+			return 0, fmt.Errorf("could not chmod %s: %w", tmpName, err)
+		}
+	}
 
 	var nbytes int64
 	if nbytes, err = tmp.ReadFromWithConcurrency(rd, 0); err != nil {
