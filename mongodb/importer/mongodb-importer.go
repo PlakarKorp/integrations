@@ -129,6 +129,14 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 			if err != nil {
 				return nil, err
 			}
+
+			/* Prevent current umask value from leaking secrets. */
+			err = client_cert_file.Chmod(0600)
+			if err != nil {
+				cleanupTempFile(client_cert_file)
+				return nil, err
+			}
+
 			client_cert_file.WriteString(cert_data + "\n")
 			client_cert_file.WriteString(cert_key + "\n")
 			client_cert_file.Sync()
@@ -272,6 +280,12 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 			return err
 		}
 		defer cleanupTempFile(f)
+
+		/* Prevent current umask value from leaking secrets. */
+		err = f.Chmod(0600)
+		if err != nil {
+			return err
+		}
 
 		escaped, err := json.Marshal(i.password)
 		if err != nil {
