@@ -82,15 +82,30 @@
       "minLength": 1,
       "description": "Path to the client SSL certificate file (PEM format), passed via --ssl-cert."
     },
+    "ssl_cert_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL certificate. Alternative to ssl_cert."
+    },
     "ssl_key": {
       "type": "string",
       "minLength": 1,
       "description": "Path to the client SSL private key file (PEM format), passed via --ssl-key."
     },
+    "ssl_key_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the client SSL private key. Alternative to ssl_key."
+    },
     "ssl_ca": {
       "type": "string",
       "minLength": 1,
       "description": "Path to the CA certificate used to verify the server (PEM format), passed via --ssl-ca."
+    },
+    "ssl_ca_data": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Inline PEM content of the CA certificate used to verify the server. Alternative to ssl_ca."
     }
   }
 }

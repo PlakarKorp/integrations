@@ -54,7 +54,14 @@ func (e *Exporter) Type() string                   { return e.proto }
 func (e *Exporter) Root() string                   { return "/" }
 func (e *Exporter) Flags() location.Flags          { return 0 }
 func (e *Exporter) Ping(ctx context.Context) error { return e.conn.Ping(ctx) }
-func (e *Exporter) Close(_ context.Context) error  { return nil }
+func (e *Exporter) Close(_ context.Context) error {
+	// conn is a value, not *mysqlconn.ConnConfig, so it can't itself be nil; guard the receiver instead.
+	if e == nil {
+		return nil
+	}
+	e.conn.Cleanup()
+	return nil
+}
 
 func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
@@ -101,9 +108,15 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 		targetDB = strings.TrimSuffix(base, ".sql")
 	}
 
+	if targetDB != "" {
+		if err := mysqlconn.ValidDatabaseName(targetDB); err != nil {
+			return fmt.Errorf("validating db name: %w", err)
+		}
+	}
+
 	if e.createDB && targetDB != "" {
 		if err := e.createDatabase(ctx, targetDB); err != nil {
-			return fmt.Errorf("creating database %s: %w", targetDB, err)
+			return fmt.Errorf("creating database %q: %w", targetDB, err)
 		}
 	}
 
@@ -143,10 +156,6 @@ func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) er
 }
 
 func (e *Exporter) createDatabase(ctx context.Context, database string) error {
-	if strings.ContainsAny(database, "`\x00") { // prevent injection via backtick or NUL
-		return fmt.Errorf("invalid database name: %q", database)
-	}
-
 	pwArg, cleanup, err := e.conn.PasswordFileArg()
 	if err != nil {
 		return err

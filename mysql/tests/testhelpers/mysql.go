@@ -14,13 +14,13 @@ import (
 // DBVariant describes a database engine variant used in parameterized tests.
 type DBVariant struct {
 	Name       string
-	Image      string            // Docker image for the database server
-	Env        map[string]string // environment variables for the container
-	WaitFor    wait.Strategy     // strategy to determine when the server is ready
-	Protocol   string            // Plakar protocol: "mysql" or "mysql+mariadb"
-	CLI        string            // client CLI for seeding: "mysql" or "mariadb"
-	Dockerfile string            // path to the plakar test image Dockerfile (from repo root)
-	ImageTag   string            // Docker image name for the cached plakar container
+	Image      string               // Docker image for the database server
+	Env        map[string]string    // environment variables for the container
+	WaitFor    func() wait.Strategy // builds a fresh strategy per container; wait.Strategy is not safe to share across concurrent starts
+	Protocol   string               // Plakar protocol: "mysql" or "mysql+mariadb"
+	CLI        string               // client CLI for seeding: "mysql" or "mariadb"
+	Dockerfile string               // path to the plakar test image Dockerfile (from repo root)
+	ImageTag   string               // Docker image name for the cached plakar container
 }
 
 // DBVariants lists all database variants exercised by the integration tests.
@@ -33,7 +33,7 @@ var DBVariants = []DBVariant{
 			"MYSQL_DATABASE":      "testdb",
 		},
 		// MySQL logs this line exactly once when the real server is ready.
-		WaitFor:    wait.ForLog("port: 3306  MySQL Community Server"),
+		WaitFor:    func() wait.Strategy { return wait.ForLog("port: 3306  MySQL Community Server") },
 		Protocol:   "mysql",
 		CLI:        "mysql",
 		Dockerfile: "tests/plakar-mysql.Dockerfile",
@@ -48,7 +48,7 @@ var DBVariants = []DBVariant{
 		},
 		// MariaDB logs "ready for connections" twice: once during the temporary
 		// init server and once when the real server starts. Wait for the second.
-		WaitFor:    wait.ForLog("ready for connections").WithOccurrence(2),
+		WaitFor:    func() wait.Strategy { return wait.ForLog("ready for connections").WithOccurrence(2) },
 		Protocol:   "mysql+mariadb",
 		CLI:        "mariadb",
 		Dockerfile: "tests/plakar-mariadb.Dockerfile",
@@ -68,7 +68,7 @@ func StartDBContainer(ctx context.Context, t *testing.T, net *testcontainers.Doc
 		ExposedPorts:   []string{"3306/tcp"},
 		Networks:       []string{net.Name},
 		NetworkAliases: map[string][]string{net.Name: {alias}},
-		WaitingFor:     v.WaitFor,
+		WaitingFor:     v.WaitFor(),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
