@@ -195,10 +195,10 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 
 	if e.url.Scheme == "mongodb+srv" {
 		args = append(args, fmt.Sprintf("%s://%s",
-		    e.url.Scheme, e.url.Hostname()))
+			e.url.Scheme, e.url.Hostname()))
 	} else {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
-		    e.url.Scheme, e.url.Hostname(), e.port))
+			e.url.Scheme, e.url.Hostname(), e.port))
 	}
 	cmd := exec.Command("mongosh", args...)
 
@@ -302,10 +302,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 	if e.url.Scheme == "mongodb+srv" {
 		args = append(args, fmt.Sprintf("%s://%s",
-		    e.url.Scheme, e.url.Hostname()))
+			e.url.Scheme, e.url.Hostname()))
 	} else {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
-		    e.url.Scheme, e.url.Hostname(), e.port))
+			e.url.Scheme, e.url.Hostname(), e.port))
 	}
 	cmd := exec.Command("mongorestore", args...)
 

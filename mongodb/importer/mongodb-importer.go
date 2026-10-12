@@ -190,10 +190,10 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 
 	if i.url.Scheme == "mongodb+srv" {
 		args = append(args, fmt.Sprintf("%s://%s",
-		    i.url.Scheme, i.url.Hostname()))
+			i.url.Scheme, i.url.Hostname()))
 	} else {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
-		    i.url.Scheme, i.url.Hostname(), i.port))
+			i.url.Scheme, i.url.Hostname(), i.port))
 	}
 	cmd := exec.Command("mongosh", args...)
 
@@ -301,10 +301,10 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 
 	if i.url.Scheme == "mongodb+srv" {
 		args = append(args, fmt.Sprintf("%s://%s",
-		    i.url.Scheme, i.url.Hostname()))
+			i.url.Scheme, i.url.Hostname()))
 	} else {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
-		    i.url.Scheme, i.url.Hostname(), i.port))
+			i.url.Scheme, i.url.Hostname(), i.port))
 	}
 	cmd := exec.Command("mongodump", args...)
 
