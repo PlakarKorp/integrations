@@ -4,7 +4,7 @@ description: Integration providing storage capabilities on OCI registries
 version: v1.1.0-beta.1
 connectors:
 - type: storage
-  executable: ociStorage
+  executable: bin/ociStorage
   homepage: https://github.com/PlakarKorp/integrations/tree/main/oci
   license: ISC
   protocols: [oci]

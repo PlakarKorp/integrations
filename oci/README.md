@@ -72,6 +72,12 @@ $ plakar at oci://localhost:5000/helloworld ls
 $ plakar at oci://localhost:5000/helloworld restore <snapid>
 ```
 
+## Local Testing
+
+`make dev` installs the plugin from this tree, starts a plain HTTP registry on
+port 5000 and a self-signed TLS one on port 5443, and prints the
+`plakar store add` commands for both. `make down` stops them.
+
 ## Use Cases
 
 * **Cloud-native backup storage** using existing container registries
