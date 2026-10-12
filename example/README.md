@@ -14,7 +14,7 @@ keeps everything in memory, so a repository is lost when the command exits.
 ```
 .
 ├── connector.go        # Connector implementations and registration
-├── plugin/
+├── cmd/
 │   ├── importer/main.go
 │   ├── exporter/main.go
 │   └── storage/main.go
@@ -23,7 +23,7 @@ keeps everything in memory, so a repository is lost when the command exits.
 ```
 
 To drop a connector type, remove its entry from `manifest.yaml`, its directory
-under `plugin/`, and its registration in `connector.go`.
+under `cmd/`, and its registration in `connector.go`.
 
 ## Build and install
 

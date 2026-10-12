@@ -7,9 +7,9 @@ VERSION	= v1.1.0
 all: build
 
 build:
-	${GO} build -v -o example-importer${EXT} ./plugin/importer
-	${GO} build -v -o example-exporter${EXT} ./plugin/exporter
-	${GO} build -v -o example-storage${EXT} ./plugin/storage
+	${GO} build -v -o example-importer${EXT} ./cmd/importer
+	${GO} build -v -o example-exporter${EXT} ./cmd/exporter
+	${GO} build -v -o example-storage${EXT} ./cmd/storage
 
 package: build
 	rm -f example_${VERSION}_*.ptar
