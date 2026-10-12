@@ -85,6 +85,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	if rootDir == "" {
 		rootDir = "/"
 	}
+	rootDir = path.Clean(rootDir)
 
 	host := parsed.Host
 	if parsed.Port() == "" && port != "" {
