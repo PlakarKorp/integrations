@@ -14,6 +14,15 @@ The configuration parameters are as follow:
 .It Ar location
 The URL of the FTP server in the form
 .Li ftp://<host>:<port> .
+.It Ar skip_permissions
+Whether restore leaves the mode of files and directories alone instead of
+setting it with
+.Cm SITE CHMOD .
+Defaults to
+.Li false .
+Set it to
+.Li true
+for servers that lack the command, such as most Windows servers.
 .El
 .Sh EXAMPLES
 The following example shows how to configure a source called
@@ -33,3 +42,12 @@ $ plakar at @mystore backup @myftp
 .Pp
 .Sh LIMITATIONS
 The current implementation is currently very simple and lacks many features.
+.Pp
+Restore sets permissions with
+.Cm SITE CHMOD ,
+which is not part of RFC 959.
+On a server that lacks or refuses it, every restored file and directory is
+reported as failed, unless
+.Ar skip_permissions
+is set to
+.Li true .

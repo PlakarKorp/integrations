@@ -4,18 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"path"
 	"sync"
 
-	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/integrations/ftp/conn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/secsy/goftp"
 )
 
 func init() {
@@ -25,11 +23,10 @@ func init() {
 type Importer struct {
 	host     string
 	rootDir  string
-	username string
-	password string
+	connOpts conn.Options
 	port     string
 
-	client *goftp.Client
+	client *conn.Client
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -39,14 +36,11 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		return nil, err
 	}
 
-	var username string
-	if tmp, ok := config["username"]; ok {
-		username = tmp
+	connOpts, err := conn.ParseOptions(config)
+	if err != nil {
+		return nil, err
 	}
-	var password string
-	if tmp, ok := config["password"]; ok {
-		password = tmp
-	}
+
 	var port string
 	if tmp, ok := config["port"]; ok {
 		port = tmp
@@ -58,10 +52,10 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
-			username = parsed.User.Username()
+			connOpts.Username = parsed.User.Username()
 		}
 		if p, ok := parsed.User.Password(); ok {
-			password = p
+			connOpts.Password = p
 		}
 	}
 
@@ -81,40 +75,37 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return &Importer{
 		host:     host,
 		rootDir:  rootDir,
-		username: username,
-		password: password,
+		connOpts: connOpts,
 		port:     port,
 	}, nil
 }
 
-func (p *Importer) walkAndCollectFiles(ctx context.Context, client *goftp.Client, root string, filePaths chan<- string, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *conn.Client, dir string, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	entries, err := client.ReadDir(root)
+	entries, err := client.ReadDir(dir)
 	if err != nil {
-		log.Printf("[FTPImporter] Error reading directory %s: %v", root, err)
+		records <- connectors.NewError(dir, err)
 		return
 	}
+	p.collectEntries(ctx, client, dir, entries, filePaths, records, wg)
+}
 
+func (p *Importer) collectEntries(ctx context.Context, client *conn.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
 	for _, entry := range entries {
-		entryPath := path.Join(root, entry.Name())
+		entryPath := path.Join(dir, entry.Name())
 
 		if entry.IsDir() {
-			wg.Add(1)
-			go p.walkAndCollectFiles(ctx, client, entryPath, filePaths, wg)
+			wg.Go(func() { p.walkAndCollectFiles(ctx, client, entryPath, filePaths, records, wg) })
 		} else {
 			filePaths <- entryPath
 		}
 	}
 }
 
-func (p *Importer) processFiles(client *goftp.Client, filePaths <-chan string, results chan<- *connectors.Record, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, results chan<- *connectors.Record) {
 	for filePath := range filePaths {
 		info, err := client.Stat(filePath)
 		if err != nil {
@@ -160,11 +151,17 @@ func (rc readerCloser) Close() error {
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
-	client, err := common.ConnectToFTP(p.host, p.username, p.password)
+	client, err := conn.ConnectToFTP(p.host, p.connOpts)
 	if err != nil {
 		return err
 	}
 	p.client = client
+
+	// List root first to return an error, not an empty backup
+	entries, err := client.ReadDir(p.rootDir)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", p.rootDir, err)
+	}
 
 	filePaths := make(chan string, 1000)
 
@@ -174,8 +171,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	)
 
 	// Walk directory tree
-	walkerWG.Add(1)
-	go p.walkAndCollectFiles(ctx, client, p.rootDir, filePaths, &walkerWG)
+	walkerWG.Go(func() { p.collectEntries(ctx, client, p.rootDir, entries, filePaths, records, &walkerWG) })
 
 	// Close filePaths only after all walk goroutines are done
 	go func() {
@@ -186,8 +182,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	// Launch worker goroutines to process file paths
 	numWorkers := 64
 	for range numWorkers {
-		workerWG.Add(1)
-		go p.processFiles(client, filePaths, records, &workerWG)
+		workerWG.Go(func() { p.processFiles(client, filePaths, records) })
 	}
 
 	// Close results channel after all workers complete

@@ -18,19 +18,21 @@ package exporter
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net/url"
 	"os"
-	"path/filepath"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
 
-	"github.com/PlakarKorp/integration-ftp/common"
+	"github.com/PlakarKorp/integrations/ftp/conn"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/secsy/goftp"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -43,7 +45,10 @@ type Exporter struct {
 
 	host    string
 	rootDir string
-	client  *goftp.Client
+	client  *conn.Client
+
+	// skipPermissions is set for servers that lack SITE CHMOD.
+	skipPermissions bool
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -54,14 +59,11 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		return nil, err
 	}
 
-	var username string
-	if tmp, ok := config["username"]; ok {
-		username = tmp
+	connOpts, err := conn.ParseOptions(config)
+	if err != nil {
+		return nil, err
 	}
-	var password string
-	if tmp, ok := config["password"]; ok {
-		password = tmp
-	}
+
 	var port string
 	if tmp, ok := config["port"]; ok {
 		port = tmp
@@ -71,12 +73,20 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 		root = tmp
 	}
 
+	var skipPermissions bool
+	if v, ok := config["skip_permissions"]; ok && v != "" {
+		skipPermissions, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid skip_permissions value %q", v)
+		}
+	}
+
 	if parsed.User != nil {
 		if parsed.User.Username() != "" {
-			username = parsed.User.Username()
+			connOpts.Username = parsed.User.Username()
 		}
 		if p, ok := parsed.User.Password(); ok {
-			password = p
+			connOpts.Password = p
 		}
 	}
 
@@ -87,13 +97,14 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	if rootDir == "" {
 		rootDir = "/"
 	}
+	rootDir = path.Clean(rootDir)
 
 	host := parsed.Host
 	if parsed.Port() == "" && port != "" {
 		host = fmt.Sprintf("%s:%s", parsed.Host, port)
 	}
 
-	client, err := common.ConnectToFTP(host, username, password)
+	client, err := conn.ConnectToFTP(host, connOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -101,9 +112,26 @@ func NewExporter(ctx context.Context, opts *connectors.Options, name string, con
 	return &Exporter{
 		opts: opts,
 		//endpoint: parsed,
-		client:  client,
-		rootDir: rootDir,
+		client:          client,
+		rootDir:         rootDir,
+		skipPermissions: skipPermissions,
 	}, nil
+}
+
+// contained joins a record pathname onto root and refuses anything that would
+// land outside of it.  path.Join cleans as it goes, so a record pathname of
+// "/../../etc/x" would otherwise resolve above root and be written there.
+//
+// FTP paths are always slash-separated, whatever the client platform, so this
+// uses path rather than filepath.
+func contained(root, pathname string) (string, error) {
+	joined := path.Join(root, pathname)
+	cleanRoot := path.Clean(root)
+
+	if joined != cleanRoot && !strings.HasPrefix(joined, strings.TrimSuffix(cleanRoot, "/")+"/") {
+		return "", fmt.Errorf("path %q escapes the restore root %q", pathname, cleanRoot)
+	}
+	return joined, nil
 }
 
 func (p *Exporter) Root() string {
@@ -119,18 +147,23 @@ func (p *Exporter) Ping(ctx context.Context) error {
 }
 
 func (p *Exporter) Close(ctx context.Context) error {
+	if p.client != nil {
+		return p.client.Close()
+	}
 	return nil
 }
 
 type dirPerm struct {
-	Pathname string
-	Fileinfo objects.FileInfo
+	record   *connectors.Record
+	pathname string
 }
 
 func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
+
+	var dirPerms []dirPerm
 
 loop:
 	for {
@@ -154,16 +187,23 @@ loop:
 				continue
 			}
 
-			pathname := filepath.Join(p.Root(), record.Pathname)
+			pathname, err := contained(p.Root(), record.Pathname)
+			if err != nil {
+				results <- record.Error(err)
+				continue
+			}
+
 			if record.FileInfo.Lmode.IsDir() {
+				// The restore root is the user's target, not ours to chmod.
 				if pathname == p.Root() {
 					results <- record.Ok()
+				} else if _, err := p.client.Mkdir(pathname); err != nil {
+					results <- record.Error(err)
 				} else {
-					if _, err := p.client.Mkdir(pathname); err != nil {
-						results <- record.Error(err)
-					} else {
-						results <- record.Ok()
-					}
+					// Reported once its mode is set, after its
+					// children are written: a read-only
+					// directory would refuse them.
+					dirPerms = append(dirPerms, dirPerm{record, pathname})
 				}
 				continue
 			}
@@ -191,13 +231,13 @@ loop:
 		ret = err
 	}
 
-	/*
-		for i := len(dirPerms) - 1; i >= 0; i-- {
-			if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
-				return err
-			}
+	for _, d := range slices.Backward(dirPerms) {
+		if err := p.chmod(d.pathname, d.record); err != nil {
+			results <- d.record.Error(err)
+		} else {
+			results <- d.record.Ok()
 		}
-	*/
+	}
 
 	return ret
 }
@@ -217,19 +257,37 @@ func (p *Exporter) file(record *connectors.Record, pathname string) error {
 	return p.writeAtomic(record, pathname)
 }
 
-func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
-	tmpName := fmt.Sprintf("%s.tmp.%d", pathname, rand.Int())
+// tempName returns a sibling name for pathname with an unpredictable suffix.
+//
+// math/rand/v2 was predictable enough that another user on a shared server
+// could precompute the name and pre-create it.
+func tempName(pathname string) (string, error) {
+	var buf [10]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	suffix := base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(buf[:])
+	return pathname + ".tmp." + suffix, nil
+}
 
-	err := p.client.Store(tmpName, record.Reader)
+func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+	tmpName, err := tempName(pathname)
 	if err != nil {
+		return err
+	}
+
+	if err := p.client.Store(tmpName, record.Reader); err != nil {
 		return err
 	}
 	if err := p.client.Rename(tmpName, pathname); err != nil {
 		return err
 	}
-	return nil
+	return p.chmod(pathname, record)
 }
 
-func (p *Exporter) permissions(pathname string, fileinfo objects.FileInfo) error {
-	return errors.ErrUnsupported
+func (p *Exporter) chmod(pathname string, record *connectors.Record) error {
+	if p.skipPermissions {
+		return nil
+	}
+	return p.client.Chmod(pathname, record.FileInfo.Lmode)
 }

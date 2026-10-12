@@ -1,0 +1,112 @@
+package integration
+
+import (
+	"io/fs"
+	"testing"
+
+	"github.com/PlakarKorp/integrations/ftp/conn"
+	"github.com/stretchr/testify/require"
+)
+
+// goftp dials lazily, so each test issues a command to force the handshake.
+
+func TestTLSVerifiesCertificateByDefault(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+
+	opts, err := conn.ParseOptions(map[string]string{"username": username, "password": password})
+	require.NoError(t, err)
+	c, err := conn.ConnectToFTP(addr, opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// goftp flattens the error, so tls.CertificateVerificationError is lost.
+	_, err = c.ReadDir("/")
+	require.ErrorContains(t, err, "failed to verify certificate")
+}
+
+func TestExplicitTLS(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+
+	opts, err := conn.ParseOptions(map[string]string{
+		"username":               username,
+		"password":               password,
+		"tls_insecure_no_verify": "true",
+	})
+	require.NoError(t, err)
+	c, err := conn.ConnectToFTP(addr, opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	_, err = c.ReadDir("/")
+	require.NoError(t, err)
+}
+
+func TestPlainFTPWhenAcknowledged(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+
+	opts, err := conn.ParseOptions(map[string]string{
+		"username":               username,
+		"password":               password,
+		"tls":                    "none",
+		"tls_insecure_no_verify": "true",
+	})
+	require.NoError(t, err)
+	c, err := conn.ConnectToFTP(addr, opts)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	_, err = c.ReadDir("/")
+	require.NoError(t, err)
+}
+
+func TestChmod(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	require.NoError(t, c.Chmod(dir+"/a.txt", 0o600))
+	require.Equal(t, "600", mode(t, dir+"/a.txt"))
+}
+
+func TestChmodSpecialBits(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	for perm, want := range map[fs.FileMode]string{
+		fs.ModeSetuid | 0o755: "4755",
+		fs.ModeSetgid | 0o755: "2755",
+		fs.ModeSticky | 0o755: "1755",
+		fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky | 0o777: "7777",
+	} {
+		require.NoError(t, c.Chmod(dir+"/a.txt", perm))
+		require.Equal(t, want, mode(t, dir+"/a.txt"), "%v", perm)
+	}
+}
+
+func TestChmodReportsRefusal(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+
+	require.Error(t, c.Chmod(testDir(t)+"/missing", 0o600))
+}
+
+func TestChmodAfterRefusal(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	put(t, c, dir+"/a.txt", "alpha")
+
+	require.Error(t, c.Chmod(dir+"/missing", 0o600))
+	require.NoError(t, c.Chmod(dir+"/a.txt", 0o600))
+	require.Equal(t, "600", mode(t, dir+"/a.txt"))
+}
