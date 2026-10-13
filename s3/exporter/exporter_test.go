@@ -31,7 +31,8 @@ func TestNewS3ExporterVirtualHostRoot(t *testing.T) {
 		{name: "default root", root: "/", wantRoot: "/"},
 		{name: "root is the prefix", root: "/plakar/demo/", wantRoot: "/plakar/demo"},
 		{name: "location path only", path: "/data", wantRoot: "/data"},
-		{name: "location path and same root", path: "/data", root: "/data/", wantErr: true},
+		{name: "location path and same root", path: "/data", root: "/data/", wantRoot: "/data"},
+		{name: "location path and default root", path: "/data", root: "/", wantRoot: "/data"},
 		{name: "location path and other root", path: "/data", root: "/other", wantErr: true},
 	}
 

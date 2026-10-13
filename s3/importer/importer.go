@@ -167,15 +167,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, err
 		}
 
-		if parsed.Path != "" && root != "" {
-			return nil, fmt.Errorf("root must be set only once, currently set in host %q and root parameter %q", parsed.Path, root)
+		scanDir, err = common.VirtualHostPrefix(parsed.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		rootPath := parsed.Path
-		if root != "" {
-			rootPath = root
-		}
-
-		scanDir = strings.Trim(rootPath, "/")
 	} else {
 		if endpoint != "" {
 			if parsed.Host != endpoint {

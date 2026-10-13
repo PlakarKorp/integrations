@@ -20,7 +20,8 @@ func TestNewS3ImporterVirtualHostRoot(t *testing.T) {
 		{name: "root is the prefix", location: "s3://bucket.s3.eu-west-3.amazonaws.com", root: "/plakar/demo/", wantRoot: "/plakar/demo"},
 		{name: "bare bucket host with root", location: "s3://bucket", root: "/my/subdir", wantRoot: "/my/subdir"},
 		{name: "location path only", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", wantRoot: "/data"},
-		{name: "location path and same root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/data/", wantErr: true},
+		{name: "location path and same root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/data/", wantRoot: "/data"},
+		{name: "location path and default root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/", wantRoot: "/data"},
 		{name: "location path and other root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/other", wantErr: true},
 	}
 
