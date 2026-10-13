@@ -94,11 +94,6 @@ func TestListMapsEveryResource(t *testing.T) {
 		}, Metadata: map[string]string{"team": "web", "env": "prod"}, Tags: &[]string{"frontend"}}},
 		volumes: []volumes.Volume{{ID: "v1", Status: "in-use", VolumeType: "ssd", Size: 10,
 			Attachments: []volumes.Attachment{{ServerID: "s1"}}, Metadata: map[string]string{"backup": "daily"}}},
-		images: []images.Image{
-			{ID: "i1", Name: "web-snap", Status: images.ImageStatusActive, Visibility: images.ImageVisibilityPrivate, DiskFormat: "qcow2", SizeBytes: 1024,
-				Properties: map[string]any{"image_type": "snapshot"}, Tags: []string{"golden", "owner:peeyush", "env:prod"}},
-			{ID: "i2", Name: "bfv-snap", Status: images.ImageStatusActive, Visibility: images.ImageVisibilityPrivate}, // no data: skipped
-		},
 		containers: []common.Container{{Container: containers.Container{Name: "media", Count: 3, Bytes: 42}, URL: "http://swift:8080/v1/AUTH_p1/media"}},
 		databases: []instances.Instance{{ID: "d1", Name: "orders", Status: "ACTIVE", Hostname: "db.example",
 			Datastore: datastores.DatastorePartial{Type: "postgresql"}, Addresses: []instances.Address{{Address: "10.0.0.9"}}}},
@@ -131,12 +126,6 @@ func TestListMapsEveryResource(t *testing.T) {
 			Name: "v1", Region: "RegionOne", Service: "cinder", Resource: "cinder:volume",
 			Tags:      []string{"backup=daily"},
 			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "v1"}},
-		},
-		{
-			Class: pkg.ResourceClassCompute, URN: "urn:openstack:p1:glance:RegionOne:image:i1",
-			Name: "web-snap", Region: "RegionOne", Service: "glance", Resource: "glance:image",
-			Tags:      []string{"golden", "owner=peeyush", "env=prod"},
-			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "i1"}},
 		},
 		{
 			Class: pkg.ResourceClassObjectStorage, URN: "urn:openstack:p1:swift:RegionOne:container:media",

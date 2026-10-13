@@ -132,7 +132,6 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 			sources := []iter.Seq2[*inventory.InventoryEntry, error]{
 				entriesOf(sc, api.ListServers(ctx), serverEntry),
 				entriesOf(sc, api.ListVolumes(ctx), volumeEntry),
-				entriesOf(sc, api.ListImages(ctx), imageEntry),
 				entriesOf(sc, api.ListContainers(ctx), containerEntry),
 				entriesOf(sc, api.ListDatabases(ctx), databaseEntry),
 			}
@@ -256,28 +255,6 @@ func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
 			{Type: inventory.EndpointIdentifier, Endpoint: common.SpawnLocation, Attributes: map[string]string{"openstack_region": sc.Region}},
 		},
 	}
-}
-
-func imageEntry(sc common.Scope, i images.Image) *inventory.InventoryEntry {
-	if i.SizeBytes == 0 {
-		return nil
-	}
-	e := &inventory.InventoryEntry{
-		// pkg has no image subclass; Resource tells images and servers apart.
-		Class:     pkg.ResourceClassCompute,
-		SubClass:  pkg.ResourceSubClassUndefined,
-		URN:       urn(sc, "glance", "image", i.ID),
-		Name:      i.Name,
-		Region:    sc.Region,
-		Service:   "glance",
-		Resource:  "glance:image",
-		Tags:      glanceTags(i.Tags),
-		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: i.ID}},
-	}
-	if e.Name == "" {
-		e.Name = i.ID
-	}
-	return e
 }
 
 func containerEntry(sc common.Scope, c common.Container) *inventory.InventoryEntry {
