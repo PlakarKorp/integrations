@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -53,12 +54,13 @@ func elsewhere(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	return srv, &hits
 }
 
-func create(t *testing.T, registryURL string) error {
+func create(t *testing.T, registryURL string, allowCrossHost bool) error {
 	t.Helper()
 	ctx := context.Background()
 	st, err := storage.New(ctx, "oci", map[string]string{
-		"location": "oci://" + strings.TrimPrefix(registryURL, "http://") + "/repo",
-		"insecure": "true",
+		"location":                 "oci://" + strings.TrimPrefix(registryURL, "http://") + "/repo",
+		"insecure":                 "true",
+		"allow_cross_host_uploads": strconv.FormatBool(allowCrossHost),
 	})
 	require.NoError(t, err)
 	return st.Create(ctx, []byte("config"))
@@ -73,7 +75,7 @@ func TestUploadFollowsSameHostLocation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			reg := fakeRegistry(t, startLoc, "/v2/repo/blobs/uploads/abc?_state=x")
-			require.NoError(t, create(t, reg.URL))
+			require.NoError(t, create(t, reg.URL, false))
 		})
 	}
 }
@@ -82,7 +84,7 @@ func TestUploadRejectsOffHostStartLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
 	reg := fakeRegistry(t, other.URL+"/upload", "")
-	require.Error(t, create(t, reg.URL))
+	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
 }
 
@@ -119,6 +121,15 @@ func (c *firstByteConn) Read(b []byte) (int, error) {
 
 func TestUploadRejectsDowngradeToCleartext(t *testing.T) {
 	t.Parallel()
+	for _, allowCrossHost := range []bool{false, true} {
+		t.Run("allow_cross_host_uploads="+strconv.FormatBool(allowCrossHost), func(t *testing.T) {
+			t.Parallel()
+			testUploadRejectsDowngradeToCleartext(t, allowCrossHost)
+		})
+	}
+}
+
+func testUploadRejectsDowngradeToCleartext(t *testing.T, allowCrossHost bool) {
 	var cleartext atomic.Int32
 	var srv *httptest.Server
 	srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +142,9 @@ func TestUploadRejectsDowngradeToCleartext(t *testing.T) {
 
 	ctx := context.Background()
 	st, err := storage.New(ctx, "oci", map[string]string{
-		"location":               "oci://" + srv.Listener.Addr().String() + "/repo",
-		"tls_insecure_no_verify": "true",
+		"location":                 "oci://" + srv.Listener.Addr().String() + "/repo",
+		"tls_insecure_no_verify":   "true",
+		"allow_cross_host_uploads": strconv.FormatBool(allowCrossHost),
 	})
 	require.NoError(t, err)
 	require.Error(t, st.Create(ctx, []byte("config")))
@@ -143,6 +155,23 @@ func TestUploadRejectsOffHostPatchLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
 	reg := fakeRegistry(t, "/v2/repo/blobs/uploads/abc", other.URL+"/finish")
-	require.Error(t, create(t, reg.URL))
+	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
+}
+
+func TestUploadFollowsOffHostLocationWhenAllowed(t *testing.T) {
+	t.Parallel()
+	other, hits := elsewhere(t)
+	reg := fakeRegistry(t, other.URL+"/upload", "")
+	require.NoError(t, create(t, reg.URL, true))
+	assert.NotZero(t, hits.Load(), "off-host server was not contacted")
+}
+
+func TestNewRejectsInvalidAllowCrossHostUploads(t *testing.T) {
+	t.Parallel()
+	_, err := storage.New(context.Background(), "oci", map[string]string{
+		"location":                 "oci://localhost/repo",
+		"allow_cross_host_uploads": "maybe",
+	})
+	require.Error(t, err)
 }
