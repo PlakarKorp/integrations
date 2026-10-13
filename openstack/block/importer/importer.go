@@ -84,7 +84,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 
 	// Snapshot the volume and turn the snapshot into a Glance image. The
 	// temporary resources go into imp.cleanup, for Close to delete on failure.
-	vi, err := imp.client.CreateVolumeImage(ctx, imp.volumeID, &imp.cleanup)
+	snap, err := imp.client.SnapshotVolume(ctx, imp.volumeID, &imp.cleanup)
+	if err != nil {
+		return err
+	}
+	vi, err := imp.client.CreateVolumeImage(ctx, snap.ID, &imp.cleanup)
 	if err != nil {
 		return err
 	}

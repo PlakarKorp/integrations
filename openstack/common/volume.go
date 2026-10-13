@@ -90,25 +90,15 @@ func (c *Client) GetVolume(ctx context.Context, volumeID string) (*volumes.Volum
 	return vol, nil
 }
 
-// CreateVolumeImage snapshots the volume, creates a temporary volume from the
-// snapshot, and uploads that to Glance: no API reads a snapshot's bytes. Each
-// resource goes into cleanup as soon as it exists, so a failure leaves nothing
-// behind once cleanup runs.
-func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup *Cleanup) (*VolumeImage, error) {
+// SnapshotVolume snapshots the volume and waits for the snapshot to become
+// available. The snapshot goes into cleanup as soon as it exists, so a failure
+// leaves nothing behind once cleanup runs.
+func (c *Client) SnapshotVolume(ctx context.Context, volumeID string, cleanup *Cleanup) (*snapshots.Snapshot, error) {
 	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
-	image, err := c.glance()
-	if err != nil {
-		return nil, err
-	}
-	cleanup.block, cleanup.image = block, image
-
-	vol, err := c.GetVolume(ctx, volumeID)
-	if err != nil {
-		return nil, err
-	}
+	cleanup.block = block
 
 	created, err := snapshots.Create(ctx, block, snapshots.CreateOpts{
 		VolumeID: volumeID,
@@ -119,7 +109,31 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("snapshot volume %q: %w", volumeID, err)
 	}
 	cleanup.snapshotID = created.ID
-	snap, err := waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
+	return waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
+}
+
+// CreateVolumeImage turns a snapshot into a Glance image: it creates a
+// temporary volume from the snapshot and uploads that, as no API reads a
+// snapshot's bytes. The snapshot is usually SnapshotVolume's, but any
+// available one does. The temporary volume and the image go into cleanup as
+// soon as they exist, so a failure leaves nothing behind once cleanup runs.
+func (c *Client) CreateVolumeImage(ctx context.Context, snapshotID string, cleanup *Cleanup) (*VolumeImage, error) {
+	block, err := c.cinder()
+	if err != nil {
+		return nil, err
+	}
+	image, err := c.glance()
+	if err != nil {
+		return nil, err
+	}
+	cleanup.block, cleanup.image = block, image
+
+	snap, err := snapshots.Get(ctx, block, snapshotID).Extract()
+	if err != nil {
+		return nil, fmt.Errorf("get snapshot %q: %w", snapshotID, err)
+	}
+	// The source volume decides the disk format, and restore recreates it.
+	vol, err := c.GetVolume(ctx, snap.VolumeID)
 	if err != nil {
 		return nil, err
 	}

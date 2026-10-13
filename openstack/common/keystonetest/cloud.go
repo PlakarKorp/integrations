@@ -256,7 +256,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.reply(w, http.StatusNotFound, nil)
 			return
 		}
-		c.reply(w, http.StatusOK, map[string]any{"snapshot": snapshot(id, "", status)})
+		c.reply(w, http.StatusOK, map[string]any{"snapshot": snapshot(id, c.source(id), status)})
 	})
 	mux.HandleFunc("DELETE "+block+"/snapshots/{id}", c.delete)
 	// Glance's catalog URL is unversioned, so gophercloud reads its versions.
@@ -580,6 +580,16 @@ func (c *Cloud) consumeFailImageRead() bool {
 		return true
 	}
 	return false
+}
+
+// source returns what the resource was made from: a snapshot's volume.
+func (c *Cloud) source(id string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r, ok := c.resources[id]; ok {
+		return r.source
+	}
+	return ""
 }
 
 // read returns the resource's status, counting down its transient states.
