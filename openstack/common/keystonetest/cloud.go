@@ -31,13 +31,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const Region = "RegionOne"
+const (
+	Region  = "RegionOne"
+	Project = "p1"
+)
 
 // Cloud is a Keystone, Cinder and Glance for one project in Region. Any call
 // it does not expect, including deleting a resource twice or deleting a
 // volume it did not create, fails the test.
 type Cloud struct {
 	AuthURL string
+	// MetadataURL is the metadata service a Nova server reaches at a
+	// link-local address, served here instead. It answers 404 unless HostID
+	// is set.
+	MetadataURL string
+	// HostID is the Nova server the test host pretends to be, as the
+	// metadata service reports it; empty means the host is off the cloud.
+	HostID string
+	// HostProject is the project the metadata service reports; Project if
+	// empty.
+	HostProject string
 	// Disk is the content of every image.
 	Disk []byte
 	// ImageSize overrides an image's reported byte size; 0 means len(Disk).
@@ -143,13 +156,14 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	c.AuthURL = srv.URL + "/identity/v3/"
+	c.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
 
-	block := "/volume/v3/p1"
+	block := "/volume/v3/" + Project
 	mux.HandleFunc("POST /identity/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Subject-Token", "fake-token")
 		c.reply(w, http.StatusCreated, map[string]any{"token": map[string]any{
 			"expires_at": "2999-01-01T00:00:00.000000Z",
-			"project":    map[string]any{"id": "p1"},
+			"project":    map[string]any{"id": Project},
 			"catalog": []any{
 				catalogEntry("volumev3", srv.URL+block),
 				catalogEntry("image", srv.URL+"/image/"),
@@ -349,6 +363,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			"device":   body.VolumeAttachment.Device,
 			"serverId": r.PathValue("id"),
 		}})
+	})
+	mux.HandleFunc("GET /openstack/latest/meta_data.json", func(w http.ResponseWriter, r *http.Request) {
+		if c.HostID == "" {
+			c.reply(w, http.StatusNotFound, nil)
+			return
+		}
+		c.reply(w, http.StatusOK, map[string]any{"uuid": c.HostID, "project_id": cmp.Or(c.HostProject, Project)})
 	})
 	mux.HandleFunc("/", c.unexpected)
 	c.mux = mux

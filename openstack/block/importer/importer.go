@@ -20,11 +20,13 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -81,6 +83,17 @@ func (imp *Importer) Ping(ctx context.Context) error {
 // .qcow2 name whatever its format; the metadata's image carries the real one.
 func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
 	defer close(records)
+
+	vol, err := imp.client.GetVolume(ctx, imp.volumeID)
+	if err != nil {
+		return err
+	}
+	if host, err := cinder.Preflight(ctx, imp.client, vol); err == nil {
+		// The host is a Nova server of this cloud, so the volume could be
+		// attached to it and read from a local block device. That path is not
+		// written yet: note it and take the Glance one.
+		log.Printf("openstack-block: volume %q could be attached to server %q; reading it through Glance", imp.volumeID, host.ID)
+	}
 
 	// Snapshot the volume and turn the snapshot into a Glance image. The
 	// temporary resources go into imp.cleanup, for Close to delete on failure.
