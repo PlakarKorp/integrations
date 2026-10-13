@@ -374,3 +374,39 @@ func TestNewStorePathStyleRootIncludesBucket(t *testing.T) {
 		t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, "bucket", "/data/")
 	}
 }
+
+// The control plane puts the bucket in the location host and repeats root in
+// the location path, as s3://<bucket><root>.
+func TestNewStorePathStyleControlPlaneLocation(t *testing.T) {
+	tests := []struct {
+		name       string
+		location   string
+		root       string
+		wantBucket string
+		wantPrefix string
+	}{
+		{name: "root is the prefix", location: "s3://fca-backup-fr/plakar-repro-restore", root: "/plakar-repro-restore", wantBucket: "fca-backup-fr", wantPrefix: "/plakar-repro-restore/"},
+		{name: "root that starts with the bucket", location: "s3://backups-poc/backups-poc/plakar", root: "/backups-poc/plakar", wantBucket: "backups-poc", wantPrefix: "/plakar/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := NewStore(context.Background(), "s3", map[string]string{
+				"location":          tt.location,
+				"access_key":        "access",
+				"secret_access_key": "secret",
+				"endpoint":          "s3.fr-par.scw.cloud",
+				"virtual_host":      "false",
+				"root":              tt.root,
+			})
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+
+			s := st.(*Store)
+			if s.bucket != tt.wantBucket || s.prefixDir != tt.wantPrefix {
+				t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, tt.wantBucket, tt.wantPrefix)
+			}
+		})
+	}
+}
