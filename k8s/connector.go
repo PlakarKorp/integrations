@@ -390,10 +390,14 @@ func (k *k8s) Root() string {
 }
 
 func (k *k8s) Flags() location.Flags {
+	var flags location.Flags
 	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" || k.proto == "k8s+vm" {
-		return location.FLAG_STREAM | location.FLAG_NEEDACK
+		flags |= location.FLAG_STREAM | location.FLAG_NEEDACK
 	}
-	return 0
+	if k.proto == "k8s+vm" {
+		flags |= location.FLAG_WALKDIRORDER
+	}
+	return flags
 }
 
 func (k *k8s) Ping(ctx context.Context) error {
