@@ -91,7 +91,7 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
+	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NotEmpty(t, cloud.Leftovers())
 
@@ -106,7 +106,7 @@ func TestCreateVolumeImageUsesRawForEncryptedVolume(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
+	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "raw", vi.Image.DiskFormat)
 
@@ -120,7 +120,7 @@ func TestCreateVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
+	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", vi.Image.DiskFormat)
 
@@ -135,7 +135,7 @@ func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
+	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
 	require.NoError(t, err)
 
 	cleanup.Run(t.Context())
@@ -153,7 +153,7 @@ func TestWaitStatusGivesUpOnPersistentGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
+	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `get image "image-`)
 
@@ -225,7 +225,7 @@ func TestCleanupLogsWhenWaitGivesUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
+	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	cleanup.Run(t.Context())
