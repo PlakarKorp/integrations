@@ -25,9 +25,10 @@ func init() {
 }
 
 type ociStore struct {
-	client *http.Client
-	base   string
-	repo   string
+	client                *http.Client
+	base                  string
+	repo                  string
+	allowCrossHostUploads bool
 }
 
 func New(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
@@ -49,6 +50,15 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 			return nil, fmt.Errorf("invalid tls_insecure_no_verify value %q", v)
 		}
 		noVerify = b
+	}
+
+	allowCrossHostUploads := false
+	if v := config["allow_cross_host_uploads"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allow_cross_host_uploads value %q", v)
+		}
+		allowCrossHostUploads = b
 	}
 
 	scheme := "https"
@@ -86,8 +96,9 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 	}
 
 	return &ociStore{
-		base: base,
-		repo: repo,
+		base:                  base,
+		repo:                  repo,
+		allowCrossHostUploads: allowCrossHostUploads,
 		client: &http.Client{
 			Transport: tr,
 			Timeout:   0, // streaming uploads/downloads
@@ -470,8 +481,11 @@ func (s *ociStore) resolveLocation(loc string) (string, error) {
 		return "", err
 	}
 	resolved := base.ResolveReference(ref)
+	if resolved.Scheme != base.Scheme {
+		return "", fmt.Errorf("registry upload location %q is not %s", loc, base.Scheme)
+	}
 	// The upload body follows this URL, so a registry must not point it elsewhere.
-	if resolved.Scheme != base.Scheme || !strings.EqualFold(resolved.Host, base.Host) {
+	if !s.allowCrossHostUploads && !strings.EqualFold(resolved.Host, base.Host) {
 		return "", fmt.Errorf("registry upload location %q is not on %s", loc, s.base)
 	}
 	return resolved.String(), nil
