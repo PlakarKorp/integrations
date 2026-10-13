@@ -74,3 +74,33 @@ func TestSplitVirtualHost(t *testing.T) {
 		})
 	}
 }
+
+func TestVirtualHostPrefix(t *testing.T) {
+	tests := []struct {
+		name         string
+		locationPath string
+		root         string
+		wantPrefix   string
+		wantErr      bool
+	}{
+		{name: "neither", wantPrefix: ""},
+		{name: "default root", root: "/", wantPrefix: ""},
+		{name: "location path only", locationPath: "/data", wantPrefix: "data"},
+		{name: "root only", root: "/my/subdir/", wantPrefix: "my/subdir"},
+		{name: "location path and default root", locationPath: "/data", root: "/", wantPrefix: "data"},
+		{name: "location path and same root", locationPath: "/data", root: "/data/", wantPrefix: "data"},
+		{name: "location path and other root", locationPath: "/data", root: "/other", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix, err := VirtualHostPrefix(tt.locationPath, tt.root)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPrefix, prefix)
+		})
+	}
+}

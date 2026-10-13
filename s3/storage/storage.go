@@ -144,15 +144,9 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 			return nil, err
 		}
 
-		// The bucket is in the hostname, so root carries the prefix only.
-		urlPrefix := strings.Trim(u.Path, "/")
-		rootPrefix := strings.Trim(root, "/")
-		if urlPrefix != "" && rootPrefix != "" && urlPrefix != rootPrefix {
-			return nil, fmt.Errorf("location path %q conflicts with root %q", u.Path, root)
-		}
-		prefixDir = urlPrefix
-		if rootPrefix != "" {
-			prefixDir = rootPrefix
+		prefixDir, err = common.VirtualHostPrefix(u.Path, root)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		if endpoint != "" {
