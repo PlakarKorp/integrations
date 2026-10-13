@@ -118,7 +118,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 
 	for _, av := range server.AttachedVolumes {
 		cleanup := imp.addCleanup()
-		vi, err := imp.client.CreateVolumeImage(ctx, av.ID, cleanup)
+		snap, err := imp.client.SnapshotVolume(ctx, av.ID, cleanup)
+		if err != nil {
+			return err
+		}
+		vi, err := imp.client.CreateVolumeImage(ctx, snap.ID, cleanup)
 		if err != nil {
 			return err
 		}

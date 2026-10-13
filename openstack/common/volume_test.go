@@ -44,6 +44,40 @@ func connectCloud(t *testing.T, cloud *keystonetest.Cloud) *Client {
 	return clients[0]
 }
 
+// backupVolume snapshots the volume and turns the snapshot into an image, as
+// the importers do.
+func backupVolume(ctx context.Context, client *Client, volumeID string, cleanup *Cleanup) (*VolumeImage, error) {
+	snap, err := client.SnapshotVolume(ctx, volumeID, cleanup)
+	if err != nil {
+		return nil, err
+	}
+	return client.CreateVolumeImage(ctx, snap.ID, cleanup)
+}
+
+// CreateVolumeImage works from a snapshot ID alone, and only its own
+// resources, the temporary volume and the image, go into its cleanup: the
+// snapshot stays with SnapshotVolume's.
+func TestCreateVolumeImageFromSnapshot(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	client := connectCloud(t, cloud)
+
+	var snapCleanup, imageCleanup Cleanup
+	snap, err := client.SnapshotVolume(t.Context(), "vol-1", &snapCleanup)
+	require.NoError(t, err)
+
+	vi, err := client.CreateVolumeImage(t.Context(), snap.ID, &imageCleanup)
+	require.NoError(t, err)
+	assert.Equal(t, "vol-1", vi.Volume.ID)
+	assert.Equal(t, snap.ID, vi.Snapshot.ID)
+	assert.NotEmpty(t, vi.Image.ID)
+
+	imageCleanup.Run(t.Context())
+	assert.Equal(t, []string{snap.ID}, cloud.Leftovers())
+
+	snapCleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
 // Waiting for Cinder to allow a delete can take far longer than the delete
 // request itself, so the wait must not be bound by the request's timeout.
 func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
@@ -57,7 +91,7 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
+	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NotEmpty(t, cloud.Leftovers())
 
@@ -72,7 +106,7 @@ func TestCreateVolumeImageUsesRawForEncryptedVolume(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	vi, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "raw", vi.Image.DiskFormat)
 
@@ -86,7 +120,7 @@ func TestCreateVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	vi, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", vi.Image.DiskFormat)
 
@@ -101,7 +135,7 @@ func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
 
 	cleanup.Run(t.Context())
@@ -119,7 +153,7 @@ func TestWaitStatusGivesUpOnPersistentGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `get image "image-`)
 
@@ -191,7 +225,7 @@ func TestCleanupLogsWhenWaitGivesUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
+	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	cleanup.Run(t.Context())
