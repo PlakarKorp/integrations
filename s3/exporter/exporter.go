@@ -168,7 +168,10 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, err
 		}
 
-		restoreDir = strings.TrimPrefix(parsed.Path, "/")
+		restoreDir, err = common.VirtualHostPrefix(parsed.Path, root)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		if endpoint != "" {
 			if parsed.Host != endpoint {

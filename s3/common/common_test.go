@@ -1,6 +1,10 @@
 package common
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestSplitPathStyle(t *testing.T) {
 	tests := []struct {
@@ -37,6 +41,66 @@ func TestSplitPathStyle(t *testing.T) {
 			if bucket != tt.wantBucket || prefix != tt.wantPrefix {
 				t.Errorf("bucket, prefix = %q, %q, want %q, %q", bucket, prefix, tt.wantBucket, tt.wantPrefix)
 			}
+		})
+	}
+}
+
+func TestSplitVirtualHost(t *testing.T) {
+	tests := []struct {
+		name       string
+		hostname   string
+		endpoint   string
+		wantBucket string
+		wantHost   string
+		wantErr    bool
+	}{
+		{name: "bucket under the endpoint", hostname: "mybucket.s3.eu-west-3.amazonaws.com", endpoint: "s3.eu-west-3.amazonaws.com", wantBucket: "mybucket", wantHost: "s3.eu-west-3.amazonaws.com"},
+		{name: "bare bucket", hostname: "mybucket", endpoint: "s3.eu-west-3.amazonaws.com", wantBucket: "mybucket", wantHost: "s3.eu-west-3.amazonaws.com"},
+		{name: "endpoint with scheme and trailing slash", hostname: "mybucket.s3.eu-west-3.amazonaws.com", endpoint: "https://s3.eu-west-3.amazonaws.com/", wantBucket: "mybucket", wantHost: "s3.eu-west-3.amazonaws.com"},
+		{name: "fully qualified hostname", hostname: "mybucket.s3.eu-west-3.amazonaws.com.", endpoint: "s3.eu-west-3.amazonaws.com", wantBucket: "mybucket", wantHost: "s3.eu-west-3.amazonaws.com"},
+		{name: "empty endpoint", hostname: "mybucket.s3.eu-west-3.amazonaws.com", endpoint: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, host, err := SplitVirtualHost(tt.hostname, tt.endpoint)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantBucket, bucket)
+			require.Equal(t, tt.wantHost, host)
+		})
+	}
+}
+
+func TestVirtualHostPrefix(t *testing.T) {
+	tests := []struct {
+		name         string
+		locationPath string
+		root         string
+		wantPrefix   string
+		wantErr      bool
+	}{
+		{name: "neither", wantPrefix: ""},
+		{name: "default root", root: "/", wantPrefix: ""},
+		{name: "location path only", locationPath: "/data", wantPrefix: "data"},
+		{name: "root only", root: "/my/subdir/", wantPrefix: "my/subdir"},
+		{name: "location path and default root", locationPath: "/data", root: "/", wantPrefix: "data"},
+		{name: "location path and same root", locationPath: "/data", root: "/data/", wantPrefix: "data"},
+		{name: "location path and other root", locationPath: "/data", root: "/other", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix, err := VirtualHostPrefix(tt.locationPath, tt.root)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPrefix, prefix)
 		})
 	}
 }

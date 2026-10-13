@@ -167,7 +167,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, err
 		}
 
-		scanDir = strings.TrimPrefix(parsed.Path, "/")
+		scanDir, err = common.VirtualHostPrefix(parsed.Path, root)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		if endpoint != "" {
 			if parsed.Host != endpoint {

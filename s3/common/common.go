@@ -26,6 +26,21 @@ func SplitVirtualHost(hostname, endpoint string) (bucket, host string, err error
 	return bucket, endpoint, nil
 }
 
+// VirtualHostPrefix returns the prefix of a virtual-host location, where the
+// bucket is in the hostname. The location path and root may both carry the
+// prefix, but must then agree.
+func VirtualHostPrefix(locationPath, root string) (string, error) {
+	locationPrefix := strings.Trim(locationPath, "/")
+	rootPrefix := strings.Trim(root, "/")
+	if locationPrefix != "" && rootPrefix != "" && locationPrefix != rootPrefix {
+		return "", fmt.Errorf("location path %q conflicts with root %q", locationPath, root)
+	}
+	if rootPrefix != "" {
+		return rootPrefix, nil
+	}
+	return locationPrefix, nil
+}
+
 // SplitPathStyle returns the bucket and the prefix of a path-style location.
 // The location path names the bucket and root is the prefix inside it. A root
 // that starts with that bucket, or a location without a bucket, keeps the
