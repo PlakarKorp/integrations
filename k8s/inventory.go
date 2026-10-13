@@ -30,14 +30,25 @@ type inventory struct {
 	config         *rest.Config
 	clientset      kubernetes.Interface
 	kubevirtClient kubevirt.Interface
+
+	clusterID func(context.Context, *rest.Config) (string, error)
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
+	return Inventory(ctx, params, nil)
+}
+
+func Inventory(ctx context.Context, params map[string]string, clusterID func(context.Context, *rest.Config) (string, error)) (sdk.Inventory, error) {
 	var (
 		inv          inventory
 		kubeconf     []byte
 		kubeconfpath string
 	)
+
+	inv.clusterID = clusterID
+	if inv.clusterID == nil {
+		inv.clusterID = clusterUID
+	}
 
 	for k, v := range params {
 		switch k {
@@ -102,6 +113,44 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 	return &inv, nil
 }
 
+func clusterUID(ctx context.Context, config *rest.Config) (string, error) {
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to build the clientset: %w", err)
+	}
+	ns, err := clientset.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to identify the cluster: %w", err)
+	}
+	return string(ns.UID), nil
+}
+
+func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	uid, err := inv.clusterID(ctx, inv.config)
+	if err != nil {
+		return err
+	}
+
+	for _, ns := range inv.namespaces {
+		name, endpoint := "cluster", "/"
+		if ns != "" {
+			name, endpoint = ns, "/"+ns
+		}
+
+		resources <- &sdk.InventoryEntry{
+			Class: pkg.ResourceClassCompute,
+			URN:   "k8s:" + uid + ":" + name,
+			Name:  name,
+			Endpoints: []sdk.HostEndpoint{{
+				Type:     sdk.EndpointIdentifier,
+				Endpoint: endpoint,
+			}},
+		}
+	}
+
+	return nil
+}
+
 func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
 	for _, ns := range inv.namespaces {
 		if err := inv.listPVCInNs(ctx, ns, resources); err != nil {
@@ -116,8 +165,10 @@ func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan
 
 	for {
 		pvcs, err := inv.clientset.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{
-			Limit:    50,
-			Continue: cont,
+			// Hide the PVCs we create from snapshots during a backup.
+			LabelSelector: "plakar.io/generated-resource!=true",
+			Limit:         50,
+			Continue:      cont,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list PVCs: %w", err)
@@ -199,6 +250,7 @@ func (inv *inventory) List(ctx context.Context, resources chan<- *sdk.InventoryE
 
 	wg, ctx := errgroup.WithContext(ctx)
 
+	wg.Go(func() error { return inv.listConfig(ctx, resources) })
 	wg.Go(func() error { return inv.listPVC(ctx, resources) })
 	wg.Go(func() error { return inv.listVM(ctx, resources) })
 

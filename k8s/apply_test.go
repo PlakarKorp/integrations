@@ -12,6 +12,7 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/require"
 	yamlv3 "go.yaml.in/yaml/v3"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/client-go/discovery/cached/memory"
 	discoveryfake "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/restmapper"
 	clienttesting "k8s.io/client-go/testing"
@@ -29,6 +31,14 @@ var applyTestResources = []*metav1.APIResourceList{
 		GroupVersion: "v1",
 		APIResources: []metav1.APIResource{
 			{Name: "configmaps", Namespaced: true, Kind: "ConfigMap",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "endpoints", Namespaced: true, Kind: "Endpoints",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "persistentvolumes", Namespaced: false, Kind: "PersistentVolume",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "persistentvolumeclaims", Namespaced: true, Kind: "PersistentVolumeClaim",
+				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
+			{Name: "services", Namespaced: true, Kind: "Service",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
 			{Name: "namespaces", Namespaced: false, Kind: "Namespace",
 				Verbs: metav1.Verbs{"list", "get", "create", "patch", "delete"}},
@@ -47,6 +57,7 @@ func newApplyTestK8s() *k8s {
 		discovercache: discovercache,
 		mapper:        restmapper.NewDeferredDiscoveryRESTMapperWithContext(discovercache),
 		dclient:       dynamicfake.NewSimpleDynamicClient(scheme.Scheme),
+		remapped:      make(map[remapKey]string),
 	}
 }
 
@@ -501,4 +512,371 @@ data:
 		_, err := objectMeta(obj)
 		require.Error(t, err)
 	})
+}
+
+func TestApplyRemapsNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+data:
+  foo: bar
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	require.Equal(t, "target", captured.namespace,
+		"the object must be applied to the namespace the user asked for")
+	require.Equal(t, "my-cm", captured.name)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.Equal(t, "target", meta["namespace"],
+		"the object itself must carry the new namespace")
+}
+
+func TestApplyRemapsNamespaceOfUnnamespacedObject(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	// a namespaced object whose manifest carries no namespace at
+	// all still has to land in the target one.
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.Equal(t, "target", captured.namespace)
+}
+
+func TestApplySkipsClusterScopedWhenRemapping(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	yaml := `
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: source
+`
+	err := k.apply(t.Context(), "source", strings.NewReader(yaml))
+	require.NoError(t, err, "a skipped resource is not an error")
+	require.False(t, applied, "cluster-scoped resources must not be restored into a namespace")
+}
+
+func TestApplyKeepsNamespaceWithoutRemap(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s() // no k.namespace
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.Equal(t, "source", captured.namespace)
+}
+
+func TestRestoreConfigCreatesTargetNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	k.clientset = k8sfake.NewSimpleClientset()
+
+	_, err := runRestoreConfig(t, k)
+	require.NoError(t, err)
+
+	ns, err := k.clientset.CoreV1().Namespaces().Get(t.Context(), "target", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "target", ns.Name)
+}
+
+func TestRestoreConfigToleratesExistingNamespace(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+	k.clientset = k8sfake.NewSimpleClientset(&corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "target"},
+	})
+
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: source
+`
+	record := connectors.NewRecord("/source/_/ConfigMap/v1/my-cm.yaml", "",
+		objects.FileInfo{Lmode: 0644}, nil,
+		func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(yaml)), nil
+		})
+
+	results, err := runRestoreConfig(t, k, record)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].Err)
+	require.Equal(t, "target", captured.namespace)
+}
+
+func TestRestoreConfigWithoutNamespaceDoesNotCreateOne(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.clientset = k8sfake.NewSimpleClientset()
+
+	_, err := runRestoreConfig(t, k)
+	require.NoError(t, err)
+
+	list, err := k.clientset.CoreV1().Namespaces().List(t.Context(), metav1.ListOptions{})
+	require.NoError(t, err)
+	require.Empty(t, list.Items)
+}
+
+func TestWarnCollapseTracksSourceNamespaces(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.namespace = "target"
+
+	gk := schema.GroupKind{Kind: "ConfigMap"}
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "config", Namespace: "foo"})
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "config", Namespace: "bar"})
+	k.warnCollapse(gk, metav1.ObjectMeta{Name: "other", Namespace: "foo"})
+
+	require.Equal(t, map[remapKey]string{
+		{gk: gk, name: "config"}: "bar",
+		{gk: gk, name: "other"}:  "foo",
+	}, k.remapped)
+}
+
+func TestApplyStripsResourceVersion(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "configmaps")
+
+	// the resource version from the backup is a precondition the
+	// apply would fail on as soon as the object already exists.
+	yaml := `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-cm
+  namespace: default
+  resourceVersion: "12345"
+`
+	err := k.apply(t.Context(), "my-cm", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.NotContains(t, meta, "resourceVersion")
+}
+
+func TestApplyStripsServiceClusterIP(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "services")
+
+	yaml := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+  namespace: default
+spec:
+  clusterIP: 10.96.47.153
+  clusterIPs:
+    - 10.96.47.153
+  ports:
+    - port: 80
+`
+	err := k.apply(t.Context(), "my-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.NotContains(t, spec, "clusterIP")
+	require.NotContains(t, spec, "clusterIPs")
+	require.Contains(t, spec, "ports", "the rest of the spec must be left alone")
+}
+
+func TestApplyKeepsHeadlessService(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "services")
+
+	// "None" is not an allocated address, it's what makes the
+	// service headless: dropping it would change its behaviour.
+	yaml := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-svc
+  namespace: default
+spec:
+  clusterIP: None
+  ports:
+    - port: 80
+`
+	err := k.apply(t.Context(), "my-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.Equal(t, "None", spec["clusterIP"])
+}
+
+func TestApplyUnbindsPVC(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "persistentvolumeclaims")
+
+	// the volume from the backup belongs to the source cluster:
+	// keeping it leaves the restored claim Lost.
+	yaml := `
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-pvc
+  namespace: default
+  annotations:
+    pv.kubernetes.io/bind-completed: "yes"
+    pv.kubernetes.io/bound-by-controller: "yes"
+    volume.kubernetes.io/storage-provisioner: hostpath.csi.k8s.io
+    volume.beta.kubernetes.io/storage-provisioner: hostpath.csi.k8s.io
+    example.com/keep-me: "true"
+spec:
+  volumeName: pvc-b0cbb3b8-1c7d-470d-a133-66b008b28628
+  storageClassName: csi-hostpath-sc
+  accessModes: [ReadWriteOnce]
+`
+	err := k.apply(t.Context(), "data-pvc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	spec, _ := captured.object["spec"].(map[string]any)
+	require.NotContains(t, spec, "volumeName")
+	require.Equal(t, "csi-hostpath-sc", spec["storageClassName"],
+		"the rest of the spec must be left alone")
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	annotations, _ := meta["annotations"].(map[string]any)
+	require.Equal(t, map[string]any{"example.com/keep-me": "true"}, annotations,
+		"only the binding annotations go away")
+}
+
+func TestApplyDropsEmptyPVCAnnotations(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	captured := interceptApply(fakeDynamic(k), "persistentvolumeclaims")
+
+	yaml := `
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-pvc
+  namespace: default
+  annotations:
+    pv.kubernetes.io/bind-completed: "yes"
+spec:
+  volumeName: pvc-deadbeef
+`
+	err := k.apply(t.Context(), "data-pvc", strings.NewReader(yaml))
+	require.NoError(t, err)
+
+	meta, _ := captured.object["metadata"].(map[string]any)
+	require.NotContains(t, meta, "annotations")
+}
+
+func TestApplySkipsPersistentVolume(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.restoreFilters = neverRestore
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "persistentvolumes", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	yaml := `
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvc-b0cbb3b8-1c7d-470d-a133-66b008b28628
+spec:
+  csi:
+    driver: hostpath.csi.k8s.io
+    volumeHandle: deadbeef
+`
+	err := k.apply(t.Context(), "pv", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.False(t, applied, "volumes belong to the cluster they came from")
+}
+
+func TestApplySkipsEndpoints(t *testing.T) {
+	t.Parallel()
+
+	k := newApplyTestK8s()
+	k.restoreFilters = neverRestore
+
+	dyn := fakeDynamic(k)
+	var applied bool
+	dyn.PrependReactor("patch", "endpoints", func(clienttesting.Action) (bool, runtime.Object, error) {
+		applied = true
+		return true, nil, nil
+	})
+
+	// the endpoints controller owns the subsets, applying ours
+	// conflicts with it and it would overwrite them anyway.
+	yaml := `
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: app-svc
+  namespace: default
+subsets:
+  - addresses:
+      - ip: 10.244.0.99
+    ports:
+      - port: 80
+`
+	err := k.apply(t.Context(), "app-svc", strings.NewReader(yaml))
+	require.NoError(t, err)
+	require.False(t, applied, "endpoints are rebuilt from the service")
 }

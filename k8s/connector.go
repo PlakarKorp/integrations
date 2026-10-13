@@ -59,6 +59,10 @@ type k8s struct {
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
+
+	// objects already applied when remapping to a namespace, to
+	// warn about the ones collapsing onto each other.
+	remapped map[remapKey]string
 }
 
 func init() {
@@ -142,21 +146,19 @@ func New(
 
 	home, _ := os.UserHomeDir()
 	kubeconfpath := filepath.Join(home, ".kube", "config")
-	if v, ok := params["kubeconfig_file"]; ok {
+	if v := params["kubeconfig_file"]; v != "" {
 		hasKubeConfig = true
 		kubeconfpath = v
 	}
 
 	var kubeconf []byte
-	if content, ok := params["kubeconfig"]; ok {
+	if content := params["kubeconfig"]; content != "" {
 		kubeconf = []byte(content)
 	} else {
 		kubeconf, err = os.ReadFile(kubeconfpath)
-		if err != nil {
-			if hasKubeConfig {
-				return nil, fmt.Errorf("failed to open %s: %w",
-					kubeconfpath, err)
-			}
+		if err != nil && hasKubeConfig {
+			return nil, fmt.Errorf("failed to open %s: %w",
+				kubeconfpath, err)
 		}
 	}
 
@@ -221,7 +223,7 @@ func New(
 			return nil, fmt.Errorf("bad location: slashes in namespace: %s", params["location"])
 		}
 
-		if l, ok := params["labels"]; ok && !export {
+		if l := params["labels"]; l != "" && !export {
 			_, err := labels.Parse(l)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse labels: %w", err)
@@ -309,6 +311,8 @@ func New(
 		volumeSnapshotClass:  snapClass,
 		kubeletImage:         kubeletImage,
 		kubeletCapas:         capas,
+
+		remapped: make(map[remapKey]string),
 	}, nil
 }
 

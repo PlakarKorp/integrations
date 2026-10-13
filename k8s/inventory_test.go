@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,11 +12,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 )
 
+const testClusterUID = "cafe-1234"
+
 func newInventoryTest(objs ...runtime.Object) *inventory {
-	return &inventory{clientset: k8sfake.NewSimpleClientset(objs...), namespaces: []string{""}}
+	return &inventory{
+		clientset:  k8sfake.NewSimpleClientset(objs...),
+		namespaces: []string{""},
+		clusterID: func(context.Context, *rest.Config) (string, error) {
+			return testClusterUID, nil
+		},
+	}
 }
 
 func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
@@ -43,11 +53,15 @@ func runInventoryList(t *testing.T, inv *inventory) ([]*sdk.InventoryEntry, erro
 func TestInventoryListPVCs(t *testing.T) {
 	t.Parallel()
 
-	inv := newInventoryTest(pvcObj("ns1", "pvc1"), pvcObj("ns2", "pvc2"))
+	generated := pvcObj("ns1", "from-snap-abcde")
+	generated.Labels = map[string]string{"plakar.io/generated-resource": "true"}
+
+	inv := newInventoryTest(pvcObj("ns1", "pvc1"), pvcObj("ns2", "pvc2"), generated)
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		clusterEntry(),
 		{
 			Class:     pkg.ResourceClassBlockStorage,
 			SubClass:  pkg.ResourceSubClassPVC,
@@ -62,7 +76,7 @@ func TestInventoryListPVCs(t *testing.T) {
 			Name:      "pvc2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2/pvc2"}},
 		},
-	}, entries)
+	}, entries, "PVCs created by plakar must not be inventoried")
 }
 
 func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {
@@ -87,7 +101,7 @@ func TestInventoryListPVCsFollowsContinueToken(t *testing.T) {
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls, "listPVC must follow the Continue token until it's empty")
-	require.Len(t, entries, 2)
+	require.Len(t, entries, 3, "two PVCs plus the cluster itself")
 }
 
 func TestInventoryListPVCsError(t *testing.T) {
@@ -101,7 +115,10 @@ func TestInventoryListPVCsError(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.ErrorContains(t, err, "apiserver unreachable")
-	require.Empty(t, entries)
+	for _, e := range entries {
+		require.NotEqual(t, pkg.ResourceSubClassPVC, e.SubClass,
+			"no PVC entry when the listing failed")
+	}
 }
 
 func TestInventoryClose(t *testing.T) {
@@ -109,4 +126,61 @@ func TestInventoryClose(t *testing.T) {
 
 	inv := newInventoryTest()
 	require.NoError(t, inv.Close(t.Context()))
+}
+
+// clusterEntry is what listConfig emits for the cluster itself.
+func clusterEntry() *sdk.InventoryEntry {
+	return &sdk.InventoryEntry{
+		Class:     pkg.ResourceClassCompute,
+		URN:       "k8s:" + testClusterUID + ":cluster",
+		Name:      "cluster",
+		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
+	}
+}
+
+func TestInventoryListsTheCluster(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.Equal(t, []*sdk.InventoryEntry{clusterEntry()}, entries,
+		"with no namespace given, the cluster itself is the only thing to back up")
+}
+
+func TestInventoryListsEachGivenNamespace(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	inv.namespaces = []string{"ns1", "ns2"}
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:" + testClusterUID + ":ns1",
+			Name:      "ns1",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+		},
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:" + testClusterUID + ":ns2",
+			Name:      "ns2",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+		},
+	}, entries, "no cluster-wide entry when namespaces were given")
+}
+
+func TestInventoryUnidentifiableCluster(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	inv.clusterID = func(context.Context, *rest.Config) (string, error) {
+		return "", errors.New("forbidden")
+	}
+
+	_, err := runInventoryList(t, inv)
+	require.ErrorContains(t, err, "forbidden")
 }

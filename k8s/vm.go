@@ -321,19 +321,6 @@ func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *con
 // restorablepvc transforms the given pvc into something that we can
 // reapply: we don't restore the original PV.
 func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeClaim {
-	var annotations map[string]string
-	for key, value := range pvc.Annotations {
-		if strings.HasPrefix(key, "pv.kubernetes.io/") ||
-			strings.HasPrefix(key, "volume.kubernetes.io/") ||
-			strings.HasPrefix(key, "volume.beta.kubernetes.io/") {
-			continue
-		}
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		annotations[key] = value
-	}
-
 	return &corev1.PersistentVolumeClaim{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
@@ -341,9 +328,9 @@ func restorablepvc(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeCl
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pvc.Name,
-			Namespace:   pvc.Namespace, // XXX should be overwriteable
+			Namespace:   pvc.Namespace, // apply() remaps ns
 			Labels:      pvc.Labels,
-			Annotations: annotations,
+			Annotations: unboundAnnotations(pvc.Annotations),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      pvc.Spec.AccessModes,
@@ -492,6 +479,9 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 }
 
 func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	// best effort to create the target ns
+	k.ensureNamespace(ctx, ns)
+
 	var (
 		vmconf     []byte
 		currentexp *tee.Exporter
@@ -559,6 +549,10 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 				results <- record.Error(err)
 				return err
 			}
+
+			// apply() is going to remap the manifest
+			// anyway, keep track of the right namespace.
+			pvc.Namespace = ns
 
 			b, err = yaml.Marshal(pvc)
 			if err != nil {

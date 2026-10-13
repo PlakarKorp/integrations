@@ -106,7 +106,7 @@ func TestWalkResourcesClusterWide(t *testing.T) {
 
 	k := newWalkTestK8s("", podResources,
 		podObj("default", "web-1", false),
-		podObj("default", "web-2", true), // generated, must be skipped
+		podObj("default", "web-2", true),
 		podObj("other", "other-1", false),
 		namespaceObj("prod"),
 	)
@@ -115,6 +115,7 @@ func TestWalkResourcesClusterWide(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{
 		"/default/_/Pod/v1/web-1.yaml",
+		"/default/_/Pod/v1/web-2.yaml",
 		"/other/_/Pod/v1/other-1.yaml",
 		"/_/_/Namespace/v1/prod.yaml",
 	}, paths(records))

@@ -18,10 +18,16 @@ or without.
   - Defaults to `read` on backup and `full` on restore.
   - `default` grants no extra capabilities
   - `read` adds `DAC_READ_SEARCH`
-  - `override` adds `DAC_OVERRIDE`, `CHOWN`, `FOWNER` and `FSETID`
+  - `full` adds `DAC_OVERRIDE`, `CHOWN`, `FOWNER` and `FSETID`
 - `labels`: optional, used only for configuration backup.  Limits the manifests to backup to the ones matching the given labels.
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 - `ignore_resources`: optional, used only for configuration restore.  Semicolon-separated list of `group/Kind` to leave out of the restore.
+
+plakar's ignore patterns (`-ignore` and `-ignore-file`) are honoured on PVC and VM
+disk backups: they're rewritten against the mount point inside the kubelet pod
+and handed to the importer running there, so the excluded files are never read
+nor sent over the wire.  Write them against the paths as they appear in the
+snapshot, i.e. including the `/<disk>/data/` prefix for VM disks.
 
 
 ## Permissions
@@ -78,9 +84,25 @@ Restore all the `StatefulSet`s in the `foo` namespace:
 
 	$ plakar restore -to k8s: abcd:/foo/apps/StatefulSet
 
+Restore them into the `bar` namespace instead of the one they were
+backed up from:
+
+	$ plakar restore -to k8s:/bar abcd:/foo/apps/StatefulSet
+
+The namespace is created if missing, and cluster-scoped resources are
+left out.  References to the old namespace *inside* the objects, like
+the subjects of a RoleBinding, are not rewritten.
+
 Backup the PVC `my-pvc` in the `storage` namespace:
 
 	$ plakar backup -o volume_snapshot_class=my-snapclass k8s+csi:/storage/my-pvc
+
+Same, but leaving out the `lost+found` that ext4 puts at the root of the
+volume.  It belongs to the filesystem, not to the data, and restoring it
+over the one already there could fail:
+
+	$ plakar backup -ignore /lost+found \
+	    -o volume_snapshot_class=my-snapclass k8s+csi:/storage/my-pvc
 
 Restore inside a new, pristine, PersistentVolumeClaim:
 
@@ -110,3 +132,16 @@ by kubevirt.
 Restore that same VM:
 
 	$ plakar restore -to k8s+vm: abcdef:
+
+
+## Caveats
+
+If an object belongs to the source cluster, it is not restored.  This
+includes PV and, for example, Endpoints.  The endpoints controller
+rebuilds them from the Service selector, so trying to apply them
+manually is going to just generate conflicts.
+
+The exception is a Service without a selector, whose `Endpoints` are
+written by hand and point to something else, like an external database
+for instance.  Nothing recreates these, so they won't be restored.
+The `Endpoints` API is deprecated since kubernetes 1.33 onwards.
