@@ -18,6 +18,7 @@ func TestNewS3ImporterVirtualHostRoot(t *testing.T) {
 		{name: "no root", location: "s3://bucket.s3.eu-west-3.amazonaws.com", wantRoot: "/"},
 		{name: "default root", location: "s3://bucket.s3.eu-west-3.amazonaws.com", root: "/", wantRoot: "/"},
 		{name: "root is the prefix", location: "s3://bucket.s3.eu-west-3.amazonaws.com", root: "/plakar/demo/", wantRoot: "/plakar/demo"},
+		{name: "bare bucket host with root", location: "s3://bucket", root: "/my/subdir", wantRoot: "/my/subdir"},
 		{name: "location path only", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", wantRoot: "/data"},
 		{name: "location path and same root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/data/", wantErr: true},
 		{name: "location path and other root", location: "s3://bucket.s3.eu-west-3.amazonaws.com/data", root: "/other", wantErr: true},
@@ -91,4 +92,18 @@ func TestNewS3ImporterPathStyleRoot(t *testing.T) {
 			require.Equal(t, endpoint+"/bucket", imp.Origin())
 		})
 	}
+}
+
+func TestNewS3ImporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
+	imp, err := NewS3Importer(context.Background(), nil, "s3", map[string]string{
+		"location":          "s3://s3.eu-west-3.amazonaws.com",
+		"access_key":        "access",
+		"secret_access_key": "secret",
+		"virtual_host":      "false",
+		"root":              "/bucket/my/subdir",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "/my/subdir", imp.Root())
+	require.Equal(t, "s3.eu-west-3.amazonaws.com/bucket", imp.Origin())
 }

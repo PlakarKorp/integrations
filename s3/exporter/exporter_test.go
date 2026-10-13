@@ -20,12 +20,14 @@ func TestNewS3ExporterVirtualHostRoot(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		host     string
 		path     string
 		root     string
 		wantRoot string
 		wantErr  bool
 	}{
 		{name: "no root", wantRoot: "/"},
+		{name: "bare bucket host with root", host: "bucket", root: "/my/subdir", wantRoot: "/my/subdir"},
 		{name: "default root", root: "/", wantRoot: "/"},
 		{name: "root is the prefix", root: "/plakar/demo/", wantRoot: "/plakar/demo"},
 		{name: "location path only", path: "/data", wantRoot: "/data"},
@@ -35,8 +37,12 @@ func TestNewS3ExporterVirtualHostRoot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			host := tt.host
+			if host == "" {
+				host = "bucket." + endpoint
+			}
 			config := map[string]string{
-				"location":          "s3://bucket." + endpoint + tt.path,
+				"location":          "s3://" + host + tt.path,
 				"access_key":        "access",
 				"secret_access_key": "secret",
 				"use_tls":           "false",
@@ -108,4 +114,25 @@ func TestNewS3ExporterPathStyleRoot(t *testing.T) {
 			require.Equal(t, endpoint+"/bucket", exp.Origin())
 		})
 	}
+}
+
+func TestNewS3ExporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
+	// NewS3Exporter creates the bucket, so it needs an endpoint that accepts it.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	exp, err := NewS3Exporter(context.Background(), nil, "s3", map[string]string{
+		"location":          "s3://" + u.Host,
+		"access_key":        "access",
+		"secret_access_key": "secret",
+		"use_tls":           "false",
+		"virtual_host":      "false",
+		"root":              "/bucket/my/subdir",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "/my/subdir", exp.Root())
+	require.Equal(t, u.Host+"/bucket", exp.Origin())
 }
