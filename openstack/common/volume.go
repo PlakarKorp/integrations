@@ -443,8 +443,8 @@ func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src 
 	// GiB; a volume that was near-full when backed up can exceed its own
 	// nominal src.Size once exported.
 	size := src.Size
-	if min := requiredSizeGiB(img.SizeBytes); min > size {
-		size = min
+	if minSize := requiredSizeGiB(img.SizeBytes); minSize > size {
+		size = minSize
 	}
 
 	opts := volumes.CreateOpts{
