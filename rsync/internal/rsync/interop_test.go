@@ -3,6 +3,7 @@ package rsync_test
 import (
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"testing"
 
@@ -79,6 +80,22 @@ func TestInterop(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, rd.Close())
 		require.Equal(t, "bracket\n", string(data))
+	})
+
+	t.Run("single file and missing path", func(t *testing.T) {
+		c := rsync.NewClient(addr, "pub", "", "", 1)
+		files, _, err := c.List(ctx, "dir/big.bin")
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		require.Equal(t, ".", files[0].Name)
+		require.Equal(t, int64(3_000_000), files[0].Size)
+
+		_, _, err = c.List(ctx, "nope")
+		require.ErrorIs(t, err, fs.ErrNotExist)
+
+		require.NoError(t, c.Ping(ctx, "dir"))
+		require.NoError(t, c.Ping(ctx, "hello.txt"))
+		require.Error(t, c.Ping(ctx, "nope"))
 	})
 
 	t.Run("bad password", func(t *testing.T) {

@@ -46,30 +46,51 @@ func NewClient(addr, module, user, password string, maxConns int) *Client {
 	}
 }
 
-// List returns the entries below dir, a path relative to the module root,
-// recursively, dir itself being named ".". It also returns the errors the
-// server reported for paths it could not list.
-func (c *Client) List(ctx context.Context, dir string) ([]File, []string, error) {
-	return c.list(ctx, dir, true)
+// List returns name, a path relative to the module root, and the entries
+// below it if it is a directory. name itself is named "." and the entries are
+// relative to it. List also returns the errors the server reported for paths
+// it could not list.
+func (c *Client) List(ctx context.Context, name string) ([]File, []string, error) {
+	return c.list(ctx, name, "-logtpr")
 }
 
-// Ping checks that dir can be listed, without recursing into it.
-func (c *Client) Ping(ctx context.Context, dir string) error {
-	_, _, err := c.list(ctx, dir, false)
+// Ping checks that name exists, without recursing into it.
+func (c *Client) Ping(ctx context.Context, name string) error {
+	_, _, err := c.list(ctx, name, "-logtpd")
 	return err
 }
 
-func (c *Client) list(ctx context.Context, dir string, recursive bool) (files []File, errs []string, err error) {
-	s, files, err := c.start(ctx, recursive, path.Join(dir, ".")+"/")
+func (c *Client) list(ctx context.Context, name, opts string) (files []File, errs []string, err error) {
+	// Without a trailing slash, the server names the entries after the last
+	// component of name, so that name may also be a file.
+	name = path.Join(name, ".")
+	s, files, err := c.start(ctx, opts, name)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer s.close()
+	// The server exits on an empty list.
+	if len(files) == 0 {
+		return nil, nil, s.wrap(fmt.Errorf("%s: %w", name, fs.ErrNotExist))
+	}
 	if err := s.writeDone(); err != nil {
 		return nil, nil, s.wrap(err)
 	}
 	if err := s.finish(); err != nil {
 		return nil, nil, s.wrap(err)
+	}
+
+	if base := path.Base(name); base != "." {
+		for i, f := range files {
+			switch rel, ok := strings.CutPrefix(f.Name, base+"/"); {
+			case f.Name == base:
+				files[i].Name = "."
+			case ok:
+				files[i].Name = rel
+			default:
+				return nil, nil, fmt.Errorf("server sent file name %q outside of %q", f.Name, name)
+			}
+		}
 	}
 	return files, s.mux.errors, nil
 }
@@ -78,7 +99,7 @@ func (c *Client) list(ctx context.Context, dir string, recursive bool) (files []
 // module root. The returned reader fails if the content does not match the
 // checksum sent by the server.
 func (c *Client) Open(ctx context.Context, name string) (_ io.ReadCloser, err error) {
-	s, files, err := c.start(ctx, false, name)
+	s, files, err := c.start(ctx, "-logtp", name)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +152,7 @@ type session struct {
 	slots chan struct{}
 }
 
-func (c *Client) start(ctx context.Context, recursive bool, remotePath string) (_ *session, _ []File, err error) {
+func (c *Client) start(ctx context.Context, opts, remotePath string) (_ *session, _ []File, err error) {
 	// Arguments are newline-separated in the protocol.
 	if strings.ContainsRune(remotePath, '\n') {
 		return nil, nil, fmt.Errorf("%q: newline in path", remotePath)
@@ -163,10 +184,6 @@ func (c *Client) start(ctx context.Context, recursive bool, remotePath string) (
 	}()
 
 	rd := bufio.NewReader(conn)
-	opts := "-logtp"
-	if recursive {
-		opts += "r"
-	}
 	if err := c.handshake(rd, conn, opts, escapeGlob(remotePath)); err != nil {
 		return nil, nil, err
 	}

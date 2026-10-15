@@ -174,6 +174,21 @@ func TestImport(t *testing.T) {
 	}
 }
 
+func TestImportFile(t *testing.T) {
+	addr, _ := startServer(t, testFS())
+	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod/dir/b.txt"})
+	require.NoError(t, imp.Ping(context.Background()))
+
+	got := importAll(t, imp)
+	require.Equal(t, []string{"/mod/dir/b.txt"}, slices.Collect(maps.Keys(got)))
+	b := got["/mod/dir/b.txt"]
+	require.Equal(t, "b.txt", b.FileInfo.Name())
+	data, err := io.ReadAll(b.Reader)
+	require.NoError(t, err)
+	require.Equal(t, "bbb", string(data))
+	require.NoError(t, imp.Close(context.Background()))
+}
+
 func TestImportRoot(t *testing.T) {
 	addr, _ := startServer(t, testFS())
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr, "module": "mod", "root": "dir"})

@@ -24,7 +24,8 @@ The rsync protocol client is a trimmed adaptation of
 - `max_connections` (optional): the maximum number of concurrent connections
   to the daemon, 4 by default. Keep it below the daemon's `max connections`.
 
-Files are stored under `/<module>/<path>/<root>` in the snapshot.
+The path may name a directory or a single file. Files are stored under
+`/<module>/<path>/<root>` in the snapshot.
 
 ## Examples
 

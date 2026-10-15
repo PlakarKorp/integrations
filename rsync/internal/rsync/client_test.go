@@ -85,6 +85,32 @@ func TestListSubdirectory(t *testing.T) {
 	require.ElementsMatch(t, []string{".", "x", "symlink"}, names)
 }
 
+func TestListFile(t *testing.T) {
+	c := rsync.NewClient(startServer(t, testFS()), "mod", "", "", 1)
+
+	files, _, err := c.List(context.Background(), "dir/sub/x")
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, ".", files[0].Name)
+	require.Equal(t, int64(1), files[0].Size)
+}
+
+func TestListMissing(t *testing.T) {
+	c := rsync.NewClient(startServer(t, testFS()), "mod", "", "", 1)
+
+	_, _, err := c.List(context.Background(), "nope")
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+func TestPing(t *testing.T) {
+	c := rsync.NewClient(startServer(t, testFS()), "mod", "", "", 1)
+
+	for _, name := range []string{"", "dir", "dir/sub/x"} {
+		require.NoError(t, c.Ping(context.Background(), name), name)
+	}
+	require.Error(t, c.Ping(context.Background(), "nope"))
+}
+
 func TestOpen(t *testing.T) {
 	fsys := testFS()
 	c := rsync.NewClient(startServer(t, fsys), "mod", "", "", 1)
