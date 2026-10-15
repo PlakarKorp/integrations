@@ -98,7 +98,6 @@ func TestNewImporter(t *testing.T) {
 	for _, config := range []map[string]string{
 		{"location": "rsync://host"},
 		{"location": "rsync://host/"},
-		{"location": "sftp://host/mod"},
 		{"location": "rsync://user@host/mod", "username": "other"},
 		{"location": "rsync://host/mod", "max_connections": "0"},
 		{"location": "rsync://host/mod", "max_connections": "many"},

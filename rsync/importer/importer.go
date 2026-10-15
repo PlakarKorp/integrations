@@ -49,10 +49,6 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		}
 		return nil, fmt.Errorf("invalid location: %w", err)
 	}
-	if parsed.Scheme != "rsync" {
-		return nil, fmt.Errorf("unsupported scheme %q", parsed.Scheme)
-	}
-
 	module, dir, _ := strings.Cut(strings.TrimPrefix(parsed.Path, "/"), "/")
 	if module == "" {
 		return nil, fmt.Errorf("missing module in location %q", parsed.Redacted())
