@@ -204,7 +204,7 @@ func TestExportSpawnsServer(t *testing.T) {
 	)
 	require.NoError(t, err)
 	for _, r := range results {
-		assert.NoError(t, r.Err, r.Record.Pathname)
+		require.NoError(t, r.Err, r.Record.Pathname)
 	}
 
 	// Only the restored volume is left: the temporary restore images, and

@@ -135,9 +135,9 @@ func TestSchema(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := schema.Validate(instance(tt.params))
 			if tt.valid {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
-				assert.Error(t, err)
+				require.Error(t, err)
 			}
 
 			// ParseConfig must agree, so the schema rejects what would fail at startup.

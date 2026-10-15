@@ -43,7 +43,7 @@ func TestExporterSchemaAccepts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := editedParams(cloud.AuthURL, "openstack-instance://", tt.edit, tt.drop)
 
-			assert.NoError(t, schema.Validate(asAny(p)))
+			require.NoError(t, schema.Validate(asAny(p)))
 
 			// NewExporter must agree, so the schema accepts what would work at startup.
 			_, err := NewExporter(t.Context(), nil, instance.Protocol, p)
@@ -77,7 +77,7 @@ func TestExporterSchemaRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := editedParams(cloud.AuthURL, "openstack-instance://", tt.edit, tt.drop)
 
-			assert.Error(t, schema.Validate(asAny(p)))
+			require.Error(t, schema.Validate(asAny(p)))
 
 			// NewExporter must agree, so the schema rejects what would fail at startup.
 			_, err := NewExporter(t.Context(), nil, instance.Protocol, p)

@@ -43,7 +43,7 @@ func TestImporterSchemaAccepts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := editedParams(cloud.AuthURL, "openstack-instance://server-1", tt.edit, tt.drop)
 
-			assert.NoError(t, schema.Validate(asAny(p)))
+			require.NoError(t, schema.Validate(asAny(p)))
 
 			// NewImporter must agree, so the schema accepts what would work at startup.
 			_, err := NewImporter(t.Context(), nil, instance.Protocol, p)
@@ -77,7 +77,7 @@ func TestImporterSchemaRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := editedParams(cloud.AuthURL, "openstack-instance://server-1", tt.edit, tt.drop)
 
-			assert.Error(t, schema.Validate(asAny(p)))
+			require.Error(t, schema.Validate(asAny(p)))
 
 			// NewImporter must agree, so the schema rejects what would fail at startup.
 			_, err := NewImporter(t.Context(), nil, instance.Protocol, p)
