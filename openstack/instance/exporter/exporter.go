@@ -381,6 +381,7 @@ func decodeDiskMetadata(record *connectors.Record, pathOrigin common.DiskOrigin,
 		case m.Volume.Size <= 0:
 			return nil, fmt.Errorf("%s: volume %q has no size", instance.MetadataName, m.Volume.ID)
 		}
+	case common.DiskOriginGlance:
 	}
 	return m, nil
 }
