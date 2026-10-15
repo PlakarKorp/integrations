@@ -17,7 +17,7 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^[^/]+$",
-      "description": "Module to back up (cannot be used if location already includes a module)"
+      "description": "Module to back up"
     },
     "root": {
       "type": "string",
@@ -34,12 +34,12 @@
     "username": {
       "type": "string",
       "minLength": 1,
-      "description": "Module user (cannot be used if location already includes user@host)"
+      "description": "Module user"
     },
     "password": {
       "type": "string",
       "minLength": 1,
-      "description": "Module password, as in the daemon's secrets file (cannot be used if location already includes user:password@host)"
+      "description": "Module password, as in the daemon's secrets file"
     },
     "max_connections": {
       "type": "integer",
@@ -47,72 +47,5 @@
       "default": 4,
       "description": "Maximum number of concurrent connections to the daemon"
     }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "location": {
-            "type": "string",
-            "pattern": "^rsync://[^/@:]*:[^/@]*@"
-          }
-        },
-        "required": [
-          "location"
-        ]
-      },
-      "then": {
-        "not": {
-          "required": [
-            "password"
-          ]
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "location": {
-            "type": "string",
-            "pattern": "^rsync://[^/]+/[^/]+"
-          }
-        },
-        "required": [
-          "location"
-        ]
-      },
-      "then": {
-        "not": {
-          "required": [
-            "module"
-          ]
-        }
-      },
-      "else": {
-        "required": [
-          "module"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "location": {
-            "type": "string",
-            "pattern": "^rsync://[^/@]+@"
-          }
-        },
-        "required": [
-          "location"
-        ]
-      },
-      "then": {
-        "not": {
-          "required": [
-            "username"
-          ]
-        }
-      }
-    }
-  ]
+  }
 }
