@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -72,8 +73,13 @@ func receiveFileList(c *wire) ([]File, error) {
 		if err != nil {
 			return nil, err
 		}
+		name := path.Clean(f.name)
+		// A sane server only sends names below the requested directory.
+		if name == ".." || strings.HasPrefix(name, "../") || path.IsAbs(name) {
+			return nil, fmt.Errorf("server sent file name %q outside the requested directory", f.name)
+		}
 		files = append(files, File{
-			Name:       path.Clean(f.name),
+			Name:       name,
 			Size:       f.size,
 			ModTime:    time.Unix(int64(f.modTime), 0),
 			Mode:       fileMode(f.mode),

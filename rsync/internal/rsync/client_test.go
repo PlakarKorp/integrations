@@ -1,8 +1,10 @@
 package rsync_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
@@ -118,6 +120,59 @@ func TestNewlineInPath(t *testing.T) {
 	require.ErrorContains(t, err, "newline")
 	_, err = c.Open(context.Background(), "dir\n--delete")
 	require.ErrorContains(t, err, "newline")
+}
+
+// fakeServer serves a single connection, sending a file list with one regular
+// file named name. It lets tests send what a real server would not.
+func fakeServer(t *testing.T, name string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	le := binary.LittleEndian
+	var flist []byte
+	flist = append(flist, 1<<6) // XMIT_LONG_NAME
+	flist = le.AppendUint32(flist, uint32(len(name)))
+	flist = append(flist, name...)
+	for _, v := range []uint32{3, 1700000000, 0o100644, 0, 0} { // size, mtime, mode, uid, gid
+		flist = le.AppendUint32(flist, v)
+	}
+	flist = append(flist, 0)          // end of list
+	flist = le.AppendUint32(flist, 0) // users
+	flist = le.AppendUint32(flist, 0) // groups
+	flist = le.AppendUint32(flist, 0) // I/O errors
+	frame := le.AppendUint32(nil, 7<<24|uint32(len(flist)))
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		rd := bufio.NewReader(conn)
+		_, _ = rd.ReadString('\n') // greeting
+		_, _ = io.WriteString(conn, "@RSYNCD: 27\n")
+		_, _ = rd.ReadString('\n') // module
+		_, _ = io.WriteString(conn, "@RSYNCD: OK\n")
+		for { // arguments
+			if line, err := rd.ReadString('\n'); err != nil || line == "\n" {
+				break
+			}
+		}
+		_, _ = conn.Write(le.AppendUint32(nil, 0)) // seed
+		_, _ = io.ReadFull(rd, make([]byte, 4))    // exclusion list
+		_, _ = conn.Write(append(frame, flist...))
+	}()
+	return ln.Addr().String()
+}
+
+func TestListRejectsNamesOutside(t *testing.T) {
+	for _, name := range []string{"../escape", "a/../../escape", "/etc/passwd", ".."} {
+		c := rsync.NewClient(fakeServer(t, name), "mod", "", "", 1)
+		_, _, err := c.List(context.Background(), "")
+		require.ErrorContains(t, err, "outside the requested directory", name)
+	}
 }
 
 func TestUnknownModule(t *testing.T) {
