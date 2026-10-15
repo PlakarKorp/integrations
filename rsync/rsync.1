@@ -1,0 +1,59 @@
+.Dd October 15, 2026
+.Dt PLAKAR-RSYNC 1
+.Os
+.Sh NAME
+.Nm plakar-rsync
+.Nd rsync daemon integration for plakar
+.Sh DESCRIPTION
+The
+.Nm
+integration package provides a source connector that backs up a module
+served by an rsync daemon.
+.Pp
+Each backup lists the module in a single connection.
+File content is fetched, one connection per file,
+only for files whose metadata differs from the previous snapshot.
+.Sh CONFIGURATION
+The configuration parameters are as follow:
+.Bl -tag -width Ds
+.It Ar location
+The location in the form
+.Li rsync://[<user>[:<password>]@]<host>[:<port>]/<module>[/<path>] .
+.It Ar port
+The daemon port, 873 by default.
+.It Ar username
+The module user, if not given in
+.Ar location .
+.It Ar password
+The module password.
+.It Ar max_connections
+The maximum number of concurrent connections to the daemon, 4 by default.
+.El
+.Sh EXAMPLES
+Configure a source for the
+.Li pub
+module of an rsync daemon:
+.Bd -literal -offset indent
+$ plakar source add myrsync rsync://bob@rsync.example.org/pub password=secret
+.Ed
+.Pp
+Supposing that a Kloset store named
+.Li mystore
+is already configured,
+back up the module to this store:
+.Bd -literal -offset indent
+$ plakar at @mystore backup @myrsync
+.Ed
+.Sh CAVEATS
+Only the rsync daemon protocol is supported, not rsync over a remote shell.
+.Pp
+The client speaks protocol 27: modification times have a one second
+resolution, and hard links are stored as separate files.
+.Pp
+Devices, named pipes and sockets are reported as errors and not backed up.
+.Pp
+A changed file is fetched in full.
+Each fetched file costs one connection and handshake.
+.Pp
+The snapshot is not atomic: a file changed between the listing and its
+fetch is stored as fetched.

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar rsync Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "rsync daemon location URI: rsync://[<user>[:<password>]@]<host>[:<port>]/<module>[/<path>]",
+      "pattern": "^rsync://[^/]+/[^/]+(/.*)?$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 873,
+      "description": "TCP port of the rsync daemon"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module user (cannot be used if location already includes user@host)"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module password, as in the daemon's secrets file"
+    },
+    "max_connections": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 4,
+      "description": "Maximum number of concurrent connections to the daemon"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "pattern": "^rsync://[^/@]+@"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "username"
+          ]
+        }
+      }
+    }
+  ]
+}

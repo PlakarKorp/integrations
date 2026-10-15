@@ -1,0 +1,14 @@
+name: rsync
+display_name: rsync
+description: Integration providing import capabilities from rsync daemons.
+api_version: v1.1.0
+tier: official
+contact: mailto:help@plakar.io
+connectors:
+- type: importer
+  executable: rsyncImporter
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/rsync
+  license: ISC
+  protocols: [rsync]
+  class: service
+  validator: ./importer/schema.json
