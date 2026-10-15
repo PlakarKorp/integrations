@@ -132,8 +132,10 @@ func listResponse(keys []string) string {
 	return b.String()
 }
 
-func TestImportSkipsDotKeys(t *testing.T) {
-	keys := []string{".", "..", "a/..", "a/.", "a/b/..", "a/file", "..foo", "a/.hidden"}
+var dotKeys = []string{".", "..", "a/..", "a/.", "a/b/..", "a/file", "..foo", "a/.hidden"}
+
+func importKeys(t *testing.T, keys []string, extraConfig map[string]string) ([]string, error) {
+	t.Helper()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
@@ -146,14 +148,19 @@ func TestImportSkipsDotKeys(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	host := strings.TrimPrefix(srv.URL, "http://")
-	imp, err := NewS3Importer(context.Background(), nil, "s3", map[string]string{
+	config := map[string]string{
 		"location":          "s3://" + host + "/bucket",
 		"access_key":        "test",
 		"secret_access_key": "test",
 		"use_tls":           "false",
-	})
+	}
+	for k, v := range extraConfig {
+		config[k] = v
+	}
+
+	imp, err := NewS3Importer(context.Background(), nil, "s3", config)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 
 	records := make(chan *connectors.Record)
@@ -164,11 +171,86 @@ func TestImportSkipsDotKeys(t *testing.T) {
 	for rec := range records {
 		got = append(got, rec.Pathname)
 	}
-	if err := <-errch; err != nil {
+	return got, <-errch
+}
+
+// strict mode is the default: a "." or ".." key is kept, with its basename
+// escaped so it can't be read back as a directory reference.
+func TestImportEscapesDotKeysByDefault(t *testing.T) {
+	got, err := importKeys(t, dotKeys, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"/%2e", "/%2e%2e", "/a/%2e%2e", "/a/%2e", "/a/b/%2e%2e",
+		"/a/file", "/..foo", "/a/.hidden",
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got records %q, want %q", got, want)
+	}
+}
+
+// strict=false preserves the pre-fix behavior of dropping those keys, for
+// compatibility with buckets that were already scanned under it.
+func TestImportSkipsDotKeysWhenNotStrict(t *testing.T) {
+	got, err := importKeys(t, dotKeys, map[string]string{"strict": "false"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	want := []string{"/a/file", "/..foo", "/a/.hidden"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got records %q, want %q", got, want)
+	}
+}
+
+func TestNewS3ImporterRejectsInvalidStrict(t *testing.T) {
+	_, err := importKeys(t, nil, map[string]string{"strict": "maybe"})
+	if err == nil {
+		t.Fatal("invalid strict value was accepted")
+	}
+}
+
+// A "." or ".." segment in the middle of a key, not just its basename,
+// would otherwise be collapsed by kloset's path.Clean-based tree building
+// and relocate the record elsewhere in the snapshot.
+func TestImportEscapesEmbeddedDotSegments(t *testing.T) {
+	got, err := importKeys(t, []string{"data/../../../etc/passwd", "a/../b/c"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"/data/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+		"/a/%2e%2e/b/c",
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got records %q, want %q", got, want)
+	}
+}
+
+func TestImportSkipsEmbeddedDotSegmentsWhenNotStrict(t *testing.T) {
+	got, err := importKeys(t, []string{"data/../../../etc/passwd", "a/../b/c", "a/b/c"}, map[string]string{"strict": "false"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"/a/b/c"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got records %q, want %q", got, want)
+	}
+}
+
+// A key that already contains a literal "%2e" must not collide with the
+// escaped form of a "." segment once both are percent-encoded.
+func TestImportEscapesPercentCollision(t *testing.T) {
+	got, err := importKeys(t, []string{"a/.", "a/%2e"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"/a/%2e", "/a/%252e"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got records %q, want %q", got, want)
 	}
