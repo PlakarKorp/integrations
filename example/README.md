@@ -19,6 +19,7 @@ keeps everything in memory, so a repository is lost when the command exits.
 │   ├── exporter/main.go
 │   └── storage/main.go
 ├── manifest.yaml
+├── .qa-version         # PlakarKorp/QA version for lint rules and tools
 └── Makefile
 ```
 
@@ -35,6 +36,18 @@ make install    # plakar pkg add -allow-unsigned
 
 Set `VERSION` to package another version, for example
 `make create install VERSION=v1.2.3`.
+
+## Checks
+
+```sh
+make test       # go vet and go test -race
+make lint       # golangci-lint with the shared QA rules
+make validate   # run the plakar package validator on the integration
+```
+
+`lint` and `validate` fetch their config and tool versions from
+[PlakarKorp/QA](https://github.com/PlakarKorp/QA) at the commit in
+`.qa-version`, the same one CI uses.
 
 ## Usage
 
