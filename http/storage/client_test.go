@@ -70,14 +70,28 @@ func mustRequest(t *testing.T, rawurl string) *http.Request {
 func TestCheckRedirect(t *testing.T) {
 	origin := mustRequest(t, "https://repo.example/backups")
 
-	err := checkRedirect(mustRequest(t, "http://repo.example/backups"), []*http.Request{origin})
+	err := checkRedirect(false)(mustRequest(t, "http://repo.example/backups"), []*http.Request{origin})
 	assert.Error(t, err, "scheme downgrade was accepted")
 
-	err = checkRedirect(mustRequest(t, "https://evil.example/backups"), []*http.Request{origin})
+	err = checkRedirect(false)(mustRequest(t, "https://evil.example/backups"), []*http.Request{origin})
 	assert.Error(t, err, "redirect to a different host was accepted")
 
-	err = checkRedirect(mustRequest(t, "https://repo.example/elsewhere"), []*http.Request{origin})
+	err = checkRedirect(false)(mustRequest(t, "https://repo.example/elsewhere"), []*http.Request{origin})
 	assert.NoError(t, err, "same scheme and host rejected")
+
+	err = checkRedirect(true)(mustRequest(t, "https://evil.example/backups"), []*http.Request{origin})
+	assert.NoError(t, err, "cross-host redirect rejected despite allow_cross_host_redirects")
+
+	err = checkRedirect(true)(mustRequest(t, "http://repo.example/backups"), []*http.Request{origin})
+	assert.Error(t, err, "scheme downgrade was accepted despite allow_cross_host_redirects")
+}
+
+func TestNewStoreRejectsInvalidAllowCrossHostRedirects(t *testing.T) {
+	_, err := NewStore(context.Background(), "http", map[string]string{
+		"location":                   "http://repo.example/backups",
+		"allow_cross_host_redirects": "maybe",
+	})
+	require.Error(t, err, "invalid allow_cross_host_redirects value was accepted")
 }
 
 // tls_no_verify disables certificate verification, which is just as

@@ -24,6 +24,7 @@ The configuration parameters are as follow:
 - `insecure` (optional): Opt-in to use `auth_token` over insecure http
 - `tls_no_verify` (optional): Opt-in to disable the TLS verification over https
 - `timeout` (optional): Per-request timeout, defaults to 5 minutes
+- `allow_cross_host_redirects` (optional): Opt-in to follow a redirect to a different host; by default only same-host redirects are followed
 
 > **Note:** The location can be write directly in the command, with `http://` or `https://` prefix.
 

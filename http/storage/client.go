@@ -54,14 +54,20 @@ func init() {
 	storage.Register("https", 0, NewStore)
 }
 
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 5 {
-		return errors.New("stopped after 5 redirects")
+func checkRedirect(allowCrossHost bool) func(req *http.Request, via []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("stopped after 5 redirects")
+		}
+		if req.URL.Scheme != via[0].URL.Scheme {
+			return fmt.Errorf("refusing redirect from %s to %s: %s",
+				via[0].URL.Scheme, req.URL.Scheme, req.URL.Redacted())
+		}
+		if !allowCrossHost && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			return fmt.Errorf("refusing redirect to a different host: %s", req.URL.Redacted())
+		}
+		return nil
 	}
-	if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
-		return fmt.Errorf("refusing redirect to a different endpoint: %s", req.URL.Redacted())
-	}
-	return nil
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -104,13 +110,22 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		timeout = d
 	}
 
+	allowCrossHostRedirects := false
+	if v := storeConfig["allow_cross_host_redirects"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allow_cross_host_redirects value %q", v)
+		}
+		allowCrossHostRedirects = b
+	}
+
 	return &Store{
 		location:  location,
 		authToken: authToken,
 		httpClient: &http.Client{
 			Transport:     transport,
 			Timeout:       timeout,
-			CheckRedirect: checkRedirect,
+			CheckRedirect: checkRedirect(allowCrossHostRedirects),
 		},
 	}, nil
 }
