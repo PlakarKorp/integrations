@@ -66,11 +66,11 @@ func TestGetServerNotFound(t *testing.T) {
 func TestServerMetadata(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "flavor-1", r.PathValue("id"))
+		assert.Equal(t, "flavor-1", r.PathValue("id"))
 		writeJSON(w, `{"flavor":{"id":"flavor-1","name":"m1.small","vcpus":1,"ram":2048,"disk":20}}`)
 	})
 	cloud.Overrule("GET /compute/servers/{id}/os-interface", func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "server-1", r.PathValue("id"))
+		assert.Equal(t, "server-1", r.PathValue("id"))
 		writeJSON(w, `{"interfaceAttachments":[{"net_id":"net-2","port_id":"port-2"},{"net_id":"net-1","port_id":"port-1"}]}`)
 	})
 	cloud.Overrule("GET /network/v2.0/networks/{id}", func(w http.ResponseWriter, r *http.Request) {
