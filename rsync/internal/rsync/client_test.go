@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
+	"slices"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -56,7 +58,7 @@ func TestList(t *testing.T) {
 	}
 	require.ElementsMatch(t,
 		[]string{".", "hello.txt", "dir", "dir/big.bin", "dir/sub", "dir/sub/x", "dir/sub/symlink"},
-		keys(got))
+		slices.Collect(maps.Keys(got)))
 
 	require.Equal(t, int64(5), got["hello.txt"].Size)
 	require.Equal(t, fs.FileMode(0o644), got["hello.txt"].Mode)
@@ -131,12 +133,4 @@ func TestMaxConnections(t *testing.T) {
 	rd, err = c.Open(context.Background(), "hello.txt")
 	require.NoError(t, err)
 	require.NoError(t, rd.Close())
-}
-
-func keys(m map[string]rsync.File) []string {
-	var ks []string
-	for k := range m {
-		ks = append(ks, k)
-	}
-	return ks
 }

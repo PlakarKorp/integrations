@@ -27,8 +27,9 @@ const (
 // a failure on one path does not abort the transfer.
 type muxReader struct {
 	r       io.Reader
+	buf     []byte // reused across frames
 	pending []byte
-	Errors  []string
+	errors  []string
 }
 
 func (m *muxReader) Read(p []byte) (int, error) {
@@ -39,7 +40,11 @@ func (m *muxReader) Read(p []byte) (int, error) {
 		}
 		header := binary.LittleEndian.Uint32(hdr[:])
 		tag := int(header>>24) - mplexBase
-		buf := make([]byte, header&0x00ffffff)
+		size := int(header & 0x00ffffff)
+		if cap(m.buf) < size {
+			m.buf = make([]byte, size)
+		}
+		buf := m.buf[:size]
 		if _, err := io.ReadFull(m.r, buf); err != nil {
 			return 0, err
 		}
@@ -47,7 +52,7 @@ func (m *muxReader) Read(p []byte) (int, error) {
 		case msgData:
 			m.pending = buf
 		case msgError:
-			m.Errors = append(m.Errors, strings.TrimSpace(string(buf)))
+			m.errors = append(m.errors, strings.TrimSpace(string(buf)))
 		case msgInfo, msgLog:
 			log.Printf("rsync: %s", bytes.TrimSpace(buf))
 		default:

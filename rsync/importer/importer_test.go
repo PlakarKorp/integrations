@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -127,7 +129,7 @@ func TestImport(t *testing.T) {
 	got := importAll(t, imp)
 	require.ElementsMatch(t,
 		[]string{"/mod/dir", "/mod/dir/b.txt", "/mod/dir/c.txt", "/mod/dir/link"},
-		keys(got))
+		slices.Collect(maps.Keys(got)))
 
 	dir := got["/mod/dir"].FileInfo
 	require.Equal(t, "dir", dir.Name())
@@ -252,12 +254,4 @@ func TestIncrementalBackup(t *testing.T) {
 	require.Equal(t, "changed", readFile(t, third, "/mod/dir/b.txt"))
 	require.Equal(t, "new", readFile(t, third, "/mod/new.txt"))
 	require.Equal(t, "ccc", readFile(t, third, "/mod/dir/c.txt"))
-}
-
-func keys(m map[string]*connectors.Record) []string {
-	var ks []string
-	for k := range m {
-		ks = append(ks, k)
-	}
-	return ks
 }

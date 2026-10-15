@@ -24,7 +24,6 @@ const (
 	modeDir         = 0o040000
 	modeCharDevice  = 0o020000
 	modeBlockDevice = 0o060000
-	modeRegular     = 0o100000
 	modeFIFO        = 0o010000
 	modeSymlink     = 0o120000
 	modeSocket      = 0o140000
@@ -44,6 +43,8 @@ type File struct {
 	LinkTarget string
 }
 
+// rawFile is an entry as sent on the wire. The previous one is kept to decode
+// the XMIT_SAME_* flags.
 type rawFile struct {
 	name    string
 	size    int64
@@ -57,7 +58,7 @@ type rawFile struct {
 // receiveFileList reads a file list sent with the -l, -o, -g, -t and -p
 // options and without -D, -H or -c.
 func receiveFileList(c *wire) ([]File, error) {
-	var raws []rawFile
+	var files []File
 	var last rawFile
 	for {
 		flags, err := c.readByte()
@@ -71,7 +72,15 @@ func receiveFileList(c *wire) ([]File, error) {
 		if err != nil {
 			return nil, err
 		}
-		raws = append(raws, f)
+		files = append(files, File{
+			Name:       path.Clean(f.name),
+			Size:       f.size,
+			ModTime:    time.Unix(int64(f.modTime), 0),
+			Mode:       fileMode(f.mode),
+			UID:        uint32(f.uid),
+			GID:        uint32(f.gid),
+			LinkTarget: f.link,
+		})
 		last = f
 	}
 
@@ -88,19 +97,9 @@ func receiveFileList(c *wire) ([]File, error) {
 		return nil, err
 	}
 
-	files := make([]File, 0, len(raws))
-	for _, r := range raws {
-		files = append(files, File{
-			Name:       path.Clean(r.name),
-			Size:       r.size,
-			ModTime:    time.Unix(int64(r.modTime), 0),
-			Mode:       fileMode(r.mode),
-			UID:        uint32(r.uid),
-			GID:        uint32(r.gid),
-			User:       idName(users, r.uid),
-			Group:      idName(groups, r.gid),
-			LinkTarget: r.link,
-		})
+	for i := range files {
+		files[i].User = idName(users, files[i].UID)
+		files[i].Group = idName(groups, files[i].GID)
 	}
 	return files, nil
 }
@@ -205,11 +204,11 @@ func receiveIDList(c *wire) (map[int32]string, error) {
 	}
 }
 
-func idName(names map[int32]string, id int32) string {
-	if name, ok := names[id]; ok {
+func idName(names map[int32]string, id uint32) string {
+	if name, ok := names[int32(id)]; ok {
 		return name
 	}
-	return strconv.FormatUint(uint64(uint32(id)), 10)
+	return strconv.FormatUint(uint64(id), 10)
 }
 
 func fileMode(mode int32) fs.FileMode {

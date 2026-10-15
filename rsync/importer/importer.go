@@ -99,8 +99,7 @@ func (imp *Importer) Root() string          { return imp.root }
 func (imp *Importer) Flags() location.Flags { return 0 }
 
 func (imp *Importer) Ping(ctx context.Context) error {
-	_, _, err := imp.client.List(ctx, imp.dir)
-	return err
+	return imp.client.Ping(ctx, imp.dir)
 }
 
 func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
