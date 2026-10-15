@@ -39,7 +39,7 @@
     "password": {
       "type": "string",
       "minLength": 1,
-      "description": "Module password, as in the daemon's secrets file"
+      "description": "Module password, as in the daemon's secrets file (cannot be used if location already includes user:password@host)"
     },
     "max_connections": {
       "type": "integer",
@@ -49,6 +49,26 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "pattern": "^rsync://[^/@:]*:[^/@]*@"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "password"
+          ]
+        }
+      }
+    },
     {
       "if": {
         "properties": {

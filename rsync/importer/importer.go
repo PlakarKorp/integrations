@@ -81,7 +81,10 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 			return nil, errors.New("username given both in location and as a parameter")
 		}
 		username = parsed.User.Username()
-		if p, ok := parsed.User.Password(); ok && password == "" {
+		if p, ok := parsed.User.Password(); ok {
+			if password != "" {
+				return nil, errors.New("password given both in location and as a parameter")
+			}
 			password = p
 		}
 	}
