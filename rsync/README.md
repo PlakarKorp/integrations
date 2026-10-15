@@ -14,7 +14,8 @@ The rsync protocol client is a trimmed adaptation of
 
 ## Configuration
 
-- `location` (required): `rsync://[<user>[:<password>]@]<host>[:<port>]/<module>[/<path>]`
+- `location` (required): `rsync://[<user>[:<password>]@]<host>[:<port>][/<module>[/<path>]]`
+- `module` (optional): the module to back up, if not given in `location`
 - `port` (optional): the daemon port, 873 by default
 - `username` (optional): the module user, if not given in `location`
 - `password` (optional): the module password

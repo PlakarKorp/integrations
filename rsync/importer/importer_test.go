@@ -84,6 +84,8 @@ func TestNewImporter(t *testing.T) {
 		{location: "rsync://host/mod/", root: "/mod", origin: "host"},
 		{location: "rsync://user@host:8873/mod/a/b/", root: "/mod/a/b", origin: "host"},
 		{location: "rsync://host/mod/a", config: map[string]string{"port": "8873", "max_connections": "1"}, root: "/mod/a", origin: "host"},
+		{location: "rsync://host", config: map[string]string{"module": "mod"}, root: "/mod", origin: "host"},
+		{location: "rsync://host/", config: map[string]string{"module": "mod"}, root: "/mod", origin: "host"},
 	} {
 		config := map[string]string{"location": tc.location}
 		for k, v := range tc.config {
@@ -99,6 +101,9 @@ func TestNewImporter(t *testing.T) {
 		{"location": "rsync://host"},
 		{"location": "rsync://host/"},
 		{"location": "rsync://user@host/mod", "username": "other"},
+		{"location": "rsync://host/mod", "module": "other"},
+		{"location": "rsync://host", "module": ""},
+		{"location": "rsync://host", "module": "a/b"},
 		{"location": "rsync://host/mod", "max_connections": "0"},
 		{"location": "rsync://host/mod", "max_connections": "many"},
 	} {

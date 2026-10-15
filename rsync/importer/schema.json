@@ -10,8 +10,14 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "description": "rsync daemon location URI: rsync://[<user>[:<password>]@]<host>[:<port>]/<module>[/<path>]",
-      "pattern": "^rsync://[^/]+/[^/]+(/.*)?$"
+      "description": "rsync daemon location URI: rsync://[<user>[:<password>]@]<host>[:<port>][/<module>[/<path>]]",
+      "pattern": "^rsync://[^/]+(/.*)?$"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/]+$",
+      "description": "Module to back up (cannot be used if location already includes a module)"
     },
     "port": {
       "type": "integer",
@@ -38,6 +44,31 @@
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "pattern": "^rsync://[^/]+/[^/]+"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "module"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "module"
+        ]
+      }
+    },
     {
       "if": {
         "properties": {

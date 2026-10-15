@@ -51,6 +51,15 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		return nil, fmt.Errorf("invalid location: %w", err)
 	}
 	module, dir, _ := strings.Cut(strings.TrimPrefix(parsed.Path, "/"), "/")
+	if m, ok := config["module"]; ok {
+		if module != "" {
+			return nil, errors.New("module given both in location and as a parameter")
+		}
+		if strings.Contains(m, "/") {
+			return nil, fmt.Errorf("invalid module %q", m)
+		}
+		module = m
+	}
 	if module == "" {
 		return nil, fmt.Errorf("missing module in location %q", parsed.Redacted())
 	}

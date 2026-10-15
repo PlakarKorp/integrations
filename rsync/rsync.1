@@ -18,7 +18,10 @@ The configuration parameters are as follow:
 .Bl -tag -width Ds
 .It Ar location
 The location in the form
-.Li rsync://[<user>[:<password>]@]<host>[:<port>]/<module>[/<path>] .
+.Li rsync://[<user>[:<password>]@]<host>[:<port>][/<module>[/<path>]] .
+.It Ar module
+The module to back up, if not given in
+.Ar location .
 .It Ar port
 The daemon port, 873 by default.
 .It Ar username
