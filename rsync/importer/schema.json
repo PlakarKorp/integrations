@@ -19,6 +19,11 @@
       "pattern": "^[^/]+$",
       "description": "Module to back up (cannot be used if location already includes a module)"
     },
+    "root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory to back up, relative to the location's path"
+    },
     "port": {
       "type": "integer",
       "minimum": 1,

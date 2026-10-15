@@ -16,13 +16,15 @@ The rsync protocol client is a trimmed adaptation of
 
 - `location` (required): `rsync://[<user>[:<password>]@]<host>[:<port>][/<module>[/<path>]]`
 - `module` (optional): the module to back up, if not given in `location`
+- `root` (optional): the directory to back up, appended to the location's
+  path. `root=a/b` with `rsync://host/mod` backs up `mod/a/b`.
 - `port` (optional): the daemon port, 873 by default
 - `username` (optional): the module user, if not given in `location`
 - `password` (optional): the module password
 - `max_connections` (optional): the maximum number of concurrent connections
   to the daemon, 4 by default. Keep it below the daemon's `max connections`.
 
-Files are stored under `/<module>/<path>` in the snapshot.
+Files are stored under `/<module>/<path>/<root>` in the snapshot.
 
 ## Examples
 

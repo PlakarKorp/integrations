@@ -63,7 +63,9 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if module == "" {
 		return nil, fmt.Errorf("missing module in location %q", parsed.Redacted())
 	}
-	dir = strings.Trim(path.Clean("/"+dir), "/")
+	// root is appended to the location's path. Joining from "/" keeps a
+	// ".." from leaving the module.
+	dir = strings.Trim(path.Join("/", dir, config["root"]), "/")
 
 	port := parsed.Port()
 	if port == "" {

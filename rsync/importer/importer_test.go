@@ -86,6 +86,10 @@ func TestNewImporter(t *testing.T) {
 		{location: "rsync://host/mod/a", config: map[string]string{"port": "8873", "max_connections": "1"}, root: "/mod/a", origin: "host"},
 		{location: "rsync://host", config: map[string]string{"module": "mod"}, root: "/mod", origin: "host"},
 		{location: "rsync://host/", config: map[string]string{"module": "mod"}, root: "/mod", origin: "host"},
+		{location: "rsync://host/mod", config: map[string]string{"root": "a/b"}, root: "/mod/a/b", origin: "host"},
+		{location: "rsync://host/mod/a", config: map[string]string{"root": "/b/"}, root: "/mod/a/b", origin: "host"},
+		{location: "rsync://host", config: map[string]string{"module": "mod", "root": "a/b"}, root: "/mod/a/b", origin: "host"},
+		{location: "rsync://host/mod/a", config: map[string]string{"root": "../../.."}, root: "/mod", origin: "host"},
 	} {
 		config := map[string]string{"location": tc.location}
 		for k, v := range tc.config {
@@ -167,6 +171,20 @@ func TestImport(t *testing.T) {
 	for _, r := range got {
 		require.NoError(t, r.Close())
 	}
+}
+
+func TestImportRoot(t *testing.T) {
+	addr, _ := startServer(t, testFS())
+	imp := newImporter(t, map[string]string{"location": "rsync://" + addr, "module": "mod", "root": "dir"})
+
+	got := importAll(t, imp)
+	require.ElementsMatch(t,
+		[]string{"/mod/dir", "/mod/dir/b.txt", "/mod/dir/c.txt", "/mod/dir/link"},
+		slices.Collect(maps.Keys(got)))
+	data, err := io.ReadAll(got["/mod/dir/b.txt"].Reader)
+	require.NoError(t, err)
+	require.Equal(t, "bbb", string(data))
+	require.NoError(t, imp.Close(context.Background()))
 }
 
 // In plugin mode, the context given to NewImporter is the Init call's,
