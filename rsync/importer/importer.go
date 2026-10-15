@@ -42,7 +42,8 @@ type Importer struct {
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	parsed, err := url.Parse(config["location"])
 	if err != nil {
-		// url.Error quotes the URL, password included.
+		// err quotes the whole location, password included if any. Keep
+		// only uerr.Err so the password does not leak.
 		var uerr *url.Error
 		if errors.As(err, &uerr) {
 			err = uerr.Err
