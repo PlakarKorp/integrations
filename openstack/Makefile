@@ -4,6 +4,10 @@ EXT     =
 PLAKAR  ?= plakar
 VERSION ?= v1.1.0
 
+# Lint rules and tool versions come from PlakarKorp/QA at this version, as in CI.
+QA_VERSION != cat .qa-version
+QA_DIR     =  .qa/$(QA_VERSION)
+
 GOOS   != go env GOOS
 GOARCH != go env GOARCH
 PTAR   =  openstack_$(VERSION)_$(GOOS)_$(GOARCH).ptar
@@ -33,7 +37,15 @@ install: package
 
 reinstall: uninstall install
 
-clean:
-	rm -f openstack-inventory openstack-block-importer openstack-block-exporter openstack-instance-importer openstack-instance-exporter *.ptar
+lint: $(QA_DIR)/golangci.yml $(QA_DIR)/versions
+	${GO} run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@`sed -n 's/^golangci-lint=//p' $(QA_DIR)/versions` \
+		run --config $(QA_DIR)/golangci.yml ./...
 
-.PHONY: all build test package uninstall install reinstall clean
+$(QA_DIR)/golangci.yml $(QA_DIR)/versions:
+	mkdir -p $(@D)
+	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
+
+clean:
+	rm -rf openstack-inventory openstack-block-importer openstack-block-exporter openstack-instance-importer openstack-instance-exporter *.ptar .qa
+
+.PHONY: all build test package uninstall install reinstall lint clean
