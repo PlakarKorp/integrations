@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+<<<<<<< HEAD
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -136,4 +137,119 @@ func TestNewS3ExporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
 
 	require.Equal(t, "/my/subdir", exp.Root())
 	require.Equal(t, u.Host+"/bucket", exp.Origin())
+=======
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/objects"
+)
+
+// runExport exports one record per key through a fake registry, returning
+// the set of object keys the fake server actually received a PUT for.
+func runExport(t *testing.T, extraConfig map[string]string, keys []string) map[string]bool {
+	t.Helper()
+
+	puts := make(map[string]bool)
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("location") {
+			fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`)
+			return
+		}
+		if r.Method == http.MethodPut && r.URL.Path != "/bucket" {
+			mu.Lock()
+			puts[strings.TrimPrefix(r.URL.Path, "/bucket/")] = true
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	config := map[string]string{
+		"location":          "s3://" + host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+	}
+	for k, v := range extraConfig {
+		config[k] = v
+	}
+
+	exp, err := NewS3Exporter(context.Background(), &connectors.Options{MaxConcurrency: 1}, "s3", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records := make(chan *connectors.Record, len(keys))
+	for _, k := range keys {
+		records <- connectors.NewRecord(k, "", objects.FileInfo{
+			Lname: k,
+			Lmode: 0o600,
+		}, nil, func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("x")), nil
+		})
+	}
+	close(records)
+
+	results := make(chan *connectors.Result, len(keys))
+	if err := exp.Export(context.Background(), records, results); err != nil {
+		t.Fatal(err)
+	}
+	for range keys {
+		res := <-results
+		if res.Err != nil {
+			t.Fatalf("export failed: %v", res.Err)
+		}
+	}
+
+	return puts
+}
+
+// strict is the default: the escaped form from a strict-mode s3 import is
+// written to the destination bucket as-is.
+func TestExportKeepsEscapedPathByDefault(t *testing.T) {
+	puts := runExport(t, nil, []string{"/a/%2e"})
+	if !puts["a/%2e"] {
+		t.Fatalf("got puts %v, want a/%%2e kept escaped", puts)
+	}
+}
+
+// strict=false decodes the escaped form back to the original key, for a
+// round-trip restore of data that actually came from a strict-mode import.
+func TestExportDecodesEscapedPathWhenNotStrict(t *testing.T) {
+	puts := runExport(t, map[string]string{"strict": "false"}, []string{"/a/%2e", "/a/%252e"})
+	if !puts["a/."] {
+		t.Fatalf("got puts %v, want a/. decoded", puts)
+	}
+	if !puts["a/%2e"] {
+		t.Fatalf("got puts %v, want a/%%2e decoded from a/%%252e", puts)
+	}
+}
+
+func TestNewS3ExporterRejectsInvalidStrict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	_, err := NewS3Exporter(context.Background(), &connectors.Options{MaxConcurrency: 1}, "s3", map[string]string{
+		"location":          "s3://" + host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+		"strict":            "maybe",
+	})
+	if err == nil {
+		t.Fatal("invalid strict value was accepted")
+	}
+>>>>>>> bc3840f (s3/exporter: add strict mode to match the importer)
 }
