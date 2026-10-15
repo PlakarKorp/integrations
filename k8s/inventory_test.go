@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -12,19 +11,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 )
-
-const testClusterUID = "cafe-1234"
 
 func newInventoryTest(objs ...runtime.Object) *inventory {
 	return &inventory{
 		clientset:  k8sfake.NewSimpleClientset(objs...),
 		namespaces: []string{""},
-		clusterID: func(context.Context, *rest.Config) (string, error) {
-			return testClusterUID, nil
-		},
 	}
 }
 
@@ -136,7 +129,7 @@ func TestInventoryClose(t *testing.T) {
 func clusterEntry() *sdk.InventoryEntry {
 	return &sdk.InventoryEntry{
 		Class:     pkg.ResourceClassCompute,
-		URN:       "k8s:" + testClusterUID + ":cluster",
+		URN:       "k8s:cluster",
 		Name:      "cluster",
 		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
 	}
@@ -164,29 +157,17 @@ func TestInventoryListsEachGivenNamespace(t *testing.T) {
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:" + testClusterUID + ":ns1",
+			URN:       "k8s:ns1",
 			Name:      "ns1",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:" + testClusterUID + ":ns2",
+			URN:       "k8s:ns2",
 			Name:      "ns2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
 		},
 	}, entries, "no cluster-wide entry when namespaces were given")
-}
-
-func TestInventoryUnidentifiableCluster(t *testing.T) {
-	t.Parallel()
-
-	inv := newInventoryTest()
-	inv.clusterID = func(context.Context, *rest.Config) (string, error) {
-		return "", errors.New("forbidden")
-	}
-
-	_, err := runInventoryList(t, inv)
-	require.ErrorContains(t, err, "forbidden")
 }
 
 func TestInventoryListsAllNamespaces(t *testing.T) {
