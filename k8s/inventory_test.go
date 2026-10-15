@@ -28,6 +28,10 @@ func newInventoryTest(objs ...runtime.Object) *inventory {
 	}
 }
 
+func nsObj(name string) *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+}
+
 func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}
 }
@@ -183,4 +187,66 @@ func TestInventoryUnidentifiableCluster(t *testing.T) {
 
 	_, err := runInventoryList(t, inv)
 	require.ErrorContains(t, err, "forbidden")
+}
+
+func TestInventoryListsAllNamespaces(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest(nsObj("ns1"), nsObj("ns2"))
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		clusterEntry(),
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:ns1",
+			Name:      "ns1",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+		},
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:ns2",
+			Name:      "ns2",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+		},
+	}, entries, "with no namespace given, every namespace is listed alongside the cluster")
+}
+
+func TestInventoryListNamespacesFollowsContinueToken(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	clientset := inv.clientset.(*k8sfake.Clientset)
+
+	calls := 0
+	clientset.PrependReactor("list", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		calls++
+		list := &corev1.NamespaceList{}
+		if calls == 1 {
+			list.Items = []corev1.Namespace{*nsObj("ns1")}
+			list.Continue = "page2"
+		} else {
+			list.Items = []corev1.Namespace{*nsObj("ns2")}
+		}
+		return true, list, nil
+	})
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls, "listNS must follow the Continue token until it's empty")
+	require.Len(t, entries, 3, "two namespaces plus the cluster itself")
+}
+
+func TestInventoryListNamespacesError(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	clientset := inv.clientset.(*k8sfake.Clientset)
+	clientset.PrependReactor("list", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("apiserver unreachable")
+	})
+
+	_, err := runInventoryList(t, inv)
+	require.ErrorContains(t, err, "apiserver unreachable")
 }

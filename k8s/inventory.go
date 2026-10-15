@@ -132,11 +132,22 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 	}
 
 	for _, ns := range inv.namespaces {
-		name, endpoint := "cluster", "/"
-		if ns != "" {
-			name, endpoint = ns, "/"+ns
+		if ns == "" {
+			// emit all namespaces in cluster mode
+			resources <- &sdk.InventoryEntry{
+				Class: pkg.ResourceClassCompute,
+				URN:   "k8s:" + uid + ":cluster",
+				Name:  "cluster",
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: "/",
+				}},
+			}
+
+			return inv.listNS(ctx, resources)
 		}
 
+		name, endpoint := ns, "/"+ns
 		resources <- &sdk.InventoryEntry{
 			Class: pkg.ResourceClassCompute,
 			URN:   "k8s:" + uid + ":" + name,
@@ -146,6 +157,41 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 				Endpoint: endpoint,
 			}},
 		}
+	}
+
+	return nil
+}
+
+func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	var cont string
+
+	for {
+		ns, err := inv.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+			Limit:    50,
+			Continue: cont,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list namespaces: %w", err)
+		}
+
+		for _, ns := range ns.Items {
+			resources <- &sdk.InventoryEntry{
+				Class: pkg.ResourceClassCompute,
+				URN:   "k8s:" + ns.Name,
+				Name:  ns.Name,
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: "/" + ns.Name,
+				}},
+			}
+
+		}
+
+		cont = ns.Continue
+		if cont == "" {
+			break
+		}
+
 	}
 
 	return nil
