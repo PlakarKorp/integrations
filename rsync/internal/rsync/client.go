@@ -78,10 +78,7 @@ func (c *Client) list(ctx context.Context, dir string, recursive bool) (files []
 // module root. The returned reader fails if the content does not match the
 // checksum sent by the server.
 func (c *Client) Open(ctx context.Context, name string) (_ io.ReadCloser, err error) {
-	if strings.ContainsRune(name, '\n') {
-		return nil, fmt.Errorf("%s: newline in file name", name)
-	}
-	s, files, err := c.start(ctx, false, escapeGlob(name))
+	s, files, err := c.start(ctx, false, name)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +132,11 @@ type session struct {
 }
 
 func (c *Client) start(ctx context.Context, recursive bool, remotePath string) (_ *session, _ []File, err error) {
+	// Arguments are newline-separated in the protocol.
+	if strings.ContainsRune(remotePath, '\n') {
+		return nil, nil, fmt.Errorf("%q: newline in path", remotePath)
+	}
+
 	select {
 	case c.slots <- struct{}{}:
 	case <-ctx.Done():
@@ -165,7 +167,7 @@ func (c *Client) start(ctx context.Context, recursive bool, remotePath string) (
 	if recursive {
 		opts += "r"
 	}
-	if err := c.handshake(rd, conn, opts, remotePath); err != nil {
+	if err := c.handshake(rd, conn, opts, escapeGlob(remotePath)); err != nil {
 		return nil, nil, err
 	}
 

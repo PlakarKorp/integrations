@@ -111,6 +111,15 @@ func TestOpenDirectory(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestNewlineInPath(t *testing.T) {
+	c := rsync.NewClient(startServer(t, testFS()), "mod", "", "", 1)
+
+	_, _, err := c.List(context.Background(), "dir\n--delete")
+	require.ErrorContains(t, err, "newline")
+	_, err = c.Open(context.Background(), "dir\n--delete")
+	require.ErrorContains(t, err, "newline")
+}
+
 func TestUnknownModule(t *testing.T) {
 	c := rsync.NewClient(startServer(t, testFS()), "nope", "", "", 1)
 

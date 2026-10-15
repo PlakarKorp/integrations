@@ -62,6 +62,25 @@ func TestInterop(t *testing.T) {
 		})
 	}
 
+	// The daemon expands wildcards in requested paths.
+	t.Run("wildcard directory", func(t *testing.T) {
+		c := rsync.NewClient(addr, "pub", "", "", 1)
+		files, _, err := c.List(ctx, "glob[1]")
+		require.NoError(t, err)
+		var names []string
+		for _, f := range files {
+			names = append(names, f.Name)
+		}
+		require.ElementsMatch(t, []string{".", "f"}, names)
+
+		rd, err := c.Open(ctx, "glob[1]/f")
+		require.NoError(t, err)
+		data, err := io.ReadAll(rd)
+		require.NoError(t, err)
+		require.NoError(t, rd.Close())
+		require.Equal(t, "bracket\n", string(data))
+	})
+
 	t.Run("bad password", func(t *testing.T) {
 		c := rsync.NewClient(addr, "priv", "bob", "wrong", 1)
 		_, _, err := c.List(ctx, "")
