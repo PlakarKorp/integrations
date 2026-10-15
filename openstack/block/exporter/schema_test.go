@@ -56,9 +56,9 @@ func TestExporterSchema(t *testing.T) {
 
 			err := schema.Validate(instance(p))
 			if tt.valid {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			} else {
-				assert.Error(t, err)
+				require.Error(t, err)
 			}
 
 			// NewExporter must agree, so the schema rejects what would fail at startup.

@@ -51,7 +51,7 @@ func TestClientsKeepConfiguredRegions(t *testing.T) {
 func TestClientsRejectUnknownRegion(t *testing.T) {
 	_, err := regionsScanned(t, authURL(t, "RegionOne"), "Nowhere")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, `"Nowhere"`)
+	require.ErrorContains(t, err, `"Nowhere"`)
 	assert.ErrorContains(t, err, "available: RegionOne")
 }
 
