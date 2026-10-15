@@ -29,7 +29,10 @@ func init() {
 }
 
 type Importer struct {
-	appCtx context.Context
+	// Content is fetched after Import returns, so neither the context given
+	// to NewImporter (the plugin's Init call) nor Import's can bound it.
+	ctx    context.Context
+	cancel context.CancelFunc
 	client *rsync.Client
 	host   string
 	dir    string // relative to the module root
@@ -79,8 +82,10 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}
 
 	addr := net.JoinHostPort(parsed.Hostname(), port)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Importer{
-		appCtx: appCtx,
+		ctx:    ctx,
+		cancel: cancel,
 		client: rsync.NewClient(addr, module, username, password, maxConns),
 		host:   parsed.Hostname(),
 		dir:    dir,
@@ -127,7 +132,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		case 0:
 			name := path.Join(imp.dir, f.Name)
 			records <- connectors.NewRecord(pathname, "", fileinfo, nil, func() (io.ReadCloser, error) {
-				return imp.client.Open(imp.appCtx, name)
+				return imp.client.Open(imp.ctx, name)
 			})
 		case fs.ModeDir, fs.ModeSymlink:
 			records <- connectors.NewRecord(pathname, f.LinkTarget, fileinfo, nil, nil)
@@ -139,5 +144,6 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 }
 
 func (imp *Importer) Close(ctx context.Context) error {
+	imp.cancel()
 	return nil
 }

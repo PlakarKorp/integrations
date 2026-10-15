@@ -152,6 +152,22 @@ func TestImport(t *testing.T) {
 	}
 }
 
+// In plugin mode, the context given to NewImporter is the Init call's,
+// canceled before any content is read.
+func TestImportAfterInitContextCanceled(t *testing.T) {
+	addr, _ := startServer(t, testFS())
+	ctx, cancel := context.WithCancel(context.Background())
+	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "rsync", map[string]string{"location": "rsync://" + addr + "/mod"})
+	require.NoError(t, err)
+	cancel()
+
+	got := importAll(t, imp)
+	data, err := io.ReadAll(got["/mod/a.txt"].Reader)
+	require.NoError(t, err)
+	require.Equal(t, "aaa", string(data))
+	require.NoError(t, imp.Close(context.Background()))
+}
+
 func TestImportUnknownModule(t *testing.T) {
 	addr, _ := startServer(t, testFS())
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/nope"})
