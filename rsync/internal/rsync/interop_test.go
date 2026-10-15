@@ -39,7 +39,12 @@ func TestInterop(t *testing.T) {
 			require.Equal(t, "../big.bin", got["dir/sub/symlink"].LinkTarget)
 			require.Equal(t, int64(3_000_000), got["dir/big.bin"].Size)
 
-			for name, want := range map[string]string{"hello.txt": "hello\n", "a*b": "star\n"} {
+			for name, want := range map[string]string{
+				"hello.txt": "hello\n",
+				"a*b":       "star\n",
+				`a\b`:       "backslash\n",
+				"glob[1]/f": "bracket\n",
+			} {
 				rd, err := c.Open(ctx, name)
 				require.NoError(t, err, name)
 				data, err := io.ReadAll(rd)

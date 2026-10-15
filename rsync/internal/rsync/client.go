@@ -350,13 +350,16 @@ func (r *fileReader) Close() error {
 }
 
 // escapeGlob protects wildcards from the daemon's glob expansion of paths.
+// The daemon matches components holding a wildcard with wildmatch, which
+// honours backslash escapes, and looks the others up literally.
 func escapeGlob(name string) string {
-	var b strings.Builder
-	for _, r := range name {
-		if strings.ContainsRune(`*?[\`, r) {
-			b.WriteByte('\\')
+	parts := strings.Split(name, "/")
+	for i, part := range parts {
+		if strings.ContainsAny(part, "*?[") {
+			parts[i] = globEscaper.Replace(part)
 		}
-		b.WriteRune(r)
 	}
-	return b.String()
+	return strings.Join(parts, "/")
 }
+
+var globEscaper = strings.NewReplacer(`*`, `\*`, `?`, `\?`, `[`, `\[`, `\`, `\\`)

@@ -6,6 +6,10 @@ RUN apk add --no-cache rsync \
  && echo x > /data/dir/sub/x \
  && ln -s ../big.bin /data/dir/sub/symlink \
  && echo star > '/data/a*b' \
+ && echo backslash > '/data/a\b' \
+ && mkdir '/data/glob[1]' /data/glob1 \
+ && echo bracket > '/data/glob[1]/f' \
+ && echo decoy > /data/glob1/decoy \
  && adduser -D -u 1234 alice && chown alice /data/hello.txt \
  && echo 'bob:secret' > /etc/rsyncd.secrets && chmod 600 /etc/rsyncd.secrets
 # pub sends user names, priv (chrooted) only numeric ids.
