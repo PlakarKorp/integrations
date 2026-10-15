@@ -4,9 +4,9 @@ EXT     =
 PLAKAR  ?= plakar
 VERSION ?= v1.1.0
 
-GOOS   := $(shell go env GOOS)
-GOARCH := $(shell go env GOARCH)
-PTAR   := openstack_$(VERSION)_$(GOOS)_$(GOARCH).ptar
+GOOS   != go env GOOS
+GOARCH != go env GOARCH
+PTAR   =  openstack_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 
 all: build
 
