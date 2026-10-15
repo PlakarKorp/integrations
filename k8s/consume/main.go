@@ -7,7 +7,7 @@ import (
 	"os"
 	"path"
 
-	gimporter "github.com/PlakarKorp/integration-grpc/importer"
+	"github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -50,7 +50,7 @@ func main() {
 	flag.Parse()
 	dest := flag.Arg(0)
 
-	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	gclient, err := grpc.NewClient(dest, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fatal("failed to create a grpc client for %s: %s", dest, err)
 	}
@@ -65,7 +65,7 @@ func main() {
 		MaxConcurrency:  2,
 	}
 
-	importer, err := gimporter.NewImporter(context.Background(), client, opts, "fs", map[string]string{
+	importer, err := client.NewImporter(context.Background(), gclient, opts, "fs", map[string]string{
 		"location":         "fs://" + path,
 		"dont_traverse_fs": "true",
 	})

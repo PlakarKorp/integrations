@@ -17,8 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
-	gimporter "github.com/PlakarKorp/integration-grpc/importer"
+	"github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -573,11 +572,11 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(cert, peer))
 
-	client, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
+	gclient, err := grpc.NewClient(dest, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", dest, err)
 	}
-	defer client.Close()
+	defer gclient.Close()
 
 	opts := &connectors.Options{
 		Hostname:        "plakar-pod",
@@ -588,7 +587,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		Excludes:        rebaseExcludes(k.opts.Excludes, prefix, podpath),
 	}
 
-	importer, err := gimporter.NewImporter(ctx, client, opts, proto, map[string]string{
+	importer, err := client.NewImporter(ctx, gclient, opts, proto, map[string]string{
 		"location":         proto + "://" + podpath,
 		"dont_traverse_fs": "true",
 	})
@@ -696,11 +695,11 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	}
 
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
-	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
+	gclient, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
 	}
-	defer client.Close()
+	defer gclient.Close()
 
 	proto, path := "fs", fsPath
 	if fp.block {
@@ -720,7 +719,7 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	if proto == "fs" && k.skipRootPermsAndTime {
 		config["skip_root_perms_and_time"] = "true"
 	}
-	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, config)
+	exporter, err := client.NewExporter(ctx, gclient, opts, proto, config)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
 	}
