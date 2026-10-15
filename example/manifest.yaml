@@ -6,13 +6,16 @@ license: ISC
 connectors:
   - type: importer
     executable: ./example-importer
+    validator: ./plugin/importer/schema.json
     protocols: [example]
     location_flags: [localfs]
   - type: exporter
     executable: ./example-exporter
+    validator: ./plugin/exporter/schema.json
     protocols: [example]
     location_flags: [localfs]
   - type: storage
     executable: ./example-storage
+    validator: ./plugin/storage/schema.json
     protocols: [example]
     location_flags: [localfs]
