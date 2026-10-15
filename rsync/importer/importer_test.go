@@ -108,6 +108,17 @@ func TestNewImporter(t *testing.T) {
 	}
 }
 
+func TestNewImporterErrorsHidePassword(t *testing.T) {
+	for _, location := range []string{
+		"rsync://user:hunter2@host",
+		"rsync://user:hunter2@host:badport/mod",
+	} {
+		_, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
+		require.Error(t, err, location)
+		require.NotContains(t, err.Error(), "hunter2", location)
+	}
+}
+
 func importAll(t *testing.T, imp kimporter.Importer) map[string]*connectors.Record {
 	t.Helper()
 	records := make(chan *connectors.Record)

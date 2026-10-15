@@ -42,7 +42,12 @@ type Importer struct {
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	parsed, err := url.Parse(config["location"])
 	if err != nil {
-		return nil, err
+		// url.Error quotes the URL, password included.
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
+		return nil, fmt.Errorf("invalid location: %w", err)
 	}
 	if parsed.Scheme != "rsync" {
 		return nil, fmt.Errorf("unsupported scheme %q", parsed.Scheme)
@@ -50,7 +55,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 
 	module, dir, _ := strings.Cut(strings.TrimPrefix(parsed.Path, "/"), "/")
 	if module == "" {
-		return nil, fmt.Errorf("missing module in location %q", config["location"])
+		return nil, fmt.Errorf("missing module in location %q", parsed.Redacted())
 	}
 	dir = strings.Trim(path.Clean("/"+dir), "/")
 
