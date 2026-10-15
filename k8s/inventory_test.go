@@ -157,13 +157,13 @@ func TestInventoryListsEachGivenNamespace(t *testing.T) {
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:ns1",
+			URN:       "k8s:ns-ns1",
 			Name:      "ns1",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:ns2",
+			URN:       "k8s:ns-ns2",
 			Name:      "ns2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
 		},
@@ -181,13 +181,13 @@ func TestInventoryListsAllNamespaces(t *testing.T) {
 		clusterEntry(),
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:ns1",
+			URN:       "k8s:ns-ns1",
 			Name:      "ns1",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:ns2",
+			URN:       "k8s:ns-ns2",
 			Name:      "ns2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
 		},

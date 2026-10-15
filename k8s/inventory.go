@@ -122,7 +122,7 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 		name, endpoint := ns, "/"+ns
 		resources <- &sdk.InventoryEntry{
 			Class: pkg.ResourceClassCompute,
-			URN:   "k8s:" + name,
+			URN:   "k8s:ns-" + name,
 			Name:  name,
 			Endpoints: []sdk.HostEndpoint{{
 				Type:     sdk.EndpointIdentifier,
@@ -149,7 +149,7 @@ func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.Inventor
 		for _, ns := range ns.Items {
 			resources <- &sdk.InventoryEntry{
 				Class: pkg.ResourceClassCompute,
-				URN:   "k8s:" + ns.Name,
+				URN:   "k8s:ns-" + ns.Name,
 				Name:  ns.Name,
 				Endpoints: []sdk.HostEndpoint{{
 					Type:     sdk.EndpointIdentifier,
