@@ -41,7 +41,7 @@ func TestGetServer(t *testing.T) {
 			return
 		}
 		// The restore-only microversion must not leak into backup calls.
-		assert.Empty(t, r.Header.Get("X-OpenStack-Nova-API-Version"))
+		assert.Empty(t, r.Header.Get("X-Openstack-Nova-Api-Version"))
 		writeJSON(w, `{"server":{"id":"server-1","name":"vmtest","status":"ACTIVE"}}`)
 	})
 	client := connectCloud(t, cloud)
@@ -66,11 +66,11 @@ func TestGetServerNotFound(t *testing.T) {
 func TestServerMetadata(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "flavor-1", r.PathValue("id"))
+		assert.Equal(t, "flavor-1", r.PathValue("id"))
 		writeJSON(w, `{"flavor":{"id":"flavor-1","name":"m1.small","vcpus":1,"ram":2048,"disk":20}}`)
 	})
 	cloud.Overrule("GET /compute/servers/{id}/os-interface", func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "server-1", r.PathValue("id"))
+		assert.Equal(t, "server-1", r.PathValue("id"))
 		writeJSON(w, `{"interfaceAttachments":[{"net_id":"net-2","port_id":"port-2"},{"net_id":"net-1","port_id":"port-1"}]}`)
 	})
 	cloud.Overrule("GET /network/v2.0/networks/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,7 @@ func TestServerMetadataNeedsAFlavorID(t *testing.T) {
 func fakeCreateImage(cloud *keystonetest.Cloud) {
 	cloud.Overrule("POST /compute/servers/{id}/action", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-OpenStack-Nova-API-Version", "2.90")
+		w.Header().Set("X-Openstack-Nova-Api-Version", "2.90")
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"image_id":"image-1"}`))
 	})
@@ -160,7 +160,7 @@ func TestCreateServerImageRefusesBlockDeviceMapping(t *testing.T) {
 func TestCreateServer(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, novaMicroversion, r.Header.Get("X-OpenStack-Nova-API-Version"))
+		assert.Equal(t, novaMicroversion, r.Header.Get("X-Openstack-Nova-Api-Version"))
 		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ACTIVE"}}`)
 	})
 	client := connectCloud(t, cloud)

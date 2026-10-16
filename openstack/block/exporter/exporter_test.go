@@ -184,7 +184,7 @@ func TestExportRestoresVolume(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, results, 3, "every record is answered once")
 			for _, r := range results {
-				assert.NoError(t, r.Err, r.Record.Pathname)
+				require.NoError(t, r.Err, r.Record.Pathname)
 			}
 
 			uploads := cloud.Uploads()
@@ -246,7 +246,7 @@ func TestExportSkipsUnsupportedPaths(t *testing.T) {
 	results, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), record(t, "/notes.txt", nil), diskRecord(t, "vol-1"))
 	require.NoError(t, err)
 	require.Len(t, results, 3)
-	assert.ErrorContains(t, results[1].Err, `unsupported path "/notes.txt"`)
+	require.ErrorContains(t, results[1].Err, `unsupported path "/notes.txt"`)
 	restored(t, cloud)
 }
 

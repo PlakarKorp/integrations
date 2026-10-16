@@ -1,0 +1,22 @@
+name: openstack tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/openstack
+    paths:
+      - .github/workflows/openstack-tests.yml
+      - 'openstack/**'
+  pull_request:
+    paths:
+      - .github/workflows/openstack-tests.yml
+      - 'openstack/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3adeed892a4cdcaef4648fd39303dad1bed2a072
+    with:
+      dir: openstack
+      qa-version-file: openstack/.qa-version

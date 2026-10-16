@@ -112,7 +112,7 @@ func TestImportBacksUpServer(t *testing.T) {
 	assert.Equal(t, "/block-storage/cinder-vol-1/.METADATA.json", records[6].Pathname)
 	assert.Equal(t, "/block-storage/cinder-vol-1/disk.qcow2", records[7].Pathname)
 	for _, r := range records {
-		assert.NoError(t, r.Err, r.Pathname)
+		require.NoError(t, r.Err, r.Pathname)
 		// Lname must be the bare basename: kloset's vfs rejects a slash in
 		// it (https://.../snapshot/vfs/entry.go's Entry.validate).
 		assert.NotContains(t, r.FileInfo.Lname, "/", r.Pathname)
