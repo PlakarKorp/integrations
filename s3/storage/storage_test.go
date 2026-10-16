@@ -2,11 +2,13 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,6 +121,83 @@ func TestListErrorMidListing(t *testing.T) {
 	}
 	if macs != nil {
 		t.Fatalf("partial results returned alongside error: %v", macs)
+	}
+}
+
+// A bucket can hold a hot packfile (both a plain and a frozen key for the
+// same MAC) alongside a cold packfile (frozen key only). List must collapse
+// the hot pair into one entry while still surfacing the cold one - exposing
+// both, not just the one that already worked before this fix.
+func TestListExposesFrozenObjectsAndDedupesHotOnes(t *testing.T) {
+	hotHex := strings.Repeat("ab", 32)
+	coldHex := strings.Repeat("bc", 32)
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<Prefix>packfiles/</Prefix>
+	<IsTruncated>false</IsTruncated>
+	<Contents>
+		<Key>packfiles/ab/` + hotHex + `</Key>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+		<ETag>&quot;etag&quot;</ETag>
+		<Size>1</Size>
+	</Contents>
+	<Contents>
+		<Key>packfiles/ab/` + hotHex + glacierSuffix + `</Key>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+		<ETag>&quot;etag&quot;</ETag>
+		<Size>1</Size>
+	</Contents>
+	<Contents>
+		<Key>packfiles/bc/` + coldHex + glacierSuffix + `</Key>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+		<ETag>&quot;etag&quot;</ETag>
+		<Size>1</Size>
+	</Contents>
+</ListBucketResult>`
+
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.Write([]byte(body))
+	})
+
+	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	var hot, cold objects.MAC
+	for i := range hot {
+		hot[i] = 0xab
+		cold[i] = 0xbc
+	}
+	if !slices.Contains(macs, hot) {
+		t.Fatalf("got %v, want it to include the hot object %x (deduped from its two keys)", macs, hot)
+	}
+	if !slices.Contains(macs, cold) {
+		t.Fatalf("got %v, want it to include the cold object %x (frozen-only)", macs, cold)
+	}
+	if len(macs) != 2 {
+		t.Fatalf("got %v (len %d), want exactly 2: the hot object counted once and the cold object once", macs, len(macs))
+	}
+}
+
+func TestDeleteGlacierRemovesBothVariants(t *testing.T) {
+	var calls []string
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	s.isGlacier = true
+
+	if err := s.Delete(context.Background(), storage.StorageResourcePackfile, objects.MAC{}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	path := "/bucket/" + fmt.Sprintf("packfiles/%02x/%016x", objects.MAC{}[0], objects.MAC{})
+	want := []string{"DELETE " + path, "DELETE " + path + glacierSuffix}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("got calls %v, want %v", calls, want)
 	}
 }
 
