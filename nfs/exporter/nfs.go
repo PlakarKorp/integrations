@@ -39,6 +39,11 @@ func init() {
 // library exposes neither SYMLINK nor MKNOD.
 var errUnsupportedType = errors.New("nfs: unsupported file type for export (only regular files and directories are restored)")
 
+// autoDirPerm is the mode of directories created on the way to a restored
+// entry. The client has no SETATTR, so it cannot be corrected afterwards:
+// keep it private.
+const autoDirPerm = 0700
+
 type Exporter struct {
 	opts *connectors.Options
 
@@ -137,7 +142,7 @@ func (p *Exporter) mkdirAll(pathname string, perm os.FileMode) error {
 		return nil
 	}
 	if parent := path.Dir(pathname); parent != pathname {
-		if err := p.mkdirAll(parent, perm); err != nil {
+		if err := p.mkdirAll(parent, autoDirPerm); err != nil {
 			return err
 		}
 	}
@@ -152,7 +157,7 @@ func (p *Exporter) mkdirAll(pathname string, perm os.FileMode) error {
 }
 
 func (p *Exporter) writeFile(record *connectors.Record, pathname string, perm os.FileMode) error {
-	if err := p.mkdirAll(path.Dir(pathname), 0o755); err != nil {
+	if err := p.mkdirAll(path.Dir(pathname), autoDirPerm); err != nil {
 		return err
 	}
 
