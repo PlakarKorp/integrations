@@ -39,6 +39,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 )
 
+const glacierSuffix = ".frozen"
+
 type Store struct {
 	minioClient  *minio.Client
 	host         string
@@ -385,6 +387,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 	}
 
 	ret := make([]objects.MAC, 0)
+	seen := make(map[objects.MAC]struct{})
 	var listingErr error
 	for object := range s.minioClient.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
 		Prefix:    prefix,
@@ -400,7 +403,8 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		}
 
 		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
-			t, err := hex.DecodeString(object.Key[prefixSize:])
+			hexPart := strings.TrimSuffix(object.Key[prefixSize:], glacierSuffix)
+			t, err := hex.DecodeString(hexPart)
 			if err != nil {
 				continue
 			}
@@ -408,7 +412,15 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 			if len(t) != 32 {
 				continue
 			}
-			ret = append(ret, objects.MAC(t))
+
+			// A glacier object can exist both in hot storage and under its
+			// frozen variant, so the same MAC may surface from two keys.
+			mac := objects.MAC(t)
+			if _, ok := seen[mac]; ok {
+				continue
+			}
+			seen[mac] = struct{}{}
+			ret = append(ret, mac)
 		}
 	}
 
@@ -435,6 +447,11 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		PartSize: 16 << 20,
 	}
 
+	// copyToGlacier archives name to its frozen variant without removing
+	// the original. "Hot" resources are metadata that kloset reads back
+	// directly through Get, which never looks at the frozen key, so the
+	// hot copy has to stay; the frozen copy is a redundant archival
+	// duplicate kloset itself never reads.
 	copyToGlacier := func(name string) error {
 		src := minio.CopySrcOptions{
 			Bucket:     s.bucket,
@@ -444,7 +461,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 
 		dst := minio.CopyDestOptions{
 			Bucket:     s.bucket,
-			Object:     name + ".frozen",
+			Object:     name + glacierSuffix,
 			Encryption: s.ssec,
 
 			ReplaceMetadata: true,
@@ -473,7 +490,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		// glacier storage with extension.
 		if s.isGlacier {
 			if !hot {
-				name += ".frozen"
+				name += glacierSuffix
 			} else {
 				putObjectOptions.StorageClass = "STANDARD"
 			}
@@ -577,9 +594,17 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 		path = s.realpath(fmt.Sprintf("locks/%016x", mac))
 	}
 
-	err := s.minioClient.RemoveObject(ctx, s.bucket, path, minio.RemoveObjectOptions{})
-	if err != nil {
-		return fmt.Errorf("remove %s object: %w", res, err)
+	paths := []string{path}
+	if s.isGlacier && res != storage.StorageResourceLock {
+		paths = append(paths, path+glacierSuffix)
+	}
+
+	// Removing a key that doesn't exist still succeeds, so this is safe
+	// even when only one of the two variants is actually present.
+	for _, p := range paths {
+		if err := s.minioClient.RemoveObject(ctx, s.bucket, p, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("remove %s object: %w", res, err)
+		}
 	}
 	return nil
 }
