@@ -32,16 +32,55 @@ import (
 
 func connectCloud(t *testing.T, cloud *keystonetest.Cloud) *Client {
 	t.Helper()
-	cfg, err := ParseConnectorConfig(map[string]string{
+	return connectCloudMode(t, cloud, "")
+}
+
+func connectCloudMode(t *testing.T, cloud *keystonetest.Cloud, uploadMode string) *Client {
+	t.Helper()
+	params := map[string]string{
 		"openstack_auth_url":                      cloud.AuthURL,
 		"openstack_application_credential_id":     "id",
 		"openstack_application_credential_secret": "secret",
 		"openstack_region":                        keystonetest.Region,
-	})
+	}
+	if uploadMode != "" {
+		params["openstack_upload_mode"] = uploadMode
+	}
+	cfg, err := ParseConnectorConfig(params)
 	require.NoError(t, err)
 	clients, err := Connect(t.Context(), cfg)
 	require.NoError(t, err)
 	return clients[0]
+}
+
+// Staged mode dispatches through the same image-create-then-wait flow as the
+// direct path, just with a web-download import instead of a data PUT; the
+// mechanics of that import are covered in swift_test.go.
+func TestUploadTempImageStagedMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		failImport bool
+		wantErr    string
+	}{
+		{name: "import succeeds"},
+		{name: "import fails", failImport: true, wantErr: "entered killed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			cloud.FailImport = tt.failImport
+			client := connectCloudMode(t, cloud, "staged")
+
+			img, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("staged data")), "qcow2", nil)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.EqualValues(t, "active", img.Status)
+		})
+	}
 }
 
 // Waiting for Cinder to allow a delete can take far longer than the delete

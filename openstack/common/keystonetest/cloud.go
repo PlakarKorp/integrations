@@ -70,6 +70,10 @@ type Cloud struct {
 	ImageStatus    string
 	// FailImageData makes uploading an image's data fail with a 500.
 	FailImageData bool
+	// FailImport makes a web-download import end the image in "killed",
+	// discovered only once the client polls, since the import request itself
+	// is accepted asynchronously.
+	FailImport bool
 	// VolumeErrors is how many volumes created from an image end in error.
 	VolumeErrors int
 	// FailVolumeList makes listing volumes fail with a 500.
@@ -157,6 +161,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	c.AuthURL = srv.URL + "/identity/v3/"
 
 	block := "/volume/v3/p1"
+	swift := "/swift/v1/AUTH_p1"
 	mux.HandleFunc("POST /identity/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Subject-Token", "fake-token")
 		c.reply(w, http.StatusCreated, map[string]any{"token": map[string]any{
@@ -167,6 +172,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 				catalogEntry("image", srv.URL+"/image/"),
 				catalogEntry("compute", srv.URL+"/compute/"),
 				catalogEntry("network", srv.URL+"/network/"),
+				catalogEntry("object-store", srv.URL+swift+"/"),
 			},
 		}})
 	})
@@ -344,6 +350,24 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		_, _ = w.Write(c.Disk)
 	})
 	mux.HandleFunc("DELETE /image/v2/images/{id}", c.delete)
+	mux.HandleFunc("POST /image/v2/images/{id}/import", func(w http.ResponseWriter, r *http.Request) {
+		switch status := c.startImport(r.PathValue("id")); status {
+		case 0:
+			c.unexpected(w, r)
+		default:
+			w.WriteHeader(status)
+		}
+	})
+	// The staged upload path's Swift: containers and objects always accept,
+	// since swift_test.go already covers the wire-level details of what gets
+	// sent to them. Only the Glance side above needs state.
+	mux.HandleFunc("PUT "+swift+"/{container}", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusCreated) })
+	mux.HandleFunc("DELETE "+swift+"/{container}", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("PUT "+swift+"/{container}/{object}", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusCreated) })
+	mux.HandleFunc("DELETE "+swift+"/{container}/{object}", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("POST "+swift+"/", func(w http.ResponseWriter, r *http.Request) {
+		c.reply(w, http.StatusOK, map[string]any{"Response Status": "200 OK"})
+	})
 	// Nova and Neutron's catalog URLs are unversioned, like Glance's.
 	mux.HandleFunc("GET /compute/{$}", func(w http.ResponseWriter, r *http.Request) {
 		c.reply(w, http.StatusMultipleChoices, map[string]any{"versions": []any{
@@ -480,6 +504,25 @@ func (c *Cloud) storeImageData(id string, data []byte) int {
 		}
 	}
 	return http.StatusNoContent
+}
+
+// startImport is a web-download import: like storeImageData, it only accepts
+// a queued image, but the transfer itself happens server-side, so success or
+// failure only shows up once the client polls the image's status.
+func (c *Cloud) startImport(id string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	res, ok := c.resources[id]
+	if !ok || res.kind != "image" || !res.queued {
+		return 0
+	}
+	res.queued = false
+	if c.FailImport {
+		res.final = "killed"
+	} else {
+		res.creating = c.SavingPolls
+	}
+	return http.StatusAccepted
 }
 
 func (c *Cloud) imageFormat(id string) string {

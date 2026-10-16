@@ -42,9 +42,10 @@ type Container struct {
 }
 
 type Client struct {
-	provider *gophercloud.ProviderClient
-	endpoint gophercloud.EndpointOpts
-	scope    Scope
+	provider   *gophercloud.ProviderClient
+	endpoint   gophercloud.EndpointOpts
+	scope      Scope
+	uploadMode UploadMode
 }
 
 // Connect authenticates once and returns one client per region: the
@@ -78,9 +79,10 @@ func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 	clients := make([]*Client, 0, len(regions))
 	for _, region := range regions {
 		clients = append(clients, &Client{
-			provider: provider,
-			endpoint: gophercloud.EndpointOpts{Region: region},
-			scope:    Scope{ProjectID: project, Region: region},
+			provider:   provider,
+			endpoint:   gophercloud.EndpointOpts{Region: region},
+			scope:      Scope{ProjectID: project, Region: region},
+			uploadMode: cfg.UploadMode,
 		})
 	}
 	return clients, nil

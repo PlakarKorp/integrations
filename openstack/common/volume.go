@@ -384,11 +384,27 @@ func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, 
 		return nil, fmt.Errorf("create image %q: %w", name, err)
 	}
 
-	// net/http closes a request body that is an io.ReadCloser; r is the
-	// caller's to close, and plakar's record reader panics if closed twice.
-	if err := imagedata.Upload(ctx, image, created.ID, struct{ io.Reader }{r}).ExtractErr(); err != nil {
-		(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
-		return nil, fmt.Errorf("upload image %q: %w", created.ID, err)
+	if c.uploadMode == ModeStaged {
+		swift, err := c.swift()
+		if err != nil {
+			(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
+			return nil, err
+		}
+		cleanup, err := uploadStagedImage(ctx, swift, image, created.ID, r)
+		// Cleanup must wait for the poll below: web-download is async, so
+		// Glance is still reading the staged object after this returns.
+		defer cleanup(ctx)
+		if err != nil {
+			(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
+			return nil, fmt.Errorf("upload image %q: %w", created.ID, err)
+		}
+	} else {
+		// net/http closes a request body that is an io.ReadCloser; r is the
+		// caller's to close, and plakar's record reader panics if closed twice.
+		if err := imagedata.Upload(ctx, image, created.ID, struct{ io.Reader }{r}).ExtractErr(); err != nil {
+			(&Cleanup{image: image, imageID: created.ID}).Run(ctx)
+			return nil, fmt.Errorf("upload image %q: %w", created.ID, err)
+		}
 	}
 
 	// Cinder only creates a volume from an active image.
