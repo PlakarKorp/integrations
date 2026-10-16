@@ -19,8 +19,8 @@ github.com/PlakarKorp/integrations/fs v1.1.9 h1:9RBSGKDynzDCAbkhZelaIYJLYfGkr5zh
 github.com/PlakarKorp/integrations/fs v1.1.9/go.mod h1:6xJ42qfe77lDG+o7NVpz5X44Nbk9vCvFxxT88WvrgRc=
 github.com/PlakarKorp/integrations/ptar v1.1.1 h1:44E8NHkx4cKA/bCUtcF82Qj75LyK4vkWdmaSInEylX8=
 github.com/PlakarKorp/integrations/ptar v1.1.1/go.mod h1:HeheyF9oVvFvclksHu1egJ6aNtTdB8uOddSh9A6RbKU=
-github.com/PlakarKorp/kloset v1.1.9-rc.0 h1:c/9khpGN+rZCRCAd2dAK+pn6zR5fvU5vlYYqQv02Gaw=
-github.com/PlakarKorp/kloset v1.1.9-rc.0/go.mod h1:tDJRg9YBSmgJHQJzNubt+jZiETRcakPUpbO7PFcYUNM=
+github.com/PlakarKorp/kloset v1.1.9 h1:wIvQF0Kc+CDLDbSi6fSCGhuCzgZxBQL4WJOM9VxJ26Y=
+github.com/PlakarKorp/kloset v1.1.9/go.mod h1:tDJRg9YBSmgJHQJzNubt+jZiETRcakPUpbO7PFcYUNM=
 github.com/PlakarKorp/pkg v1.1.8 h1:NX1qfBCWZiqgSIwq1aW3ebeyMq8GAZ4EyWjvLkQvi/o=
 github.com/PlakarKorp/pkg v1.1.8/go.mod h1:fr6EcmMssAZ9ab1f5Wq8P8K259Ir3Nd4BtRs71GKI30=
 github.com/PuerkitoBio/purell v1.1.1/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=

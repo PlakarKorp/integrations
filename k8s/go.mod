@@ -7,7 +7,7 @@ require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
 	github.com/PlakarKorp/integration-grpc v1.1.2
 	github.com/PlakarKorp/integrations/fs v1.1.9
-	github.com/PlakarKorp/kloset v1.1.9-rc.0
+	github.com/PlakarKorp/kloset v1.1.9
 	github.com/PlakarKorp/pkg v1.1.8
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.6.0
 	github.com/stretchr/testify v1.12.1
