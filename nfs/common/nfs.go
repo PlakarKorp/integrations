@@ -54,30 +54,42 @@ type Conn struct {
 	Export string
 }
 
+// recoverErr turns a panic from the vendored RPC layer, which panics on
+// truncated or rejected replies, into an error. Defer it in every method that
+// enters the client.
+func recoverErr(err *error) {
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("nfs: malformed server reply: %v", r)
+	}
+}
+
 // Lookup resolves p relative to the export, returning its attributes (nil for
 // the export root, which has no final component) and filehandle.
-func (c *Conn) Lookup(p string) (*nfs.Fattr, []byte, error) {
+func (c *Conn) Lookup(p string) (attr *nfs.Fattr, fh []byte, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer recoverErr(&err)
 	info, fh, err := c.target.Lookup(p)
 	if err != nil {
 		return nil, nil, err
 	}
-	attr, _ := info.(*nfs.Fattr)
+	attr, _ = info.(*nfs.Fattr)
 	return attr, fh, nil
 }
 
 // ReadDirPlus lists dir with attributes in a single round-trip.
-func (c *Conn) ReadDirPlus(dir string) ([]*nfs.EntryPlus, error) {
+func (c *Conn) ReadDirPlus(dir string) (entries []*nfs.EntryPlus, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer recoverErr(&err)
 	return c.target.ReadDirPlus(dir)
 }
 
 // Readlink returns the target of the symlink at p.
-func (c *Conn) Readlink(p string) (string, error) {
+func (c *Conn) Readlink(p string) (link string, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer recoverErr(&err)
 	f, err := c.target.Open(p)
 	if err != nil {
 		return "", err
@@ -87,10 +99,11 @@ func (c *Conn) Readlink(p string) (string, error) {
 }
 
 // Mkdir creates a directory at p with the given permissions.
-func (c *Conn) Mkdir(p string, perm os.FileMode) error {
+func (c *Conn) Mkdir(p string, perm os.FileMode) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, err := c.target.Mkdir(p, perm)
+	defer recoverErr(&err)
+	_, err = c.target.Mkdir(p, perm)
 	return err
 }
 
@@ -99,11 +112,16 @@ func (c *Conn) Mkdir(p string, perm os.FileMode) error {
 // caller MUST close it promptly: while it is open no other NFS operation on
 // this connection can proceed. This serialization is required by the
 // non-multiplexing transport.
-func (c *Conn) OpenReader(p string) (io.ReadCloser, error) {
+func (c *Conn) OpenReader(p string) (rc io.ReadCloser, err error) {
 	c.mu.Lock()
+	defer func() {
+		if err != nil {
+			c.mu.Unlock()
+		}
+	}()
+	defer recoverErr(&err)
 	f, err := c.target.Open(p)
 	if err != nil {
-		c.mu.Unlock()
 		return nil, err
 	}
 	return &lockedFile{conn: c, file: f}, nil
@@ -117,25 +135,27 @@ type lockedFile struct {
 	closed bool
 }
 
-func (lf *lockedFile) Read(p []byte) (int, error) {
+func (lf *lockedFile) Read(p []byte) (n int, err error) {
+	defer recoverErr(&err)
 	return lf.file.Read(p)
 }
 
-func (lf *lockedFile) Close() error {
+func (lf *lockedFile) Close() (err error) {
 	if lf.closed {
 		return nil
 	}
 	lf.closed = true
-	err := lf.file.Close()
-	lf.conn.mu.Unlock()
-	return err
+	defer lf.conn.mu.Unlock()
+	defer recoverErr(&err)
+	return lf.file.Close()
 }
 
 // WriteFile creates the file at p with the given permissions and streams r into
 // it. The connection lock is held for the entire transfer.
-func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) error {
+func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer recoverErr(&err)
 	f, err := c.target.OpenFile(p, perm)
 	if err != nil {
 		return err
@@ -279,10 +299,10 @@ func Connect(cfg *Config) (*Conn, error) {
 }
 
 // Close unmounts the export and tears down the connection.
-func (c *Conn) Close() error {
+func (c *Conn) Close() (first error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var first error
+	defer recoverErr(&first)
 	if c.target != nil {
 		if err := c.target.Close(); err != nil {
 			first = err
