@@ -281,10 +281,8 @@ func TestParseIgnoreResources(t *testing.T) {
 	}
 }
 
-func TestNewSkipRootPermsAndTime(t *testing.T) {
-	t.Parallel()
-	// inline so that the test never reads the developer's kubeconfig
-	const kubeconf = `
+// testKubeconf is inline so that tests never read the developer's kubeconfig.
+const testKubeconf = `
 apiVersion: v1
 kind: Config
 clusters:
@@ -299,11 +297,13 @@ users:
   user: {token: t}
 `
 
+func TestNewSkipRootPermsAndTime(t *testing.T) {
+	t.Parallel()
 	newK8s := func(t *testing.T, options ...Options) *k8s {
 		t.Helper()
 		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
 			"location":   "k8s+pvc://cluster.example/ns/data",
-			"kubeconfig": kubeconf,
+			"kubeconfig": testKubeconf,
 		}, true, options...)
 		require.NoError(t, err)
 		return k
