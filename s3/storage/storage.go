@@ -41,7 +41,7 @@ import (
 
 // maxConfigSize bounds the CONFIG read: it holds a small serialized
 // repository configuration, never anywhere near this size.
-const maxConfigSize = 1 << 20
+const maxConfigSize = 2 << 10
 
 type Store struct {
 	minioClient  *minio.Client
