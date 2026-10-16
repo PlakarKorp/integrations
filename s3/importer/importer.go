@@ -44,6 +44,7 @@ type S3Importer struct {
 	host    string
 	scanDir string
 	ssec    encrypt.ServerSide
+	strict  bool
 }
 
 func init() {
@@ -120,6 +121,15 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, fmt.Errorf("invalid virtual_host value")
 		}
 		virtualHost = tmp
+	}
+
+	strict := true
+	if value, ok := config["strict"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid strict value")
+		}
+		strict = tmp
 	}
 
 	endpoint := config["endpoint"]
@@ -205,6 +215,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		minioClient: conn,
 		host:        host,
 		ssec:        ssec,
+		strict:      strict,
 	}, nil
 }
 
@@ -244,15 +255,30 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			continue
 		}
 
+		// A "." or ".." segment anywhere in the key, not just its basename,
+		// would be collapsed by kloset's path.Clean-based tree building
+		// onto the root or some parent directory. In strict mode (the
+		// default) the key is kept but every such segment is escaped;
+		// otherwise the object is dropped.
+		escapedPathname, unsafe := common.SanitizePathname(object.Key)
+		if unsafe && !p.strict {
+			continue
+		}
+		pathname := "/" + object.Key
+		if p.strict {
+			pathname = escapedPathname
+		}
+		name := path.Base(pathname)
+
 		fi := objects.FileInfo{
-			Lname:    path.Base("/" + object.Key),
+			Lname:    name,
 			Lsize:    object.Size,
 			Lmode:    0o700,
 			LmodTime: object.LastModified,
 			Ldev:     1,
 		}
 
-		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
+		records <- connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
 		})
 	}

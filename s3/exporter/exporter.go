@@ -43,6 +43,7 @@ type S3Exporter struct {
 	bucket      string
 	restoreDir  string
 	ssec        encrypt.ServerSide
+	strict      bool
 }
 
 func init() {
@@ -121,6 +122,15 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, fmt.Errorf("invalid virtual_host value")
 		}
 		virtualHost = tmp
+	}
+
+	strict := true
+	if value, ok := config["strict"]; ok {
+		tmp, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid strict value")
+		}
+		strict = tmp
 	}
 
 	endpoint := config["endpoint"]
@@ -215,6 +225,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 		bucket:      bucket,
 		restoreDir:  restoreDir,
 		ssec:        ssec,
+		strict:      strict,
 	}, nil
 }
 
@@ -247,7 +258,19 @@ func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 		}
 
 		g.Go(func() error {
+			// path.Join always Cleans its result, and Clean drops a
+			// literal "." segment outright - so decoding must happen
+			// after Join, never before, or a restored "." segment would
+			// silently vanish instead of being written back.
 			objname := strings.TrimLeft(path.Join(p.restoreDir, record.Pathname), "/")
+			if !p.strict {
+				// Decode any segment escaped by a strict-mode s3 import,
+				// so the restored key matches the original one. Only safe
+				// when the data actually came from such an import: on
+				// anything else, a segment that merely looks escaped
+				// would be rewritten incorrectly.
+				objname = strings.TrimLeft(common.DesanitizePathname("/"+objname), "/")
+			}
 			_, err := p.minioClient.PutObject(ctx, p.bucket, objname,
 				record.Reader, record.FileInfo.Lsize, minio.PutObjectOptions{ServerSideEncryption: p.ssec})
 			results <- record.Error(err)
