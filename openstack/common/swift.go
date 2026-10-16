@@ -40,7 +40,7 @@ const (
 )
 
 func (c *Client) swift() (*gophercloud.ServiceClient, error) {
-	return c.service("object storage", gcopenstack.NewObjectStorageV1)
+	return c.serviceAt(c.swiftEndpoint, "object storage", gcopenstack.NewObjectStorageV1)
 }
 
 // Each image gets its own pair of containers: sharing one fixed container

@@ -134,6 +134,60 @@ func TestCheckUploadModeAcceptsStagedWithObjectStorage(t *testing.T) {
 	assert.NoError(t, CheckUploadMode(clients[0]))
 }
 
+// swiftInOtherRegion serves a catalog where compute is in RegionOne and Swift
+// only in DE, as on OVH.
+func swiftInOtherRegion(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Subject-Token", "fake-token")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, `{"token":{"expires_at":"2999-01-01T00:00:00.000000Z","project":{"id":"p1"},
+			"catalog":[
+				{"type":"compute","endpoints":[{"interface":"public","region":"RegionOne","url":"http://nova.example/v2.1"}]},
+				{"type":"object-store","endpoints":[{"interface":"public","region":"DE","url":"http://swift.example/v1/AUTH_p1"}]}]}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/v3/"
+}
+
+func TestCheckUploadModeUsesObjectStorageRegion(t *testing.T) {
+	tests := []struct {
+		name          string
+		storageRegion string
+		wantErr       string
+	}{
+		{name: "swift in its own region", storageRegion: "DE"},
+		{name: "falls back to the connector region", wantErr: `region "RegionOne"`},
+		{name: "region without a catalog entry", storageRegion: "UK1", wantErr: "not in the service catalog"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]string{
+				"openstack_auth_url":                      swiftInOtherRegion(t),
+				"openstack_application_credential_id":     "id",
+				"openstack_application_credential_secret": "secret",
+				"openstack_region":                        "RegionOne",
+				"openstack_upload_mode":                   "staged",
+			}
+			if tt.storageRegion != "" {
+				params["openstack_object_storage_region"] = tt.storageRegion
+			}
+			cfg, err := ParseConnectorConfig(params)
+			require.NoError(t, err)
+			clients, err := Connect(t.Context(), cfg)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.NoError(t, CheckUploadMode(clients[0]))
+				return
+			}
+			if err == nil {
+				err = CheckUploadMode(clients[0])
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestListErrorMarksRefusedCredentials(t *testing.T) {
 	for status, denied := range map[int]bool{
 		http.StatusUnauthorized: true, http.StatusForbidden: true, http.StatusInternalServerError: false,

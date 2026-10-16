@@ -46,6 +46,8 @@ func TestExporterSchema(t *testing.T) {
 		{name: "two regions", edit: map[string]string{"openstack_region": "RegionOne,RegionTwo"}},
 		{name: "empty credential secret", edit: map[string]string{"openstack_application_credential_secret": ""}},
 		{name: "staged upload mode", edit: map[string]string{"openstack_upload_mode": "staged"}, valid: true},
+		{name: "object storage region", edit: map[string]string{"openstack_object_storage_region": keystonetest.Region}, valid: true},
+		{name: "blank object storage region", edit: map[string]string{"openstack_object_storage_region": " "}},
 		{name: "bad upload mode", edit: map[string]string{"openstack_upload_mode": "multipart"}},
 	}
 	for _, tt := range tests {

@@ -37,6 +37,9 @@ type Config struct {
 	regions []string
 	// UploadMode is how UploadTempImage uploads a disk's bytes.
 	UploadMode UploadMode
+	// objectStorageRegion is where staged uploads find Swift; empty means the
+	// connector's own region.
+	objectStorageRegion string
 }
 
 func ParseConfig(params map[string]string) (*Config, error) {
@@ -53,13 +56,20 @@ func ParseConfig(params map[string]string) (*Config, error) {
 		return nil, fmt.Errorf("openstack_upload_mode: bad value: %q", mode)
 	}
 
+	storageRegion, set := params["openstack_object_storage_region"]
+	storageRegion = strings.TrimSpace(storageRegion)
+	if set && (storageRegion == "" || strings.Contains(storageRegion, ",")) {
+		return nil, fmt.Errorf("openstack_object_storage_region: bad value: %q, expected a single region", storageRegion)
+	}
+
 	cfg := &Config{
 		auth: gophercloud.AuthOptions{
 			IdentityEndpoint: authURL,
 			AllowReauth:      true,
 		},
-		regions:    paramList(params, "openstack_region"),
-		UploadMode: mode,
+		regions:             paramList(params, "openstack_region"),
+		UploadMode:          mode,
+		objectStorageRegion: storageRegion,
 	}
 
 	appCredID := params["openstack_application_credential_id"]

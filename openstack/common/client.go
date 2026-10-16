@@ -42,10 +42,13 @@ type Container struct {
 }
 
 type Client struct {
-	provider   *gophercloud.ProviderClient
-	endpoint   gophercloud.EndpointOpts
-	scope      Scope
-	uploadMode UploadMode
+	provider *gophercloud.ProviderClient
+	endpoint gophercloud.EndpointOpts
+	// swiftEndpoint is where staged uploads look up Swift: some clouds, OVH
+	// among them, name object storage's region differently from the rest.
+	swiftEndpoint gophercloud.EndpointOpts
+	scope         Scope
+	uploadMode    UploadMode
 }
 
 // Connect authenticates once and returns one client per region: the
@@ -67,6 +70,9 @@ func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 			return nil, fmt.Errorf("region %q is not in the service catalog (available: %s)", region, strings.Join(available, ", "))
 		}
 	}
+	if r := cfg.objectStorageRegion; r != "" && !slices.Contains(available, r) {
+		return nil, fmt.Errorf("object storage region %q is not in the service catalog (available: %s)", r, strings.Join(available, ", "))
+	}
 	regions := cfg.regions
 	if len(regions) == 0 {
 		regions = available
@@ -78,22 +84,27 @@ func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 
 	clients := make([]*Client, 0, len(regions))
 	for _, region := range regions {
+		swiftRegion := cmp.Or(cfg.objectStorageRegion, region)
 		clients = append(clients, &Client{
-			provider:   provider,
-			endpoint:   gophercloud.EndpointOpts{Region: region},
-			scope:      Scope{ProjectID: project, Region: region},
-			uploadMode: cfg.UploadMode,
+			provider:      provider,
+			endpoint:      gophercloud.EndpointOpts{Region: region},
+			swiftEndpoint: gophercloud.EndpointOpts{Region: swiftRegion},
+			scope:         Scope{ProjectID: project, Region: region},
+			uploadMode:    cfg.UploadMode,
 		})
 	}
 	return clients, nil
 }
 
-// CheckUploadMode rejects ModeStaged when the client's region has no object
-// storage in its catalog: UploadTempImage would otherwise fail on the first
-// upload instead of at connector startup.
+// CheckUploadMode rejects ModeStaged when the catalog has no object storage in
+// the staging region: UploadTempImage would otherwise fail on the first upload
+// instead of at connector startup.
 func CheckUploadMode(client *Client) error {
-	if client.uploadMode == ModeStaged && !client.SupportsObjectStorage() {
-		return fmt.Errorf("openstack_upload_mode: bad value: %q requires object storage in region %q, which is not in the catalog", ModeStaged, client.scope.Region)
+	if client.uploadMode != ModeStaged {
+		return nil
+	}
+	if _, err := client.swift(); err != nil {
+		return fmt.Errorf("openstack_upload_mode: bad value: %q requires object storage in region %q, which is not in the catalog", ModeStaged, client.swiftEndpoint.Region)
 	}
 	return nil
 }
@@ -238,7 +249,11 @@ func (c *Client) ListDatabases(ctx context.Context) iter.Seq2[instances.Instance
 
 // service maps a service missing from the catalog to ErrServiceUnavailable.
 func (c *Client) service(name string, newService serviceFactory) (*gophercloud.ServiceClient, error) {
-	sc, err := newService(c.provider, c.endpoint)
+	return c.serviceAt(c.endpoint, name, newService)
+}
+
+func (c *Client) serviceAt(endpoint gophercloud.EndpointOpts, name string, newService serviceFactory) (*gophercloud.ServiceClient, error) {
+	sc, err := newService(c.provider, endpoint)
 	if err != nil {
 		if _, ok := errors.AsType[*gophercloud.ErrEndpointNotFound](err); ok {
 			err = ErrServiceUnavailable

@@ -155,7 +155,8 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-block://` or `openstack-block://spawn`, both restoring into a new, detached volume. Naming an existing volume or server is not supported yet. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
-| `openstack_upload_mode` | `direct` (default) uploads the disk to Glance in one unparallelized PUT. `staged` splits it into parallel Swift segments first, then has Glance pull the assembled object server-side; faster for large disks, but needs object storage in the target region's catalog, and fails at startup if it is missing. |
+| `openstack_upload_mode` | `direct` (default) uploads the disk to Glance in one unparallelized PUT. `staged` splits it into parallel Swift segments first, then has Glance pull the assembled object server-side; faster for large disks, but needs object storage in the catalog, and fails at startup if it is missing. |
+| `openstack_object_storage_region` | The region whose object storage `staged` uses. Defaults to `openstack_region`; set it when the cloud names Swift's region differently, as OVH does (`DE` against `DE1`). |
 
 The credential needs Glance image create, upload and delete rights, and Cinder
 volume create and delete rights, on the target project. `staged` mode also
@@ -250,7 +251,8 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-instance://` or `openstack-instance://spawn` to restore into a new server, or `openstack-instance://<server-id>` to attach every restored disk to that existing server. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
-| `openstack_upload_mode` | `direct` (default) or `staged`, same tradeoff as the volume restore's: `staged` splits each disk's upload into parallel Swift segments, and needs object storage in the target region's catalog. |
+| `openstack_upload_mode` | `direct` (default) or `staged`, same tradeoff as the volume restore's: `staged` splits each disk's upload into parallel Swift segments, and needs object storage in the catalog. |
+| `openstack_object_storage_region` | The region whose object storage `staged` uses. Defaults to `openstack_region`. |
 
 Spawn mode needs Nova server create and volume-attach rights, Glance image
 create, upload and delete rights, Neutron network read rights, and the Cinder

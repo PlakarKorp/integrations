@@ -60,6 +60,29 @@ func TestParseConfigUploadMode(t *testing.T) {
 	}
 }
 
+func TestParseConfigObjectStorageRegion(t *testing.T) {
+	tests := []struct {
+		name   string
+		region string
+		err    bool
+	}{
+		{name: "one region", region: "DE"},
+		{name: "blank", region: " ", err: true},
+		{name: "two regions", region: "DE,UK1", err: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfig(map[string]string{
+				"openstack_auth_url":                      "http://keystone/v3/",
+				"openstack_application_credential_id":     "id",
+				"openstack_application_credential_secret": "secret",
+				"openstack_object_storage_region":         tt.region,
+			})
+			assert.Equal(t, tt.err, err != nil)
+		})
+	}
+}
+
 func TestParseConnectorConfigNeedsOneRegion(t *testing.T) {
 	tests := []struct {
 		name   string

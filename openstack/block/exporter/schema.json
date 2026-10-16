@@ -26,6 +26,12 @@
       "$comment": "^ start, [^,]* no comma, [^,\\s] one character that is neither a comma nor a space, [^,]* no comma, $ end",
       "description": "Region to restore the volume in"
     },
+    "openstack_object_storage_region": {
+      "type": "string",
+      "pattern": "^[^,]*[^,\\s][^,]*$",
+      "$comment": "^ start, [^,]* no comma, [^,\\s] one character that is neither a comma nor a space, [^,]* no comma, $ end",
+      "description": "Region whose object storage staged uploads use; defaults to openstack_region"
+    },
     "openstack_upload_mode": {
       "type": "string",
       "enum": ["direct", "staged"],
