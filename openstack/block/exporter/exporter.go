@@ -63,6 +63,9 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
+	if err := common.CheckUploadMode(clients[0]); err != nil {
+		return nil, err
+	}
 	return &Exporter{client: clients[0]}, nil
 }
 

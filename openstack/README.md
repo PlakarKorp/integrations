@@ -155,9 +155,11 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-block://` or `openstack-block://spawn`, both restoring into a new, detached volume. Naming an existing volume or server is not supported yet. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
+| `openstack_upload_mode` | `direct` (default) uploads the disk to Glance in one unparallelized PUT. `staged` splits it into parallel Swift segments first, then has Glance pull the assembled object server-side; faster for large disks, but needs object storage in the target region's catalog, and fails at startup if it is missing. |
 
 The credential needs Glance image create, upload and delete rights, and Cinder
-volume create and delete rights, on the target project.
+volume create and delete rights, on the target project. `staged` mode also
+needs Swift container and object read/write/delete rights.
 
 ### Usage
 
@@ -248,13 +250,15 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-instance://` or `openstack-instance://spawn` to restore into a new server, or `openstack-instance://<server-id>` to attach every restored disk to that existing server. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
+| `openstack_upload_mode` | `direct` (default) or `staged`, same tradeoff as the volume restore's: `staged` splits each disk's upload into parallel Swift segments, and needs object storage in the target region's catalog. |
 
 Spawn mode needs Nova server create and volume-attach rights, Glance image
 create, upload and delete rights, Neutron network read rights, and the Cinder
 rights the volume restore needs, on the target project. Existing-server mode
 needs fewer: no Nova server-create, flavor-read, or network-read rights —
 only Nova volume-attach, Glance image create, upload and delete, and Cinder
-volume create and delete.
+volume create and delete. `staged` mode also needs Swift container and
+object read/write/delete rights.
 
 ### Usage
 

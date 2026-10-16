@@ -26,6 +26,12 @@
       "$comment": "^ start, [^,]* no comma, [^,\\s] one character that is neither a comma nor a space, [^,]* no comma, $ end",
       "description": "Region to restore the server in"
     },
+    "openstack_upload_mode": {
+      "type": "string",
+      "enum": ["direct", "staged"],
+      "default": "direct",
+      "description": "direct uploads each disk to Glance in one unparallelized PUT; staged splits it into parallel Swift segments first, which needs object storage in the target region's catalog"
+    },
     "openstack_application_credential_id": {
       "type": "string",
       "minLength": 1,

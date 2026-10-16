@@ -75,6 +75,9 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if attachServerID == common.SpawnLocation {
 		attachServerID = ""
 	}
+	if err := common.CheckUploadMode(clients[0]); err != nil {
+		return nil, err
+	}
 	return &Exporter{client: clients[0], disks: map[string]*diskRestore{}, attachServerID: attachServerID}, nil
 }
 

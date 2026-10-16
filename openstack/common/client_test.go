@@ -89,6 +89,51 @@ func TestClientsRequireProject(t *testing.T) {
 	assert.ErrorContains(t, err, "not scoped to a project")
 }
 
+// Mirrors TestListReportsServiceMissingFromCatalog: the fake catalog offers
+// only compute, so staged mode must be rejected before any upload is tried.
+func TestCheckUploadModeRejectsStagedWithoutObjectStorage(t *testing.T) {
+	cfg, err := ParseConfig(map[string]string{
+		"openstack_auth_url":                      authURL(t, "RegionOne"),
+		"openstack_application_credential_id":     "id",
+		"openstack_application_credential_secret": "secret",
+		"openstack_upload_mode":                   "staged",
+	})
+	require.NoError(t, err)
+	clients, err := Connect(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+
+	err = CheckUploadMode(clients[0])
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `"RegionOne"`)
+	assert.ErrorContains(t, err, `"staged"`)
+}
+
+func TestCheckUploadModeAcceptsStagedWithObjectStorage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Subject-Token", "fake-token")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, `{"token":{"expires_at":"2999-01-01T00:00:00.000000Z","project":{"id":"p1"},
+			"catalog":[{"type":"object-store","endpoints":[{"interface":"public","region":"RegionOne","url":"http://swift.example/v1/AUTH_p1"}]}]}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg, err := ParseConfig(map[string]string{
+		"openstack_auth_url":                      srv.URL + "/v3/",
+		"openstack_application_credential_id":     "id",
+		"openstack_application_credential_secret": "secret",
+		"openstack_region":                        "RegionOne",
+		"openstack_upload_mode":                   "staged",
+	})
+	require.NoError(t, err)
+	clients, err := Connect(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+
+	assert.NoError(t, CheckUploadMode(clients[0]))
+}
+
 func TestListErrorMarksRefusedCredentials(t *testing.T) {
 	for status, denied := range map[int]bool{
 		http.StatusUnauthorized: true, http.StatusForbidden: true, http.StatusInternalServerError: false,

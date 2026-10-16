@@ -88,6 +88,16 @@ func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 	return clients, nil
 }
 
+// CheckUploadMode rejects ModeStaged when the client's region has no object
+// storage in its catalog: UploadTempImage would otherwise fail on the first
+// upload instead of at connector startup.
+func CheckUploadMode(client *Client) error {
+	if client.uploadMode == ModeStaged && !client.SupportsObjectStorage() {
+		return fmt.Errorf("openstack_upload_mode: bad value: %q requires object storage in region %q, which is not in the catalog", ModeStaged, client.scope.Region)
+	}
+	return nil
+}
+
 // tokenScope returns the token's project and its sorted public regions.
 func tokenScope(provider *gophercloud.ProviderClient) (string, []string) {
 	token, ok := provider.GetAuthResult().(tokens.CreateResult)
@@ -170,6 +180,13 @@ func (c *Client) ListVolumes(ctx context.Context) iter.Seq2[volumes.Volume, erro
 // A local catalog lookup, not an API call.
 func (c *Client) SupportsVolumes() bool {
 	_, err := c.service(volumeResource.name, volumeResource.newService)
+	return err == nil
+}
+
+// SupportsObjectStorage reports whether Swift is in this client's region
+// catalog. A local catalog lookup, not an API call.
+func (c *Client) SupportsObjectStorage() bool {
+	_, err := c.service(containerResource.name, containerResource.newService)
 	return err == nil
 }
 
