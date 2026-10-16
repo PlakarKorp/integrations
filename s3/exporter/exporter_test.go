@@ -2,12 +2,17 @@ package exporter
 
 import (
 	"context"
-<<<<<<< HEAD
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,18 +142,7 @@ func TestNewS3ExporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
 
 	require.Equal(t, "/my/subdir", exp.Root())
 	require.Equal(t, u.Host+"/bucket", exp.Origin())
-=======
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
-)
+}
 
 // runExport exports one record per key through a fake registry, returning
 // the set of object keys the fake server actually received a PUT for.
@@ -251,5 +245,4 @@ func TestNewS3ExporterRejectsInvalidStrict(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid strict value was accepted")
 	}
->>>>>>> bc3840f (s3/exporter: add strict mode to match the importer)
 }

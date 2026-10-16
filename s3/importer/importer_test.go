@@ -3,12 +3,12 @@ package importer
 import (
 	"context"
 	"fmt"
+	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewS3ImporterVirtualHostRoot(t *testing.T) {
@@ -111,7 +111,7 @@ func TestNewS3ImporterPathStyleRootIncludesBucketWithoutEndpoint(t *testing.T) {
 
 	require.Equal(t, "/my/subdir", imp.Root())
 	require.Equal(t, "s3.eu-west-3.amazonaws.com/bucket", imp.Origin())
-)
+}
 
 func listResponse(keys []string) string {
 	var b strings.Builder
