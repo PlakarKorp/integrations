@@ -27,6 +27,39 @@ func TestParseConfigKeepsSecretsAsGiven(t *testing.T) {
 	assert.Equal(t, " s3cret ", cfg.auth.ApplicationCredentialSecret)
 }
 
+func TestParseConfigUploadMode(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+		want UploadMode
+		err  bool
+	}{
+		{name: "unset defaults to direct", mode: "", want: ModeDirect},
+		{name: "direct", mode: "direct", want: ModeDirect},
+		{name: "staged", mode: "staged", want: ModeStaged},
+		{name: "garbage", mode: "multipart", err: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]string{
+				"openstack_auth_url":                      "http://keystone/v3/",
+				"openstack_application_credential_id":     "id",
+				"openstack_application_credential_secret": "secret",
+			}
+			if tt.mode != "" {
+				params["openstack_upload_mode"] = tt.mode
+			}
+			cfg, err := ParseConfig(params)
+			if tt.err {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.UploadMode)
+		})
+	}
+}
+
 func TestParseConnectorConfigNeedsOneRegion(t *testing.T) {
 	tests := []struct {
 		name   string

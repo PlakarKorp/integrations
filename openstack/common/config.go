@@ -2,12 +2,25 @@ package common
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gophercloud/gophercloud/v2"
 )
 
 const defaultDomain = "Default"
+
+// UploadMode selects how UploadTempImage gets an image's bytes into Glance.
+type UploadMode string
+
+const (
+	// ModeDirect is a single unparallelized PUT via Glance's imagedata API.
+	ModeDirect UploadMode = "direct"
+	// ModeStaged splits the upload into parallel Swift segments, then has
+	// Glance pull the assembled object server-side. Requires Swift in the
+	// target region's catalog.
+	ModeStaged UploadMode = "staged"
+)
 
 var (
 	ErrMissingAuthURL = errors.New("openstack_auth_url is required")
@@ -22,6 +35,8 @@ type Config struct {
 	auth gophercloud.AuthOptions
 	// regions restricts the scan to these catalog regions; empty scans them all.
 	regions []string
+	// UploadMode is how UploadTempImage uploads a disk's bytes.
+	UploadMode UploadMode
 }
 
 func ParseConfig(params map[string]string) (*Config, error) {
@@ -30,12 +45,21 @@ func ParseConfig(params map[string]string) (*Config, error) {
 		return nil, ErrMissingAuthURL
 	}
 
+	mode := UploadMode(params["openstack_upload_mode"])
+	if mode == "" {
+		mode = ModeDirect
+	}
+	if mode != ModeDirect && mode != ModeStaged {
+		return nil, fmt.Errorf("openstack_upload_mode: bad value: %q", mode)
+	}
+
 	cfg := &Config{
 		auth: gophercloud.AuthOptions{
 			IdentityEndpoint: authURL,
 			AllowReauth:      true,
 		},
-		regions: paramList(params, "openstack_region"),
+		regions:    paramList(params, "openstack_region"),
+		UploadMode: mode,
 	}
 
 	appCredID := params["openstack_application_credential_id"]
