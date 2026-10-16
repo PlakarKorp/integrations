@@ -771,4 +771,45 @@ func TestFsServer(t *testing.T) {
 		require.Empty(t, c.VolumeMounts)
 		require.Equal(t, []corev1.VolumeDevice{{Name: "snap", DevicePath: blockPath}}, c.VolumeDevices)
 	})
+
+	t.Run("no affinity unless one is configured", func(t *testing.T) {
+		t.Parallel()
+
+		pvc := pvcObj("ns", "data")
+		k := fsServerTestK8s(t, pvc)
+
+		_, err := k.fsServer(t.Context(), "backup", "ns", pvc, true)
+		require.NoError(t, err)
+
+		list, err := k.clientset.CoreV1().Pods("ns").List(t.Context(), metav1.ListOptions{})
+		require.NoError(t, err)
+		require.Len(t, list.Items, 1)
+		require.Nil(t, list.Items[0].Spec.Affinity)
+	})
+
+	t.Run("the configured node affinity is applied", func(t *testing.T) {
+		t.Parallel()
+
+		pvc := pvcObj("ns", "data")
+		k := fsServerTestK8s(t, pvc)
+		k.nodeAffinity = &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      "topology.kubernetes.io/zone",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"eu-west-3a"},
+					}},
+				}},
+			},
+		}
+
+		_, err := k.fsServer(t.Context(), "backup", "ns", pvc, true)
+		require.NoError(t, err)
+
+		list, err := k.clientset.CoreV1().Pods("ns").List(t.Context(), metav1.ListOptions{})
+		require.NoError(t, err)
+		require.Len(t, list.Items, 1)
+		require.Equal(t, &corev1.Affinity{NodeAffinity: k.nodeAffinity}, list.Items[0].Spec.Affinity)
+	})
 }

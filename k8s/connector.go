@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"kubevirt.io/client-go/kubevirt"
+	"sigs.k8s.io/yaml"
 )
 
 type k8s struct {
@@ -56,6 +57,7 @@ type k8s struct {
 	volumeSnapshotClass string
 	kubeletImage        string
 	kubeletCapas        []corev1.Capability
+	nodeAffinity        *corev1.NodeAffinity
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
@@ -251,6 +253,14 @@ func New(
 		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
+	var nodeAffinity *corev1.NodeAffinity
+	if v := params["node_affinity"]; v != "" {
+		nodeAffinity = &corev1.NodeAffinity{}
+		if err := yaml.UnmarshalStrict([]byte(v), nodeAffinity); err != nil {
+			return nil, fmt.Errorf("bad node_affinity: %w", err)
+		}
+	}
+
 	ignoreResources, err := parseIgnoreResources(params["ignore_resources"])
 	if err != nil {
 		return nil, err
@@ -311,6 +321,7 @@ func New(
 		volumeSnapshotClass:  snapClass,
 		kubeletImage:         kubeletImage,
 		kubeletCapas:         capas,
+		nodeAffinity:         nodeAffinity,
 
 		remapped: make(map[remapKey]string),
 	}, nil
