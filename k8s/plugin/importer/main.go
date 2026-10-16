@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	k8s "github.com/PlakarKorp/integrations/k8s"
 )
 
 func main() {
-	sdk.EntrypointImporter(os.Args, k8s.NewImporter)
+	server.EntrypointImporter(context.Background(), os.Args, k8s.NewImporter)
 }
