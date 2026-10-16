@@ -156,6 +156,12 @@ func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer recoverErr(&err)
+	// OpenFile does not truncate: a shorter file would keep the old tail.
+	if _, _, lerr := c.target.Lookup(p); lerr == nil {
+		if err := c.target.Remove(p); err != nil {
+			return err
+		}
+	}
 	f, err := c.target.OpenFile(p, perm)
 	if err != nil {
 		return err
