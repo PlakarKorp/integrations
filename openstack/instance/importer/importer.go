@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -118,6 +120,17 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}
 
 	for _, av := range server.AttachedVolumes {
+		vol, err := imp.client.GetVolume(ctx, av.ID)
+		if err != nil {
+			return err
+		}
+		if host, err := cinder.Preflight(ctx, imp.client, vol); err == nil {
+			// The host is a Nova server of this cloud, so the volume could be
+			// attached to it and read from a local block device. That path is
+			// not written yet: note it and take the Glance one.
+			log.Printf("openstack-instance: volume %q could be attached to server %q; reading it through Glance", av.ID, host.ID)
+		}
+
 		cleanup := imp.addCleanup()
 		snap, err := imp.client.SnapshotVolume(ctx, av.ID, cleanup)
 		if err != nil {

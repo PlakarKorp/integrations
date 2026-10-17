@@ -17,11 +17,15 @@
 package importer
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -41,8 +45,14 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
+// newImporter also points the attach preflight at cloud's metadata service,
+// so the host the tests run on never passes for a Nova server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
+	saved := cinder.MetadataURL
+	cinder.MetadataURL = cloud.MetadataURL
+	t.Cleanup(func() { cinder.MetadataURL = saved })
+
 	imp, err := NewImporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
 	require.NoError(t, err)
 	return imp
@@ -63,7 +73,7 @@ func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record
 // attached volume, no interfaces), its flavor, and its snapshot image.
 func fakeServer(cloud *keystonetest.Cloud) {
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `{"server":{"id":"server-1","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},`+
+		writeJSON(w, `{"server":{"id":"server-1","status":"ACTIVE","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},`+
 			`"os-extended-volumes:volumes_attached":[{"id":"vol-1"}]}}`)
 	})
 	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +138,35 @@ func TestImportBacksUpServer(t *testing.T) {
 	assert.Empty(t, cloud.Leftovers(), "closing every disk deletes the temporary resources")
 
 	require.NoError(t, imp.Close(t.Context()))
+}
+
+// On a Nova server of the backed-up cloud, the backup notes each attached
+// volume could be attached to it, and still goes through Glance.
+func TestImportNotesAttachableHost(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	fakeServer(cloud) // also answers for the host, as any ACTIVE server
+	cloud.HostID = "host-1"
+	imp := newImporter(t, cloud)
+
+	records, err := importAll(t.Context(), imp)
+	require.NoError(t, err)
+	require.Len(t, records, 8)
+	assert.Contains(t, logs.String(), `volume "vol-1" could be attached to server "server-1"`)
+
+	for _, r := range records {
+		if r.FileInfo.IsDir() {
+			continue
+		}
+		_, err := io.ReadAll(r.Reader)
+		require.NoError(t, err, r.Pathname)
+		require.NoError(t, r.Close())
+	}
+	require.NoError(t, imp.Close(t.Context()))
+	assert.Empty(t, cloud.Leftovers())
 }
 
 func TestImportRefusesBootFromVolume(t *testing.T) {
