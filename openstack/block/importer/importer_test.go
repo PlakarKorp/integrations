@@ -24,12 +24,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -48,8 +50,14 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
+// newImporter also points the attach preflight at cloud's metadata service,
+// so the host the tests run on never passes for a Nova server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
+	saved := cinder.MetadataURL
+	cinder.MetadataURL = cloud.MetadataURL
+	t.Cleanup(func() { cinder.MetadataURL = saved })
+
 	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
 	require.NoError(t, err)
 	return imp
@@ -102,8 +110,8 @@ func TestImportBacksUpEncryptionKeyID(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	cloud.Encrypt("vol-1")
 	cloud.EncryptionKeyID = "key-1"
-	imp := newImporter(t, cloud)
 
+	imp := newImporter(t, cloud)
 	records, err := importAll(t.Context(), imp)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
@@ -117,6 +125,36 @@ func TestImportBacksUpEncryptionKeyID(t *testing.T) {
 
 	require.NoError(t, records[0].Close())
 	require.NoError(t, imp.Close(t.Context()))
+
+}
+
+// On a Nova server of the backed-up cloud, the backup notes the volume could
+// be attached, and still goes through Glance.
+func TestImportNotesAttachableHost(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.HostID = "host-1"
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"server":{"id":"host-1","status":"ACTIVE"}}`))
+	})
+	imp := newImporter(t, cloud)
+
+	records, err := importAll(t.Context(), imp)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	assert.Contains(t, logs.String(), `volume "vol-1" could be attached to server "host-1"`)
+
+	disk, err := io.ReadAll(records[0].Reader)
+	require.NoError(t, err)
+	assert.Equal(t, cloud.Disk, disk)
+	require.NoError(t, records[0].Close())
+	require.NoError(t, imp.Close(t.Context()))
+	assert.Empty(t, cloud.Leftovers())
 }
 
 // A backup creates a snapshot, a temporary volume and an image. Each case makes
