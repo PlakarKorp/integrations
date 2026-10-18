@@ -25,6 +25,24 @@ import (
 
 const protocolVersion = 27
 
+// Options the server runs with, as rsync command-line flags:
+//
+//	-l  send symlinks as symlinks, with their target
+//	-o  send each file's uid, and the user names after the list
+//	-g  send each file's gid, and the group names after the list
+//	-t  send each file's modification time
+//	-p  send each file's permissions
+//	-r  recurse into directories
+//	-d  send a directory itself without recursing; without -r or -d, the
+//	    server skips directories
+//
+// -l, -o, -g, -t and -p set the file list layout receiveFileList decodes.
+const (
+	listOpts = "-logtpr"
+	pingOpts = "-logtpd"
+	openOpts = "-logtp"
+)
+
 // Each List or Open uses its own connection: the daemon serves a single
 // transfer per connection.
 type Client struct {
@@ -50,11 +68,11 @@ func NewClient(addr, module, user, password string, maxConns int) *Client {
 // relative to it. List also returns the errors the server reported for paths
 // it could not list.
 func (c *Client) List(ctx context.Context, name string) ([]File, []string, error) {
-	return c.list(ctx, name, "-logtpr")
+	return c.list(ctx, name, listOpts)
 }
 
 func (c *Client) Ping(ctx context.Context, name string) error {
-	_, _, err := c.list(ctx, name, "-logtpd")
+	_, _, err := c.list(ctx, name, pingOpts)
 	return err
 }
 
@@ -96,7 +114,7 @@ func (c *Client) list(ctx context.Context, name, opts string) (files []File, err
 // The reader returned by Open fails if the content does not match the
 // checksum sent by the server.
 func (c *Client) Open(ctx context.Context, name string) (_ io.ReadCloser, err error) {
-	s, files, err := c.start(ctx, "-logtp", name)
+	s, files, err := c.start(ctx, openOpts, name)
 	if err != nil {
 		return nil, err
 	}
