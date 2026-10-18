@@ -4,24 +4,42 @@ import (
 	"context"
 	"io"
 	"io/fs"
-	"os"
 	"testing"
 
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// TestInterop runs against a real rsync daemon, see testdata/Dockerfile:
-//
-//	docker build -t plakar-rsyncd-test internal/rsync/testdata
-//	docker run -d -p 18873:873 plakar-rsyncd-test
-//	RSYNC_TEST_ADDR=127.0.0.1:18873 go test ./internal/rsync -run Interop
+// startRsyncd starts a real rsync daemon built from testdata/Dockerfile and
+// returns its address.
+func startRsyncd(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			FromDockerfile: testcontainers.FromDockerfile{
+				Context:   "testdata",
+				KeepImage: true,
+			},
+			ExposedPorts: []string{"873/tcp"},
+			WaitingFor:   wait.ForListeningPort("873/tcp"),
+		},
+		Started: true,
+	})
+	testcontainers.CleanupContainer(t, container)
+	require.NoError(t, err)
+
+	addr, err := container.PortEndpoint(ctx, "873/tcp", "")
+	require.NoError(t, err)
+	return addr
+}
+
 func TestInterop(t *testing.T) {
-	addr := os.Getenv("RSYNC_TEST_ADDR")
-	if addr == "" {
-		t.Skip("RSYNC_TEST_ADDR not set")
-	}
 	ctx := context.Background()
+	addr := startRsyncd(ctx, t)
 
 	for _, tc := range []struct{ module, user, password, owner, root string }{
 		{"pub", "", "", "alice", "root"},

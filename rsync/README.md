@@ -57,11 +57,6 @@ $ plakar at @mystore backup @myrsync
 
 ## Tests
 
-`go test ./...` runs against an in-process daemon. To test against a real
-rsync daemon, including module authentication:
-
-```bash
-docker build -t plakar-rsyncd-test internal/rsync/testdata
-docker run -d -p 18873:873 plakar-rsyncd-test
-RSYNC_TEST_ADDR=127.0.0.1:18873 go test ./internal/rsync -run Interop
-```
+`go test ./...` runs against an in-process daemon, and against a real rsync
+daemon started with Docker from `internal/rsync/testdata/Dockerfile`. The
+latter is skipped when Docker is not available.
