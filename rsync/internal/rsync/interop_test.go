@@ -23,9 +23,9 @@ func TestInterop(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	for _, tc := range []struct{ module, user, password, owner string }{
-		{"pub", "", "", "alice"},
-		{"priv", "bob", "secret", "1234"},
+	for _, tc := range []struct{ module, user, password, owner, root string }{
+		{"pub", "", "", "alice", "root"},
+		{"priv", "bob", "secret", "1234", "0"},
 	} {
 		t.Run(tc.module, func(t *testing.T) {
 			c := rsync.NewClient(addr, tc.module, tc.user, tc.password, 2)
@@ -37,6 +37,8 @@ func TestInterop(t *testing.T) {
 				got[f.Name] = f
 			}
 			require.Equal(t, tc.owner, got["hello.txt"].User)
+			require.Equal(t, tc.root, got["dir/big.bin"].User)
+			require.Equal(t, tc.root, got["dir/big.bin"].Group)
 			require.Equal(t, "../big.bin", got["dir/sub/symlink"].LinkTarget)
 			require.Equal(t, int64(3_000_000), got["dir/big.bin"].Size)
 

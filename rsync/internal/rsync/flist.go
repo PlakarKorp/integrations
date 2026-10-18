@@ -102,9 +102,12 @@ func receiveFileList(c *wire) ([]File, error) {
 		return nil, err
 	}
 
+	// Names are sent for every id but 0, which both sides take as root. No
+	// names at all means the daemon uses numeric ids.
+	named := len(users) > 0 || len(groups) > 0
 	for i := range files {
-		files[i].User = idName(users, files[i].UID)
-		files[i].Group = idName(groups, files[i].GID)
+		files[i].User = idName(users, files[i].UID, named)
+		files[i].Group = idName(groups, files[i].GID, named)
 	}
 	return files, nil
 }
@@ -209,9 +212,12 @@ func receiveIDList(c *wire) (map[int32]string, error) {
 	}
 }
 
-func idName(names map[int32]string, id uint32) string {
+func idName(names map[int32]string, id uint32, named bool) string {
 	if name, ok := names[int32(id)]; ok {
 		return name
+	}
+	if id == 0 && named {
+		return "root"
 	}
 	return strconv.FormatUint(uint64(id), 10)
 }

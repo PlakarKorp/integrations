@@ -149,16 +149,9 @@ func TestNewlineInPath(t *testing.T) {
 	require.ErrorContains(t, err, "newline")
 }
 
-// fakeServer serves a single connection, sending a file list with one regular
-// file named name of 3 bytes. If reply is not nil, it then reads a file request
-// and sends reply as data before closing. It lets tests send what a real
-// server would not.
-func fakeServer(t *testing.T, name string, reply []byte) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-
+// fileList encodes a file list with one regular file named name of 3 bytes,
+// owned by root, and the user names users.
+func fileList(name string, users map[uint32]string) []byte {
 	le := binary.LittleEndian
 	var flist []byte
 	flist = append(flist, 1<<6) // XMIT_LONG_NAME
@@ -167,10 +160,28 @@ func fakeServer(t *testing.T, name string, reply []byte) string {
 	for _, v := range []uint32{3, 1700000000, 0o100644, 0, 0} { // size, mtime, mode, uid, gid
 		flist = le.AppendUint32(flist, v)
 	}
-	flist = append(flist, 0)          // end of list
-	flist = le.AppendUint32(flist, 0) // users
+	flist = append(flist, 0) // end of list
+	for id, name := range users {
+		flist = le.AppendUint32(flist, id)
+		flist = append(flist, byte(len(name)))
+		flist = append(flist, name...)
+	}
+	flist = le.AppendUint32(flist, 0) // end of users
 	flist = le.AppendUint32(flist, 0) // groups
 	flist = le.AppendUint32(flist, 0) // I/O errors
+	return flist
+}
+
+// fakeServer serves a single connection, sending flist then reply as data,
+// whatever the client requests. It lets tests send what a real server would
+// not.
+func fakeServer(t *testing.T, flist, reply []byte) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	le := binary.LittleEndian
 
 	go func() {
 		conn, err := ln.Accept()
@@ -192,9 +203,12 @@ func fakeServer(t *testing.T, name string, reply []byte) string {
 		_, _ = io.ReadFull(rd, make([]byte, 4))    // exclusion list
 		_, _ = conn.Write(dataFrame(flist))
 		if reply != nil {
-			_, _ = io.ReadFull(rd, make([]byte, 7*4)) // index, checksum header, done
 			_, _ = conn.Write(dataFrame(reply))
 		}
+		// Closing with unread data would reset the connection.
+		_ = conn.(*net.TCPConn).CloseWrite()
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, _ = io.Copy(io.Discard, rd)
 	}()
 	return ln.Addr().String()
 }
@@ -226,7 +240,7 @@ func TestOpenTruncated(t *testing.T) {
 		"within the checksum": append(data, sum[:8]...),
 		"after the checksum":  append(data, sum...),
 	} {
-		c := rsync.NewClient(fakeServer(t, "f", reply), "mod", "", "", 1)
+		c := rsync.NewClient(fakeServer(t, fileList("f", nil), reply), "mod", "", "", 1)
 		rd, err := c.Open(context.Background(), "f")
 		require.NoError(t, err, name)
 		_, err = io.ReadAll(rd)
@@ -235,9 +249,19 @@ func TestOpenTruncated(t *testing.T) {
 	}
 }
 
+// The server never sends a name for root, only for the other owners.
+func TestListNamesRoot(t *testing.T) {
+	end := int32s(0xffffffff, 0xffffffff, 0, 0, 0) // end of both phases, statistics
+	c := rsync.NewClient(fakeServer(t, fileList("f", map[uint32]string{1000: "alice"}), end), "mod", "", "", 1)
+	files, _, err := c.List(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, "root", files[0].User)
+	require.Equal(t, "root", files[0].Group)
+}
+
 func TestListRejectsNamesOutside(t *testing.T) {
 	for _, name := range []string{"../escape", "a/../../escape", "/etc/passwd", ".."} {
-		c := rsync.NewClient(fakeServer(t, name, nil), "mod", "", "", 1)
+		c := rsync.NewClient(fakeServer(t, fileList(name, nil), nil), "mod", "", "", 1)
 		_, _, err := c.List(context.Background(), "")
 		require.ErrorContains(t, err, "outside the requested directory", name)
 	}
