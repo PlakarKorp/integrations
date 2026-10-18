@@ -316,17 +316,24 @@ func (r *fileReader) Read(p []byte) (int, error) {
 		if r.err != nil {
 			return 0, r.err
 		}
-		if r.err = r.next(); r.err != nil && r.err != io.EOF {
-			r.err = r.s.wrap(r.err)
-		}
+		r.err = r.next()
 	}
 	n, err := r.s.r.Read(p[:min(len(p), r.left)])
 	r.sum.Write(p[:n])
 	r.left -= n
 	if err != nil {
-		r.err = r.s.wrap(err)
+		r.err = r.fail(err)
 	}
 	return n, r.err
+}
+
+// fail reports an io.EOF as unexpected: only next returns io.EOF, once the
+// checksum matched.
+func (r *fileReader) fail(err error) error {
+	if err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	}
+	return r.s.wrap(err)
 }
 
 // next reads one token header (rsync/token.c:simple_recv_token): a positive
@@ -334,10 +341,10 @@ func (r *fileReader) Read(p []byte) (int, error) {
 func (r *fileReader) next() error {
 	token, err := r.s.readInt32()
 	if err != nil {
-		return err
+		return r.fail(err)
 	}
 	if token < 0 {
-		return fmt.Errorf("%s: protocol error: unexpected block reference", r.name)
+		return r.fail(fmt.Errorf("%s: protocol error: unexpected block reference", r.name))
 	}
 	if token > 0 {
 		r.left = int(token)
@@ -346,13 +353,13 @@ func (r *fileReader) next() error {
 
 	var remote [md4.Size]byte
 	if _, err := io.ReadFull(r.s.r, remote[:]); err != nil {
-		return err
+		return r.fail(err)
 	}
 	if !bytes.Equal(remote[:], r.sum.Sum(nil)) {
-		return fmt.Errorf("%s: checksum mismatch", r.name)
+		return r.fail(fmt.Errorf("%s: checksum mismatch", r.name))
 	}
 	if err := r.s.finish(); err != nil {
-		return err
+		return r.fail(err)
 	}
 	return io.EOF
 }

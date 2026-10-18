@@ -18,6 +18,7 @@ import (
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
 	"github.com/gokrazy/rsync/rsyncd"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/md4" //nolint:staticcheck // the protocol mandates MD4
 )
 
 func startServer(t *testing.T, fsys fs.FS) string {
@@ -149,8 +150,10 @@ func TestNewlineInPath(t *testing.T) {
 }
 
 // fakeServer serves a single connection, sending a file list with one regular
-// file named name. It lets tests send what a real server would not.
-func fakeServer(t *testing.T, name string) string {
+// file named name of 3 bytes. If reply is not nil, it then reads a file request
+// and sends reply as data before closing. It lets tests send what a real
+// server would not.
+func fakeServer(t *testing.T, name string, reply []byte) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -168,7 +171,6 @@ func fakeServer(t *testing.T, name string) string {
 	flist = le.AppendUint32(flist, 0) // users
 	flist = le.AppendUint32(flist, 0) // groups
 	flist = le.AppendUint32(flist, 0) // I/O errors
-	frame := le.AppendUint32(nil, 7<<24|uint32(len(flist)))
 
 	go func() {
 		conn, err := ln.Accept()
@@ -188,14 +190,54 @@ func fakeServer(t *testing.T, name string) string {
 		}
 		_, _ = conn.Write(le.AppendUint32(nil, 0)) // seed
 		_, _ = io.ReadFull(rd, make([]byte, 4))    // exclusion list
-		_, _ = conn.Write(append(frame, flist...))
+		_, _ = conn.Write(dataFrame(flist))
+		if reply != nil {
+			_, _ = io.ReadFull(rd, make([]byte, 7*4)) // index, checksum header, done
+			_, _ = conn.Write(dataFrame(reply))
+		}
 	}()
 	return ln.Addr().String()
 }
 
+func dataFrame(data []byte) []byte {
+	return append(binary.LittleEndian.AppendUint32(nil, 7<<24|uint32(len(data))), data...)
+}
+
+func int32s(vs ...uint32) []byte {
+	var b []byte
+	for _, v := range vs {
+		b = binary.LittleEndian.AppendUint32(b, v)
+	}
+	return b
+}
+
+func TestOpenTruncated(t *testing.T) {
+	header := int32s(0, 0, 0, 0, 0) // index, checksum header
+	data := append(append(header, int32s(3)...), "abc"...)
+	h := md4.New()
+	h.Write(int32s(0)) // seed
+	h.Write([]byte("abc"))
+	sum := append(int32s(0), h.Sum(nil)...)
+
+	for name, reply := range map[string][]byte{
+		"before data":         header,
+		"between tokens":      append(append(header, int32s(2)...), "ab"...),
+		"within a token":      append(append(header, int32s(3)...), "ab"...),
+		"within the checksum": append(data, sum[:8]...),
+		"after the checksum":  append(data, sum...),
+	} {
+		c := rsync.NewClient(fakeServer(t, "f", reply), "mod", "", "", 1)
+		rd, err := c.Open(context.Background(), "f")
+		require.NoError(t, err, name)
+		_, err = io.ReadAll(rd)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF, name)
+		require.NoError(t, rd.Close())
+	}
+}
+
 func TestListRejectsNamesOutside(t *testing.T) {
 	for _, name := range []string{"../escape", "a/../../escape", "/etc/passwd", ".."} {
-		c := rsync.NewClient(fakeServer(t, name), "mod", "", "", 1)
+		c := rsync.NewClient(fakeServer(t, name, nil), "mod", "", "", 1)
 		_, _, err := c.List(context.Background(), "")
 		require.ErrorContains(t, err, "outside the requested directory", name)
 	}
