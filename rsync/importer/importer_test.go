@@ -106,6 +106,7 @@ func TestNewImporter(t *testing.T) {
 		{"location": "rsync://host/"},
 		{"location": "rsync://user@host/mod", "username": "other"},
 		{"location": "rsync://user:pass@host/mod", "password": "other"},
+		{"location": "rsync://host:8873/mod", "port": "8873"},
 		{"location": "rsync://host/mod", "module": "other"},
 		{"location": "rsync://host", "module": ""},
 		{"location": "rsync://host", "module": "a/b"},

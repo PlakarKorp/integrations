@@ -18,7 +18,8 @@ The rsync protocol client is a trimmed adaptation of
 - `module` (optional): the module to back up, if not given in `location`
 - `root` (optional): the directory to back up, appended to the location's
   path. `root=a/b` with `rsync://host/mod` backs up `mod/a/b`.
-- `port` (optional): the daemon port, 873 by default
+- `port` (optional): the daemon port, if not given in `location`, 873 by
+  default
 - `username` (optional): the module user, if not given in `location`
 - `password` (optional): the module password, if not given in `location`
 - `max_connections` (optional): the maximum number of concurrent connections

@@ -68,8 +68,11 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	dir = strings.Trim(path.Join("/", dir, config["root"]), "/")
 
 	port := parsed.Port()
-	if port == "" {
-		port = config["port"]
+	if p, ok := config["port"]; ok {
+		if port != "" {
+			return nil, errors.New("port given both in location and as a parameter")
+		}
+		port = p
 	}
 	if port == "" {
 		port = defaultPort
