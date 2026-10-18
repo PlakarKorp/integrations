@@ -30,8 +30,7 @@ const (
 	modeSocket      = 0o140000
 )
 
-// File is one entry of a file list. Name is relative to the requested
-// directory, "." being the directory itself.
+// Name is relative to the requested path, "." being the path itself.
 type File struct {
 	Name       string
 	Size       int64

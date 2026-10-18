@@ -25,8 +25,8 @@ import (
 
 const protocolVersion = 27
 
-// Client talks to one module of an rsync daemon. Each List or Open uses its
-// own connection: the daemon serves a single transfer per connection.
+// Each List or Open uses its own connection: the daemon serves a single
+// transfer per connection.
 type Client struct {
 	addr     string
 	module   string
@@ -35,7 +35,6 @@ type Client struct {
 	slots    chan struct{}
 }
 
-// NewClient returns a client opening at most maxConns concurrent connections.
 func NewClient(addr, module, user, password string, maxConns int) *Client {
 	return &Client{
 		addr:     addr,
@@ -54,7 +53,6 @@ func (c *Client) List(ctx context.Context, name string) ([]File, []string, error
 	return c.list(ctx, name, "-logtpr")
 }
 
-// Ping checks that name exists, without recursing into it.
 func (c *Client) Ping(ctx context.Context, name string) error {
 	_, _, err := c.list(ctx, name, "-logtpd")
 	return err
@@ -95,8 +93,7 @@ func (c *Client) list(ctx context.Context, name, opts string) (files []File, err
 	return files, s.mux.errors, nil
 }
 
-// Open streams the content of the regular file name, a path relative to the
-// module root. The returned reader fails if the content does not match the
+// The reader returned by Open fails if the content does not match the
 // checksum sent by the server.
 func (c *Client) Open(ctx context.Context, name string) (_ io.ReadCloser, err error) {
 	s, files, err := c.start(ctx, "-logtp", name)

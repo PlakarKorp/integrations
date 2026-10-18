@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countingListener counts the connections made to the server.
 type countingListener struct {
 	net.Listener
 	conns atomic.Int64

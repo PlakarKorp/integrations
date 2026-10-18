@@ -27,7 +27,7 @@ const (
 // a failure on one path does not abort the transfer.
 type muxReader struct {
 	r       io.Reader
-	buf     []byte // reused across frames
+	buf     []byte
 	pending []byte
 	errors  []string
 }
