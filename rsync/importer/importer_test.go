@@ -89,6 +89,10 @@ func TestNewImporter(t *testing.T) {
 		{location: "rsync://host/mod/a", config: map[string]string{"root": "/b/"}, root: "/mod/a/b", origin: "host"},
 		{location: "rsync://host", config: map[string]string{"module": "mod", "root": "a/b"}, root: "/mod/a/b", origin: "host"},
 		{location: "rsync://host/mod/a", config: map[string]string{"root": "../../.."}, root: "/mod", origin: "host"},
+		// plakman sets the port both in the location and as a parameter.
+		{location: "rsync://host:8873/mod", config: map[string]string{"port": "8873"}, root: "/mod", origin: "host"},
+		{location: "rsync://user:pass@host/mod", config: map[string]string{"username": "user", "password": "pass"}, root: "/mod", origin: "host"},
+		{location: "rsync://host/mod", config: map[string]string{"module": "mod"}, root: "/mod", origin: "host"},
 	} {
 		config := map[string]string{"location": tc.location}
 		for k, v := range tc.config {
@@ -105,7 +109,7 @@ func TestNewImporter(t *testing.T) {
 		{"location": "rsync://host/"},
 		{"location": "rsync://user@host/mod", "username": "other"},
 		{"location": "rsync://user:pass@host/mod", "password": "other"},
-		{"location": "rsync://host:8873/mod", "port": "8873"},
+		{"location": "rsync://host:8873/mod", "port": "873"},
 		{"location": "rsync://host/mod", "module": "other"},
 		{"location": "rsync://host", "module": ""},
 		{"location": "rsync://host", "module": "a/b"},

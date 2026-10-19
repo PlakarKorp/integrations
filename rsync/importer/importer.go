@@ -41,6 +41,7 @@ type Importer struct {
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	parsed, err := url.Parse(config["location"])
+
 	if err != nil {
 		// err quotes the whole location, password included if any. Keep
 		// only uerr.Err so the password does not leak.
@@ -51,14 +52,11 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		return nil, fmt.Errorf("invalid location: %w", err)
 	}
 	module, dir, _ := strings.Cut(strings.TrimPrefix(parsed.Path, "/"), "/")
-	if m, ok := config["module"]; ok {
-		if module != "" {
-			return nil, errors.New("module given both in location and as a parameter")
-		}
-		if strings.Contains(m, "/") {
-			return nil, fmt.Errorf("invalid module %q", m)
-		}
-		module = m
+	if strings.Contains(config["module"], "/") {
+		return nil, fmt.Errorf("invalid module %q", config["module"])
+	}
+	if module, err = merge("module", module, config["module"]); err != nil {
+		return nil, err
 	}
 	if module == "" {
 		return nil, fmt.Errorf("missing module in location %q", parsed.Redacted())
@@ -67,29 +65,22 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	// ".." from leaving the module.
 	dir = strings.Trim(path.Join("/", dir, config["root"]), "/")
 
-	port := parsed.Port()
-	if p, ok := config["port"]; ok {
-		if port != "" {
-			return nil, errors.New("port given both in location and as a parameter")
-		}
-		port = p
+	port, err := merge("port", parsed.Port(), config["port"])
+	if err != nil {
+		return nil, err
 	}
 	if port == "" {
 		port = defaultPort
 	}
 
-	username, password := config["username"], config["password"]
-	if parsed.User != nil {
-		if username != "" {
-			return nil, errors.New("username given both in location and as a parameter")
-		}
-		username = parsed.User.Username()
-		if p, ok := parsed.User.Password(); ok {
-			if password != "" {
-				return nil, errors.New("password given both in location and as a parameter")
-			}
-			password = p
-		}
+	username, err := merge("username", parsed.User.Username(), config["username"])
+	if err != nil {
+		return nil, err
+	}
+	locationPassword, _ := parsed.User.Password()
+	password, err := merge("password", locationPassword, config["password"])
+	if err != nil {
+		return nil, err
 	}
 
 	maxConns := defaultMaxConnections
@@ -110,6 +101,16 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 		dir:    dir,
 		root:   path.Join("/", module, dir),
 	}, nil
+}
+
+func merge(name, inLocation, param string) (string, error) {
+	if inLocation != "" && param != "" && inLocation != param {
+		return "", fmt.Errorf("%s given both in location and as a parameter, with different values", name)
+	}
+	if inLocation != "" {
+		return inLocation, nil
+	}
+	return param, nil
 }
 
 func (imp *Importer) Origin() string        { return imp.host }
