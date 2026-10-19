@@ -110,8 +110,9 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 	if err := imp.emitDisk(ctx, records, instance.RootDir(image.ID), &common.DiskMetadata{
-		Origin: common.DiskOriginGlance,
-		Image:  image,
+		Origin:          common.DiskOriginGlance,
+		Image:           image,
+		ImageProperties: common.EncryptionImageProperties(image),
 	}, image.ID, rootCleanup); err != nil {
 		return err
 	}
@@ -123,10 +124,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			return err
 		}
 		if err := imp.emitDisk(ctx, records, instance.VolumeDir(av.ID), &common.DiskMetadata{
-			Origin:   common.DiskOriginCinder,
-			Image:    vi.Image,
-			Volume:   vi.Volume,
-			Snapshot: vi.Snapshot,
+			Origin:          common.DiskOriginCinder,
+			Image:           vi.Image,
+			ImageProperties: common.EncryptionImageProperties(vi.Image),
+			Volume:          vi.Volume,
+			Snapshot:        vi.Snapshot,
 		}, vi.Image.ID, cleanup); err != nil {
 			return err
 		}

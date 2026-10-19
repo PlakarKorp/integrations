@@ -217,16 +217,24 @@ plakar backup @myvm
 
 ## VM restore
 
-The `openstack-instance` exporter restores a VM backup into a new Nova
-server: a new root disk, and a new Cinder volume recreated and reattached
-for each volume the backup holds. The original server is never touched.
+The `openstack-instance` exporter restores a VM backup one of two ways,
+depending on `location`:
 
-The server's flavor and networks are resolved by ID first, falling back to
-name if the ID no longer exists on the target cloud (a different project or
-region than the one backed up); restore fails if neither resolves. Security
-groups are attached by name, as saved, with no resolution. Each volume is
-reattached to its original device (e.g. `/dev/vdb`) when the backup recorded
-one, or left for Nova to pick otherwise.
+- Bare or `spawn`: a new Nova server, with a new root disk and a new Cinder
+  volume recreated and reattached for each volume the backup holds. The
+  original server is never touched.
+- An existing server ID: every backed-up disk, root included, is restored as
+  a new Cinder volume and attached to that server. No server is created;
+  flavor, network and security-group resolution are skipped entirely. The
+  root disk never had a real Cinder volume behind it, so its volume is sized
+  from the backed-up flavor's declared disk size.
+
+In spawn mode, the server's flavor and networks are resolved by ID first,
+falling back to name if the ID no longer exists on the target cloud (a
+different project or region than the one backed up); restore fails if
+neither resolves. Security groups are attached by name, as saved, with no
+resolution. Each volume is reattached to its original device (e.g.
+`/dev/vdb`) when the backup recorded one, or left for Nova to pick otherwise.
 
 Each disk's restore image goes through the same temporary Glance upload as
 the volume restore, and is deleted once the server or the volume is created
@@ -238,12 +246,15 @@ The authentication keys of the inventory, plus:
 
 | Key | Description |
 |-----|-------------|
-| `location` | `openstack-instance://` |
+| `location` | `openstack-instance://` or `openstack-instance://spawn` to restore into a new server, or `openstack-instance://<server-id>` to attach every restored disk to that existing server. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
 
-The credential needs Nova server create and volume-attach rights, Glance
-image create, upload and delete rights, Neutron network read rights, and the
-Cinder rights the volume restore needs, on the target project.
+Spawn mode needs Nova server create and volume-attach rights, Glance image
+create, upload and delete rights, Neutron network read rights, and the Cinder
+rights the volume restore needs, on the target project. Existing-server mode
+needs fewer: no Nova server-create, flavor-read, or network-read rights —
+only Nova volume-attach, Glance image create, upload and delete, and Cinder
+volume create and delete.
 
 ### Usage
 

@@ -11,9 +11,9 @@
   "properties": {
     "location": {
       "type": "string",
-      "pattern": "^openstack-instance://$",
-      "$comment": "^ start, openstack-instance:// literal, $ end: the server is created new, so the location names nothing",
-      "description": "openstack-instance://, restoring into a new server"
+      "pattern": "^openstack-instance://(spawn|[0-9A-Za-z_-]+)?$",
+      "$comment": "^ start, openstack-instance:// literal, then nothing/\"spawn\" (new server) or a server ID (attach every disk to that existing server), $ end",
+      "description": "openstack-instance:// or openstack-instance://spawn to spawn a new server, or openstack-instance://<server-id> to attach every restored disk to that existing server"
     },
     "openstack_auth_url": {
       "type": "string",

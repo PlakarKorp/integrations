@@ -23,12 +23,16 @@ import (
 )
 
 // DiskMetadata is the .METADATA.json next to a disk. Image.DiskFormat is the
-// disk's real format, whatever its file is named.
+// disk's real format, whatever its file is named. ImageProperties holds the
+// image's restorable properties separately: gophercloud's images.Image
+// decodes Properties from the wire but never encodes it back, so a round
+// trip through JSON silently drops it from Image itself.
 type DiskMetadata struct {
-	Origin   DiskOrigin          `json:"origin"`
-	Image    *images.Image       `json:"image,omitempty"`
-	Volume   *volumes.Volume     `json:"volume,omitempty"`
-	Snapshot *snapshots.Snapshot `json:"snapshot,omitempty"`
+	Origin          DiskOrigin          `json:"origin"`
+	Image           *images.Image       `json:"image,omitempty"`
+	ImageProperties map[string]string   `json:"image_properties,omitempty"`
+	Volume          *volumes.Volume     `json:"volume,omitempty"`
+	Snapshot        *snapshots.Snapshot `json:"snapshot,omitempty"`
 }
 
 type DiskOrigin string
@@ -37,3 +41,39 @@ const (
 	DiskOriginCinder DiskOrigin = "cinder"
 	DiskOriginGlance DiskOrigin = "glance"
 )
+
+// encryptionImageProperties are the Glance properties Cinder reads to find
+// the Barbican key an encrypted volume's data is under. A restore image
+// needs them, or Cinder treats the already-encrypted bytes as plain data and
+// wraps them in a new key instead of reusing the one they are locked with.
+var encryptionImageProperties = []string{"cinder_encryption_key_id", "cinder_encryption_key_deletion_policy"}
+
+// EncryptionImageProperties extracts the properties of img a restore must
+// carry over, for DiskMetadata.ImageProperties, or nil if img is nil or has
+// none of them set.
+func EncryptionImageProperties(img *images.Image) map[string]string {
+	if img == nil {
+		return nil
+	}
+	var props map[string]string
+	for _, key := range encryptionImageProperties {
+		v, ok := img.Properties[key].(string)
+		if !ok || v == "" {
+			continue
+		}
+		if props == nil {
+			props = make(map[string]string, len(encryptionImageProperties))
+		}
+		props[key] = v
+	}
+	return props
+}
+
+// RestoreImageProperties returns the image properties a restore must set on
+// its own upload image, or nil if metadata is unset.
+func RestoreImageProperties(metadata *DiskMetadata) map[string]string {
+	if metadata == nil {
+		return nil
+	}
+	return metadata.ImageProperties
+}

@@ -97,6 +97,28 @@ func TestImportBacksUpVolume(t *testing.T) {
 	require.NoError(t, imp.Close(t.Context()))
 }
 
+// Without the key id in metadata, a restore cannot tell Cinder the data is already locked under it.
+func TestImportBacksUpEncryptionKeyID(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.Encrypt("vol-1")
+	cloud.EncryptionKeyID = "key-1"
+	imp := newImporter(t, cloud)
+
+	records, err := importAll(t.Context(), imp)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	var metadata common.DiskMetadata
+	require.NoError(t, json.NewDecoder(records[1].Reader).Decode(&metadata))
+	assert.Equal(t, map[string]string{
+		"cinder_encryption_key_id":              "key-1",
+		"cinder_encryption_key_deletion_policy": "on_image_deletion",
+	}, metadata.ImageProperties)
+
+	require.NoError(t, records[0].Close())
+	require.NoError(t, imp.Close(t.Context()))
+}
+
 // A backup creates a snapshot, a temporary volume and an image. Each case makes
 // the backup go wrong so that some of them are still on the cloud afterwards;
 // Close must delete them, and log those it cannot.

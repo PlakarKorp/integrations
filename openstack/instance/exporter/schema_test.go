@@ -38,6 +38,7 @@ func TestExporterSchemaAccepts(t *testing.T) {
 		drop []string
 	}{
 		{name: "new server"},
+		{name: "existing server", edit: map[string]string{"location": "openstack-instance://server-1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -62,7 +63,7 @@ func TestExporterSchemaRejects(t *testing.T) {
 		drop []string
 	}{
 		{name: "no location", drop: []string{"location"}},
-		{name: "location naming a server", edit: map[string]string{"location": "openstack-instance://server-1"}},
+		{name: "location with a bad character", edit: map[string]string{"location": "openstack-instance://bad!id"}},
 		{name: "no region", drop: []string{"openstack_region"}},
 		{name: "blank region", edit: map[string]string{"openstack_region": " "}},
 		{name: "two regions", edit: map[string]string{"openstack_region": "RegionOne,RegionTwo"}},

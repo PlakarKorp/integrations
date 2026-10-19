@@ -145,7 +145,7 @@ func TestCreateVolumeFromImageSize(t *testing.T) {
 			cloud.ImageSize = tt.imageSize
 			client := connectCloud(t, cloud)
 
-			img, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("data")), "qcow2")
+			img, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("data")), "qcow2", nil)
 			require.NoError(t, err)
 
 			_, err = client.CreateVolumeFromImage(t.Context(), img.ID, &volumes.Volume{ID: "src-1", Size: tt.srcSize})
@@ -154,6 +154,30 @@ func TestCreateVolumeFromImageSize(t *testing.T) {
 			reqs := cloud.VolumeRequests()
 			require.Len(t, reqs, 1)
 			assert.Equal(t, tt.want, reqs[0].Size)
+		})
+	}
+}
+
+// Properties pass through to the image unchanged, including nil.
+func TestUploadTempImageSetsProperties(t *testing.T) {
+	tests := []struct {
+		name       string
+		properties map[string]string
+	}{
+		{"no properties", nil},
+		{"encryption properties", map[string]string{"cinder_encryption_key_id": "key-1", "cinder_encryption_key_deletion_policy": "on_image_deletion"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			client := connectCloud(t, cloud)
+
+			_, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("data")), "qcow2", tt.properties)
+			require.NoError(t, err)
+
+			uploads := cloud.Uploads()
+			require.Len(t, uploads, 1)
+			assert.Equal(t, tt.properties, uploads[0].Properties)
 		})
 	}
 }

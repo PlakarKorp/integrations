@@ -206,6 +206,28 @@ func TestExportRestoresVolume(t *testing.T) {
 	}
 }
 
+// Without the key id, Cinder would wrap the already-encrypted data in a new key.
+func TestExportCarriesEncryptionKeyID(t *testing.T) {
+	m := volumeMetadata("raw")
+	m.ImageProperties = map[string]string{
+		"cinder_encryption_key_id":              "key-1",
+		"cinder_encryption_key_deletion_policy": "on_image_deletion",
+	}
+	cloud := keystonetest.NewCloud(t)
+	exp := newExporter(t, cloud)
+
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, m), diskRecord(t, "vol-1"))
+	require.NoError(t, err)
+
+	uploads := cloud.Uploads()
+	require.Len(t, uploads, 1)
+	assert.Equal(t, map[string]string{
+		"cinder_encryption_key_id":              "key-1",
+		"cinder_encryption_key_deletion_policy": "on_image_deletion",
+	}, uploads[0].Properties)
+	restored(t, cloud)
+}
+
 func TestExportRetriesVolumeInError(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.VolumeErrors = 1
