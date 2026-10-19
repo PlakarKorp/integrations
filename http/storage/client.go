@@ -54,15 +54,20 @@ func init() {
 	storage.Register("https", 0, NewStore)
 }
 
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 5 {
-		return errors.New("stopped after 5 redirects")
+func checkRedirect(allowCrossHost bool) func(req *http.Request, via []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("stopped after 5 redirects")
+		}
+		if req.URL.Scheme != via[0].URL.Scheme {
+			return fmt.Errorf("refusing redirect from %s to %s: %s",
+				via[0].URL.Scheme, req.URL.Scheme, req.URL.Redacted())
+		}
+		if !allowCrossHost && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			return fmt.Errorf("refusing redirect to a different host: %s", req.URL.Redacted())
+		}
+		return nil
 	}
-	if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
-		return fmt.Errorf("refusing redirect from https to %s: %s",
-			req.URL.Scheme, req.URL.Redacted())
-	}
-	return nil
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -73,15 +78,18 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 	authToken := storeConfig["auth_token"]
 
-	// The auth token is a bearer credential: over http:// it is readable by
-	// anyone on path.  Both schemes are registered here, so make the
-	// cleartext one deliberate rather than incidental, the way the webdav
-	// connector gates dav://.
-	if location.Scheme == "http" && authToken != "" {
+	// auth_token and URL userinfo are bearer credentials: over http://, or
+	// over https:// without certificate verification, they are readable by
+	// anyone on path or on the other end of a spoofed cert.  Both schemes
+	// are registered here, to make the insecure case deliberate rather than
+	// incidental, the way the webdav connector gates dav://.
+	insecureChannel := location.Scheme == "http" || storeConfig["tls_no_verify"] == "true"
+	if insecureChannel && (authToken != "" || location.User != nil) {
 		insecure, _ := strconv.ParseBool(storeConfig["insecure"])
 		if !insecure {
-			return nil, fmt.Errorf("auth_token would be sent in cleartext over http://; " +
-				"use https:// or set insecure=true to acknowledge it")
+			return nil, fmt.Errorf("credentials would be exposed over an insecure channel " +
+				"(http:// or tls_no_verify=true); use https:// with certificate verification " +
+				"or set insecure=true to acknowledge it")
 		}
 	}
 
@@ -102,13 +110,22 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		timeout = d
 	}
 
+	allowCrossHostRedirects := false
+	if v := storeConfig["allow_cross_host_redirects"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allow_cross_host_redirects value %q", v)
+		}
+		allowCrossHostRedirects = b
+	}
+
 	return &Store{
 		location:  location,
 		authToken: authToken,
 		httpClient: &http.Client{
 			Transport:     transport,
 			Timeout:       timeout,
-			CheckRedirect: checkRedirect,
+			CheckRedirect: checkRedirect(allowCrossHostRedirects),
 		},
 	}, nil
 }
