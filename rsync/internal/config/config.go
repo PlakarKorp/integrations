@@ -20,10 +20,9 @@ const (
 
 type Config struct {
 	Host     string
-	Addr     string
+	Port     string
 	Module   string
 	Dir      string // relative to the module root
-	Root     string // /<module>/<dir>
 	Username string
 	Password string
 	MaxConns int
@@ -82,18 +81,22 @@ func Parse(config map[string]string) (*Config, error) {
 
 	return &Config{
 		Host:     parsed.Hostname(),
-		Addr:     net.JoinHostPort(parsed.Hostname(), port),
+		Port:     port,
 		Module:   module,
 		Dir:      dir,
-		Root:     path.Join("/", module, dir),
 		Username: username,
 		Password: password,
 		MaxConns: maxConns,
 	}, nil
 }
 
+// Root is the path of Dir in a snapshot: /<module>/<dir>.
+func (c *Config) Root() string {
+	return path.Join("/", c.Module, c.Dir)
+}
+
 func (c *Config) NewClient() *rsync.Client {
-	return rsync.NewClient(c.Addr, c.Module, c.Username, c.Password, c.MaxConns)
+	return rsync.NewClient(net.JoinHostPort(c.Host, c.Port), c.Module, c.Username, c.Password, c.MaxConns)
 }
 
 func merge(name, inLocation, param string) (string, error) {

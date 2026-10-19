@@ -25,10 +25,8 @@ type Importer struct {
 	// to NewImporter (the plugin's Init call) nor Import's can bound it.
 	ctx    context.Context
 	cancel context.CancelFunc
+	cfg    *rsyncconfig.Config
 	client *rsync.Client
-	host   string
-	dir    string // relative to the module root
-	root   string
 }
 
 func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -40,36 +38,34 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return &Importer{
 		ctx:    ctx,
 		cancel: cancel,
+		cfg:    cfg,
 		client: cfg.NewClient(),
-		host:   cfg.Host,
-		dir:    cfg.Dir,
-		root:   cfg.Root,
 	}, nil
 }
 
-func (imp *Importer) Origin() string        { return imp.host }
+func (imp *Importer) Origin() string        { return imp.cfg.Host }
 func (imp *Importer) Type() string          { return "rsync" }
-func (imp *Importer) Root() string          { return imp.root }
+func (imp *Importer) Root() string          { return imp.cfg.Root() }
 func (imp *Importer) Flags() location.Flags { return 0 }
 
 func (imp *Importer) Ping(ctx context.Context) error {
-	return imp.client.Ping(ctx, imp.dir)
+	return imp.client.Ping(ctx, imp.cfg.Dir)
 }
 
 func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	files, errs, err := imp.client.List(ctx, imp.dir)
+	files, errs, err := imp.client.List(ctx, imp.cfg.Dir)
 	if err != nil {
 		return err
 	}
 	// The server does not say which path an error is about.
 	for _, msg := range errs {
-		records <- connectors.NewError(imp.root, errors.New(msg))
+		records <- connectors.NewError(imp.cfg.Root(), errors.New(msg))
 	}
 
 	for _, f := range files {
-		pathname := path.Join(imp.root, f.Name)
+		pathname := path.Join(imp.cfg.Root(), f.Name)
 		fileinfo := objects.FileInfo{
 			Lname:      path.Base(pathname),
 			Lsize:      f.Size,
@@ -83,7 +79,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 
 		switch f.Mode.Type() {
 		case 0:
-			name := path.Join(imp.dir, f.Name)
+			name := path.Join(imp.cfg.Dir, f.Name)
 			records <- connectors.NewRecord(pathname, "", fileinfo, nil, func() (io.ReadCloser, error) {
 				return imp.client.Open(imp.ctx, name)
 			})

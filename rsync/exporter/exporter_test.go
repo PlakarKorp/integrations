@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,10 +13,10 @@ import (
 
 	"github.com/PlakarKorp/integrations/rsync/exporter"
 	"github.com/PlakarKorp/integrations/rsync/importer"
+	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
 	"github.com/PlakarKorp/kloset/connectors"
 	kexporter "github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
 	"github.com/PlakarKorp/kloset/snapshot"
 	ktest "github.com/PlakarKorp/kloset/testing"
 	"github.com/gokrazy/rsync/rsyncd"
@@ -29,22 +28,11 @@ var mtime = time.Unix(1700000000, 0)
 // startServer serves fsys as module "src", and a temporary directory, which
 // it returns, as the writable module "dst".
 func startServer(t *testing.T, fsys fs.FS) (string, string) {
-	t.Helper()
 	dst := t.TempDir()
-	srv, err := rsyncd.NewServer([]rsyncd.Module{
-		{Name: "src", FS: fsys},
-		{Name: "dst", Path: dst, Writable: true},
-	}, rsyncd.DontRestrict())
-	require.NoError(t, err)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = srv.Serve(ctx, ln) }()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-	})
-	return ln.Addr().String(), dst
+	return rsynctest.StartServer(t,
+		rsyncd.Module{Name: "src", FS: fsys},
+		rsyncd.Module{Name: "dst", Path: dst, Writable: true},
+	), dst
 }
 
 func testFS() fstest.MapFS {
@@ -69,22 +57,9 @@ func newExporter(t *testing.T, location string) kexporter.Exporter {
 // backup backs up location into a new repository and returns the snapshot.
 func backup(t *testing.T, location string) *snapshot.Snapshot {
 	t.Helper()
-	repo := ktest.GenerateRepository(t, nil, nil, nil)
 	imp, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
 	require.NoError(t, err)
-	builder, err := snapshot.Create(repo, repository.DefaultType, "", objects.NilMac, &snapshot.BuilderOptions{Name: "test"})
-	require.NoError(t, err)
-	src, err := snapshot.NewSource(repo.AppContext(), imp)
-	require.NoError(t, err)
-	require.NoError(t, builder.Backup(src))
-	require.NoError(t, builder.Commit())
-	require.NoError(t, builder.Close())
-	require.NoError(t, repo.RebuildState())
-
-	snap, err := snapshot.Load(repo, builder.Header.Identifier)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = snap.Close() })
-	return snap
+	return rsynctest.Backup(t, ktest.GenerateRepository(t, nil, nil, nil), imp, nil)
 }
 
 func TestExport(t *testing.T) {

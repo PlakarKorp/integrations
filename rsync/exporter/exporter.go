@@ -23,11 +23,8 @@ func init() {
 }
 
 type Exporter struct {
-	client   *rsync.Client
-	host     string
-	dir      string // relative to the module root
-	root     string
-	maxConns int
+	cfg    *rsyncconfig.Config
+	client *rsync.Client
 }
 
 func NewExporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -35,18 +32,12 @@ func NewExporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if err != nil {
 		return nil, err
 	}
-	return &Exporter{
-		client:   cfg.NewClient(),
-		host:     cfg.Host,
-		dir:      cfg.Dir,
-		root:     cfg.Root,
-		maxConns: cfg.MaxConns,
-	}, nil
+	return &Exporter{cfg: cfg, client: cfg.NewClient()}, nil
 }
 
-func (exp *Exporter) Origin() string        { return exp.host }
+func (exp *Exporter) Origin() string        { return exp.cfg.Host }
 func (exp *Exporter) Type() string          { return "rsync" }
-func (exp *Exporter) Root() string          { return exp.root }
+func (exp *Exporter) Root() string          { return exp.cfg.Root() }
 func (exp *Exporter) Flags() location.Flags { return 0 }
 
 func (exp *Exporter) Ping(ctx context.Context) error {
@@ -70,7 +61,7 @@ func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(exp.maxConns)
+	g.SetLimit(exp.cfg.MaxConns)
 
 	// Writing into a directory changes its time: directories get their
 	// metadata again once everything is written.
@@ -88,7 +79,7 @@ func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 		}
 		// rsync refuses a name holding a "/" whose parent is not in the
 		// same list: send each file into its parent.
-		parent := path.Join(exp.dir, path.Dir(name))
+		parent := path.Join(exp.cfg.Dir, path.Dir(name))
 		f := toFile(path.Base(name), record)
 
 		switch record.FileInfo.Lmode.Type() {
@@ -107,9 +98,8 @@ func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 			})
 		case 0:
 			g.Go(func() error {
-				// The record closes its reader when its result is made.
-				err := exp.client.Send(gctx, parent, []rsync.File{f}, func(rsync.File) (io.ReadCloser, error) {
-					return io.NopCloser(record.Reader), nil
+				err := exp.client.Send(gctx, parent, []rsync.File{f}, func(rsync.File) (io.Reader, error) {
+					return record.Reader, nil
 				})
 				results <- result(record, err)
 				return nil
@@ -123,15 +113,15 @@ func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Reco
 	if len(dirs) == 0 {
 		return ctx.Err()
 	}
-	return exp.client.Send(ctx, exp.dir, dirs, nil)
+	return exp.client.Send(ctx, exp.cfg.Dir, dirs, nil)
 }
 
 // mkdirAll creates the missing directories of the destination path.
 func (exp *Exporter) mkdirAll(ctx context.Context) error {
-	if exp.dir == "" {
-		return nil
+	if err := exp.client.Ping(ctx, exp.cfg.Dir); !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
-	parts := strings.Split(exp.dir, "/")
+	parts := strings.Split(exp.cfg.Dir, "/")
 	for i := range parts {
 		dir := path.Join(parts[:i+1]...)
 		err := exp.client.Ping(ctx, dir)

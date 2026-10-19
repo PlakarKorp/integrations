@@ -3,7 +3,6 @@ package rsync
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -21,7 +20,7 @@ const chunkSize = 32 << 10
 // must exist. File names are relative to dir, and rsync refuses one holding a
 // "/" unless its parent is in files too. open returns the content of a regular
 // file when the server asks for it.
-func (c *Client) Send(ctx context.Context, dir string, files []File, open func(File) (io.ReadCloser, error)) (err error) {
+func (c *Client) Send(ctx context.Context, dir string, files []File, open func(File) (io.Reader, error)) (err error) {
 	files = slices.Clone(files)
 	slices.SortFunc(files, func(a, b File) int { return strings.Compare(a.Name, b.Name) })
 	flist, err := encodeFileList(files)
@@ -29,7 +28,7 @@ func (c *Client) Send(ctx context.Context, dir string, files []File, open func(F
 		return err
 	}
 
-	s, err := c.connect(ctx, false, sendOpts, escapeGlob(path.Join(dir, ".")+"/"))
+	s, err := c.connect(ctx, false, sendOpts, path.Join(dir, ".")+"/")
 	if err != nil {
 		return err
 	}
@@ -97,7 +96,7 @@ func (c *Client) Send(ctx context.Context, dir string, files []File, open func(F
 
 // sendFile skips the checksums of the receiver's existing blocks, then sends
 // the whole file as literal data followed by its checksum.
-func (s *session) sendFile(idx int32, f File, open func(File) (io.ReadCloser, error)) error {
+func (s *session) sendFile(idx int32, f File, open func(File) (io.Reader, error)) error {
 	// count, block length, checksum length, remainder
 	var head [4]int32
 	for i := range head {
@@ -119,13 +118,11 @@ func (s *session) sendFile(idx int32, f File, open func(File) (io.ReadCloser, er
 	if err != nil {
 		return err
 	}
-	defer func() { _ = rd.Close() }()
 
 	if err := s.writeInt32(idx, head[0], head[1], head[2], head[3]); err != nil {
 		return err
 	}
-	sum := md4.New()
-	sum.Write(binary.LittleEndian.AppendUint32(nil, uint32(s.seed)))
+	sum := s.fileChecksum()
 	buf := make([]byte, chunkSize)
 	for {
 		n, err := io.ReadFull(rd, buf)

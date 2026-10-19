@@ -38,17 +38,17 @@ func TestInterop(t *testing.T) {
 	want, got := list(src, ""), list(dst, "round/trip")
 	require.Equal(t, want, got)
 
+	read := func(c *rsync.Client, name string) []byte {
+		rd, err := c.Open(ctx, name)
+		require.NoError(t, err, name)
+		data, err := io.ReadAll(rd)
+		require.NoError(t, err, name)
+		require.NoError(t, rd.Close())
+		return data
+	}
 	for name, f := range want {
 		if !f.Mode.IsRegular() {
 			continue
-		}
-		read := func(c *rsync.Client, name string) []byte {
-			rd, err := c.Open(ctx, name)
-			require.NoError(t, err, name)
-			data, err := io.ReadAll(rd)
-			require.NoError(t, err, name)
-			require.NoError(t, rd.Close())
-			return data
 		}
 		require.Equal(t, read(src, name), read(dst, "round/trip/"+name), name)
 	}

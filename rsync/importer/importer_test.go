@@ -13,10 +13,9 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/rsync/importer"
+	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
 	"github.com/PlakarKorp/kloset/connectors"
 	kimporter "github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
 	"github.com/PlakarKorp/kloset/snapshot"
 	ktest "github.com/PlakarKorp/kloset/testing"
 	"github.com/gokrazy/rsync/rsyncd"
@@ -38,17 +37,10 @@ func (l *countingListener) Accept() (net.Conn, error) {
 
 func startServer(t *testing.T, fsys fs.FS) (string, *countingListener) {
 	t.Helper()
-	srv, err := rsyncd.NewServer([]rsyncd.Module{{Name: "mod", FS: fsys}}, rsyncd.DontRestrict())
-	require.NoError(t, err)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	cl := &countingListener{Listener: ln}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = srv.Serve(ctx, cl) }()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-	})
+	rsynctest.Serve(t, cl, rsyncd.Module{Name: "mod", FS: fsys})
 	return ln.Addr().String(), cl
 }
 
@@ -247,28 +239,6 @@ func TestImportUnsupportedType(t *testing.T) {
 	require.Nil(t, got["/mod/dir/b.txt"].Err)
 }
 
-func backup(t *testing.T, repo *repository.Repository, imp kimporter.Importer, parent *snapshot.Snapshot) *snapshot.Snapshot {
-	t.Helper()
-	builder, err := snapshot.Create(repo, repository.DefaultType, "", objects.NilMac, &snapshot.BuilderOptions{Name: "test"})
-	require.NoError(t, err)
-	if parent != nil {
-		vfs, err := parent.FilesystemWithCache()
-		require.NoError(t, err)
-		builder.WithVFSCache(vfs)
-	}
-	src, err := snapshot.NewSource(repo.AppContext(), imp)
-	require.NoError(t, err)
-	require.NoError(t, builder.Backup(src))
-	require.NoError(t, builder.Commit())
-	require.NoError(t, builder.Close())
-	require.NoError(t, repo.RebuildState())
-
-	snap, err := snapshot.Load(repo, builder.Header.Identifier)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = snap.Close() })
-	return snap
-}
-
 func readFile(t *testing.T, snap *snapshot.Snapshot, name string) string {
 	t.Helper()
 	vfs, err := snap.Filesystem()
@@ -290,19 +260,19 @@ func TestIncrementalBackup(t *testing.T) {
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod"})
 
 	// One connection for the listing, one per regular file.
-	first := backup(t, repo, imp, nil)
+	first := rsynctest.Backup(t, repo, imp, nil)
 	require.Equal(t, int64(1+4), ln.conns.Load())
 	require.Equal(t, "bbb", readFile(t, first, "/mod/dir/b.txt"))
 
 	ln.conns.Store(0)
-	second := backup(t, repo, imp, first)
+	second := rsynctest.Backup(t, repo, imp, first)
 	require.Equal(t, int64(1), ln.conns.Load())
 	require.Equal(t, "bbb", readFile(t, second, "/mod/dir/b.txt"))
 
 	fsys["dir/b.txt"] = &fstest.MapFile{Data: []byte("changed"), Mode: 0o600, ModTime: mtime.Add(time.Hour)}
 	fsys["new.txt"] = &fstest.MapFile{Data: []byte("new"), Mode: 0o644, ModTime: mtime}
 	ln.conns.Store(0)
-	third := backup(t, repo, imp, second)
+	third := rsynctest.Backup(t, repo, imp, second)
 	require.Equal(t, int64(1+2), ln.conns.Load())
 	require.Equal(t, "changed", readFile(t, third, "/mod/dir/b.txt"))
 	require.Equal(t, "new", readFile(t, third, "/mod/new.txt"))

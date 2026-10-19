@@ -16,24 +16,14 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
+	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
 	"github.com/gokrazy/rsync/rsyncd"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/md4" //nolint:staticcheck // the protocol mandates MD4
 )
 
 func startServer(t *testing.T, fsys fs.FS) string {
-	t.Helper()
-	srv, err := rsyncd.NewServer([]rsyncd.Module{{Name: "mod", FS: fsys}}, rsyncd.DontRestrict())
-	require.NoError(t, err)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = srv.Serve(ctx, ln) }()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-	})
-	return ln.Addr().String()
+	return rsynctest.StartServer(t, rsyncd.Module{Name: "mod", FS: fsys})
 }
 
 var mtime = time.Unix(1700000000, 0)

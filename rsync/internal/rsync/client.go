@@ -161,9 +161,7 @@ func (c *Client) Open(ctx context.Context, name string) (_ io.ReadCloser, err er
 		}
 	}
 
-	h := md4.New()
-	h.Write(binary.LittleEndian.AppendUint32(nil, uint32(s.seed)))
-	return &fileReader{s: s, name: name, sum: h}, nil
+	return &fileReader{s: s, name: name, sum: s.fileChecksum()}, nil
 }
 
 type session struct {
@@ -177,7 +175,7 @@ type session struct {
 
 // start requests remotePath from the server and receives its file list.
 func (c *Client) start(ctx context.Context, opts, remotePath string) (_ *session, _ []File, err error) {
-	s, err := c.connect(ctx, true, opts, escapeGlob(remotePath))
+	s, err := c.connect(ctx, true, opts, remotePath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -233,7 +231,7 @@ func (c *Client) connect(ctx context.Context, sender bool, opts, remotePath stri
 	}()
 
 	rd := bufio.NewReader(conn)
-	if err := c.handshake(rd, conn, sender, opts, remotePath); err != nil {
+	if err := c.handshake(rd, conn, sender, opts, escapeGlob(remotePath)); err != nil {
 		return nil, err
 	}
 
@@ -307,6 +305,13 @@ func authResponse(password, challenge string) string {
 	h.Write([]byte(password))
 	h.Write([]byte(challenge))
 	return base64.RawStdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// fileChecksum returns the hash a whole file's checksum is computed with.
+func (s *session) fileChecksum() hash.Hash {
+	h := md4.New()
+	h.Write(binary.LittleEndian.AppendUint32(nil, uint32(s.seed)))
+	return h
 }
 
 // writeDone ends both phases of the generator: no more files are requested.

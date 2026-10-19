@@ -6,12 +6,12 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
+	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
 	"github.com/gokrazy/rsync/rsyncd"
 	"github.com/stretchr/testify/require"
 )
@@ -19,24 +19,13 @@ import (
 // startWritableServer serves a writable module "mod" from a temporary
 // directory, which it returns.
 func startWritableServer(t *testing.T) (string, string) {
-	t.Helper()
 	dir := t.TempDir()
-	srv, err := rsyncd.NewServer([]rsyncd.Module{{Name: "mod", Path: dir, Writable: true}}, rsyncd.DontRestrict())
-	require.NoError(t, err)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = srv.Serve(ctx, ln) }()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-	})
-	return ln.Addr().String(), dir
+	return rsynctest.StartServer(t, rsyncd.Module{Name: "mod", Path: dir, Writable: true}), dir
 }
 
-func content(data []byte) func(rsync.File) (io.ReadCloser, error) {
-	return func(rsync.File) (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(data)), nil
+func content(data []byte) func(rsync.File) (io.Reader, error) {
+	return func(rsync.File) (io.Reader, error) {
+		return bytes.NewReader(data), nil
 	}
 }
 
@@ -91,7 +80,7 @@ func TestSendOpenError(t *testing.T) {
 	errOpen := errors.New("cannot open")
 
 	err := c.Send(context.Background(), "", []rsync.File{{Name: "f", Size: 3, Mode: 0o644, ModTime: mtime}},
-		func(rsync.File) (io.ReadCloser, error) { return nil, errOpen })
+		func(rsync.File) (io.Reader, error) { return nil, errOpen })
 	require.ErrorIs(t, err, errOpen)
 	_, err = os.Stat(filepath.Join(dir, "f"))
 	require.ErrorIs(t, err, fs.ErrNotExist)

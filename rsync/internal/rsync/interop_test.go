@@ -99,7 +99,7 @@ func TestInterop(t *testing.T) {
 		c := rsync.NewClient(addr, "restore", "", "", 1)
 		dir := rsync.File{Mode: fs.ModeDir | 0o755, ModTime: time.Unix(1700000000, 0)}
 		file := rsync.File{Size: 3, Mode: 0o644, ModTime: time.Unix(1700000000, 0)}
-		open := func(rsync.File) (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("abc")), nil }
+		open := func(rsync.File) (io.Reader, error) { return strings.NewReader("abc"), nil }
 
 		dir.Name = "senderr"
 		require.NoError(t, c.Send(ctx, "", []rsync.File{dir}, nil))
