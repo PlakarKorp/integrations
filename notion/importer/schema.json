@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Notion Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "token"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "notion:// backs up everything shared with the integration; notion://<page-or-database-id> backs up that object and what is under it",
+      "pattern": "^notion://"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Internal integration secret (ntn_...) of an integration shared with the pages to back up"
+    },
+    "skip_attachments": {
+      "type": "boolean",
+      "default": false,
+      "description": "Do not download the files Notion hosts: images, videos, PDFs, icons and covers"
+    }
+  }
+}
