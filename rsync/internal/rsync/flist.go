@@ -1,9 +1,10 @@
-// File list decoding, adapted from github.com/gokrazy/rsync
+// File list encoding and decoding, adapted from github.com/gokrazy/rsync
 // (internal/receiver/flist.go). See LICENSE in this directory.
 
 package rsync
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io/fs"
 	"path"
@@ -22,6 +23,7 @@ const (
 	xmitSameTime    = 1 << 7
 	maxPathLen      = 4096
 	modeTypeMask    = 0o170000
+	modeRegular     = 0o100000
 	modeDir         = 0o040000
 	modeCharDevice  = 0o020000
 	modeBlockDevice = 0o060000
@@ -248,4 +250,88 @@ func fileMode(mode int32) fs.FileMode {
 		m |= fs.ModeSocket
 	}
 	return m
+}
+
+// encodeFileList encodes files as sent with the -l, -o, -g, -t and -p options,
+// every field in full. The receiver refers to files by their index in the
+// list sorted by name, so files must already be sorted.
+func encodeFileList(files []File) ([]byte, error) {
+	le := binary.LittleEndian
+	var b []byte
+	users := make(map[uint32]string)
+	groups := make(map[uint32]string)
+	for _, f := range files {
+		if f.Name == "" || len(f.Name) >= maxPathLen || len(f.LinkTarget) >= maxPathLen {
+			return nil, fmt.Errorf("%q: invalid file name or link target length", f.Name)
+		}
+		mode, err := unixMode(f.Mode)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Name, err)
+		}
+		b = append(b, xmitLongName)
+		b = le.AppendUint32(b, uint32(len(f.Name)))
+		b = append(b, f.Name...)
+		b = appendInt64(b, f.Size)
+		var mtime int32
+		if !f.ModTime.IsZero() {
+			mtime = int32(f.ModTime.Unix())
+		}
+		b = le.AppendUint32(b, uint32(mtime))
+		b = le.AppendUint32(b, uint32(mode))
+		b = le.AppendUint32(b, f.UID)
+		b = le.AppendUint32(b, f.GID)
+		if f.Mode.Type() == fs.ModeSymlink {
+			b = le.AppendUint32(b, uint32(len(f.LinkTarget)))
+			b = append(b, f.LinkTarget...)
+		}
+		addIDName(users, f.UID, f.User)
+		addIDName(groups, f.GID, f.Group)
+	}
+	b = append(b, 0) // end of list
+	b = appendIDList(b, users)
+	b = appendIDList(b, groups)
+	b = le.AppendUint32(b, 0) // I/O errors
+	return b, nil
+}
+
+// addIDName records the name to send for id. Id 0 is never sent, and names
+// that are only the id carry nothing.
+func addIDName(names map[uint32]string, id uint32, name string) {
+	if id != 0 && name != "" && len(name) <= 255 && name != strconv.FormatUint(uint64(id), 10) {
+		names[id] = name
+	}
+}
+
+// rsync/uidlist.c:send_id_list
+func appendIDList(b []byte, names map[uint32]string) []byte {
+	for id, name := range names {
+		b = binary.LittleEndian.AppendUint32(b, id)
+		b = append(b, byte(len(name)))
+		b = append(b, name...)
+	}
+	return binary.LittleEndian.AppendUint32(b, 0)
+}
+
+func unixMode(m fs.FileMode) (int32, error) {
+	mode := int32(m.Perm())
+	if m&fs.ModeSetuid != 0 {
+		mode |= 0o4000
+	}
+	if m&fs.ModeSetgid != 0 {
+		mode |= 0o2000
+	}
+	if m&fs.ModeSticky != 0 {
+		mode |= 0o1000
+	}
+	switch m.Type() {
+	case 0:
+		mode |= modeRegular
+	case fs.ModeDir:
+		mode |= modeDir
+	case fs.ModeSymlink:
+		mode |= modeSymlink
+	default:
+		return 0, fmt.Errorf("unsupported file type %s", m.Type())
+	}
+	return mode, nil
 }

@@ -111,3 +111,12 @@ func (c *wire) writeInt32(vs ...int32) error {
 	_, err := c.w.Write(b)
 	return err
 }
+
+// appendInt64 is the counterpart of readInt64.
+func appendInt64(b []byte, v int64) []byte {
+	if v >= 0 && v <= 0x7fffffff {
+		return binary.LittleEndian.AppendUint32(b, uint32(v))
+	}
+	b = binary.LittleEndian.AppendUint32(b, 0xffffffff)
+	return binary.LittleEndian.AppendUint64(b, uint64(v))
+}

@@ -172,10 +172,9 @@ func fileList(name string, users map[uint32]string) []byte {
 	return flist
 }
 
-// fakeServer serves a single connection, sending flist then reply as data,
-// whatever the client requests. It lets tests send what a real server would
-// not.
-func fakeServer(t *testing.T, flist, reply []byte) string {
+// fakeServer serves a single connection, sending frames whatever the client
+// requests. It lets tests send what a real server would not.
+func fakeServer(t *testing.T, frames ...[]byte) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -201,9 +200,8 @@ func fakeServer(t *testing.T, flist, reply []byte) string {
 		}
 		_, _ = conn.Write(le.AppendUint32(nil, 0)) // seed
 		_, _ = io.ReadFull(rd, make([]byte, 4))    // exclusion list
-		_, _ = conn.Write(dataFrame(flist))
-		if reply != nil {
-			_, _ = conn.Write(dataFrame(reply))
+		for _, frame := range frames {
+			_, _ = conn.Write(frame)
 		}
 		// Closing with unread data would reset the connection.
 		_ = conn.(*net.TCPConn).CloseWrite()
@@ -215,6 +213,10 @@ func fakeServer(t *testing.T, flist, reply []byte) string {
 
 func dataFrame(data []byte) []byte {
 	return append(binary.LittleEndian.AppendUint32(nil, 7<<24|uint32(len(data))), data...)
+}
+
+func errorFrame(msg string) []byte {
+	return append(binary.LittleEndian.AppendUint32(nil, 8<<24|uint32(len(msg))), msg...)
 }
 
 func int32s(vs ...uint32) []byte {
@@ -240,7 +242,7 @@ func TestOpenTruncated(t *testing.T) {
 		"within the checksum": append(data, sum[:8]...),
 		"after the checksum":  append(data, sum...),
 	} {
-		c := rsync.NewClient(fakeServer(t, fileList("f", nil), reply), "mod", "", "", 1)
+		c := rsync.NewClient(fakeServer(t, dataFrame(fileList("f", nil)), dataFrame(reply)), "mod", "", "", 1)
 		rd, err := c.Open(context.Background(), "f")
 		require.NoError(t, err, name)
 		_, err = io.ReadAll(rd)
@@ -252,7 +254,7 @@ func TestOpenTruncated(t *testing.T) {
 // The server never sends a name for root, only for the other owners.
 func TestListNamesRoot(t *testing.T) {
 	end := int32s(0xffffffff, 0xffffffff, 0, 0, 0) // end of both phases, statistics
-	c := rsync.NewClient(fakeServer(t, fileList("f", map[uint32]string{1000: "alice"}), end), "mod", "", "", 1)
+	c := rsync.NewClient(fakeServer(t, dataFrame(fileList("f", map[uint32]string{1000: "alice"})), dataFrame(end)), "mod", "", "", 1)
 	files, _, err := c.List(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, "root", files[0].User)
@@ -261,7 +263,7 @@ func TestListNamesRoot(t *testing.T) {
 
 func TestListRejectsNamesOutside(t *testing.T) {
 	for _, name := range []string{"../escape", "a/../../escape", "/etc/passwd", ".."} {
-		c := rsync.NewClient(fakeServer(t, fileList(name, nil), nil), "mod", "", "", 1)
+		c := rsync.NewClient(fakeServer(t, dataFrame(fileList(name, nil))), "mod", "", "", 1)
 		_, _, err := c.List(context.Background(), "")
 		require.ErrorContains(t, err, "outside the requested directory", name)
 	}

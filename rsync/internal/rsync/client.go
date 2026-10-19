@@ -1,5 +1,6 @@
 // Package rsync is a minimal rsync daemon client speaking protocol 27. It
-// lists a module and streams single files, without writing to local disk.
+// lists a module, streams single files from it and sends files to it, without
+// touching the local disk.
 //
 // The protocol handling is adapted from github.com/gokrazy/rsync, whose
 // client only writes into a local directory. See LICENSE in this directory.
@@ -25,7 +26,8 @@ import (
 
 const protocolVersion = 27
 
-// Options the server runs with, as rsync command-line flags:
+// Options the server runs with, as rsync command-line flags. When the server
+// sends:
 //
 //	-l  send symlinks as symlinks, with their target
 //	-o  send each file's uid, and the user names after the list
@@ -36,11 +38,17 @@ const protocolVersion = 27
 //	-d  send a directory itself without recursing; without -r or -d, the
 //	    server skips directories
 //
-// -l, -o, -g, -t and -p set the file list layout receiveFileList decodes.
+// When the server receives, -l, -o, -g, -t, -p and -d apply what the file list
+// holds, and:
+//
+//	-I  rewrite every file, even one whose size and time match
+//
+// -l, -o, -g, -t and -p set the file list layout, both ways.
 const (
 	listOpts = "-logtpr"
 	pingOpts = "-logtpd"
 	openOpts = "-logtp"
+	sendOpts = "-logtpdI"
 )
 
 // Each List or Open uses its own connection: the daemon serves a single
@@ -167,23 +175,49 @@ type session struct {
 	slots chan struct{}
 }
 
+// start requests remotePath from the server and receives its file list.
 func (c *Client) start(ctx context.Context, opts, remotePath string) (_ *session, _ []File, err error) {
+	s, err := c.connect(ctx, true, opts, escapeGlob(remotePath))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			err = s.wrap(err)
+			s.close()
+		}
+	}()
+
+	// Empty exclusion list.
+	if err := s.writeInt32(0); err != nil {
+		return nil, nil, err
+	}
+	files, err := receiveFileList(s.wire)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, files, nil
+}
+
+// connect opens a connection and starts the server with opts on remotePath,
+// as the sender or as the receiver.
+func (c *Client) connect(ctx context.Context, sender bool, opts, remotePath string) (_ *session, err error) {
 	// Arguments are newline-separated in the protocol.
 	if strings.ContainsRune(remotePath, '\n') {
-		return nil, nil, fmt.Errorf("%q: newline in path", remotePath)
+		return nil, fmt.Errorf("%q: newline in path", remotePath)
 	}
 
 	select {
 	case c.slots <- struct{}{}:
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
 
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", c.addr)
 	if err != nil {
 		<-c.slots
-		return nil, nil, err
+		return nil, err
 	}
 	s := &session{
 		conn:  conn,
@@ -199,31 +233,22 @@ func (c *Client) start(ctx context.Context, opts, remotePath string) (_ *session
 	}()
 
 	rd := bufio.NewReader(conn)
-	if err := c.handshake(rd, conn, opts, escapeGlob(remotePath)); err != nil {
-		return nil, nil, err
+	if err := c.handshake(rd, conn, sender, opts, remotePath); err != nil {
+		return nil, err
 	}
 
 	// The seed is sent before the server switches to multiplexed output.
 	raw := &wire{r: rd, w: conn}
 	if s.seed, err = raw.readInt32(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s.mux.r = rd
 	s.wire = &wire{r: s.mux, w: conn}
-
-	// Empty exclusion list.
-	if err := s.writeInt32(0); err != nil {
-		return nil, nil, err
-	}
-	files, err := receiveFileList(s.wire)
-	if err != nil {
-		return nil, nil, err
-	}
-	return s, files, nil
+	return s, nil
 }
 
 // rsync/clientserver.c:start_inband_exchange
-func (c *Client) handshake(rd *bufio.Reader, w io.Writer, opts, remotePath string) error {
+func (c *Client) handshake(rd *bufio.Reader, w io.Writer, sender bool, opts, remotePath string) error {
 	if _, err := fmt.Fprintf(w, "@RSYNCD: %d\n", protocolVersion); err != nil {
 		return err
 	}
@@ -250,7 +275,11 @@ func (c *Client) handshake(rd *bufio.Reader, w io.Writer, opts, remotePath strin
 		line = strings.TrimRight(line, "\r\n")
 		switch {
 		case line == "@RSYNCD: OK":
-			args := []string{"--server", "--sender", opts, ".", c.module + "/" + remotePath, ""}
+			args := []string{"--server"}
+			if sender {
+				args = append(args, "--sender")
+			}
+			args = append(args, opts, ".", c.module+"/"+remotePath, "")
 			_, err := io.WriteString(w, strings.Join(args, "\n")+"\n")
 			return err
 		case strings.HasPrefix(line, "@RSYNCD: AUTHREQD "):
@@ -390,7 +419,8 @@ func (r *fileReader) Close() error {
 	return nil
 }
 
-// escapeGlob protects wildcards from the daemon's glob expansion of paths.
+// escapeGlob protects wildcards from the daemon's glob expansion of paths, the
+// destination included.
 // The daemon matches components holding a wildcard with wildmatch, which
 // honours backslash escapes, and looks the others up literally.
 func escapeGlob(name string) string {
