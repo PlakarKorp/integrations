@@ -321,6 +321,32 @@ func TestCreateObjectLockHistoryCheck(t *testing.T) {
 	}
 }
 
+func TestCreateObjectLockUnsupported(t *testing.T) {
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		if handleBucketExistsAndMissingConfig(w, r) {
+			return
+		}
+		switch {
+		case r.URL.Query().Has("object-lock"):
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusNotImplemented)
+			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+	<Code>NotImplemented</Code>
+	<Message>Unimplemented action: GetObjectLockConfiguration</Message>
+</Error>`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		}
+	})
+
+	if err := s.Create(context.Background(), []byte("config")); err != nil {
+		t.Fatalf("Create() error = %v, want nil", err)
+	}
+}
+
 func TestNewStoreVirtualHostPrefix(t *testing.T) {
 	tests := []struct {
 		name       string

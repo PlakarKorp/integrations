@@ -285,7 +285,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 func (s *Store) checkObjectLockHistory(ctx context.Context) error {
 	enabled, _, _, _, err := s.minioClient.GetObjectLockConfig(ctx, s.bucket)
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == "ObjectLockConfigurationNotFoundError" {
+		// Garage and other partial S3 implementations answer NotImplemented:
+		// no Object Lock support means no lock history.
+		switch minio.ToErrorResponse(err).Code {
+		case "ObjectLockConfigurationNotFoundError", "NotImplemented":
 			return nil
 		}
 		return fmt.Errorf("get object lock config: %w", err)
