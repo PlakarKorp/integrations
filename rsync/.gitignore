@@ -1,3 +1,5 @@
 rsyncImporter
 rsyncImporter.exe
 *.ptar
+rsyncExporter
+rsyncExporter.exe

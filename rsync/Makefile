@@ -12,6 +12,7 @@ all: build
 
 build:
 	${GO} build -v -o rsyncImporter${EXT} ./plugin/importer
+	${GO} build -v -o rsyncExporter${EXT} ./plugin/exporter
 
 package: build
 	rm -f ${PTAR}
@@ -31,6 +32,6 @@ test:
 check: test
 
 clean:
-	rm -f rsyncImporter${EXT} rsync_*.ptar
+	rm -f rsyncImporter${EXT} rsyncExporter${EXT} rsync_*.ptar
 
 .PHONY: all build package uninstall install reinstall test check clean

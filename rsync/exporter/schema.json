@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar rsync Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "rsync daemon location URI: rsync://[<user>[:<password>]@]<host>[:<port>][/<module>[/<path>]]",
+      "pattern": "^rsync://[^/]+(/.*)?$"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/]+$",
+      "description": "Module to restore into"
+    },
+    "root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory to restore into, relative to the location's path"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 873,
+      "description": "TCP port of the rsync daemon"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module user"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module password, as in the daemon's secrets file"
+    },
+    "max_connections": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 4,
+      "description": "Maximum number of concurrent connections to the daemon"
+    }
+  }
+}
