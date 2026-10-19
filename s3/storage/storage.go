@@ -39,6 +39,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 )
 
+// maxConfigSize bounds the CONFIG read: it holds a small serialized
+// repository configuration, never anywhere near this size.
+const maxConfigSize = 2 << 10
+
 type Store struct {
 	minioClient  *minio.Client
 	host         string
@@ -55,17 +59,13 @@ func init() {
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
 	var accessKey string
-	if value, ok := storeConfig["access_key"]; !ok {
-		return nil, fmt.Errorf("missing access_key")
-	} else {
-		accessKey = value
+	if tmp, ok := storeConfig["access_key"]; ok {
+		accessKey = tmp
 	}
 
 	var secretAccessKey string
-	if value, ok := storeConfig["secret_access_key"]; !ok {
-		return nil, fmt.Errorf("missing secret_access_key")
-	} else {
-		secretAccessKey = value
+	if tmp, ok := storeConfig["secret_access_key"]; ok {
+		secretAccessKey = tmp
 	}
 
 	useSsl := true
@@ -148,15 +148,9 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 			return nil, err
 		}
 
-		// The bucket is in the hostname, so root carries the prefix only.
-		urlPrefix := strings.Trim(u.Path, "/")
-		rootPrefix := strings.Trim(root, "/")
-		if urlPrefix != "" && rootPrefix != "" && urlPrefix != rootPrefix {
-			return nil, fmt.Errorf("location path %q conflicts with root %q", u.Path, root)
-		}
-		prefixDir = urlPrefix
-		if rootPrefix != "" {
-			prefixDir = rootPrefix
+		prefixDir, err = common.VirtualHostPrefix(u.Path, root)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		if endpoint != "" {
@@ -167,11 +161,10 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		}
 		host = u.Host
 
-		source := u.Path
-		if root != "" {
-			source = root
+		bucket, prefixDir, err = common.SplitPathStyle(u.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		bucket, prefixDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {
@@ -200,9 +193,16 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.Static{Value: credentials.Value{AccessKeyID: accessKey, SecretAccessKey: secretAccessKey, SessionToken: "", SignerType: credentials.SignatureV4}},
+			&credentials.IAM{},
+		},
+	)
+
 	// Initialize minio client object.
 	client, err := minio.New(host, &minio.Options{
-		Creds:     credentials.NewStaticV4(accessKey, secretAccessKey, ""),
+		Creds:     creds,
 		Secure:    useSsl,
 		Transport: transport,
 		Region:    region,
@@ -249,6 +249,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return fmt.Errorf("bucket already initialized")
 	}
 
+	if err := s.checkObjectLockHistory(ctx); err != nil {
+		return err
+	}
+
 	putObjectOptions := minio.PutObjectOptions{
 		// Some providers (eg. BlackBlaze) return the error
 		// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
@@ -274,6 +278,42 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	return nil
 }
 
+// checkObjectLockHistory refuses creation if Object Lock is enabled and any
+// version of CONFIG already exists, including delete markers: deleting every
+// object from a locked bucket doesn't erase its history, so a second store
+// created on top would make version recovery ambiguous between the two.
+func (s *Store) checkObjectLockHistory(ctx context.Context) error {
+	enabled, _, _, _, err := s.minioClient.GetObjectLockConfig(ctx, s.bucket)
+	if err != nil {
+		// Garage and other partial S3 implementations answer NotImplemented:
+		// no Object Lock support means no lock history.
+		switch minio.ToErrorResponse(err).Code {
+		case "ObjectLockConfigurationNotFoundError", "NotImplemented":
+			return nil
+		}
+		return fmt.Errorf("get object lock config: %w", err)
+	}
+	if enabled != "Enabled" {
+		return nil
+	}
+
+	listCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	object, ok := <-s.minioClient.ListObjects(listCtx, s.bucket, minio.ListObjectsOptions{
+		Prefix:       s.realpath("CONFIG"),
+		WithVersions: true,
+		MaxKeys:      1,
+	})
+	if !ok {
+		return nil
+	}
+	if object.Err != nil {
+		return fmt.Errorf("list CONFIG versions: %w", object.Err)
+	}
+	return fmt.Errorf("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
+}
+
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	exists, err := s.minioClient.BucketExists(ctx, s.bucket)
 	if err != nil {
@@ -294,9 +334,12 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	})
 	defer object.Close()
 
-	data, err := io.ReadAll(object)
+	data, err := io.ReadAll(io.LimitReader(object, maxConfigSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("error reading object: %w", err)
+	}
+	if len(data) > maxConfigSize {
+		return nil, fmt.Errorf("CONFIG object exceeds %d bytes", maxConfigSize)
 	}
 
 	return data, nil

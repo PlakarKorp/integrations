@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -201,6 +202,151 @@ func TestGetReusesConnections(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsOversizedConfig(t *testing.T) {
+	data := bytes.Repeat([]byte("a"), maxConfigSize+1)
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/bucket/CONFIG":
+			w.Write(data)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	if _, err := s.Open(context.Background()); err == nil {
+		t.Fatal("want error for a CONFIG object over the size limit")
+	}
+}
+
+const objectLockEnabledXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<ObjectLockEnabled>Enabled</ObjectLockEnabled>
+</ObjectLockConfiguration>`
+
+const objectLockNotFoundXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+	<Code>ObjectLockConfigurationNotFoundError</Code>
+	<Message>Object Lock configuration does not exist for this bucket</Message>
+	<BucketName>bucket</BucketName>
+	<Resource>/bucket</Resource>
+	<RequestId>req</RequestId>
+	<HostId>host</HostId>
+</Error>`
+
+const configVersionsEmptyXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<Prefix>CONFIG</Prefix>
+	<MaxKeys>1</MaxKeys>
+	<IsTruncated>false</IsTruncated>
+</ListVersionsResult>`
+
+const configVersionsDeleteMarkerXML = `<?xml version="1.0" encoding="UTF-8"?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>bucket</Name>
+	<Prefix>CONFIG</Prefix>
+	<MaxKeys>1</MaxKeys>
+	<IsTruncated>false</IsTruncated>
+	<DeleteMarker>
+		<Key>CONFIG</Key>
+		<VersionId>v1</VersionId>
+		<IsLatest>true</IsLatest>
+		<LastModified>2026-09-07T00:00:00.000Z</LastModified>
+	</DeleteMarker>
+</ListVersionsResult>`
+
+// handleBucketExistsAndMissingConfig answers the two calls every Create
+// makes before the object-lock check: bucket exists, CONFIG does not.
+func handleBucketExistsAndMissingConfig(w http.ResponseWriter, r *http.Request) bool {
+	switch {
+	case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
+		w.WriteHeader(http.StatusOK)
+		return true
+	case r.Method == http.MethodHead:
+		w.WriteHeader(http.StatusNotFound)
+		return true
+	}
+	return false
+}
+
+func TestCreateObjectLockHistoryCheck(t *testing.T) {
+	tests := []struct {
+		name        string
+		lockEnabled bool
+		versionsXML string
+		wantErr     string
+	}{
+		{name: "lock not configured skips the version check", lockEnabled: false},
+		{name: "lock enabled, no CONFIG history allows creation", lockEnabled: true, versionsXML: configVersionsEmptyXML},
+		{name: "lock enabled, CONFIG delete marker refuses creation", lockEnabled: true, versionsXML: configVersionsDeleteMarkerXML, wantErr: "object lock is enabled and still holds CONFIG's version history"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var listCalled bool
+			s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+				if handleBucketExistsAndMissingConfig(w, r) {
+					return
+				}
+				w.Header().Set("Content-Type", "application/xml")
+				switch {
+				case r.URL.Query().Has("object-lock") && tt.lockEnabled:
+					w.Write([]byte(objectLockEnabledXML))
+				case r.URL.Query().Has("object-lock"):
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte(objectLockNotFoundXML))
+				case r.URL.Query().Has("versions"):
+					listCalled = true
+					w.Write([]byte(tt.versionsXML))
+				case r.Method == http.MethodPut:
+					w.WriteHeader(http.StatusOK)
+				default:
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+				}
+			})
+
+			err := s.Create(context.Background(), []byte("config"))
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Fatalf("Create() error = %v, want nil", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Fatalf("Create() error = %v, want %q", err, tt.wantErr)
+			}
+			if !tt.lockEnabled && listCalled {
+				t.Fatalf("Create() listed CONFIG versions despite object lock not being configured")
+			}
+		})
+	}
+}
+
+func TestCreateObjectLockUnsupported(t *testing.T) {
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		if handleBucketExistsAndMissingConfig(w, r) {
+			return
+		}
+		switch {
+		case r.URL.Query().Has("object-lock"):
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusNotImplemented)
+			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+	<Code>NotImplemented</Code>
+	<Message>Unimplemented action: GetObjectLockConfiguration</Message>
+</Error>`))
+		case r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		}
+	})
+
+	if err := s.Create(context.Background(), []byte("config")); err != nil {
+		t.Fatalf("Create() error = %v, want nil", err)
+	}
+}
+
 func TestNewStoreVirtualHostPrefix(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -271,5 +417,41 @@ func TestNewStorePathStyleRootIncludesBucket(t *testing.T) {
 	s := st.(*Store)
 	if s.bucket != "bucket" || s.prefixDir != "/data/" {
 		t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, "bucket", "/data/")
+	}
+}
+
+// The control plane puts the bucket in the location host and repeats root in
+// the location path, as s3://<bucket><root>.
+func TestNewStorePathStyleControlPlaneLocation(t *testing.T) {
+	tests := []struct {
+		name       string
+		location   string
+		root       string
+		wantBucket string
+		wantPrefix string
+	}{
+		{name: "root is the prefix", location: "s3://fca-backup-fr/plakar-repro-restore", root: "/plakar-repro-restore", wantBucket: "fca-backup-fr", wantPrefix: "/plakar-repro-restore/"},
+		{name: "root that starts with the bucket", location: "s3://backups-poc/backups-poc/plakar", root: "/backups-poc/plakar", wantBucket: "backups-poc", wantPrefix: "/plakar/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := NewStore(context.Background(), "s3", map[string]string{
+				"location":          tt.location,
+				"access_key":        "access",
+				"secret_access_key": "secret",
+				"endpoint":          "s3.fr-par.scw.cloud",
+				"virtual_host":      "false",
+				"root":              tt.root,
+			})
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+
+			s := st.(*Store)
+			if s.bucket != tt.wantBucket || s.prefixDir != tt.wantPrefix {
+				t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, tt.wantBucket, tt.wantPrefix)
+			}
+		})
 	}
 }

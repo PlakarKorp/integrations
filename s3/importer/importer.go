@@ -60,8 +60,15 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
+	creds := credentials.NewChainCredentials(
+		[]credentials.Provider{
+			&credentials.Static{Value: credentials.Value{AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey, SessionToken: "", SignerType: credentials.SignatureV4}},
+			&credentials.IAM{},
+		},
+	)
+
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:     credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Creds:     creds,
 		Secure:    useSsl,
 		Transport: transport,
 		Region:    region,
@@ -79,16 +86,12 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	target := config["location"]
 
 	var accessKey string
-	if tmp, ok := config["access_key"]; !ok {
-		return nil, fmt.Errorf("missing access_key")
-	} else {
+	if tmp, ok := config["access_key"]; ok {
 		accessKey = tmp
 	}
 
 	var secretAccessKey string
-	if tmp, ok := config["secret_access_key"]; !ok {
-		return nil, fmt.Errorf("missing secret_access_key")
-	} else {
+	if tmp, ok := config["secret_access_key"]; ok {
 		secretAccessKey = tmp
 	}
 
@@ -164,7 +167,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 			return nil, err
 		}
 
-		scanDir = strings.TrimPrefix(parsed.Path, "/")
+		scanDir, err = common.VirtualHostPrefix(parsed.Path, root)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		if endpoint != "" {
 			if parsed.Host != endpoint {
@@ -174,11 +180,10 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 		}
 		host = parsed.Host
 
-		source := parsed.Path
-		if root != "" {
-			source = root
+		bucket, scanDir, err = common.SplitPathStyle(parsed.Path, root)
+		if err != nil {
+			return nil, err
 		}
-		bucket, scanDir, _ = strings.Cut(strings.TrimPrefix(source, "/"), "/")
 	}
 
 	if bucket == "" || host == "" {

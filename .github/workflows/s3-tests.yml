@@ -1,0 +1,37 @@
+name: s3 tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/s3
+    paths:
+      - .github/workflows/s3-tests.yml
+      - 's3/**'
+  pull_request:
+    paths:
+      - .github/workflows/s3-tests.yml
+      - 's3/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build and test the s3 integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: s3/go.mod
+          cache-dependency-path: s3/go.sum
+
+      - name: build
+        working-directory: s3
+        run: go build ./...
+
+      - name: test
+        working-directory: s3
+        run: go test -race ./...

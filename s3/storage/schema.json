@@ -4,9 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "location",
-    "access_key",
-    "secret_access_key"
+    "location"
   ],
   "properties": {
     "location": {
@@ -25,7 +23,7 @@
       "type": "string",
       "default": "/",
       "pattern": "^/",
-      "description": "bucket path prefix to use; with virtual_host, the prefix only, without the bucket"
+      "description": "prefix inside the bucket; without virtual_host, a root that starts with the bucket of the location is read as /<bucket>/<prefix>"
     },
     "endpoint": {
       "type": "string",
