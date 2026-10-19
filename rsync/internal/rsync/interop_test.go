@@ -4,42 +4,18 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
+	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-// startRsyncd starts a real rsync daemon built from testdata/Dockerfile and
-// returns its address.
-func startRsyncd(ctx context.Context, t *testing.T) string {
-	t.Helper()
-	testcontainers.SkipIfProviderIsNotHealthy(t)
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:   "testdata",
-				KeepImage: true,
-			},
-			ExposedPorts: []string{"873/tcp"},
-			WaitingFor:   wait.ForListeningPort("873/tcp"),
-		},
-		Started: true,
-	})
-	testcontainers.CleanupContainer(t, container)
-	require.NoError(t, err)
-
-	addr, err := container.PortEndpoint(ctx, "873/tcp", "")
-	require.NoError(t, err)
-	return addr
-}
 
 func TestInterop(t *testing.T) {
 	ctx := context.Background()
-	addr := startRsyncd(ctx, t)
+	addr := rsynctest.StartRsyncd(t)
 
 	for _, tc := range []struct{ module, user, password, owner, root string }{
 		{"pub", "", "", "alice", "root"},
@@ -116,6 +92,24 @@ func TestInterop(t *testing.T) {
 		require.NoError(t, c.Ping(ctx, "dir"))
 		require.NoError(t, c.Ping(ctx, "hello.txt"))
 		require.Error(t, c.Ping(ctx, "nope"))
+	})
+
+	// The daemon reports a file it cannot write, and ends the transfer.
+	t.Run("send error", func(t *testing.T) {
+		c := rsync.NewClient(addr, "restore", "", "", 1)
+		dir := rsync.File{Mode: fs.ModeDir | 0o755, ModTime: time.Unix(1700000000, 0)}
+		file := rsync.File{Size: 3, Mode: 0o644, ModTime: time.Unix(1700000000, 0)}
+		open := func(rsync.File) (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("abc")), nil }
+
+		dir.Name = "senderr"
+		require.NoError(t, c.Send(ctx, "", []rsync.File{dir}, nil))
+		dir.Name = "x"
+		require.NoError(t, c.Send(ctx, "senderr", []rsync.File{dir}, nil))
+		file.Name = "y"
+		require.NoError(t, c.Send(ctx, "senderr/x", []rsync.File{file}, open))
+		// A non-empty directory stands where the file should go.
+		file.Name = "x"
+		require.Error(t, c.Send(ctx, "senderr", []rsync.File{file}, open))
 	})
 
 	t.Run("bad password", func(t *testing.T) {

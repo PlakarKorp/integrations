@@ -11,10 +11,13 @@ RUN apk add --no-cache rsync \
  && echo bracket > '/data/glob[1]/f' \
  && echo decoy > /data/glob1/decoy \
  && adduser -D -u 1234 alice && chown alice /data/hello.txt \
- && echo 'bob:secret' > /etc/rsyncd.secrets && chmod 600 /etc/rsyncd.secrets
-# pub sends user names, priv (chrooted) only numeric ids.
+ && echo 'bob:secret' > /etc/rsyncd.secrets && chmod 600 /etc/rsyncd.secrets \
+ && mkdir /restore
+# pub sends user names, priv (chrooted) only numeric ids. restore is writable,
+# chrooted to keep symlink targets as they are.
 RUN printf '%s\n' 'uid = root' 'gid = root' \
   '[pub]' 'path = /data' 'use chroot = no' 'numeric ids = no' \
   '[priv]' 'path = /data' 'use chroot = yes' 'auth users = bob' 'secrets file = /etc/rsyncd.secrets' \
+  '[restore]' 'path = /restore' 'use chroot = yes' 'read only = no' \
   > /etc/rsyncd.conf
 CMD ["rsync", "--daemon", "--no-detach", "--log-file=/dev/stderr"]

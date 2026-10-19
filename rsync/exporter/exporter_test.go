@@ -66,11 +66,11 @@ func newExporter(t *testing.T, location string) kexporter.Exporter {
 	return exp
 }
 
-// backup backs up module src into a new repository and returns the snapshot.
-func backup(t *testing.T, addr string) *snapshot.Snapshot {
+// backup backs up location into a new repository and returns the snapshot.
+func backup(t *testing.T, location string) *snapshot.Snapshot {
 	t.Helper()
 	repo := ktest.GenerateRepository(t, nil, nil, nil)
-	imp, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": "rsync://" + addr + "/src"})
+	imp, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
 	require.NoError(t, err)
 	builder, err := snapshot.Create(repo, repository.DefaultType, "", objects.NilMac, &snapshot.BuilderOptions{Name: "test"})
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func backup(t *testing.T, addr string) *snapshot.Snapshot {
 
 func TestExport(t *testing.T) {
 	addr, dst := startServer(t, testFS())
-	snap := backup(t, addr)
+	snap := backup(t, "rsync://"+addr+"/src")
 
 	// The destination does not exist yet.
 	exp := newExporter(t, "rsync://"+addr+"/dst/restore/here")
@@ -126,7 +126,7 @@ func TestExport(t *testing.T) {
 
 func TestExportFile(t *testing.T) {
 	addr, dst := startServer(t, testFS())
-	snap := backup(t, addr)
+	snap := backup(t, "rsync://"+addr+"/src")
 
 	exp := newExporter(t, "rsync://"+addr+"/dst")
 	require.NoError(t, snap.Export(exp, "/src/dir/b.txt", &snapshot.ExportOptions{}))

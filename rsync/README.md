@@ -86,5 +86,5 @@ The destination module needs, in `rsyncd.conf`:
 ## Tests
 
 `go test ./...` runs against an in-process daemon, and against a real rsync
-daemon started with Docker from `internal/rsync/testdata/Dockerfile`. The
+daemon started with Docker from `internal/rsynctest/testdata/Dockerfile`. The
 latter is skipped when Docker is not available.
