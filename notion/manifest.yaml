@@ -1,12 +1,19 @@
 name: notion
-description: notion backend
-version: v1.0.0-beta.2
+display_name: Notion
+description: Back up and restore Notion pages and databases through the Notion API.
+api_version: v1.1.0
+tier: official
+homepage: https://github.com/PlakarKorp/integrations/tree/main/notion
+license: ISC
+contact: mailto:help@plakar.io
 connectors:
-  - type: importer
-    executable: notion-importer
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/notion
-    license: ISC
-    protocols: [notion]
-  - type: exporter
-    executable: notion-exporter
-    protocols: [notion]
+- type: importer
+  executable: notion-importer
+  protocols: [notion]
+  validator: ./importer/schema.json
+  class: service
+- type: exporter
+  executable: notion-exporter
+  protocols: [notion]
+  validator: ./exporter/schema.json
+  class: service

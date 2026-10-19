@@ -1,35 +1,74 @@
-.Dd July 4, 2025
+.Dd October 18, 2026
 .Dt PLAKAR-NOTION 1
 .Os
 .Sh NAME
 .Nm plakar-notion
-.Nd Plakar plugin to back up Notion pages or workspace
+.Nd Plakar integration to back up and restore Notion pages and databases
 .Sh DESCRIPTION
 The
 .Nm
-plugin allows backing up content from a Notion workspace or individual pages using the Notion API.
-
-Data is retrieved in structured JSON format including page content and metadata.
+integration backs up the pages and databases a Notion workspace shares
+with an internal integration, and restores them under a page of a
+workspace, through the Notion API.
+.Pp
+Pages and databases are stored as the API returns them, as JSON, one
+directory per object named by its id.
+The blocks of a page are stored in one file with their children nested,
+and the files Notion hosts for a page, images or PDFs say, are stored
+next to it.
 .Sh REQUIREMENTS
-A valid Notion API integration token is required. Tokens can be created at:
-.Lk https://www.notion.com/my-integrations
-
-The integration must be shared with each Notion page to be backed up. For more information, see:
-.Lk https://developers.notion.com/docs/getting-started#step-1-create-an-integration
+An internal integration and its secret, created at
+.Lk https://www.notion.so/profile/integrations .
+The integration must be connected to each top-level page or database
+to back up or restore under; everything below a connected page is
+reachable.
+Backing up needs the
+.Dq Read content
+capability, restoring also needs
+.Dq Insert content .
 .Sh CONFIGURATION
-The required parameters are:
-.Bl -tag -width Ds
+.Bl -tag -width skip_attachments
+.It Ar location
+For a backup,
+.Li notion://
+backs up everything shared with the integration, and
+.Li notion://<id>
+one page or database and what is under it.
+For a restore, the id of the page to restore under; the API cannot
+create pages at the top of a workspace.
+A pasted Notion URL is accepted in place of an id.
 .It Ar token
-Your Notion integration token (starting with
-.Li ntn_
-).
+The integration secret, starting with
+.Li ntn_ .
+.It Ar skip_attachments
+Leave out the files Notion hosts.
+Off by default.
 .El
 .Sh USAGE
-The following command backs up a Notion workspace or shared pages to a Plakar repository:
+Back up a workspace:
 .Bd -literal -offset indent
-$ plakar at /path/to/repo backup notion:// token=ntn_xxxxxxxxxxxxxxxxxxxxxxxxx
+$ plakar source add notes notion:// token=ntn_xxx
+$ plakar at /var/backups/plakar backup @notes
 .Ed
+.Pp
+Restore a snapshot under a page:
+.Bd -literal -offset indent
+$ plakar destination add notes-restore notion://<page-id> token=ntn_xxx
+$ plakar at /var/backups/plakar restore -to @notes-restore <snapshot>
+.Ed
+.Sh CAVEATS
+A restore always creates new pages; the API cannot put a page back under
+its old id.
+What the API cannot recreate is reported on the record it belonged to
+and the rest is restored: unsupported, link preview and template blocks,
+rollup, status and unique id properties, relations to a database that is
+not in the restore, computed values, comments, hosted files larger
+than 20 MB, and hosted files held in a
+.Dq files
+property.
+A page that lived under a block is created under its page instead.
 .Sh SEE ALSO
 .Xr plakar 1 ,
-.Lk https://www.notion.com/my-integrations ,
-.Lk https://developers.notion.com/docs
+.Xr plakar-backup 1 ,
+.Xr plakar-restore 1 ,
+.Lk https://developers.notion.com/reference
