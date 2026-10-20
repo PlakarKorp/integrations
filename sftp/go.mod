@@ -1,10 +1,10 @@
 module github.com/PlakarKorp/integrations/sftp
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/kloset v1.1.5
+	github.com/PlakarKorp/kloset v1.1.9
 	github.com/pkg/sftp v1.13.11
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.22.0
