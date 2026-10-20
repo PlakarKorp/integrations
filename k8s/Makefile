@@ -3,7 +3,7 @@ EXT	=
 
 PLAKAR	= plakar
 DOCKER	= docker
-VERSION	= v1.1.11
+VERSION	= v1.1.12
 
 all: build
 
