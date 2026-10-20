@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integrations/k8s
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/PlakarKorp/go-inventory-sdk v1.1.2
