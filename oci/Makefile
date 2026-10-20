@@ -3,7 +3,7 @@ EXT	=
 
 PLAKAR	= plakar
 COMPOSE	= docker compose -f testing/compose.yml
-VERSION	= v0.0.1
+VERSION	= v1.1.0-beta.5
 CMDS = ociStorage
 
 all: build
