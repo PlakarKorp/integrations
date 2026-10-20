@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integrations/sqlite
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
