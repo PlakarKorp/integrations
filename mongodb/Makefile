@@ -1,7 +1,7 @@
 GO = go
 EXT=
 
-V=v1.1.0-devel.0
+V=v1.1.1
 
 all: build
 
