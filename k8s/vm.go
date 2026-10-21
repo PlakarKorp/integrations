@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
+	"github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/integrations/k8s/tee"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -435,7 +435,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 	}
 
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
-	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
+	gclient, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		k.delpod(ctx, fp.pod)
 		if stop != nil {
@@ -457,7 +457,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
 
-	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, map[string]string{
+	exporter, err := client.NewExporter(ctx, gclient, opts, proto, map[string]string{
 		"location": proto + "://" + path,
 	})
 	if err != nil {
@@ -470,7 +470,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 
 	return &smolexporter{
 		Exporter: exporter,
-		client:   client,
+		client:   gclient,
 		stop:     stop,
 		killpod: func(ctx context.Context) {
 			k.delpod(ctx, fp.pod)
