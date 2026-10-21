@@ -181,6 +181,19 @@ func urn(sc common.Scope, service, resourceType, id string) string {
 	return fmt.Sprintf("urn:openstack:%s:%s:%s:%s:%s", sc.ProjectID, service, sc.Region, resourceType, id)
 }
 
+// identifierEndpoint carries the connector options a new connector for this
+// resource is prefilled with.
+func identifierEndpoint(sc common.Scope, id string) inventory.HostEndpoint {
+	return inventory.HostEndpoint{
+		Type:     inventory.EndpointIdentifier,
+		Endpoint: id,
+		Attributes: map[string]string{
+			"openstack_auth_url": sc.AuthURL,
+			"openstack_region":   sc.Region,
+		},
+	}
+}
+
 func serverEntry(sc common.Scope, s servers.Server) *inventory.InventoryEntry {
 	e := &inventory.InventoryEntry{
 		Class:     pkg.ResourceClassCompute,
@@ -191,7 +204,7 @@ func serverEntry(sc common.Scope, s servers.Server) *inventory.InventoryEntry {
 		Service:   "nova",
 		Resource:  "nova:server",
 		Tags:      append(metadataTags(s.Metadata), serverTags(s)...),
-		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: s.ID}},
+		Endpoints: []inventory.HostEndpoint{identifierEndpoint(sc, s.ID)},
 	}
 	for _, addr := range serverAddresses(s) {
 		e.Endpoints = append(e.Endpoints, addressEndpoint(addr))
@@ -225,7 +238,7 @@ func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 		Service:   "cinder",
 		Resource:  "cinder:volume",
 		Tags:      metadataTags(v.Metadata),
-		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: v.ID}},
+		Endpoints: []inventory.HostEndpoint{identifierEndpoint(sc, v.ID)},
 	}
 	if e.Name == "" {
 		e.Name = v.ID // Cinder volumes are often unnamed
@@ -252,7 +265,7 @@ func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
 		Resource: "cinder:spawner",
 		Tags:     []string{},
 		Endpoints: []inventory.HostEndpoint{
-			{Type: inventory.EndpointIdentifier, Endpoint: common.SpawnLocation, Attributes: map[string]string{"openstack_region": sc.Region}},
+			identifierEndpoint(sc, common.SpawnLocation),
 		},
 	}
 }

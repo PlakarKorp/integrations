@@ -71,7 +71,7 @@ func (s *stubAPI) ListDatabases(context.Context) iter.Seq2[instances.Instance, e
 	return seq(s.databases, s.databasesErr)
 }
 func (s *stubAPI) Scope() common.Scope {
-	return common.Scope{ProjectID: "p1", Region: cmp.Or(s.region, "RegionOne")}
+	return common.Scope{AuthURL: "https://keystone.example/v3", ProjectID: "p1", Region: cmp.Or(s.region, "RegionOne")}
 }
 
 func listAll(t *testing.T, apis ...openstackAPI) ([]*inventory.InventoryEntry, error) {
@@ -108,7 +108,7 @@ func TestListMapsEveryResource(t *testing.T) {
 			Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
 			Tags: []string{},
 			Endpoints: []inventory.HostEndpoint{
-				{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+				{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
 			},
 		},
 		{
@@ -116,7 +116,7 @@ func TestListMapsEveryResource(t *testing.T) {
 			Name: "web", Region: "RegionOne", Service: "nova", Resource: "nova:server",
 			Tags: []string{"env=prod", "team=web", "frontend"}, // metadata sorted by key, then Nova tags
 			Endpoints: []inventory.HostEndpoint{
-				{Type: inventory.EndpointIdentifier, Endpoint: "s1"},
+				{Type: inventory.EndpointIdentifier, Endpoint: "s1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
 				{Type: inventory.EndpointInet4, Endpoint: "10.0.0.5"},
 				{Type: inventory.EndpointInet6, Endpoint: "2001:db8::5"},
 			},
@@ -125,7 +125,7 @@ func TestListMapsEveryResource(t *testing.T) {
 			Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:volume:v1",
 			Name: "v1", Region: "RegionOne", Service: "cinder", Resource: "cinder:volume",
 			Tags:      []string{"backup=daily"},
-			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "v1"}},
+			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "v1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}}},
 		},
 		{
 			Class: pkg.ResourceClassObjectStorage, URN: "urn:openstack:p1:swift:RegionOne:container:media",
@@ -216,13 +216,13 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 }
 
 func TestVolumeSpawnerEntry(t *testing.T) {
-	e := volumeSpawnerEntry(common.Scope{ProjectID: "p1", Region: "RegionOne"})
+	e := volumeSpawnerEntry(common.Scope{AuthURL: "https://keystone.example/v3", ProjectID: "p1", Region: "RegionOne"})
 	assert.Equal(t, &inventory.InventoryEntry{
 		Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
 		Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
 		Tags: []string{},
 		Endpoints: []inventory.HostEndpoint{
-			{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_region": "RegionOne"}},
+			{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
 		},
 	}, e)
 }
