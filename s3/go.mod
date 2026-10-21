@@ -1,6 +1,6 @@
 module github.com/PlakarKorp/integrations/s3
 
-go 1.25.0
+go 1.26.10
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0-beta.1.0.20260609150419-4b5b13c5b8b7
