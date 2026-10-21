@@ -193,17 +193,10 @@ func uploadDisk(ctx context.Context, client *common.Client, record *connectors.R
 		return "", fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
 	}
 
-	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, diskFormat(metadata), common.RestoreImageProperties(metadata))
+	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, common.DiskFormat(metadata), common.RestoreImageProperties(metadata))
 	if err != nil {
 		return "", fmt.Errorf("upload disk %q: %w", volumeID, err)
 	}
 	log.Printf("openstack-block: uploaded restore image %q for volume %q", image.ID, volumeID)
 	return image.ID, nil
-}
-
-func diskFormat(metadata *common.DiskMetadata) string {
-	if metadata.Image == nil || metadata.Image.DiskFormat == "" {
-		return common.DefaultDiskFormat
-	}
-	return metadata.Image.DiskFormat
 }
