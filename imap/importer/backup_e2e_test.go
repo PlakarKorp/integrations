@@ -179,7 +179,7 @@ func TestBackupTrickyMailbox(t *testing.T) {
 	require.NoError(t, err)
 	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
+	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
 
 	builder, err := snapshot.Create(repo, repository.DefaultType, "", [32]byte{}, &snapshot.BuilderOptions{})
@@ -284,7 +284,7 @@ func TestBackupSubfolderScope(t *testing.T) {
 	require.NoError(t, err)
 	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
+	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
 	builder, err := snapshot.Create(repo, repository.DefaultType, "", [32]byte{}, &snapshot.BuilderOptions{})
 	require.NoError(t, err)

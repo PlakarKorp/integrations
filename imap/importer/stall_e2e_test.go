@@ -131,7 +131,7 @@ func TestBackupStallDoesNotHangForever(t *testing.T) {
 	require.NoError(t, err)
 	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
+	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
 	builder, err := snapshot.Create(repo, 0, "", [32]byte{}, &snapshot.BuilderOptions{})
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestBackupTransientStallRetries(t *testing.T) {
 	require.NoError(t, err)
 	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
+	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
 	builder, err := snapshot.Create(repo, 0, "", [32]byte{}, &snapshot.BuilderOptions{})
 	require.NoError(t, err)
