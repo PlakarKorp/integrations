@@ -154,13 +154,14 @@ func New(
 	}
 
 	var kubeconf []byte
+	var kubeconfErr error
 	if content := params["kubeconfig"]; content != "" {
 		kubeconf = []byte(content)
 	} else {
-		kubeconf, err = os.ReadFile(kubeconfpath)
-		if err != nil && hasKubeConfig {
+		kubeconf, kubeconfErr = os.ReadFile(kubeconfpath)
+		if kubeconfErr != nil && hasKubeConfig {
 			return nil, fmt.Errorf("failed to open %s: %w",
-				kubeconfpath, err)
+				kubeconfpath, kubeconfErr)
 		}
 	}
 
@@ -176,11 +177,8 @@ func New(
 			host = u.Host
 		}
 	} else if u.Host != "" {
-		config = &rest.Config{
-			Host: u.Host,
-		}
-		host = u.Host
-		portForward = true
+		// Without a kubeconfig there are no credentials for a remote host.
+		return nil, fmt.Errorf("no kubeconfig for %s: %w", u.Host, kubeconfErr)
 	} else {
 		config, err = rest.InClusterConfig()
 		if err != nil {

@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/PlakarKorp/kloset/connectors"
@@ -393,4 +394,13 @@ requiredDuringSchedulingIgnoredDuringExecution:
 			require.Equal(t, tt.want, k.nodeAffinity)
 		})
 	}
+}
+
+func TestNewRemoteHostRequiresKubeconfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	_, err := New(t.Context(), &connectors.Options{}, "k8s", map[string]string{
+		"location": "k8s://cluster.example/ns",
+	}, false)
+	require.ErrorIs(t, err, fs.ErrNotExist)
 }
