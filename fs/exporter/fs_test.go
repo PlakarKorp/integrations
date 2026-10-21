@@ -164,6 +164,38 @@ func TestExportDoesNotWriteThroughSymlink(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "wrote through the symlink into %s: %v", outside, err)
 }
 
+// Restoring over an existing entry replaces it, as it does for regular files.
+func TestExportSymlinkReplacesExisting(t *testing.T) {
+	// not enough permissions to create symlinks.
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+
+	root := t.TempDir()
+	require.NoError(t, os.Symlink("old", filepath.Join(root, "link")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("data"), 0644))
+
+	exp := newExporter(t, root)
+	errs := run(t, exp,
+		symlinkRecord("/link", "new"),
+		symlinkRecord("/file", "target"),
+	)
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+
+	target, err := os.Readlink(filepath.Join(root, "link"))
+	require.NoError(t, err)
+	require.Equal(t, "new", target)
+
+	target, err = os.Readlink(filepath.Join(root, "file"))
+	require.NoError(t, err)
+	require.Equal(t, "target", target)
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	require.Len(t, entries, 2, "temporary symlink left behind")
+}
+
 // Same shape, but the symlink is absolute and the write reaches it through a
 // deeper path.
 func TestExportDoesNotWriteThroughNestedSymlink(t *testing.T) {
