@@ -59,9 +59,14 @@ func (t *testClient) Do(req *http.Request) (*http.Response, error) {
 	return w.Result(), nil
 }
 
-func newwebdav(ctx context.Context, client webdav.HTTPClient, proto, insecure string) (*WebDAV, error) {
+func newwebdav(ctx context.Context, client webdav.HTTPClient, proto, insecure, location string) (*WebDAV, error) {
+
+	if location == "" {
+		location = "localhost"
+	}
+
 	params := map[string]string{
-		"location": proto + "://localhost",
+		"location": proto + "://" + location,
 	}
 	if insecure != "" {
 		params["insecure"] = insecure
@@ -79,7 +84,7 @@ func newwebdav(ctx context.Context, client webdav.HTTPClient, proto, insecure st
 }
 
 func TestMetadata(t *testing.T) {
-	webdav, err := newwebdav(t.Context(), nil, "dav", "true")
+	webdav, err := newwebdav(t.Context(), nil, "dav", "true", "")
 	require.NoError(t, err)
 	require.NotNil(t, webdav)
 
@@ -118,7 +123,7 @@ func TestInsecureOption(t *testing.T) {
 	}
 
 	for _, test := range suite {
-		webdav, err := newwebdav(t.Context(), nil, test.proto, fmt.Sprint(test.insecure))
+		webdav, err := newwebdav(t.Context(), nil, test.proto, fmt.Sprint(test.insecure), "")
 
 		msg := fmt.Sprintf("proto=%s insecure=%v", test.proto, test.insecure)
 		if test.ok {
@@ -138,12 +143,29 @@ func TestPing(t *testing.T) {
 
 	client := &testClient{handler: handler}
 
-	webdav, err := newwebdav(t.Context(), client, "dav", "true")
+	webdav, err := newwebdav(t.Context(), client, "dav", "true", "")
 	require.NoError(t, err)
 	require.NotNil(t, webdav)
 
 	err = webdav.Ping(t.Context())
 	require.NotNil(t, err)
+}
+
+func TestUserAgent(t *testing.T) {
+
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+	}))
+	defer srv.Close()
+
+	locationWithNoProto := strings.Replace(srv.URL, "http://", "", -1)
+
+	webdav, err := newwebdav(t.Context(), nil, "dav", "true", locationWithNoProto)
+	require.NoError(t, err)
+
+	webdav.Ping(t.Context())
+	require.Equal(t, "PlakarBackup/1.0", got)
 }
 
 func TestImport(t *testing.T) {
@@ -153,7 +175,7 @@ func TestImport(t *testing.T) {
 
 	client := &testClient{handler: handler}
 
-	webdav, err := newwebdav(t.Context(), client, "dav", "true")
+	webdav, err := newwebdav(t.Context(), client, "dav", "true", "")
 	require.NoError(t, err)
 	require.NotNil(t, webdav)
 
@@ -232,7 +254,7 @@ func TestImportFailingServer(t *testing.T) {
 
 	client := &testClient{handler: &mux}
 
-	webdav, err := newwebdav(t.Context(), client, "dav", "true")
+	webdav, err := newwebdav(t.Context(), client, "dav", "true", "")
 	require.NoError(t, err)
 	require.NotNil(t, webdav)
 
@@ -249,7 +271,7 @@ func TestExport(t *testing.T) {
 		client  = &testClient{handler: handler}
 	)
 
-	webdav, err := newwebdav(t.Context(), client, "dav", "true")
+	webdav, err := newwebdav(t.Context(), client, "dav", "true", "")
 	require.NoError(t, err)
 	require.NotNil(t, webdav)
 

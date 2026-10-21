@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -24,6 +26,16 @@ type WebDAV struct {
 	concurrency int
 }
 
+// CustomUserAgentTransport override HTTP client to change User-Agent
+type CustomUserAgentTransport struct {
+	Transport http.RoundTripper
+}
+
+func (c *CustomUserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", "PlakarBackup/1.0")
+	return c.Transport.RoundTrip(req)
+}
+
 func init() {
 	importer.Register("dav", 0, NewImporter)
 	importer.Register("davs", 0, NewImporter)
@@ -33,6 +45,15 @@ func init() {
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string, baseClient webdav.HTTPClient) (*WebDAV, error) {
+
+	customTransport := &CustomUserAgentTransport{Transport: http.DefaultTransport}
+
+	if baseClient == nil {
+		baseClient = &http.Client{
+			Transport: customTransport,
+		}
+	}
+
 	httpc := baseClient
 	if u, ok := params["username"]; ok {
 		httpc = webdav.HTTPClientWithBasicAuth(httpc, u, params["password"])
@@ -129,6 +150,22 @@ func (w *WebDAV) Import(ctx context.Context, records chan<- *connectors.Record, 
 	})
 }
 
+// contained joins a record pathname onto root and refuses anything that would
+// land outside of it.
+//
+// path.Join cleans as it goes, so a record pathname of "/../../etc/x" would
+// otherwise resolve above the collection we were pointed at and be written
+// there.  WebDAV paths are always slash-separated.
+func contained(root, pathname string) (string, error) {
+	joined := path.Join(root, pathname)
+	cleanRoot := path.Clean(root)
+
+	if joined != cleanRoot && !strings.HasPrefix(joined, strings.TrimSuffix(cleanRoot, "/")+"/") {
+		return "", fmt.Errorf("path %q escapes the restore root %q", pathname, cleanRoot)
+	}
+	return joined, nil
+}
+
 func (w *WebDAV) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
@@ -138,7 +175,11 @@ func (w *WebDAV) Export(ctx context.Context, records <-chan *connectors.Record, 
 			continue
 		}
 
-		dest := path.Join(w.location.Path, record.Pathname)
+		dest, err := contained(w.location.Path, record.Pathname)
+		if err != nil {
+			results <- record.Error(err)
+			continue
+		}
 
 		if record.FileInfo.IsDir() {
 			err := w.client.Mkdir(ctx, dest)
