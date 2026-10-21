@@ -20,13 +20,11 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -39,9 +37,9 @@ var ImporterSchema []byte
 type Importer struct {
 	client   *common.Client
 	volumeID string
-	// cleanup holds the snapshot, temporary volume and image a backup
-	// creates. Closing the disk reader runs it; Close runs whatever is left,
-	// for when the reader was never opened.
+	// cleanup holds the snapshot, temporary volume and its attachment or
+	// image a backup creates. Closing the disk reader runs it; Close runs
+	// whatever is left, for when the reader was never opened.
 	cleanup common.Cleanup
 }
 
@@ -88,47 +86,30 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	if err != nil {
 		return err
 	}
-	if host, err := cinder.Preflight(ctx, imp.client, vol); err == nil {
-		// The host is a Nova server of this cloud, so the volume could be
-		// attached to it and read from a local block device. That path is not
-		// written yet: note it and take the Glance one.
-		log.Printf("openstack-block: volume %q could be attached to server %q; reading it through Glance", imp.volumeID, host.ID)
-	}
 
-	// Snapshot the volume and turn the snapshot into a Glance image. The
-	// temporary resources go into imp.cleanup, for Close to delete on failure.
-	snap, err := imp.client.SnapshotVolume(ctx, imp.volumeID, &imp.cleanup)
-	if err != nil {
-		return err
-	}
-	vi, err := imp.client.CreateVolumeImage(ctx, snap.ID, &imp.cleanup)
+	// Snapshot the volume and get at the snapshot's bytes. The temporary
+	// resources go into imp.cleanup, for Close to delete on failure.
+	disk, err := imp.client.ReadVolume(ctx, vol, &imp.cleanup)
 	if err != nil {
 		return err
 	}
 
-	// Emit the disk. Plakar downloads it when it reads the record, and closing
-	// the download deletes the temporary resources.
-	disk := block.DiskName(imp.volumeID)
+	// Emit the disk. Plakar reads it when it opens the record, and closing
+	// the reader deletes the temporary resources.
+	name := block.DiskName(imp.volumeID, common.DiskFormat(disk.Metadata))
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case records <- connectors.NewRecord("/"+disk, "", objects.FileInfo{
-		Lname:    disk,
+	case records <- connectors.NewRecord("/"+name, "", objects.FileInfo{
+		Lname:    name,
 		Lmode:    0600,
 		Lsize:    -1,
 		LmodTime: time.Unix(0, 0),
-	}, nil, imp.client.ImageReader(ctx, vi.Image.ID, &imp.cleanup)):
+	}, nil, disk.Reader):
 	}
 
-	// Emit what restore needs to recreate the volume, including the image's real
-	// disk format.
-	metadata := &common.DiskMetadata{
-		Origin:          common.DiskOriginCinder,
-		Image:           vi.Image,
-		ImageProperties: common.EncryptionImageProperties(vi.Image),
-		Volume:          vi.Volume,
-		Snapshot:        vi.Snapshot,
-	}
+	// Emit what restore needs to recreate the volume, including the disk's
+	// real format.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -137,7 +118,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		Lmode:    0600,
 		Lsize:    -1,
 		LmodTime: time.Unix(0, 0),
-	}, nil, common.JSONReader(metadata)):
+	}, nil, common.JSONReader(disk.Metadata)):
 	}
 	return nil
 }

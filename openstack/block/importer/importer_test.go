@@ -31,7 +31,7 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/cinder"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -50,13 +50,14 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
-// newImporter also points the attach preflight at cloud's metadata service,
-// so the host the tests run on never passes for a Nova server by accident.
+// newImporter also points the attach preflight at cloud's metadata service
+// and device directory, so the host the tests run on never passes for a Nova
+// server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
-	saved := cinder.MetadataURL
-	cinder.MetadataURL = cloud.MetadataURL
-	t.Cleanup(func() { cinder.MetadataURL = saved })
+	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
+	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
+	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
 	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
 	require.NoError(t, err)
@@ -100,6 +101,7 @@ func TestImportBacksUpVolume(t *testing.T) {
 	require.NoError(t, json.NewDecoder(records[1].Reader).Decode(&metadata))
 	assert.Equal(t, common.DiskOriginCinder, metadata.Origin)
 	assert.Equal(t, "vol-1", metadata.Volume.ID)
+	assert.Equal(t, "qcow2", metadata.DiskFormat)
 	assert.Equal(t, "qcow2", metadata.Image.DiskFormat)
 
 	require.NoError(t, imp.Close(t.Context()))
@@ -128,32 +130,59 @@ func TestImportBacksUpEncryptionKeyID(t *testing.T) {
 
 }
 
-// On a Nova server of the backed-up cloud, the backup notes the volume could
-// be attached, and still goes through Glance.
-func TestImportNotesAttachableHost(t *testing.T) {
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-
-	cloud := keystonetest.NewCloud(t, "vol-1")
+// onCloud makes the test host a Nova server of cloud.
+func onCloud(cloud *keystonetest.Cloud) {
 	cloud.HostID = "host-1"
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"server":{"id":"host-1","status":"ACTIVE"}}`))
 	})
+}
+
+// On a Nova server of the backed-up cloud, the backup attaches a clone of
+// the volume to it and reads the block device, raw, with no image made. The
+// disk keeps its .qcow2 name; the metadata carries the real format.
+func TestImportReadsAttachedVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	onCloud(cloud)
 	imp := newImporter(t, cloud)
 
 	records, err := importAll(t.Context(), imp)
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-
-	assert.Contains(t, logs.String(), `volume "vol-1" could be attached to server "host-1"`)
+	assert.Equal(t, "/vol-1.raw", records[0].Pathname)
+	assert.Equal(t, []string{"snapshot-1", "tmp-2"}, cloud.Leftovers(), "no image")
+	assert.Equal(t, []string{"tmp-2"}, cloud.Attached())
 
 	disk, err := io.ReadAll(records[0].Reader)
 	require.NoError(t, err)
 	assert.Equal(t, cloud.Disk, disk)
 	require.NoError(t, records[0].Close())
+	assert.Empty(t, cloud.Attached(), "closing the disk detaches the clone")
+	assert.Empty(t, cloud.Leftovers())
+
+	var metadata common.DiskMetadata
+	require.NoError(t, json.NewDecoder(records[1].Reader).Decode(&metadata))
+	assert.Equal(t, common.DiskOriginCinder, metadata.Origin)
+	assert.Equal(t, "raw", metadata.DiskFormat)
+	assert.Nil(t, metadata.Image)
+	assert.Equal(t, "vol-1", metadata.Volume.ID)
+
 	require.NoError(t, imp.Close(t.Context()))
+}
+
+// Close detaches a clone plakar never read.
+func TestCloseDetachesUnreadVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	onCloud(cloud)
+	imp := newImporter(t, cloud)
+
+	_, err := importAll(t.Context(), imp)
+	require.NoError(t, err)
+	require.Equal(t, []string{"tmp-2"}, cloud.Attached())
+
+	require.NoError(t, imp.Close(t.Context()))
+	assert.Empty(t, cloud.Attached())
 	assert.Empty(t, cloud.Leftovers())
 }
 
