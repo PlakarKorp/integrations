@@ -151,22 +151,6 @@ type VolumeRequest struct {
 }
 
 type resource struct {
-<<<<<<< HEAD
-	kind      string // volume, snapshot or image
-	ours      bool   // created during the test, not given to NewCloud
-	source    string // the snapshot a volume was made from, or an image's volume
-	creating  int    // reads left reporting creating
-	uploading int    // reads left reporting uploading
-	deleting  int    // reads left reporting deleting, once deleted
-	deleted   bool
-	queued    bool   // an image created through Glance, waiting for its data
-	format    string // an image's disk_format, when not qcow2
-	final     string // the status a volume ends in, when not available
-	encrypted bool   // a volume of an encrypted type
-	// imageMetadata is a volume's image metadata, set through
-	// os-set_image_metadata.
-	imageMetadata map[string]string
-=======
 	kind       string // volume, snapshot or image
 	ours       bool   // created during the test, not given to NewCloud
 	source     string // the snapshot a volume was made from, or an image's volume
@@ -181,7 +165,9 @@ type resource struct {
 	attachedTo string // the server a volume is attached to
 	detaching  int    // reads left reporting detaching, once detached
 	fromCinder bool   // an image Cinder uploads a volume to
->>>>>>> 40d97b1b (volume: split operations and add attach/detach support)
+	// imageMetadata is a volume's image metadata, set through
+	// os-set_image_metadata.
+	imageMetadata map[string]string
 }
 
 // Encrypt marks an existing volume as being of an encrypted type.
@@ -592,7 +578,6 @@ func (c *Cloud) setImageFormat(id, format string) {
 	}
 }
 
-<<<<<<< HEAD
 // setImageMetadata merges md into volume id's image metadata, as
 // os-set_image_metadata does. It refuses a volume that is still creating.
 func (c *Cloud) setImageMetadata(id string, md map[string]string) bool {
@@ -626,8 +611,6 @@ func (c *Cloud) isEncrypted(id string) bool {
 	return ok && r.encrypted
 }
 
-=======
->>>>>>> 40d97b1b (volume: split operations and add attach/detach support)
 // isEncryptedChain reports whether id, or whatever it was ultimately
 // snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
 // images created along that chain inherit the source's encrypted type.
