@@ -2,7 +2,9 @@ package etcd
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,17 +28,23 @@ type etcd struct {
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
-	location := config["location"]
-	switch proto {
-	case "etcd":
-		location = "http" + location[len(proto):]
-	case "etcd+http", "etcd+https":
-		location = location[len("etcd+"):]
+	plaintext := false
+	if v := config["plaintext"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid plaintext value %q", v)
+		}
+		plaintext = b
 	}
+
+	location := endpoint(proto, config["location"], plaintext)
 
 	// extract the "hostname" from location, needed for Origin(),
 	// i.e. metadata.
-	origin := location[len(proto)+3:] // +3 for ://
+	origin := location
+	if _, rest, found := strings.Cut(origin, "://"); found {
+		origin = rest
+	}
 	origin, _, _ = strings.Cut(origin, "/")
 
 	endpoints := []string{location}
@@ -44,10 +52,17 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 		endpoints = strings.Split(es, ",")
 	}
 
+	tlsConfig, err := etcdTLS(config)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := clientv3.New(clientv3.Config{
-		Endpoints: endpoints,
-		Username:  config["username"],
-		Password:  config["password"],
+		Endpoints:   endpoints,
+		Username:    config["username"],
+		Password:    config["password"],
+		DialTimeout: 30 * time.Second,
+		TLS:         tlsConfig,
 	})
 	if err != nil {
 		return nil, err
@@ -93,4 +108,18 @@ func (e *etcd) Import(ctx context.Context, records chan<- *connectors.Record, re
 
 func (e *etcd) Close(ctx context.Context) error {
 	return e.client.Close()
+}
+
+func endpoint(proto, location string, plaintext bool) string {
+	switch proto {
+	case "etcd":
+		scheme := "https"
+		if plaintext {
+			scheme = "http"
+		}
+		return scheme + strings.TrimPrefix(location, proto)
+	case "etcd+http", "etcd+https":
+		return strings.TrimPrefix(location, "etcd+")
+	}
+	return location
 }
