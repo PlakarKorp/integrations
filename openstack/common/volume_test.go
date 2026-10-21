@@ -19,6 +19,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,20 +46,30 @@ func connectCloud(t *testing.T, cloud *keystonetest.Cloud) *Client {
 	return clients[0]
 }
 
-// backupVolume snapshots the volume and turns the snapshot into an image, as
-// the importers do.
-func backupVolume(ctx context.Context, client *Client, volumeID string, cleanup *Cleanup) (*VolumeImage, error) {
+// cloneVolume snapshots the volume and clones the snapshot into a temporary
+// volume, as a backup starts.
+func cloneVolume(ctx context.Context, client *Client, volumeID string, cleanup *Cleanup) (*volumes.Volume, error) {
 	snap, err := client.SnapshotVolume(ctx, volumeID, cleanup)
 	if err != nil {
 		return nil, err
 	}
-	return client.CreateVolumeImage(ctx, snap.ID, cleanup)
+	return client.CreateVolumeFromSnapshot(ctx, snap, cleanup)
 }
 
-// CreateVolumeImage works from a snapshot ID alone, and only its own
-// resources, the temporary volume and the image, go into its cleanup: the
-// snapshot stays with SnapshotVolume's.
-func TestCreateVolumeImageFromSnapshot(t *testing.T) {
+// backupVolume snapshots the volume, clones the snapshot and uploads the
+// clone to an image: a backup's Glance path.
+func backupVolume(ctx context.Context, client *Client, volumeID string, cleanup *Cleanup) (*images.Image, error) {
+	tmp, err := cloneVolume(ctx, client, volumeID, cleanup)
+	if err != nil {
+		return nil, err
+	}
+	return client.UploadVolumeImage(ctx, tmp, cleanup)
+}
+
+// CreateVolumeFromSnapshot and UploadVolumeImage work from the snapshot
+// alone, and only their own resources, the temporary volume and the image, go
+// into their cleanup: the snapshot stays with SnapshotVolume's.
+func TestCloneAndUploadFromSnapshot(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	client := connectCloud(t, cloud)
 
@@ -65,16 +77,108 @@ func TestCreateVolumeImageFromSnapshot(t *testing.T) {
 	snap, err := client.SnapshotVolume(t.Context(), "vol-1", &snapCleanup)
 	require.NoError(t, err)
 
-	vi, err := client.CreateVolumeImage(t.Context(), snap.ID, &imageCleanup)
+	tmp, err := client.CreateVolumeFromSnapshot(t.Context(), snap, &imageCleanup)
 	require.NoError(t, err)
-	assert.Equal(t, "vol-1", vi.Volume.ID)
-	assert.Equal(t, snap.ID, vi.Snapshot.ID)
-	assert.NotEmpty(t, vi.Image.ID)
+	assert.Equal(t, "available", tmp.Status)
+	img, err := client.UploadVolumeImage(t.Context(), tmp, &imageCleanup)
+	require.NoError(t, err)
+	assert.NotEmpty(t, img.ID)
 
 	imageCleanup.Run(t.Context())
 	assert.Equal(t, []string{snap.ID}, cloud.Leftovers())
 
 	snapCleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// Cinder deletes the image when its upload of the volume fails, so a 404 on
+// the image once the volume is no longer uploading is the upload's failure,
+// reported as such rather than as a transient read error.
+func TestUploadVolumeImageReportsCinderDeletingImage(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.UploadDies = true
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `upload volume "tmp-2" to image "image-3": Cinder deleted the image`)
+	assert.ErrorContains(t, err, "the volume is available")
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// An attached temporary volume is detached before it is deleted, as Cinder
+// refuses to delete a volume in use, and after it reports detaching for a
+// while.
+func TestCleanupDetachesBeforeDeleting(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.DetachingPolls = 2
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	tmp, err := cloneVolume(t.Context(), client, "vol-1", &cleanup)
+	require.NoError(t, err)
+	require.NoError(t, client.AttachTempVolume(t.Context(), "host-1", tmp, &cleanup))
+	assert.Equal(t, []string{tmp.ID}, cloud.Attached())
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Attached())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// Detach alone leaves the volume available for the Glance path, and nothing
+// for Run to detach.
+func TestCleanupDetachAlone(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.DetachingPolls = 2
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	tmp, err := cloneVolume(t.Context(), client, "vol-1", &cleanup)
+	require.NoError(t, err)
+	require.NoError(t, cleanup.Detach(t.Context()), "nothing attached is not an error")
+	require.NoError(t, client.AttachTempVolume(t.Context(), "host-1", tmp, &cleanup))
+
+	require.NoError(t, cleanup.Detach(t.Context()))
+	assert.Empty(t, cloud.Attached())
+	vol, err := client.GetVolume(t.Context(), tmp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "available", vol.Status)
+
+	_, err = client.UploadVolumeImage(t.Context(), tmp, &cleanup)
+	require.NoError(t, err)
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// AttachTempVolume only attaches cleanup's own temporary volume: a mix-up
+// would leave the attachment out of cleanup.
+func TestAttachTempVolumeRefusesAnotherVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	err := client.AttachTempVolume(t.Context(), "host-1", &volumes.Volume{ID: "vol-1"}, &cleanup)
+	require.ErrorContains(t, err, `attach volume "vol-1": it is not cleanup's temporary volume`)
+	assert.Empty(t, cloud.Attached())
+}
+
+// Nova refusing the attach leaves nothing to detach.
+func TestAttachTempVolumeFails(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.FailVolumeAttach = true
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	tmp, err := cloneVolume(t.Context(), client, "vol-1", &cleanup)
+	require.NoError(t, err)
+	err = client.AttachTempVolume(t.Context(), "host-1", tmp, &cleanup)
+	require.ErrorContains(t, err, fmt.Sprintf(`attach volume %q to server "host-1"`, tmp.ID))
+	assert.Empty(t, cleanup.attachedTo)
+
+	cleanup.Run(t.Context())
 	assert.Empty(t, cloud.Leftovers())
 }
 
@@ -91,7 +195,7 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
+	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NotEmpty(t, cloud.Leftovers())
 
@@ -100,29 +204,29 @@ func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {
 }
 
 // Cinder rejects any disk format but raw for a volume of an encrypted type.
-func TestCreateVolumeImageUsesRawForEncryptedVolume(t *testing.T) {
+func TestUploadVolumeImageUsesRawForEncryptedVolume(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	cloud.Encrypt("vol-1")
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	img, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
-	assert.Equal(t, "raw", vi.Image.DiskFormat)
+	assert.Equal(t, "raw", img.DiskFormat)
 
 	cleanup.Run(t.Context())
 	assert.Empty(t, cloud.Leftovers())
 }
 
 // An unencrypted volume keeps the default, qcow2.
-func TestCreateVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
+func TestUploadVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	img, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
-	assert.Equal(t, "qcow2", vi.Image.DiskFormat)
+	assert.Equal(t, "qcow2", img.DiskFormat)
 
 	cleanup.Run(t.Context())
 }
@@ -135,7 +239,7 @@ func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
 
 	cleanup.Run(t.Context())
@@ -153,7 +257,7 @@ func TestWaitStatusGivesUpOnPersistentGetErrors(t *testing.T) {
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `get image "image-`)
 
@@ -249,7 +353,7 @@ func TestCleanupLogsWhenWaitGivesUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	var cleanup Cleanup
-	_, err := client.CreateVolumeImage(ctx, "vol-1", &cleanup)
+	_, err := backupVolume(ctx, client, "vol-1", &cleanup)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	cleanup.Run(t.Context())

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/imagedata"
 )
@@ -50,6 +51,30 @@ type imageDownload struct {
 
 func (r *imageDownload) Close() error {
 	err := r.ReadCloser.Close()
+	r.cleanup.Run(r.ctx)
+	return err
+}
+
+// DeviceReader reads the block device an attached volume turns up as, and
+// runs cleanup once the read is closed, as ImageReader does.
+func (c *Client) DeviceReader(ctx context.Context, device string, cleanup *Cleanup) func() (io.ReadCloser, error) {
+	return func() (io.ReadCloser, error) {
+		f, err := os.Open(device)
+		if err != nil {
+			return nil, err
+		}
+		return &deviceRead{File: f, ctx: ctx, cleanup: cleanup}, nil
+	}
+}
+
+type deviceRead struct {
+	*os.File
+	ctx     context.Context
+	cleanup *Cleanup
+}
+
+func (r *deviceRead) Close() error {
+	err := r.File.Close()
 	r.cleanup.Run(r.ctx)
 	return err
 }

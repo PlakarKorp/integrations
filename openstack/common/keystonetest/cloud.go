@@ -24,6 +24,8 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -57,11 +59,31 @@ type Cloud struct {
 	// HostProject is the project the metadata service reports; Project if
 	// empty.
 	HostProject string
-	// Disk is the content of every image.
+	// DeviceDir stands in for the host's /dev/disk/by-id: attaching a volume
+	// to any server puts a file named after it there, holding Disk, as the
+	// host's kernel would show a volume attached to it; detaching removes
+	// it. The name is the one Nova's libvirt driver gives a volume,
+	// virtio-<first 20 characters of its ID>.
+	DeviceDir string
+	// NoDevice makes an attached volume never turn up in DeviceDir.
+	NoDevice bool
+	// DeviceUnreadable makes the device turn up with no permissions, as a
+	// real one has for a process that is neither root nor in the disk
+	// group.
+	DeviceUnreadable bool
+	// DetachingPolls is how many reads report a detached volume as detaching
+	// before it is available again.
+	DetachingPolls int
+	// Disk is the content of every image, and of every attached volume.
 	Disk []byte
 	// ImageSize overrides an image's reported byte size; 0 means len(Disk).
-	ImageSize    int
-	FailUpload   bool
+	ImageSize int
+	// FailUpload makes Cinder refuse to upload a volume to an image.
+	FailUpload bool
+	// UploadDies makes Cinder's upload of a volume fail once the volume is
+	// done uploading: the image is deleted, as Cinder does, and the volume
+	// is available again.
+	UploadDies   bool
 	FailDownload bool
 	// FailDeletes is how many deletes fail with a 500, leaving the resource.
 	FailDeletes int
@@ -129,17 +151,20 @@ type VolumeRequest struct {
 }
 
 type resource struct {
-	kind      string // volume, snapshot or image
-	ours      bool   // created during the test, not given to NewCloud
-	source    string // the snapshot a volume was made from, or an image's volume
-	creating  int    // reads left reporting creating
-	uploading int    // reads left reporting uploading
-	deleting  int    // reads left reporting deleting, once deleted
-	deleted   bool
-	queued    bool   // an image created through Glance, waiting for its data
-	format    string // an image's disk_format, when not qcow2
-	final     string // the status a volume ends in, when not available
-	encrypted bool   // a volume of an encrypted type
+	kind       string // volume, snapshot or image
+	ours       bool   // created during the test, not given to NewCloud
+	source     string // the snapshot a volume was made from, or an image's volume
+	creating   int    // reads left reporting creating
+	uploading  int    // reads left reporting uploading
+	deleting   int    // reads left reporting deleting, once deleted
+	deleted    bool
+	queued     bool   // an image created through Glance, waiting for its data
+	format     string // an image's disk_format, when not qcow2
+	final      string // the status a volume ends in, when not available
+	encrypted  bool   // a volume of an encrypted type
+	attachedTo string // the server a volume is attached to
+	detaching  int    // reads left reporting detaching, once detached
+	fromCinder bool   // an image Cinder uploads a volume to
 }
 
 // Encrypt marks an existing volume as being of an encrypted type.
@@ -155,6 +180,7 @@ func (c *Cloud) Encrypt(id string) {
 func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	t.Helper()
 	c := &Cloud{
+		DeviceDir: t.TempDir(),
 		Disk:      []byte("disk bytes"),
 		t:         t,
 		resources: map[string]*resource{},
@@ -199,7 +225,8 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			return
 		}
 		v := volume(id, status)
-		if c.isEncrypted(id) {
+		// A volume made from an encrypted one's snapshot is encrypted too.
+		if c.isEncryptedChain(id) {
 			v["encrypted"] = true
 		}
 		c.reply(w, http.StatusOK, map[string]any{"volume": v})
@@ -389,12 +416,26 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			} `json:"volumeAttachment"`
 		}
 		c.decode(r, &body)
-		c.reply(w, http.StatusOK, map[string]any{"volumeAttachment": map[string]any{
-			"id":       body.VolumeAttachment.VolumeID,
-			"volumeId": body.VolumeAttachment.VolumeID,
-			"device":   body.VolumeAttachment.Device,
-			"serverId": r.PathValue("id"),
-		}})
+		switch status := c.attach(body.VolumeAttachment.VolumeID, r.PathValue("id")); status {
+		case 0:
+			c.unexpected(w, r)
+		case http.StatusOK:
+			c.reply(w, status, map[string]any{"volumeAttachment": map[string]any{
+				"id":       body.VolumeAttachment.VolumeID,
+				"volumeId": body.VolumeAttachment.VolumeID,
+				"device":   body.VolumeAttachment.Device,
+				"serverId": r.PathValue("id"),
+			}})
+		default:
+			c.reply(w, status, nil)
+		}
+	})
+	mux.HandleFunc("DELETE /compute/servers/{id}/os-volume_attachments/{volume}", func(w http.ResponseWriter, r *http.Request) {
+		if !c.detach(r.PathValue("volume"), r.PathValue("id")) {
+			c.unexpected(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
 	})
 	mux.HandleFunc("GET /openstack/latest/meta_data.json", func(w http.ResponseWriter, r *http.Request) {
 		if c.HostID == "" {
@@ -522,13 +563,6 @@ func (c *Cloud) setImageFormat(id, format string) {
 	}
 }
 
-func (c *Cloud) isEncrypted(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r, ok := c.resources[id]
-	return ok && r.encrypted
-}
-
 // isEncryptedChain reports whether id, or whatever it was ultimately
 // snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
 // images created along that chain inherit the source's encrypted type.
@@ -585,11 +619,71 @@ func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 	switch kind {
 	case "image":
 		c.resources[source].uploading = c.UploadingPolls
+		r.fromCinder = true
 	default:
 		r.creating = c.CreatingPolls
 	}
 	c.resources[id] = r
 	return id, true
+}
+
+// attach returns the status of attaching the volume to the server, or 0 for
+// one the client must not make. Like Nova, it refuses a volume that is not
+// available. The device turns up in DeviceDir at once.
+func (c *Cloud) attach(volumeID, serverID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.resources[volumeID]
+	switch {
+	case !ok || r.kind != "volume" || r.deleted:
+		return 0
+	case r.creating > 0 || r.uploading > 0 || r.detaching > 0 || r.attachedTo != "" || r.final != "":
+		return http.StatusBadRequest
+	}
+	r.attachedTo = serverID
+	if !c.NoDevice {
+		mode := os.FileMode(0o600)
+		if c.DeviceUnreadable {
+			mode = 0
+		}
+		assert.NoError(c.t, os.WriteFile(c.devicePath(volumeID), c.Disk, mode))
+	}
+	return http.StatusOK
+}
+
+// detach reports whether the volume was attached to the server, and detaches
+// it: the device goes at once, the volume reports detaching for a while.
+func (c *Cloud) detach(volumeID, serverID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.resources[volumeID]
+	if !ok || r.attachedTo != serverID {
+		return false
+	}
+	r.attachedTo = ""
+	r.detaching = c.DetachingPolls
+	if err := os.Remove(c.devicePath(volumeID)); err != nil {
+		assert.ErrorIs(c.t, err, os.ErrNotExist)
+	}
+	return true
+}
+
+func (c *Cloud) devicePath(volumeID string) string {
+	return filepath.Join(c.DeviceDir, "virtio-"+volumeID[:min(len(volumeID), 20)])
+}
+
+// Attached lists the volumes attached to any server, for checking that a
+// backup detached what it attached.
+func (c *Cloud) Attached() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, id := range slices.Sorted(maps.Keys(c.resources)) {
+		if c.resources[id].attachedTo != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // consumeFailImageRead reports whether this read should fail, decrementing FailImageReads.
@@ -637,12 +731,23 @@ func (c *Cloud) read(id, kind string) (string, bool) {
 	case r.uploading > 0:
 		r.uploading--
 		return "uploading", true
+	case r.detaching > 0:
+		r.detaching--
+		return "detaching", true
+	case r.attachedTo != "":
+		return "in-use", true
 	case r.final != "":
 		return r.final, true
 	case kind == "image" && r.queued:
 		return "queued", true
 	case kind == "image" && c.resources[r.source] != nil && c.resources[r.source].uploading > 0:
 		return "saving", true
+	case kind == "image" && r.fromCinder && c.UploadDies:
+		// Cinder deletes the image once its upload fails, behind the
+		// client's back.
+		delete(c.resources, id)
+		c.vanished[id] = true
+		return "", false
 	case kind == "image":
 		return cmp.Or(c.ImageStatus, "active"), true
 	case kind == "snapshot":
@@ -676,8 +781,10 @@ func (c *Cloud) applyDelete(id string) int {
 	switch {
 	case !ok || !res.ours || res.deleted:
 		return 0
-	// Glance deletes an image in any state; Cinder refuses a busy resource.
-	case res.kind != "image" && (res.creating > 0 || res.uploading > 0), res.kind == "snapshot" && c.dependedOn(id):
+	// Glance deletes an image in any state; Cinder refuses a busy or attached
+	// resource.
+	case res.kind != "image" && (res.creating > 0 || res.uploading > 0 || res.detaching > 0 || res.attachedTo != ""),
+		res.kind == "snapshot" && c.dependedOn(id):
 		return http.StatusBadRequest
 	case c.FailDeletes > 0:
 		c.FailDeletes--
