@@ -127,6 +127,9 @@ type resource struct {
 	format    string // an image's disk_format, when not qcow2
 	final     string // the status a volume ends in, when not available
 	encrypted bool   // a volume of an encrypted type
+	// imageMetadata is a volume's image metadata, set through
+	// os-set_image_metadata.
+	imageMetadata map[string]string
 }
 
 // Encrypt marks an existing volume as being of an encrypted type.
@@ -216,23 +219,35 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			Upload *struct {
 				DiskFormat string `json:"disk_format"`
 			} `json:"os-volume_upload_image"`
+			SetImageMetadata *struct {
+				Metadata map[string]string `json:"metadata"`
+			} `json:"os-set_image_metadata"`
 		}
 		c.decode(r, &body)
-		if body.Upload == nil {
+		switch {
+		case body.SetImageMetadata != nil:
+			// Cinder copies a new volume's image metadata from its snapshot
+			// while creating it: refuse, so callers must wait for available.
+			if !c.setImageMetadata(r.PathValue("id"), body.SetImageMetadata.Metadata) {
+				c.reply(w, http.StatusBadRequest, nil)
+				return
+			}
+			c.reply(w, http.StatusOK, map[string]any{"metadata": body.SetImageMetadata.Metadata})
+		case body.Upload != nil:
+			if c.FailUpload {
+				c.reply(w, http.StatusBadRequest, nil)
+				return
+			}
+			id, ok := c.create("image", "image", r.PathValue("id"))
+			if !ok {
+				c.unexpected(w, r)
+				return
+			}
+			c.setImageFormat(id, body.Upload.DiskFormat)
+			c.reply(w, http.StatusAccepted, map[string]any{"os-volume_upload_image": map[string]any{"image_id": id}})
+		default:
 			c.unexpected(w, r)
-			return
 		}
-		if c.FailUpload {
-			c.reply(w, http.StatusBadRequest, nil)
-			return
-		}
-		id, ok := c.create("image", "image", r.PathValue("id"))
-		if !ok {
-			c.unexpected(w, r)
-			return
-		}
-		c.setImageFormat(id, body.Upload.DiskFormat)
-		c.reply(w, http.StatusAccepted, map[string]any{"os-volume_upload_image": map[string]any{"image_id": id}})
 	})
 	mux.HandleFunc("DELETE "+block+"/volumes/{id}", c.delete)
 	mux.HandleFunc("POST "+block+"/snapshots", func(w http.ResponseWriter, r *http.Request) {
@@ -499,6 +514,32 @@ func (c *Cloud) setImageFormat(id, format string) {
 	if res, ok := c.resources[id]; ok {
 		res.format = format
 	}
+}
+
+// setImageMetadata merges md into volume id's image metadata, as
+// os-set_image_metadata does. It refuses a volume that is still creating.
+func (c *Cloud) setImageMetadata(id string, md map[string]string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	res, ok := c.resources[id]
+	if !ok || res.kind != "volume" || res.deleted || res.creating > 0 {
+		return false
+	}
+	if res.imageMetadata == nil {
+		res.imageMetadata = map[string]string{}
+	}
+	maps.Copy(res.imageMetadata, md)
+	return true
+}
+
+// ImageMetadata returns the image metadata set on volume id.
+func (c *Cloud) ImageMetadata(id string) map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if res, ok := c.resources[id]; ok {
+		return maps.Clone(res.imageMetadata)
+	}
+	return nil
 }
 
 func (c *Cloud) isEncrypted(id string) bool {

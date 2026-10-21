@@ -137,6 +137,15 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, err
 	}
 
+	// Cinder before 2025.1 (LP#2144550) sends Glance properties={} when the
+	// source's only custom image key is reserved, e.g. signature_verified, and
+	// Glance rejects it. A marker on our own temp volume keeps it non-empty.
+	if err := volumes.SetImageMetadata(ctx, block, tmp.ID, volumes.ImageMetadataOpts{
+		Metadata: map[string]string{"plakar_backup": "true"},
+	}).ExtractErr(); err != nil {
+		return nil, fmt.Errorf("mark temporary volume %q: %w", tmp.ID, err)
+	}
+
 	diskFormat := DefaultDiskFormat
 	if vol.Encrypted {
 		// Cinder rejects any other disk format for an encrypted volume type.
