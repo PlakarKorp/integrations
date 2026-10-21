@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -24,14 +25,51 @@ func init() {
 }
 
 type ociStore struct {
-	client *http.Client
-	base   string
-	repo   string
+	client                *http.Client
+	base                  string
+	repo                  string
+	allowCrossHostUploads bool
 }
 
 func New(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
 	loc := strings.TrimPrefix(config["location"], "oci://")
-	u, err := url.Parse("http://" + loc)
+
+	insecure := false
+	if v, ok := config["insecure"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid insecure value %q", v)
+		}
+		insecure = b
+	}
+
+	noVerify := false
+	if v, ok := config["tls_insecure_no_verify"]; ok && v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tls_insecure_no_verify value %q", v)
+		}
+		noVerify = b
+	}
+
+	allowCrossHostUploads := false
+	if v := config["allow_cross_host_uploads"]; v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allow_cross_host_uploads value %q", v)
+		}
+		allowCrossHostUploads = b
+	}
+
+	scheme := "https"
+	if insecure {
+		scheme = "http"
+	}
+	if noVerify && insecure {
+		return nil, fmt.Errorf("tls_insecure_no_verify is meaningless with insecure=true (no TLS to verify)")
+	}
+
+	u, err := url.Parse(scheme + "://" + loc)
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +82,23 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 	u.Path = ""
 	base := strings.TrimRight(u.String(), "/")
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || defaultTransport == nil {
+		return nil, fmt.Errorf("http.DefaultTransport is not a usable *http.Transport")
 	}
+	tr := defaultTransport.Clone()
+
+	if !insecure {
+		tr.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: noVerify, //nolint:gosec // opt-in, see above
+		}
+	}
+
 	return &ociStore{
-		base: base,
-		repo: repo,
+		base:                  base,
+		repo:                  repo,
+		allowCrossHostUploads: allowCrossHostUploads,
 		client: &http.Client{
 			Transport: tr,
 			Timeout:   0, // streaming uploads/downloads
@@ -280,8 +329,8 @@ func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.M
 
 	var out []objects.MAC
 	for _, t := range tl.Tags {
-		if strings.HasPrefix(t, prefix) {
-			b, err := hex.DecodeString(strings.TrimPrefix(t, prefix))
+		if after, ok := strings.CutPrefix(t, prefix); ok {
+			b, err := hex.DecodeString(after)
 			if err != nil || len(b) != 32 {
 				continue
 			}
@@ -431,7 +480,15 @@ func (s *ociStore) resolveLocation(loc string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base.ResolveReference(ref).String(), nil
+	resolved := base.ResolveReference(ref)
+	if resolved.Scheme != base.Scheme {
+		return "", fmt.Errorf("registry upload location %q is not %s", loc, base.Scheme)
+	}
+	// The upload body follows this URL, so a registry must not point it elsewhere.
+	if !s.allowCrossHostUploads && !strings.EqualFold(resolved.Host, base.Host) {
+		return "", fmt.Errorf("registry upload location %q is not on %s", loc, s.base)
+	}
+	return resolved.String(), nil
 }
 
 func (s *ociStore) do(ctx context.Context, method, fullURL string, body io.Reader, headers http.Header) (io.ReadCloser, *http.Response, error) {

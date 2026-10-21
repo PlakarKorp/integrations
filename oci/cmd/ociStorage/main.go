@@ -4,7 +4,7 @@ import (
 	"os"
 
 	sdk "github.com/PlakarKorp/go-kloset-sdk"
-	"github.com/PlakarKorp/integration-oci/storage"
+	"github.com/PlakarKorp/integrations/oci/storage"
 )
 
 func main() {

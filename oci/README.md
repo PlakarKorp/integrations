@@ -72,6 +72,12 @@ $ plakar at oci://localhost:5000/helloworld ls
 $ plakar at oci://localhost:5000/helloworld restore <snapid>
 ```
 
+## Local Testing
+
+`make dev` installs the plugin from this tree, starts a plain HTTP registry on
+port 5000 and a self-signed TLS one on port 5443, and prints the
+`plakar store add` commands for both. `make down` stops them.
+
 ## Use Cases
 
 * **Cloud-native backup storage** using existing container registries
@@ -86,6 +92,27 @@ $ plakar at oci://localhost:5000/helloworld restore <snapid>
 * Enable **immutability / retention policies** on the registry when available.
 * Prefer **token-based authentication** over static passwords.
 * Monitor registry quotas and storage costs, especially for large repositories.
+
+## Read Integrity
+
+The connector does not hash blobs read from the registry or compare them to
+their digest. This is deliberate, not an oversight:
+
+* The registry serves both the manifest and the blob. Checking the blob against
+  the manifest's digest trusts a manifest the same registry controls, so a
+  malicious registry can replace both and the check still passes.
+* Kloset authenticates data above the storage layer, with a key the registry
+  never sees. In encrypted repositories (the default) every buffer is decrypted
+  with AES-256-GCM-SIV, so modified bytes fail decryption, and the packfile
+  index is checked against the MAC in its footer.
+* Most reads are ranged: restore reads entries out of packfiles. A range cannot
+  be checked against a whole-blob digest, while Kloset's checks cover ranged
+  and whole reads alike.
+
+A digest check in the connector would add a hash over every read without
+protecting against anything Kloset does not already catch. Plaintext
+repositories have no keyed authentication, and a connector check would not
+change that for the same reason.
 
 ## Limitations
 
