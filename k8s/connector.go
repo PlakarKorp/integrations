@@ -196,7 +196,7 @@ func New(
 		}
 
 		snapClass = params["volume_snapshot_class"]
-		if snapClass == "" && !export {
+		if snapClass == "" {
 			return nil, fmt.Errorf("missing volume_snapshot_class option")
 		}
 
