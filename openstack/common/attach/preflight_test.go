@@ -130,8 +130,8 @@ func TestPreflightDMIRefusals(t *testing.T) {
 
 			_, err := Preflight(t.Context(), &fakeNova{Status: "ACTIVE"}, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
 			require.ErrorIs(t, err, ErrNotAttachable)
-			assert.ErrorContains(t, err, "metadata service: unreachable")
-			assert.ErrorContains(t, err, "DMI: ")
+			require.ErrorContains(t, err, "metadata service: unreachable")
+			require.ErrorContains(t, err, "DMI: ")
 			assert.ErrorContains(t, err, tt.want)
 		})
 	}
@@ -198,6 +198,6 @@ func TestPreflightNovaFails(t *testing.T) {
 
 	_, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotAttachable)
+	require.NotErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, `get server "host-1"`)
 }

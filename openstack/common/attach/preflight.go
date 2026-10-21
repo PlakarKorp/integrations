@@ -134,7 +134,7 @@ func fromMetadata(ctx context.Context) (*identity, error) {
 	if err != nil {
 		return nil, fmt.Errorf("metadata service: %w: %w", errUnreachable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("metadata service: %s", resp.Status)
 	}

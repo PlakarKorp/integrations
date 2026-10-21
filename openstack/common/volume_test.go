@@ -102,8 +102,8 @@ func TestUploadVolumeImageReportsCinderDeletingImage(t *testing.T) {
 	var cleanup Cleanup
 	_, err := backupVolume(t.Context(), client, "vol-1", &cleanup)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, `upload volume "tmp-2" to image "image-3": Cinder deleted the image`)
-	assert.ErrorContains(t, err, "the volume is available")
+	require.ErrorContains(t, err, `upload volume "tmp-2" to image "image-3": Cinder deleted the image`)
+	require.ErrorContains(t, err, "the volume is available")
 
 	cleanup.Run(t.Context())
 	assert.Empty(t, cloud.Leftovers())
