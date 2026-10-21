@@ -11,6 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A single-database backup must not need CONNECT on "postgres".
+func TestListDatabasesSingleDatabaseSkipsClusterEnumeration(t *testing.T) {
+	p := &Importer{database: "appdb"}
+	names, err := p.listDatabases(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"appdb"}, names)
+}
+
 // pg_dump takes the database name as its last argument. A name that libpq
 // reads as a conninfo string, or pg_dump as an option, must be rejected before
 // pg_dump runs.
