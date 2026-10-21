@@ -216,7 +216,7 @@ func TestExportSpawnsServer(t *testing.T) {
 	)
 	require.NoError(t, err)
 	for _, r := range results {
-		assert.NoError(t, r.Err, r.Record.Pathname)
+		require.NoError(t, r.Err, r.Record.Pathname)
 	}
 
 	// Only the restored volume is left: the temporary restore images, and
@@ -290,7 +290,7 @@ func TestExportAttachesAllDisksToExistingServer(t *testing.T) {
 	)
 	require.NoError(t, err)
 	for _, r := range results {
-		assert.NoError(t, r.Err, r.Record.Pathname)
+		require.NoError(t, r.Err, r.Record.Pathname)
 	}
 
 	assert.Zero(t, cloud.ServersCreated())
@@ -309,7 +309,7 @@ func TestExportRejectsMissingExistingServer(t *testing.T) {
 	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-404"))
 	require.NoError(t, err)
 
-	assert.ErrorContains(t, exp.Ping(t.Context()), "get server")
+	require.ErrorContains(t, exp.Ping(t.Context()), "get server")
 
 	_, err = exportAll(t.Context(), exp,
 		rootRecord(),

@@ -246,7 +246,7 @@ func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
 		Class:    pkg.ResourceClassBlockStorage,
 		SubClass: pkg.ResourceSubClassUndefined,
 		URN:      urn(sc, "cinder", "spawner", common.SpawnLocation),
-		Name:     fmt.Sprintf("Create volume in %s", sc.Region),
+		Name:     "Create volume in " + sc.Region,
 		Region:   sc.Region,
 		Service:  "cinder",
 		Resource: "cinder:spawner",

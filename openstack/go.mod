@@ -1,11 +1,11 @@
 module github.com/PlakarKorp/integrations/openstack
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/PlakarKorp/go-inventory-sdk v1.1.2
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/kloset v1.1.6
+	github.com/PlakarKorp/kloset v1.1.9
 	github.com/PlakarKorp/pkg v1.1.7
 	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
