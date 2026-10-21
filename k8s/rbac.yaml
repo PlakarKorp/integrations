@@ -9,7 +9,7 @@
 #   k8s+vm (restore)    VM + disks    namespaced write
 #   k8s: (backup)       manifests     cluster-wide read, INCLUDING SECRETS
 #   k8s: (restore)      manifests     cluster-wide write
-#   inventory           PVC discovery cluster-wide read of PVCs only
+#   inventory           discovery     cluster-wide read of namespaces, PVCs, VMs
 #
 # Two placeholders to replace:
 #   plakar             the namespace plakar runs in (in-cluster deployments)
@@ -352,7 +352,7 @@ roleRef:
 # ---------------------------------------------------------------------------
 # Inventory
 #
-# Lists PVCs across all namespaces to report what is backupable.  Reads
+# Lists namespaces, PVCs and VMs to report what is backupable.  Reads
 # metadata only, never volume contents.
 # ---------------------------------------------------------------------------
 apiVersion: v1
@@ -369,11 +369,14 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list"]
-  # the uid of kube-system is what identifies the cluster
+  # Only queried when no namespace filter is set.
   - apiGroups: [""]
     resources: ["namespaces"]
-    resourceNames: ["kube-system"]
-    verbs: ["get"]
+    verbs: ["list"]
+  # Only queried when kubevirt is installed.
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

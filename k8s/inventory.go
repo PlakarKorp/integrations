@@ -30,25 +30,14 @@ type inventory struct {
 	config         *rest.Config
 	clientset      kubernetes.Interface
 	kubevirtClient kubevirt.Interface
-
-	clusterID func(context.Context, *rest.Config) (string, error)
 }
 
 func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
-	return Inventory(ctx, params, nil)
-}
-
-func Inventory(ctx context.Context, params map[string]string, clusterID func(context.Context, *rest.Config) (string, error)) (sdk.Inventory, error) {
 	var (
 		inv          inventory
 		kubeconf     []byte
 		kubeconfpath string
 	)
-
-	inv.clusterID = clusterID
-	if inv.clusterID == nil {
-		inv.clusterID = clusterUID
-	}
 
 	for k, v := range params {
 		switch k {
@@ -113,39 +102,68 @@ func Inventory(ctx context.Context, params map[string]string, clusterID func(con
 	return &inv, nil
 }
 
-func clusterUID(ctx context.Context, config *rest.Config) (string, error) {
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", fmt.Errorf("failed to build the clientset: %w", err)
-	}
-	ns, err := clientset.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to identify the cluster: %w", err)
-	}
-	return string(ns.UID), nil
-}
-
 func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
-	uid, err := inv.clusterID(ctx, inv.config)
-	if err != nil {
-		return err
-	}
-
 	for _, ns := range inv.namespaces {
-		name, endpoint := "cluster", "/"
-		if ns != "" {
-			name, endpoint = ns, "/"+ns
+		if ns == "" {
+			// emit all namespaces in cluster mode
+			resources <- &sdk.InventoryEntry{
+				Class: pkg.ResourceClassCompute,
+				URN:   "k8s:cluster",
+				Name:  "cluster",
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: "/",
+				}},
+			}
+
+			return inv.listNS(ctx, resources)
 		}
 
+		name, endpoint := ns, "/"+ns
 		resources <- &sdk.InventoryEntry{
 			Class: pkg.ResourceClassCompute,
-			URN:   "k8s:" + uid + ":" + name,
+			URN:   "k8s:ns-" + name,
 			Name:  name,
 			Endpoints: []sdk.HostEndpoint{{
 				Type:     sdk.EndpointIdentifier,
 				Endpoint: endpoint,
 			}},
 		}
+	}
+
+	return nil
+}
+
+func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+	var cont string
+
+	for {
+		ns, err := inv.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+			Limit:    50,
+			Continue: cont,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list namespaces: %w", err)
+		}
+
+		for _, ns := range ns.Items {
+			resources <- &sdk.InventoryEntry{
+				Class: pkg.ResourceClassCompute,
+				URN:   "k8s:ns-" + ns.Name,
+				Name:  ns.Name,
+				Endpoints: []sdk.HostEndpoint{{
+					Type:     sdk.EndpointIdentifier,
+					Endpoint: "/" + ns.Name,
+				}},
+			}
+
+		}
+
+		cont = ns.Continue
+		if cont == "" {
+			break
+		}
+
 	}
 
 	return nil

@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -12,20 +11,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 )
-
-const testClusterUID = "cafe-1234"
 
 func newInventoryTest(objs ...runtime.Object) *inventory {
 	return &inventory{
 		clientset:  k8sfake.NewSimpleClientset(objs...),
 		namespaces: []string{""},
-		clusterID: func(context.Context, *rest.Config) (string, error) {
-			return testClusterUID, nil
-		},
 	}
+}
+
+func nsObj(name string) *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 }
 
 func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
@@ -132,7 +129,7 @@ func TestInventoryClose(t *testing.T) {
 func clusterEntry() *sdk.InventoryEntry {
 	return &sdk.InventoryEntry{
 		Class:     pkg.ResourceClassCompute,
-		URN:       "k8s:" + testClusterUID + ":cluster",
+		URN:       "k8s:cluster",
 		Name:      "cluster",
 		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
 	}
@@ -160,27 +157,77 @@ func TestInventoryListsEachGivenNamespace(t *testing.T) {
 	require.ElementsMatch(t, []*sdk.InventoryEntry{
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:" + testClusterUID + ":ns1",
+			URN:       "k8s:ns-ns1",
 			Name:      "ns1",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
 			Class:     pkg.ResourceClassCompute,
-			URN:       "k8s:" + testClusterUID + ":ns2",
+			URN:       "k8s:ns-ns2",
 			Name:      "ns2",
 			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
 		},
 	}, entries, "no cluster-wide entry when namespaces were given")
 }
 
-func TestInventoryUnidentifiableCluster(t *testing.T) {
+func TestInventoryListsAllNamespaces(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest(nsObj("ns1"), nsObj("ns2"))
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []*sdk.InventoryEntry{
+		clusterEntry(),
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:ns-ns1",
+			Name:      "ns1",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+		},
+		{
+			Class:     pkg.ResourceClassCompute,
+			URN:       "k8s:ns-ns2",
+			Name:      "ns2",
+			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+		},
+	}, entries, "with no namespace given, every namespace is listed alongside the cluster")
+}
+
+func TestInventoryListNamespacesFollowsContinueToken(t *testing.T) {
 	t.Parallel()
 
 	inv := newInventoryTest()
-	inv.clusterID = func(context.Context, *rest.Config) (string, error) {
-		return "", errors.New("forbidden")
-	}
+	clientset := inv.clientset.(*k8sfake.Clientset)
+
+	calls := 0
+	clientset.PrependReactor("list", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		calls++
+		list := &corev1.NamespaceList{}
+		if calls == 1 {
+			list.Items = []corev1.Namespace{*nsObj("ns1")}
+			list.Continue = "page2"
+		} else {
+			list.Items = []corev1.Namespace{*nsObj("ns2")}
+		}
+		return true, list, nil
+	})
+
+	entries, err := runInventoryList(t, inv)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls, "listNS must follow the Continue token until it's empty")
+	require.Len(t, entries, 3, "two namespaces plus the cluster itself")
+}
+
+func TestInventoryListNamespacesError(t *testing.T) {
+	t.Parallel()
+
+	inv := newInventoryTest()
+	clientset := inv.clientset.(*k8sfake.Clientset)
+	clientset.PrependReactor("list", "namespaces", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("apiserver unreachable")
+	})
 
 	_, err := runInventoryList(t, inv)
-	require.ErrorContains(t, err, "forbidden")
+	require.ErrorContains(t, err, "apiserver unreachable")
 }

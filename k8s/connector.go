@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"kubevirt.io/client-go/kubevirt"
+	"sigs.k8s.io/yaml"
 )
 
 type k8s struct {
@@ -56,6 +57,7 @@ type k8s struct {
 	volumeSnapshotClass string
 	kubeletImage        string
 	kubeletCapas        []corev1.Capability
+	nodeAffinity        *corev1.NodeAffinity
 
 	restoreFilters       Filters
 	skipRootPermsAndTime bool
@@ -251,6 +253,14 @@ func New(
 		return nil, fmt.Errorf("bad fs_access %q: expected default, read or full", c)
 	}
 
+	var nodeAffinity *corev1.NodeAffinity
+	if v := params["node_affinity"]; v != "" {
+		nodeAffinity = &corev1.NodeAffinity{}
+		if err := yaml.UnmarshalStrict([]byte(v), nodeAffinity); err != nil {
+			return nil, fmt.Errorf("bad node_affinity: %w", err)
+		}
+	}
+
 	ignoreResources, err := parseIgnoreResources(params["ignore_resources"])
 	if err != nil {
 		return nil, err
@@ -311,6 +321,7 @@ func New(
 		volumeSnapshotClass:  snapClass,
 		kubeletImage:         kubeletImage,
 		kubeletCapas:         capas,
+		nodeAffinity:         nodeAffinity,
 
 		remapped: make(map[remapKey]string),
 	}, nil
@@ -390,10 +401,14 @@ func (k *k8s) Root() string {
 }
 
 func (k *k8s) Flags() location.Flags {
+	var flags location.Flags
 	if k.proto == "k8s+csi" || k.proto == "k8s+pvc" || k.proto == "k8s+vm" {
-		return location.FLAG_STREAM | location.FLAG_NEEDACK
+		flags |= location.FLAG_STREAM | location.FLAG_NEEDACK
 	}
-	return 0
+	if k.proto == "k8s+vm" {
+		flags |= location.FLAG_WALKDIRORDER
+	}
+	return flags
 }
 
 func (k *k8s) Ping(ctx context.Context) error {

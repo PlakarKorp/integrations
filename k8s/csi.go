@@ -441,6 +441,10 @@ func (k *k8s) fsServer(ctx context.Context, op, ns string, pvc *corev1.Persisten
 		},
 	}
 
+	if k.nodeAffinity != nil {
+		pod.Spec.Affinity = &corev1.Affinity{NodeAffinity: k.nodeAffinity}
+	}
+
 	pod, err = k.clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, err

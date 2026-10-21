@@ -19,6 +19,7 @@ or without.
   - `default` grants no extra capabilities
   - `read` adds `DAC_READ_SEARCH`
   - `full` adds `DAC_OVERRIDE`, `CHOWN`, `FOWNER` and `FSETID`
+- `node_affinity`: optional, used only for PVC and VM disk backups and restores.  Node affinity of the kubelet pod, written as the YAML or JSON body of a pod's `spec.affinity.nodeAffinity`.
 - `labels`: optional, used only for configuration backup.  Limits the manifests to backup to the ones matching the given labels.
 - `volume_snapshot_class`: required for CSI-based PVC backups.  It's the volume snapshot class to use.
 - `ignore_resources`: optional, used only for configuration restore.  Semicolon-separated list of `group/Kind` to leave out of the restore.

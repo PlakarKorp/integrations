@@ -16,6 +16,10 @@
       "type": "string",
       "description": "Kube config content to use"
     },
+    "node_affinity": {
+      "type": "string",
+      "description": "Optional node affinity for the kubelet pod, as the YAML or JSON body of a pod's spec.affinity.nodeAffinity"
+    },
     "kubelet_image": {
       "type": "string",
       "description": "Optional kubelet image to use"

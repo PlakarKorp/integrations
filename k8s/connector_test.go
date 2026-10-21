@@ -5,6 +5,7 @@ import (
 
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -281,10 +282,8 @@ func TestParseIgnoreResources(t *testing.T) {
 	}
 }
 
-func TestNewSkipRootPermsAndTime(t *testing.T) {
-	t.Parallel()
-	// inline so that the test never reads the developer's kubeconfig
-	const kubeconf = `
+// testKubeconf is inline so that tests never read the developer's kubeconfig.
+const testKubeconf = `
 apiVersion: v1
 kind: Config
 clusters:
@@ -299,11 +298,13 @@ users:
   user: {token: t}
 `
 
+func TestNewSkipRootPermsAndTime(t *testing.T) {
+	t.Parallel()
 	newK8s := func(t *testing.T, options ...Options) *k8s {
 		t.Helper()
 		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
 			"location":   "k8s+pvc://cluster.example/ns/data",
-			"kubeconfig": kubeconf,
+			"kubeconfig": testKubeconf,
 		}, true, options...)
 		require.NoError(t, err)
 		return k
@@ -320,4 +321,76 @@ users:
 	t.Run("the option can turn it back off", func(t *testing.T) {
 		require.False(t, newK8s(t, WithSkipRootPermsAndTime(false)).skipRootPermsAndTime)
 	})
+}
+
+func TestNewNodeAffinity(t *testing.T) {
+	t.Parallel()
+
+	zoneA := &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      "topology.kubernetes.io/zone",
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{"eu-west-3a"},
+				}},
+			}},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		value   string
+		want    *corev1.NodeAffinity
+		wantErr string
+	}{
+		{
+			name: "unset",
+		},
+		{
+			name: "yaml",
+			value: `
+requiredDuringSchedulingIgnoredDuringExecution:
+  nodeSelectorTerms:
+    - matchExpressions:
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [eu-west-3a]
+`,
+			want: zoneA,
+		},
+		{
+			name:  "json",
+			value: `{"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "topology.kubernetes.io/zone", "operator": "In", "values": ["eu-west-3a"]}]}]}}`,
+			want:  zoneA,
+		},
+		{
+			name:    "malformed",
+			value:   "requiredDuringSchedulingIgnoredDuringExecution: [",
+			wantErr: "bad node_affinity",
+		},
+		{
+			name:    "unknown field",
+			value:   "requiredDuringScheduling: {}",
+			wantErr: "bad node_affinity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+				"location":      "k8s+pvc://cluster.example/ns/data",
+				"kubeconfig":    testKubeconf,
+				"node_affinity": tt.value,
+			}, false)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, k.nodeAffinity)
+		})
+	}
 }
