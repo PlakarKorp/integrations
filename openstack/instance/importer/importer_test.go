@@ -17,15 +17,14 @@
 package importer
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"io"
-	"log"
 	"net/http"
-	"os"
 	"testing"
 
-	"github.com/PlakarKorp/integrations/openstack/common/cinder"
+	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -45,13 +44,14 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
-// newImporter also points the attach preflight at cloud's metadata service,
-// so the host the tests run on never passes for a Nova server by accident.
+// newImporter also points the attach preflight at cloud's metadata service
+// and device directory, so the host the tests run on never passes for a Nova
+// server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
-	saved := cinder.MetadataURL
-	cinder.MetadataURL = cloud.MetadataURL
-	t.Cleanup(func() { cinder.MetadataURL = saved })
+	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
+	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
+	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
 	imp, err := NewImporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
 	require.NoError(t, err)
@@ -140,13 +140,10 @@ func TestImportBacksUpServer(t *testing.T) {
 	require.NoError(t, imp.Close(t.Context()))
 }
 
-// On a Nova server of the backed-up cloud, the backup notes each attached
-// volume could be attached to it, and still goes through Glance.
-func TestImportNotesAttachableHost(t *testing.T) {
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-
+// On a Nova server of the backed-up cloud, each attached volume's clone is
+// attached to it and read raw from a block device; the root disk still
+// comes from its Glance image, the only form it exists in.
+func TestImportReadsAttachedVolumes(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	fakeServer(cloud) // also answers for the host, as any ACTIVE server
 	cloud.HostID = "host-1"
@@ -155,16 +152,29 @@ func TestImportNotesAttachableHost(t *testing.T) {
 	records, err := importAll(t.Context(), imp)
 	require.NoError(t, err)
 	require.Len(t, records, 8)
-	assert.Contains(t, logs.String(), `volume "vol-1" could be attached to server "server-1"`)
+	assert.Equal(t, []string{"tmp-2"}, cloud.Attached())
+
+	var root, vol common.DiskMetadata
+	require.NoError(t, json.NewDecoder(records[3].Reader).Decode(&root))
+	assert.Equal(t, common.DiskOriginGlance, root.Origin)
+	assert.Equal(t, "qcow2", root.DiskFormat)
+	require.NoError(t, json.NewDecoder(records[6].Reader).Decode(&vol))
+	assert.Equal(t, common.DiskOriginCinder, vol.Origin)
+	assert.Equal(t, "raw", vol.DiskFormat)
+	assert.Nil(t, vol.Image)
 
 	for _, r := range records {
 		if r.FileInfo.IsDir() {
 			continue
 		}
-		_, err := io.ReadAll(r.Reader)
+		data, err := io.ReadAll(r.Reader)
 		require.NoError(t, err, r.Pathname)
+		if r.Pathname == "/block-storage/cinder-vol-1/disk.qcow2" {
+			assert.Equal(t, cloud.Disk, data)
+		}
 		require.NoError(t, r.Close())
 	}
+	assert.Empty(t, cloud.Attached())
 	require.NoError(t, imp.Close(t.Context()))
 	assert.Empty(t, cloud.Leftovers())
 }

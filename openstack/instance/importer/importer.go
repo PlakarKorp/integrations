@@ -21,7 +21,6 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path"
 	"strings"
@@ -29,7 +28,6 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/cinder"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -45,8 +43,8 @@ type Importer struct {
 	serverID string
 
 	// One Cleanup per disk: the root image, and each volume's snapshot,
-	// temporary volume and image. Closing a disk's reader runs its own;
-	// Close runs them all.
+	// temporary volume and its attachment or image. Closing a disk's reader
+	// runs its own; Close runs them all.
 	mu       sync.Mutex
 	cleanups []*common.Cleanup
 }
@@ -113,9 +111,10 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}
 	if err := imp.emitDisk(ctx, records, instance.RootDir(image.ID), &common.DiskMetadata{
 		Origin:          common.DiskOriginGlance,
+		DiskFormat:      image.DiskFormat,
 		Image:           image,
 		ImageProperties: common.EncryptionImageProperties(image),
-	}, image.ID, rootCleanup); err != nil {
+	}, imp.client.ImageReader(ctx, image.ID, rootCleanup)); err != nil {
 		return err
 	}
 
@@ -124,29 +123,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		if err != nil {
 			return err
 		}
-		if host, err := cinder.Preflight(ctx, imp.client, vol); err == nil {
-			// The host is a Nova server of this cloud, so the volume could be
-			// attached to it and read from a local block device. That path is
-			// not written yet: note it and take the Glance one.
-			log.Printf("openstack-instance: volume %q could be attached to server %q; reading it through Glance", av.ID, host.ID)
-		}
-
-		cleanup := imp.addCleanup()
-		snap, err := imp.client.SnapshotVolume(ctx, av.ID, cleanup)
+		disk, err := imp.client.ReadVolume(ctx, vol, imp.addCleanup())
 		if err != nil {
 			return err
 		}
-		vi, err := imp.client.CreateVolumeImage(ctx, snap.ID, cleanup)
-		if err != nil {
-			return err
-		}
-		if err := imp.emitDisk(ctx, records, instance.VolumeDir(av.ID), &common.DiskMetadata{
-			Origin:          common.DiskOriginCinder,
-			Image:           vi.Image,
-			ImageProperties: common.EncryptionImageProperties(vi.Image),
-			Volume:          vi.Volume,
-			Snapshot:        vi.Snapshot,
-		}, vi.Image.ID, cleanup); err != nil {
+		if err := imp.emitDisk(ctx, records, instance.VolumeDir(av.ID), disk.Metadata, disk.Reader); err != nil {
 			return err
 		}
 	}
@@ -154,15 +135,15 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 }
 
 // emitDisk emits dir itself, then its .METADATA.json and its disk.qcow2,
-// reading the disk from imageID and running cleanup once that read closes.
-func (imp *Importer) emitDisk(ctx context.Context, records chan<- *connectors.Record, dir string, metadata *common.DiskMetadata, imageID string, cleanup *common.Cleanup) error {
+// read from reader.
+func (imp *Importer) emitDisk(ctx context.Context, records chan<- *connectors.Record, dir string, metadata *common.DiskMetadata, reader func() (io.ReadCloser, error)) error {
 	if err := imp.emitDir(ctx, records, dir); err != nil {
 		return err
 	}
 	if err := imp.emit(ctx, records, dir+"/"+instance.MetadataName, common.JSONReader(metadata)); err != nil {
 		return err
 	}
-	return imp.emit(ctx, records, dir+"/"+instance.DiskName, imp.client.ImageReader(ctx, imageID, cleanup))
+	return imp.emit(ctx, records, dir+"/"+instance.DiskName, reader)
 }
 
 // emitDir emits a directory record. Kloset needs one for every directory a
