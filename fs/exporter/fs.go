@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -246,9 +247,16 @@ loop:
 		ret = err
 	}
 
+	var failures int
 	for i := len(dirPerms) - 1; i >= 0; i-- {
 		if err := p.permissions(dirPerms[i].Pathname, dirPerms[i].Fileinfo); err != nil {
-			return fmt.Errorf("failed to set permission: %w", err)
+			// keep trying to set permissions even if
+			// something failed; keep a maximum number of
+			// errors to avoid an huge error message if
+			// things are completely broken.
+			if failures++; failures <= 10 {
+				ret = errors.Join(ret, err)
+			}
 		}
 	}
 
@@ -375,18 +383,20 @@ func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) err
 	if pathname == "." && p.skipRootPermsAndTime {
 		return nil
 	}
+
+	// chown clears setuid/setgid, so it must come before chmod.
+	if os.Geteuid() == 0 && !p.skipOwnership {
+		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
+			return fmt.Errorf("chown(%s): %w", pathname, err)
+		}
+	}
+
 	if fileinfo.Mode()&os.ModeSymlink == 0 && !p.skipPerms {
 		// Preserve all permission bits including setuid (04000), setgid (02000), and sticky bit (01000)
 		// Use the full mode which includes these special bits, not just Mode().Perm()
 		mode := fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 		if err := p.root.Chmod(pathname, mode); err != nil {
 			return fmt.Errorf("chmod(%s): %w", pathname, err)
-		}
-	}
-
-	if os.Geteuid() == 0 && !p.skipOwnership {
-		if err := p.root.Lchown(pathname, int(fileinfo.Uid()), int(fileinfo.Gid())); err != nil {
-			return fmt.Errorf("chown(%s): %w", pathname, err)
 		}
 	}
 

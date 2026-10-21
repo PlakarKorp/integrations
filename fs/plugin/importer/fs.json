@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar FS Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute path of the directory to back up"
+    },
+    "dont_traverse_fs": {
+      "type": "boolean",
+      "description": "Do not cross filesystem boundaries",
+      "default": false
+    }
+  }
+}

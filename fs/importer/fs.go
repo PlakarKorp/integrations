@@ -106,7 +106,7 @@ func (p *FSImporter) Flags() location.Flags {
 	return location.FLAG_LOCALFS
 }
 
-func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
 	defer close(records)
 	return p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
 }

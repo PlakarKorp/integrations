@@ -1,0 +1,22 @@
+name: fs
+display_name: File System
+description: File system integration.
+homepage: https://github.com/PlakarKorp/integrations/tree/main/fs
+license: ISC
+api_version: v1.1.0
+connectors:
+- type: importer
+  executable: fs-importer
+  validator: ./plugin/importer/fs.json
+  protocols: [fs]
+  class: file-storage
+- type: exporter
+  executable: fs-exporter
+  validator: ./plugin/exporter/fs.json
+  protocols: [fs]
+  class: file-storage
+- type: storage
+  executable: fs-storage
+  validator: ./plugin/storage/fs.json
+  protocols: [fs]
+  class: file-storage

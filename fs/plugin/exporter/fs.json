@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar FS Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path of the directory to restore into"
+    },
+    "skip_ownership": {
+      "type": "boolean",
+      "description": "Do not restore file ownership",
+      "default": false
+    },
+    "skip_permissions": {
+      "type": "boolean",
+      "description": "Do not restore file permissions",
+      "default": false
+    },
+    "skip_times": {
+      "type": "boolean",
+      "description": "Do not restore file times",
+      "default": false
+    }
+  }
+}
