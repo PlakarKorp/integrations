@@ -234,17 +234,21 @@ func TestUploadVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
 // The marker goes on our temporary volume (LP#2144550), never on the source,
 // and only once the volume is available: the fake refuses it while creating,
 // which a fresh volume only is when CreatingPolls is set.
-func TestCreateVolumeImageMarksOnlyTheTempVolume(t *testing.T) {
+func TestUploadVolumeImageMarksOnlyTheTempVolume(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	cloud.CreatingPolls = 1 // about a second each for the snapshot and the volume
 	client := connectCloud(t, cloud)
 
 	var cleanup Cleanup
-	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	snap, err := client.SnapshotVolume(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+	tmp, err := client.CreateVolumeFromSnapshot(t.Context(), snap, &cleanup)
+	require.NoError(t, err)
+	img, err := client.UploadVolumeImage(t.Context(), tmp, &cleanup)
 	require.NoError(t, err)
 	assert.Empty(t, cloud.ImageMetadata("vol-1"))
 	assert.Equal(t, "true", cloud.ImageMetadata(cleanup.volumeID)["plakar_backup"])
-	assert.NotNil(t, vi.Image)
+	assert.NotNil(t, img)
 
 	cleanup.Run(t.Context())
 	assert.Empty(t, cloud.Leftovers())

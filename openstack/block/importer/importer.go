@@ -19,12 +19,15 @@ package importer
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -87,9 +90,25 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
-	// Snapshot the volume and get at the snapshot's bytes. The temporary
-	// resources go into imp.cleanup, for Close to delete on failure.
-	disk, err := imp.client.ReadVolume(ctx, vol, &imp.cleanup)
+	host, err := imp.client.PreflightHost(ctx)
+	if err != nil {
+		if !errors.Is(err, attach.ErrNotAttachable) {
+			log.Printf("openstack-block: direct attachment unavailable: %v", err)
+		}
+		host = nil
+	}
+
+	// Snapshot and clone the volume before choosing whether to attach the
+	// clone or send it through Glance. The resources go into imp.cleanup.
+	snap, err := imp.client.SnapshotVolume(ctx, vol.ID, &imp.cleanup)
+	if err != nil {
+		return err
+	}
+	tmp, err := imp.client.CreateVolumeFromSnapshot(ctx, snap, &imp.cleanup)
+	if err != nil {
+		return err
+	}
+	disk, err := imp.client.ReadCinderDisk(ctx, host, vol, snap, tmp, &imp.cleanup)
 	if err != nil {
 		return err
 	}

@@ -73,7 +73,7 @@ func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record
 // attached volume, no interfaces), its flavor, and its snapshot image.
 func fakeServer(cloud *keystonetest.Cloud) {
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `{"server":{"id":"server-1","status":"ACTIVE","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},`+
+		writeJSON(w, `{"server":{"id":"server-1","status":"ACTIVE","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},"OS-EXT-AZ:availability_zone":"az-1",`+
 			`"os-extended-volumes:volumes_attached":[{"id":"vol-1"}]}}`)
 	})
 	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -140,9 +140,9 @@ func TestImportBacksUpServer(t *testing.T) {
 	require.NoError(t, imp.Close(t.Context()))
 }
 
-// On a Nova server of the backed-up cloud, each attached volume's clone is
-// attached to it and read raw from a block device; the root disk still
-// comes from its Glance image, the only form it exists in.
+// On a Nova server of the backed-up cloud, the root image is converted to a
+// temporary Cinder volume and attached, as are clones of attached volumes.
+// Every disk is then read raw from its block device.
 func TestImportReadsAttachedVolumes(t *testing.T) {
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	fakeServer(cloud) // also answers for the host, as any ACTIVE server
@@ -152,12 +152,18 @@ func TestImportReadsAttachedVolumes(t *testing.T) {
 	records, err := importAll(t.Context(), imp)
 	require.NoError(t, err)
 	require.Len(t, records, 8)
-	assert.Equal(t, []string{"tmp-2"}, cloud.Attached())
+	assert.Equal(t, []string{"restored-1", "tmp-3"}, cloud.Attached())
+	requests := cloud.VolumeRequests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "image-1", requests[0].ImageID)
+	assert.Equal(t, "plakar-tmp-image-1", requests[0].Name)
+	assert.Equal(t, 20, requests[0].Size)
+	assert.Equal(t, "az-1", requests[0].AvailabilityZone)
 
 	var root, vol common.DiskMetadata
 	require.NoError(t, json.NewDecoder(records[3].Reader).Decode(&root))
 	assert.Equal(t, common.DiskOriginGlance, root.Origin)
-	assert.Equal(t, "qcow2", root.DiskFormat)
+	assert.Equal(t, "raw", root.DiskFormat)
 	require.NoError(t, json.NewDecoder(records[6].Reader).Decode(&vol))
 	assert.Equal(t, common.DiskOriginCinder, vol.Origin)
 	assert.Equal(t, "raw", vol.DiskFormat)
@@ -169,7 +175,8 @@ func TestImportReadsAttachedVolumes(t *testing.T) {
 		}
 		data, err := io.ReadAll(r.Reader)
 		require.NoError(t, err, r.Pathname)
-		if r.Pathname == "/block-storage/cinder-vol-1/disk.qcow2" {
+		if r.Pathname == "/block-storage/glance-image-1/disk.qcow2" ||
+			r.Pathname == "/block-storage/cinder-vol-1/disk.qcow2" {
 			assert.Equal(t, cloud.Disk, data)
 		}
 		require.NoError(t, r.Close())

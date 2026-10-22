@@ -61,6 +61,19 @@ func sourceVolume(t *testing.T, client *Client) *volumes.Volume {
 	return vol
 }
 
+func readVolume(ctx context.Context, client *Client, vol *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
+	host, _ := client.PreflightHost(ctx)
+	snap, err := client.SnapshotVolume(ctx, vol.ID, cleanup)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := client.CreateVolumeFromSnapshot(ctx, snap, cleanup)
+	if err != nil {
+		return nil, err
+	}
+	return client.ReadCinderDisk(ctx, host, vol, snap, tmp, cleanup)
+}
+
 // readAndClose reads the disk and closes it, as plakar does, which runs the
 // cleanup.
 func readAndClose(t *testing.T, disk *Disk) []byte {
@@ -82,7 +95,7 @@ func TestReadVolumeOffCloud(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, DiskOriginCinder, disk.Metadata.Origin)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
@@ -104,7 +117,7 @@ func TestReadVolumeOnCloud(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, DiskOriginCinder, disk.Metadata.Origin)
 	assert.Equal(t, "raw", disk.Metadata.DiskFormat)
@@ -128,7 +141,7 @@ func TestReadVolumeFallsBackToGlance(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
 	require.NotNil(t, disk.Metadata.Image)
@@ -148,7 +161,7 @@ func TestReadVolumePreflightFailureFallsBack(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
 
@@ -182,7 +195,7 @@ func TestReadVolumeEncrypted(t *testing.T) {
 			client := connectHost(t, cloud)
 
 			var cleanup Cleanup
-			disk, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+			disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 			require.NoError(t, err)
 			assert.Equal(t, "raw", disk.Metadata.DiskFormat, "Cinder uploads an encrypted volume raw only")
 			assert.Equal(t, tt.wantProperties, disk.Metadata.ImageProperties)
@@ -200,7 +213,7 @@ func TestReadVolumeFailureLeavesCleanupToRun(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	_, err := client.ReadVolume(t.Context(), sourceVolume(t, client), &cleanup)
+	_, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
 	require.ErrorContains(t, err, "upload volume")
 	assert.Equal(t, []string{"snapshot-1", "tmp-2"}, cloud.Leftovers())
 
@@ -224,7 +237,9 @@ func TestAttachDetachesWhenNoDeviceTurnsUp(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond) // the device wait's own timeout is a minute
 	defer cancel()
-	_, err = client.attachToHost(ctx, sourceVolume(t, client), tmp, &cleanup)
+	host, err := client.PreflightHost(ctx)
+	require.NoError(t, err)
+	_, err = client.volumeBlockDevice(ctx, host, tmp, &cleanup)
 	require.ErrorContains(t, err, "no device for volume")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Empty(t, cloud.Attached())
@@ -253,7 +268,9 @@ func TestAttachDetachesWhenDeviceUnreadable(t *testing.T) {
 	var cleanup Cleanup
 	tmp, err := cloneVolume(t.Context(), client, "vol-1", &cleanup)
 	require.NoError(t, err)
-	_, err = client.attachToHost(t.Context(), sourceVolume(t, client), tmp, &cleanup)
+	host, err := client.PreflightHost(t.Context())
+	require.NoError(t, err)
+	_, err = client.volumeBlockDevice(t.Context(), host, tmp, &cleanup)
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.Empty(t, cloud.Attached())
 

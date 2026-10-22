@@ -19,8 +19,10 @@ package importer
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"strings"
@@ -28,11 +30,14 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
 
 //go:embed schema.json
@@ -92,6 +97,14 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
+	host, err := imp.client.PreflightHost(ctx)
+	if err != nil {
+		if !errors.Is(err, attach.ErrNotAttachable) {
+			log.Printf("openstack-instance: direct attachment unavailable: %v", err)
+		}
+		host = nil
+	}
+
 	metadata, err := imp.client.ServerMetadata(ctx, server)
 	if err != nil {
 		return err
@@ -109,12 +122,8 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	if err != nil {
 		return err
 	}
-	if err := imp.emitDisk(ctx, records, instance.RootDir(image.ID), &common.DiskMetadata{
-		Origin:          common.DiskOriginGlance,
-		DiskFormat:      image.DiskFormat,
-		Image:           image,
-		ImageProperties: common.EncryptionImageProperties(image),
-	}, imp.client.ImageReader(ctx, image.ID, rootCleanup)); err != nil {
+	root := imp.readRootDisk(ctx, host, metadata, image, rootCleanup)
+	if err := imp.emitDisk(ctx, records, instance.RootDir(image.ID), root.Metadata, root.Reader); err != nil {
 		return err
 	}
 
@@ -123,7 +132,16 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		if err != nil {
 			return err
 		}
-		disk, err := imp.client.ReadVolume(ctx, vol, imp.addCleanup())
+		cleanup := imp.addCleanup()
+		snap, err := imp.client.SnapshotVolume(ctx, vol.ID, cleanup)
+		if err != nil {
+			return err
+		}
+		tmp, err := imp.client.CreateVolumeFromSnapshot(ctx, snap, cleanup)
+		if err != nil {
+			return err
+		}
+		disk, err := imp.client.ReadCinderDisk(ctx, host, vol, snap, tmp, cleanup)
 		if err != nil {
 			return err
 		}
@@ -132,6 +150,28 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		}
 	}
 	return nil
+}
+
+// readRootDisk downloads image from Glance unless it can be materialized as
+// a temporary Cinder volume and read from an attachment to host.
+func (imp *Importer) readRootDisk(ctx context.Context, host *servers.Server, metadata *common.ServerMetadata, image *images.Image, cleanup *common.Cleanup) *common.Disk {
+	diskMetadata := common.GlanceDiskMetadata(image)
+	fallback := imp.client.NewGlanceDisk(ctx, image, diskMetadata, cleanup)
+	if host == nil {
+		return fallback
+	}
+
+	tmp, err := imp.client.CreateTempVolumeFromImage(ctx, image.ID, common.TempVolumeOpts(metadata.Server, metadata), cleanup)
+	if err != nil {
+		log.Printf("openstack-instance: image %q: %v; reading it through Glance", image.ID, err)
+		return fallback
+	}
+	disk, err := imp.client.NewCinderDisk(ctx, host, tmp, diskMetadata, cleanup)
+	if err != nil {
+		log.Printf("openstack-instance: image %q: %v; reading it through Glance", image.ID, err)
+		return fallback
+	}
+	return disk
 }
 
 // emitDisk emits dir itself, then its .METADATA.json and its disk.qcow2,

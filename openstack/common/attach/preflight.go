@@ -33,7 +33,6 @@ import (
 	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
-	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 )
 
@@ -67,9 +66,9 @@ type Nova interface {
 	GetServer(ctx context.Context, serverID string) (*servers.Server, error)
 }
 
-// Preflight for attaching a volume to the executing host, tries to discovery itself
-// through metadata api and dmi fields. It errors when the volume is already attached to the server.
-func Preflight(ctx context.Context, nova Nova, projectID string, vol *volumes.Volume) (*servers.Server, error) {
+// Preflight identifies the executing host through the metadata service or DMI
+// and verifies that it is an active Nova server in the credential's project.
+func Preflight(ctx context.Context, nova Nova, projectID string) (*servers.Server, error) {
 	host, err := identify(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: not a Nova server: %w", ErrNotAttachable, err)
@@ -86,12 +85,6 @@ func Preflight(ctx context.Context, nova Nova, projectID string, vol *volumes.Vo
 		return nil, err
 	case server.Status != statusActive:
 		return nil, fmt.Errorf("%w: server %q is %s", ErrNotAttachable, server.ID, server.Status)
-	}
-
-	for _, a := range vol.Attachments {
-		if a.ServerID == server.ID {
-			return nil, fmt.Errorf("%w: volume %q is already attached to server %q", ErrNotAttachable, vol.ID, server.ID)
-		}
 	}
 	return server, nil
 }
