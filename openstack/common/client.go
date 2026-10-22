@@ -31,6 +31,7 @@ var ErrServiceUnavailable = errors.New("service not in catalog")
 var ErrAccessDenied = errors.New("access denied")
 
 type Scope struct {
+	AuthURL   string
 	ProjectID string
 	Region    string
 }
@@ -80,7 +81,7 @@ func Connect(ctx context.Context, cfg *Config) ([]*Client, error) {
 		clients = append(clients, &Client{
 			provider: provider,
 			endpoint: gophercloud.EndpointOpts{Region: region},
-			scope:    Scope{ProjectID: project, Region: region},
+			scope:    Scope{AuthURL: cfg.auth.IdentityEndpoint, ProjectID: project, Region: region},
 		})
 	}
 	return clients, nil

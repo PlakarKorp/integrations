@@ -93,6 +93,25 @@ func TestCreateVolumeImageUsesDefaultForPlainVolume(t *testing.T) {
 	cleanup.Run(t.Context())
 }
 
+// The marker goes on our temporary volume (LP#2144550), never on the source,
+// and only once the volume is available: the fake refuses it while creating,
+// which a fresh volume only is when CreatingPolls is set.
+func TestCreateVolumeImageMarksOnlyTheTempVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.CreatingPolls = 1 // about a second each for the snapshot and the volume
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	vi, err := client.CreateVolumeImage(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+	assert.Empty(t, cloud.ImageMetadata("vol-1"))
+	assert.Equal(t, "true", cloud.ImageMetadata(cleanup.volumeID)["plakar_backup"])
+	assert.NotNil(t, vi.Image)
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
 // A transient error reading a resource's status, such as Glance briefly
 // 500ing right after Cinder hands back an image ID, must not abort the wait.
 func TestWaitStatusTakesTransientGetErrors(t *testing.T) {
