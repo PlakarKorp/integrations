@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/instance"
@@ -183,7 +184,7 @@ func (imp *Importer) emitDisk(ctx context.Context, records chan<- *connectors.Re
 	if err := imp.emit(ctx, records, dir+"/"+instance.MetadataName, common.JSONReader(metadata)); err != nil {
 		return err
 	}
-	return imp.emit(ctx, records, dir+"/"+instance.DiskName, reader)
+	return imp.emit(ctx, records, dir+"/"+block.DiskName("disk", common.DiskFormat(metadata)), reader)
 }
 
 // emitDir emits a directory record. Kloset needs one for every directory a
