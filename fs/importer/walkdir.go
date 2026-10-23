@@ -91,6 +91,7 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 	for {
 		var (
 			finfo      objects.FileInfo
+			target     string
 			recordpath = toslash(root)
 			newroot    = filepath.Dir(root)
 			isroot     = root == newroot
@@ -110,9 +111,19 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 				// being / or \ for C:.
 				finfo.Lname = path.Base(recordpath)
 			}
+
+			// the root the user named can be a symlink, walked
+			// through its target: record where it points so the
+			// snapshot can be rooted there and the link restored.
+			if sb.Mode()&os.ModeSymlink != 0 {
+				target, err = os.Readlink(root)
+				if err != nil {
+					records <- connectors.NewError(toslash(root), err)
+				}
+			}
 		}
 
-		records <- connectors.NewRecord(recordpath, "", finfo, nil, nil)
+		records <- connectors.NewRecord(recordpath, target, finfo, nil, nil)
 
 		if isroot {
 			break
