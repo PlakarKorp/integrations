@@ -58,6 +58,27 @@ func TestEncryptionImageProperties(t *testing.T) {
 	}
 }
 
+// The recorded format wins; a backup from before it was recorded falls back
+// to its image's, then to qcow2, what those uploaded.
+func TestDiskFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata *DiskMetadata
+		want     string
+	}{
+		{"no metadata", nil, "qcow2"},
+		{"nothing recorded", &DiskMetadata{}, "qcow2"},
+		{"image only", &DiskMetadata{Image: &images.Image{DiskFormat: "raw"}}, "raw"},
+		{"recorded, no image", &DiskMetadata{DiskFormat: "raw"}, "raw"},
+		{"recorded wins", &DiskMetadata{DiskFormat: "raw", Image: &images.Image{DiskFormat: "qcow2"}}, "raw"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DiskFormat(tt.metadata))
+		})
+	}
+}
+
 func TestRestoreImageProperties(t *testing.T) {
 	assert.Nil(t, RestoreImageProperties(nil))
 	want := map[string]string{"cinder_encryption_key_id": "key-1"}

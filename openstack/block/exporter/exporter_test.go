@@ -112,8 +112,8 @@ func metadataRecord(t *testing.T, m common.DiskMetadata) *connectors.Record {
 	return record(t, "/"+block.MetadataName, data)
 }
 
-func diskRecord(t *testing.T, volumeID string) *connectors.Record {
-	return record(t, "/"+block.DiskName(volumeID), disk)
+func diskRecord(t *testing.T, volumeID, format string) *connectors.Record {
+	return record(t, "/"+block.DiskName(volumeID, format), disk)
 }
 
 func rootRecord() *connectors.Record {
@@ -153,6 +153,18 @@ func TestExportRestoresVolume(t *testing.T) {
 		{name: "qcow2 disk", metadata: func() common.DiskMetadata { return volumeMetadata("qcow2") }, wantFormat: "qcow2", wantName: "data"},
 		{name: "no recorded format", metadata: func() common.DiskMetadata { return volumeMetadata("") }, wantFormat: "qcow2", wantName: "data"},
 		{
+			// A disk read from a block device: raw, and no image behind it.
+			name: "read from a device",
+			metadata: func() common.DiskMetadata {
+				m := volumeMetadata("")
+				m.DiskFormat = "raw"
+				m.Image = nil
+				return m
+			},
+			wantFormat: "raw",
+			wantName:   "data",
+		},
+		{
 			name:          "image and volume take a while",
 			metadata:      func() common.DiskMetadata { return volumeMetadata("raw") },
 			savingPolls:   2,
@@ -180,7 +192,7 @@ func TestExportRestoresVolume(t *testing.T) {
 			exp := newExporter(t, cloud)
 			m := tt.metadata()
 
-			results, err := exportAll(t.Context(), exp, rootRecord(), metadataRecord(t, m), diskRecord(t, "vol-1"))
+			results, err := exportAll(t.Context(), exp, rootRecord(), metadataRecord(t, m), diskRecord(t, "vol-1", "qcow2"))
 			require.NoError(t, err)
 			require.Len(t, results, 3, "every record is answered once")
 			for _, r := range results {
@@ -216,7 +228,7 @@ func TestExportCarriesEncryptionKeyID(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	exp := newExporter(t, cloud)
 
-	_, err := exportAll(t.Context(), exp, metadataRecord(t, m), diskRecord(t, "vol-1"))
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, m), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 
 	uploads := cloud.Uploads()
@@ -233,7 +245,7 @@ func TestExportRetriesVolumeInError(t *testing.T) {
 	cloud.VolumeErrors = 1
 	exp := newExporter(t, cloud)
 
-	_, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1"))
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 	assert.Len(t, cloud.VolumeRequests(), 2)
 	restored(t, cloud) // the volume in error is gone
@@ -243,7 +255,7 @@ func TestExportSkipsUnsupportedPaths(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	exp := newExporter(t, cloud)
 
-	results, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), record(t, "/notes.txt", nil), diskRecord(t, "vol-1"))
+	results, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), record(t, "/notes.txt", nil), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 	require.ErrorContains(t, results[1].Err, `unsupported path "/notes.txt"`)
@@ -272,14 +284,14 @@ func TestExportFails(t *testing.T) {
 		{
 			name: "disk before metadata",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{diskRecord(t, "vol-1"), metadataRecord(t, volumeMetadata("raw"))}
+				return []*connectors.Record{diskRecord(t, "vol-1", "qcow2"), metadataRecord(t, volumeMetadata("raw"))}
 			},
 			wantErr: "before",
 		},
 		{
 			name: "disk of another volume",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-2")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-2", "qcow2")}
 			},
 			wantErr: "does not match",
 		},
@@ -311,7 +323,7 @@ func TestExportFails(t *testing.T) {
 			// The first disk's restore image is left for Close to delete.
 			name: "two disks",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1"), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2"), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "a second disk",
 		},
@@ -320,7 +332,7 @@ func TestExportFails(t *testing.T) {
 			name:          "upload fails",
 			failImageData: true,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "upload image",
 		},
@@ -329,7 +341,7 @@ func TestExportFails(t *testing.T) {
 			name:         "volume keeps failing",
 			volumeErrors: 3,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr:      "entered error",
 			wantRequests: 3,
@@ -339,7 +351,7 @@ func TestExportFails(t *testing.T) {
 			name:        "image killed after upload",
 			imageStatus: "killed",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "entered killed",
 		},
@@ -349,7 +361,7 @@ func TestExportFails(t *testing.T) {
 			savingPolls: 3,
 			timeout:     100 * time.Millisecond,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "wait for image",
 		},
@@ -360,7 +372,7 @@ func TestExportFails(t *testing.T) {
 			creatingPolls: 3,
 			timeout:       100 * time.Millisecond,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr:      `restore volume "vol-1": wait for volume`,
 			wantRequests: 1,

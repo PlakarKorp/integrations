@@ -29,6 +29,7 @@ import (
 // trip through JSON silently drops it from Image itself.
 type DiskMetadata struct {
 	Origin          DiskOrigin          `json:"origin"`
+	DiskFormat      string              `json:"disk_format,omitempty"`
 	Image           *images.Image       `json:"image,omitempty"`
 	ImageProperties map[string]string   `json:"image_properties,omitempty"`
 	Volume          *volumes.Volume     `json:"volume,omitempty"`
@@ -67,6 +68,40 @@ func EncryptionImageProperties(img *images.Image) map[string]string {
 		props[key] = v
 	}
 	return props
+}
+
+// CinderDiskMetadata records the source of a Cinder disk before choosing how
+// its bytes will be read.
+func CinderDiskMetadata(vol *volumes.Volume, snap *snapshots.Snapshot) *DiskMetadata {
+	return &DiskMetadata{
+		Origin:   DiskOriginCinder,
+		Volume:   vol,
+		Snapshot: snap,
+	}
+}
+
+// GlanceDiskMetadata records the source of a Glance disk before choosing how
+// its bytes will be read.
+func GlanceDiskMetadata(img *images.Image) *DiskMetadata {
+	return &DiskMetadata{
+		Origin: DiskOriginGlance,
+		Image:  img,
+	}
+}
+
+// DiskFormat is the format a restore uploads the disk as: the recorded one,
+// or for a backup from before it was recorded the image's, or qcow2, what
+// those backups uploaded. nil metadata is a snapshot with none at all.
+func DiskFormat(metadata *DiskMetadata) string {
+	switch {
+	case metadata == nil:
+		return DefaultDiskFormat
+	case metadata.DiskFormat != "":
+		return metadata.DiskFormat
+	case metadata.Image != nil && metadata.Image.DiskFormat != "":
+		return metadata.Image.DiskFormat
+	}
+	return DefaultDiskFormat
 }
 
 // RestoreImageProperties returns the image properties a restore must set on

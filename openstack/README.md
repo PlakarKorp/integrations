@@ -72,22 +72,39 @@ It prints one JSON entry per resource found.
 ## Volume backup
 
 The `openstack-block` importer backs up one Cinder volume. It snapshots the
-volume, creates a temporary volume from the snapshot, uploads that to Glance and
-streams the image into the snapshot. No OpenStack API reads a snapshot's bytes,
-so the Glance hop is required. The snapshot, the temporary volume and the image
-are deleted once the disk has been read, or when the importer closes if it
-never is. Each delete is tried once; one that fails is logged with the
-resource's ID, to delete by hand.
+volume and creates a temporary volume from the snapshot, as no OpenStack API
+reads a snapshot's bytes. It then reads the temporary volume one of two ways:
+
+- When plakar runs on a Nova server of the same cloud, project and region, the
+  temporary volume is attached to that server and read raw from the block
+  device it turns up as (`/dev/disk/by-id/virtio-<volume-id>`, or its
+  virtio-scsi equivalent). Nothing goes through Glance. plakar learns which
+  server it is on from the metadata service, or from DMI when that is
+  disabled. Reading a block device needs root or the `disk` group: run plakar
+  as root, or `usermod -aG disk <user>`.
+- Otherwise, or when the attach fails (Nova refuses cross-AZ attaches on some
+  clouds, say), no device turns up within a minute or it cannot be read, the
+  temporary volume is uploaded to Glance and the image streamed into the
+  snapshot.
+
+The snapshot, the temporary volume (detached first) and the image, if any, are
+deleted once the disk has been read, or when the importer closes if it never
+is. Each delete is tried once; one that fails is logged with the resource's
+ID, to delete by hand.
 
 Before each delete, cleanup waits up to 15 minutes for Cinder to allow it, for
 instance for the temporary volume to finish deleting before the snapshot goes.
 This default is not configurable yet; it can become an option once volumes large
 enough to need more are backed up.
 
-The image goes through Glance, so the volume must fit Glance's
-`image_size_cap`: 1 TiB by default, which operators can raise in
-`glance-api.conf`. Time, and scratch space on the Cinder host, grow with the
-volume's size: every backup copies the whole volume.
+Through Glance, the volume must fit Glance's `image_size_cap`: 1 TiB by
+default, which operators can raise in `glance-api.conf`. Time, and scratch
+space on the Cinder host, grow with the volume's size: every backup copies the
+whole volume, and Cinder converts it to qcow2 on its own host first. When that
+upload fails on Cinder's side, Cinder deletes the image; the backup then fails
+naming the volume and the image, and the cause is in cinder-volume's log. Read
+from a block device, the backup reads the volume's full nominal size, used or
+not; plakar deduplicates the empty parts.
 
 Stopping plakar with Ctrl-C or SIGTERM kills the plugin before it can clean
 up. The snapshot, the temporary volume and the image are then left behind:
@@ -98,8 +115,15 @@ In-use volumes are snapshotted as they are, so the backup is crash-consistent.
 The snapshot holds:
 
 - `/<volume-id>.qcow2`: the disk. It is named `.qcow2` whatever its format.
-- `/.METADATA.json`: the volume, the Cinder snapshot and the Glance image. The
-  image's `disk_format` is the disk's real format.
+- `/.METADATA.json`: the volume, the Cinder snapshot and, when the disk went
+  through one, the Glance image. `disk_format` is the disk's real format:
+  `raw` when read from a block device, else the image's.
+
+An encrypted volume's bytes differ by path. Through Glance they are the
+ciphertext, and the metadata carries the key they are under, for a restore to
+pass on. From a block device they are in the clear, as the hypervisor unlocks
+the volume for the server, and a restore lets Cinder encrypt them anew under
+the restored volume type.
 
 ### Configuration
 
@@ -111,7 +135,9 @@ The authentication keys of the inventory, plus:
 | `openstack_region` | The volume's region. Exactly one is required. |
 
 The credential needs Cinder snapshot, volume and upload-to-image rights, and
-Glance download and delete rights, on the volume's project.
+Glance download and delete rights, on the volume's project. To read from a
+block device it also needs Nova server read and volume attach and detach
+rights.
 
 ### Usage
 
@@ -179,9 +205,11 @@ Boot-from-volume servers are refused: their root disk is a Cinder volume, out
 of scope for this connector.
 
 The root disk is snapshotted into a Glance image directly through Nova, then
-deleted once it has been read, or when the importer closes if it never is.
-Each attached volume goes through the same snapshot-to-Glance path as the
-`openstack-block` importer, with its own cleanup.
+deleted once it has been read, or when the importer closes if it never is; it
+exists in no other form, so it always goes through Glance. Each attached
+volume is read as the `openstack-block` importer reads one, from a block
+device when plakar runs on a Nova server of the cloud and through Glance
+otherwise, with its own cleanup.
 
 The snapshot holds:
 
