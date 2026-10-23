@@ -19,7 +19,6 @@ package block
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/PlakarKorp/integrations/openstack/common"
@@ -32,10 +31,9 @@ const Protocol = "openstack-block"
 // MetadataName is the file holding the disk's common.DiskMetadata.
 const MetadataName = ".METADATA.json"
 
-var validDiskFormats = []string{"qcow2", "raw"}
-
-// diskPattern matches <id>.<ext> and captures both parts.
-var diskPattern = regexp.MustCompile(`^([^/]+)\.([^.]+)$`)
+// diskPattern matches <id>.<ext> for the formats a disk is written in, and
+// captures the ID.
+var diskPattern = regexp.MustCompile(`^([^/]+)\.(qcow2|raw)$`)
 
 // DiskName is <volume-id>.<ext> whatever the disk's format: .METADATA.json
 // records the real one.
@@ -51,10 +49,6 @@ func VolumeID(path string) (string, bool) {
 	}
 	matches := diskPattern.FindStringSubmatch(name)
 	if len(matches) != 3 {
-		return "", false
-	}
-	ext := matches[2]
-	if !slices.Contains(validDiskFormats, ext) {
 		return "", false
 	}
 	id := matches[1]

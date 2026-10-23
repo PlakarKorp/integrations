@@ -207,8 +207,8 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		exp.disks[id] = restore
 	}
 
-	switch name {
-	case instance.MetadataName:
+	switch {
+	case name == instance.MetadataName:
 		if restore.metadata != nil {
 			return fmt.Errorf("duplicate %s for %q", instance.MetadataName, id)
 		}
@@ -219,7 +219,7 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		restore.metadata = m
 		return nil
 
-	case instance.DiskName:
+	case instance.DiskName.MatchString(name):
 		if restore.imageID != "" {
 			return fmt.Errorf("%s: a second disk for %q", record.Pathname, id)
 		}
