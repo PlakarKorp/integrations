@@ -18,7 +18,6 @@ package common
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,6 +25,8 @@ import (
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/snapshots"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
+	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
 
 // Disk is a volume's content, and the metadata a restore recreates it from.
@@ -34,83 +35,80 @@ type Disk struct {
 	Reader   func() (io.ReadCloser, error)
 }
 
-// ReadVolume snapshots a volume, creates a temporary volume, returns back the appropriate disk
-// depending if we can attach to the execution host or not
-func (c *Client) ReadVolume(ctx context.Context, vol *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
-	snap, err := c.SnapshotVolume(ctx, vol.ID, cleanup)
-	if err != nil {
-		return nil, err
-	}
-	tmp, err := c.CreateVolumeFromSnapshot(ctx, snap, cleanup)
-	if err != nil {
-		return nil, err
-	}
+// PreflightHost identifies the executing host as a Nova server that
+// temporary volumes can be attached to.
+func (c *Client) PreflightHost(ctx context.Context) (*servers.Server, error) {
+	return attach.Preflight(ctx, c, c.Scope().ProjectID)
+}
 
-	device, err := c.attachToHost(ctx, vol, tmp, cleanup)
-	// NOTE: if volume is attached, we need to return a different reader on the disk
-	if err == nil {
-		return c.deviceDisk(ctx, vol, snap, device, cleanup), nil
+// TempVolumeOpts describes a temporary root volume in the server's
+// availability zone, sized from the saved flavor.
+func TempVolumeOpts(server *servers.Server, metadata *ServerMetadata) volumes.CreateOpts {
+	opts := volumes.CreateOpts{}
+	if server != nil {
+		opts.AvailabilityZone = server.AvailabilityZone
 	}
+	if metadata != nil && metadata.Flavor != nil {
+		opts.Size = metadata.Flavor.Disk
+	}
+	return opts
+}
 
-	// Only attach errors can be ignored, it
-	if !errors.Is(err, attach.ErrNotAttachable) {
+// ReadCinderDisk reads an already prepared snapshot clone through host when
+// one was found, falling back to uploading the clone to Glance.
+func (c *Client) ReadCinderDisk(ctx context.Context, host *servers.Server, vol *volumes.Volume, snap *snapshots.Snapshot, tmp *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
+	metadata := CinderDiskMetadata(vol, snap)
+	if host != nil {
+		disk, err := c.NewCinderDisk(ctx, host, tmp, metadata, cleanup)
+		if err == nil {
+			return disk, nil
+		}
 		log.Printf("openstack: volume %q: %v; reading it through Glance", vol.ID, err)
 	}
-	return c.imageDisk(ctx, vol, snap, tmp, cleanup)
-}
-
-// deviceDisk is the temporary volume read from the block device it is
-// attached as: raw, through no image, and for an encrypted volume with no
-// key to carry, as the bytes are in the clear.
-func (c *Client) deviceDisk(ctx context.Context, vol *volumes.Volume, snap *snapshots.Snapshot, device string, cleanup *Cleanup) *Disk {
-	return &Disk{
-		Metadata: &DiskMetadata{
-			Origin:          DiskOriginCinder,
-			DiskFormat:      RawDiskFormat,
-			Volume:          vol,
-			Snapshot:        snap,
-			Image:           nil,
-			ImageProperties: nil,
-		},
-		Reader: c.DeviceReader(ctx, device, cleanup),
-	}
-}
-
-// imageDisk is used when directly attaching volume wont work, e.g. the host is off the cloud.
-// Before returning the Disk, it uploads the volume to a glance image, which is the only way to read a volume outside the perimiters
-func (c *Client) imageDisk(ctx context.Context, vol *volumes.Volume, snap *snapshots.Snapshot, tmp *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
 	img, err := c.UploadVolumeImage(ctx, tmp, cleanup)
 	if err != nil {
 		return nil, err
 	}
+	return c.NewGlanceDisk(ctx, img, metadata, cleanup), nil
+}
+
+// ReadImageDisk returns a disk downloaded directly from img.
+func (c *Client) NewGlanceDisk(ctx context.Context, img *images.Image, metadata *DiskMetadata, cleanup *Cleanup) *Disk {
+	m := *metadata
+	m.DiskFormat = img.DiskFormat
+	m.Image = img
+	m.ImageProperties = EncryptionImageProperties(img)
 	return &Disk{
-		Metadata: &DiskMetadata{
-			Origin:          DiskOriginCinder,
-			DiskFormat:      img.DiskFormat,
-			Image:           img,
-			ImageProperties: EncryptionImageProperties(img),
-			Volume:          vol,
-			Snapshot:        snap,
-		},
-		Reader: c.ImageReader(ctx, img.ID, cleanup),
+		Metadata: &m,
+		Reader:   c.ImageReader(ctx, img.ID, cleanup),
+	}
+}
+
+// NewCinderDisk attaches tmp to host and returns a raw disk read from the
+// block device it appears as.
+func (c *Client) NewCinderDisk(ctx context.Context, host *servers.Server, volume *volumes.Volume, metadata *DiskMetadata, cleanup *Cleanup) (*Disk, error) {
+	device, err := c.volumeBlockDevice(ctx, host, volume, cleanup)
+	if err != nil {
+		return nil, err
+	}
+	m := *metadata
+	m.DiskFormat = RawDiskFormat
+	m.ImageProperties = nil
+	return &Disk{
+		Metadata: &m,
+		Reader:   c.DeviceReader(ctx, device, cleanup),
 	}, nil
 }
 
-// attachToHost attaches the temporary volume to the host plakar runs on,
-// when that is a Nova server of the cloud, and returns the block device it
-// is readable at. The error is attach.ErrNotAttachable when the host is no
-// such server: the usual case, off the cloud. When the attach fails, no
-// device turns up or it cannot be read, the volume is detached again and
-// left available for the Glance path.
-func (c *Client) attachToHost(ctx context.Context, vol, tmp *volumes.Volume, cleanup *Cleanup) (string, error) {
-	host, err := attach.Preflight(ctx, c, c.Scope().ProjectID, vol)
-	if err != nil {
-		return "", err
-	}
+// volumeBlockDevice attaches tmp to host and returns the block device it is
+// readable at. When attachment fails, no device turns up, or the device cannot
+// be read, the volume is detached and left available for the caller's
+// fallback path.
+func (c *Client) volumeBlockDevice(ctx context.Context, host *servers.Server, volume *volumes.Volume, cleanup *Cleanup) (string, error) {
 	var device string
-	err = c.AttachTempVolume(ctx, host.ID, tmp, cleanup)
+	err := c.AttachTempVolume(ctx, host.ID, volume, cleanup)
 	if err == nil {
-		device, err = attach.Device(ctx, tmp.ID)
+		device, err = attach.Device(ctx, volume.ID)
 	}
 	if err != nil {
 		// Detach is a no-op when Nova never took the attach.

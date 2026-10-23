@@ -604,13 +604,6 @@ func (c *Cloud) ImageMetadata(id string) map[string]string {
 	return nil
 }
 
-func (c *Cloud) isEncrypted(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r, ok := c.resources[id]
-	return ok && r.encrypted
-}
-
 // isEncryptedChain reports whether id, or whatever it was ultimately
 // snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
 // images created along that chain inherit the source's encrypted type.

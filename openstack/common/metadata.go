@@ -70,6 +70,25 @@ func EncryptionImageProperties(img *images.Image) map[string]string {
 	return props
 }
 
+// CinderDiskMetadata records the source of a Cinder disk before choosing how
+// its bytes will be read.
+func CinderDiskMetadata(vol *volumes.Volume, snap *snapshots.Snapshot) *DiskMetadata {
+	return &DiskMetadata{
+		Origin:   DiskOriginCinder,
+		Volume:   vol,
+		Snapshot: snap,
+	}
+}
+
+// GlanceDiskMetadata records the source of a Glance disk before choosing how
+// its bytes will be read.
+func GlanceDiskMetadata(img *images.Image) *DiskMetadata {
+	return &DiskMetadata{
+		Origin: DiskOriginGlance,
+		Image:  img,
+	}
+}
+
 // DiskFormat is the format a restore uploads the disk as: the recorded one,
 // or for a backup from before it was recorded the image's, or qcow2, what
 // those backups uploaded. nil metadata is a snapshot with none at all.

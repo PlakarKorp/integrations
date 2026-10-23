@@ -11,7 +11,6 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/gophercloud/gophercloud/v2"
-	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,7 +83,7 @@ func TestPreflightFindsHost(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	nova := onCloud(t, cloud)
 
-	server, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	server, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.NoError(t, err)
 	assert.Equal(t, hostID, server.ID)
 }
@@ -94,7 +93,7 @@ func TestPreflightOffCloud(t *testing.T) {
 	setMetadataURL(t, cloud.MetadataURL) // answers 404: not a Nova server
 	fakeDMI(t, "OpenStack Nova", hostID) // must not be consulted
 
-	_, err := Preflight(t.Context(), &fakeNova{Status: "ACTIVE"}, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	_, err := Preflight(t.Context(), &fakeNova{Status: "ACTIVE"}, keystonetest.Project)
 	require.ErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, "not a Nova server: metadata service: 404")
 }
@@ -106,7 +105,7 @@ func TestPreflightFallsBackToDMI(t *testing.T) {
 	// Nova's libvirt driver stamps the ID upper-case in some versions.
 	fakeDMI(t, "OpenStack Nova", "HOST-1")
 
-	server, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	server, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.NoError(t, err)
 	assert.Equal(t, hostID, server.ID)
 }
@@ -128,7 +127,7 @@ func TestPreflightDMIRefusals(t *testing.T) {
 				fakeDMI(t, tt.product, tt.uuid)
 			}
 
-			_, err := Preflight(t.Context(), &fakeNova{Status: "ACTIVE"}, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+			_, err := Preflight(t.Context(), &fakeNova{Status: "ACTIVE"}, keystonetest.Project)
 			require.ErrorIs(t, err, ErrNotAttachable)
 			require.ErrorContains(t, err, "metadata service: unreachable")
 			require.ErrorContains(t, err, "DMI: ")
@@ -142,7 +141,7 @@ func TestPreflightOtherProject(t *testing.T) {
 	nova := onCloud(t, cloud)
 	cloud.HostProject = "p2"
 
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	_, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.ErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, `server "host-1" is in project "p2", the credential in "p1"`)
 }
@@ -154,7 +153,7 @@ func TestPreflightServerNotInCloud(t *testing.T) {
 	nova := onCloud(t, cloud)
 	cloud.HostID = "host-2"
 
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	_, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.ErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, `server "host-2" (from the metadata service) is not in this cloud, project or region`)
 }
@@ -164,30 +163,9 @@ func TestPreflightServerNotActive(t *testing.T) {
 	nova := onCloud(t, cloud)
 	nova.Status = "SHUTOFF"
 
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	_, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.ErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, `server "host-1" is SHUTOFF`)
-}
-
-func TestPreflightVolumeAlreadyAttached(t *testing.T) {
-	cloud := keystonetest.NewCloud(t)
-	nova := onCloud(t, cloud)
-
-	vol := &volumes.Volume{ID: "vol-1", Attachments: []volumes.Attachment{{ServerID: "other"}, {ServerID: hostID}}}
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, vol)
-	require.ErrorIs(t, err, ErrNotAttachable)
-	assert.ErrorContains(t, err, `volume "vol-1" is already attached to server "host-1"`)
-}
-
-// A volume attached elsewhere is not ruled out: what a backup attaches is a
-// volume made from its snapshot.
-func TestPreflightIgnoresOtherAttachments(t *testing.T) {
-	cloud := keystonetest.NewCloud(t)
-	nova := onCloud(t, cloud)
-
-	vol := &volumes.Volume{ID: "vol-1", Status: "in-use", Attachments: []volumes.Attachment{{ServerID: "other"}}}
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, vol)
-	require.NoError(t, err)
 }
 
 // A Nova failure is not a no: Preflight could not tell.
@@ -196,7 +174,7 @@ func TestPreflightNovaFails(t *testing.T) {
 	nova := onCloud(t, cloud)
 	nova.NovaDown = true
 
-	_, err := Preflight(t.Context(), nova, keystonetest.Project, &volumes.Volume{ID: "vol-1"})
+	_, err := Preflight(t.Context(), nova, keystonetest.Project)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNotAttachable)
 	assert.ErrorContains(t, err, `get server "host-1"`)

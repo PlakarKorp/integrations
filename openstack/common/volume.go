@@ -531,53 +531,36 @@ func (c *Client) DeleteTempVolume(ctx context.Context, volumeID string) {
 	(&Cleanup{block: block, volumeID: volumeID}).Run(ctx)
 }
 
-// CreateVolumeFromImage creates a volume shaped like src. A volume that does
-// not become available is deleted, and one in "error" is created again.
-func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+// createVolume creates a volume from opts. It raises an image-backed
+// volume's size when the image requires more space. A volume that does not
+// become available is deleted, and one in "error" is created again.
+func (c *Client) createVolume(ctx context.Context, opts volumes.CreateOpts) (*volumes.Volume, error) {
 	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
-	image, err := c.glance()
-	if err != nil {
-		return nil, err
+	if opts.Size <= 0 {
+		return nil, errors.New("create volume: no size")
 	}
 
-	// Guessing a size risks a volume too small for the image.
-	if src == nil || src.Size <= 0 {
-		return nil, errors.New("create volume from image: the source volume has no size")
-	}
-
-	img, err := images.Get(ctx, image, imageID).Extract()
-	if err != nil {
-		return nil, fmt.Errorf("get image %q: %w", imageID, err)
-	}
-
-	// Cinder rejects a volume smaller than the image's byte size rounded up to
-	// GiB; a volume that was near-full when backed up can exceed its own
-	// nominal src.Size once exported.
-	size := src.Size
-	if minSize := requiredSizeGiB(img.SizeBytes); minSize > size {
-		size = minSize
-	}
-
-	opts := volumes.CreateOpts{
-		ImageID:          imageID,
-		Name:             src.Name,
-		Size:             size,
-		VolumeType:       src.VolumeType,
-		AvailabilityZone: src.AvailabilityZone,
-		Description:      src.Description,
-		Metadata:         src.Metadata,
-	}
-	if opts.Name == "" {
-		opts.Name = RestorePrefix + src.ID
+	if opts.ImageID != "" {
+		image, err := c.glance()
+		if err != nil {
+			return nil, err
+		}
+		img, err := images.Get(ctx, image, opts.ImageID).Extract()
+		if err != nil {
+			return nil, fmt.Errorf("get image %q: %w", opts.ImageID, err)
+		}
+		if minSize := requiredSizeGiB(img.SizeBytes); minSize > opts.Size {
+			opts.Size = minSize
+		}
 	}
 
 	for attempt := 1; ; attempt++ {
 		created, err := volumes.Create(ctx, block, opts, nil).Extract()
 		if err != nil {
-			return nil, fmt.Errorf("create volume from image %q: %w", imageID, err)
+			return nil, fmt.Errorf("create volume: %w", err)
 		}
 
 		vol, err := waitStatus(ctx, kindVolume, created.ID, getVolume(block, created.ID), statusAvailable, statusError)
@@ -592,4 +575,43 @@ func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src 
 		}
 		log.Printf("openstack: %v; creating it again", err)
 	}
+}
+
+// CreateVolumeFromImage creates a restored volume shaped like src.
+func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+	if src == nil || src.Size <= 0 {
+		return nil, errors.New("create volume from image: the source volume has no size")
+	}
+	name := src.Name
+	if name == "" {
+		name = RestorePrefix + src.ID
+	}
+	return c.createVolume(ctx, volumes.CreateOpts{
+		ImageID:          imageID,
+		Name:             name,
+		Size:             src.Size,
+		VolumeType:       src.VolumeType,
+		AvailabilityZone: src.AvailabilityZone,
+		Description:      src.Description,
+		Metadata:         src.Metadata,
+	})
+}
+
+// CreateTempVolumeFromImage creates a volume for reading an image through an
+// attachment. The volume is registered with cleanup and given a temporary
+// name; unlike CreateVolumeFromImage, it is never a restored result.
+func (c *Client) CreateTempVolumeFromImage(ctx context.Context, imageID string, opts volumes.CreateOpts, cleanup *Cleanup) (*volumes.Volume, error) {
+	opts.ImageID = imageID
+	opts.Name = tmpPrefix + imageID
+	tmp, err := c.createVolume(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	block, err := c.cinder()
+	if err != nil {
+		c.DeleteTempVolume(ctx, tmp.ID)
+		return nil, err
+	}
+	cleanup.block, cleanup.volumeID = block, tmp.ID
+	return tmp, nil
 }
