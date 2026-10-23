@@ -164,10 +164,10 @@ func TestAttachRestoreVolumeRefusals(t *testing.T) {
 			_, err = client.AttachRestoreVolume(t.Context(), host, tt.metadata)
 			require.Error(t, err)
 			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, err, tt.wantErr)
 			}
 			if tt.wantErrContains != "" {
-				assert.ErrorContains(t, err, tt.wantErrContains)
+				require.ErrorContains(t, err, tt.wantErrContains)
 			}
 			assert.Len(t, cloud.VolumeRequests(), tt.wantRequests)
 			assert.Empty(t, cloud.Attached())

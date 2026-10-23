@@ -361,7 +361,7 @@ func TestExportWriteFailureLeavesNothing(t *testing.T) {
 	require.ErrorContains(t, err, `write disk "vol-1"`)
 	require.ErrorContains(t, err, "read failed")
 	require.Len(t, results, 2)
-	assert.ErrorContains(t, results[1].Err, "read failed")
+	require.ErrorContains(t, results[1].Err, "read failed")
 
 	assert.Empty(t, cloud.Uploads())
 	assert.Len(t, cloud.VolumeRequests(), 1)

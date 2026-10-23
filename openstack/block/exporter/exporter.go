@@ -178,15 +178,13 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 		return fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
 	}
 
-	if common.ValidateWriteAttachment(metadata) == nil {
-		vol, err := writeDisk(ctx, exp.client, record, metadata)
+	if w := attachVolume(ctx, exp.client, metadata); w != nil {
+		vol, err := writeDisk(ctx, w, record, metadata)
 		if err != nil {
 			return err
 		}
-		if vol != nil {
-			exp.volumeID = vol.ID
-			return nil
-		}
+		exp.volumeID = vol.ID
+		return nil
 	}
 
 	id, err := uploadDisk(ctx, exp.client, record, volumeID, metadata)
@@ -197,25 +195,34 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 	return nil
 }
 
-// writeDisk restores a raw disk through an attachment to the host, when the
-// host is a Nova server of the cloud and the attach works, and returns the
-// restored volume. It returns nil, nil when the disk is better sent through
-// Glance: that is found out before any of the disk's bytes are read. A
-// failure once they are is the restore's.
-func writeDisk(ctx context.Context, client *common.Client, record *connectors.Record, metadata *common.DiskMetadata) (*volumes.Volume, error) {
+// attachVolume attaches a new volume for the disk to the host, when the disk
+// can be written to a block device, the host is a Nova server of the cloud
+// and the attach works. It returns nil when any of that fails, logging why
+// when it is worth knowing: none of the disk's bytes are read by then, so
+// the disk can go through Glance instead.
+func attachVolume(ctx context.Context, client *common.Client, metadata *common.DiskMetadata) *common.VolumeWrite {
+	if common.ValidateWriteAttachment(metadata) != nil {
+		return nil
+	}
 	host, err := client.PreflightHost(ctx)
 	if err != nil {
 		if !errors.Is(err, attach.ErrNotAttachable) {
 			log.Printf("openstack-block: direct attachment unavailable: %v", err)
 		}
-		return nil, nil
+		return nil
 	}
 	w, err := client.AttachRestoreVolume(ctx, host, metadata)
 	if err != nil {
 		log.Printf("openstack-block: volume %q: %v; restoring it through Glance", metadata.Volume.ID, err)
-		return nil, nil
+		return nil
 	}
 	log.Printf("openstack-block: writing volume %q to new volume %q through server %q", metadata.Volume.ID, w.Volume().ID, host.ID)
+	return w
+}
+
+// writeDisk writes the disk's bytes to the attached volume and returns it,
+// restored. There is no falling back from here: a failure is the restore's.
+func writeDisk(ctx context.Context, w *common.VolumeWrite, record *connectors.Record, metadata *common.DiskMetadata) (*volumes.Volume, error) {
 	vol, err := w.Copy(ctx, record.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("write disk %q: %w", metadata.Volume.ID, err)
