@@ -87,7 +87,7 @@ func (c *Client) NewGlanceDisk(ctx context.Context, img *images.Image, metadata 
 // NewCinderDisk attaches tmp to host and returns a raw disk read from the
 // block device it appears as.
 func (c *Client) NewCinderDisk(ctx context.Context, host *servers.Server, volume *volumes.Volume, metadata *DiskMetadata, cleanup *Cleanup) (*Disk, error) {
-	device, err := c.volumeBlockDevice(ctx, host, volume, cleanup)
+	device, err := c.volumeBlockDevice(ctx, host, volume, cleanup, attach.DeviceReadable)
 	if err != nil {
 		return nil, err
 	}
@@ -100,15 +100,16 @@ func (c *Client) NewCinderDisk(ctx context.Context, host *servers.Server, volume
 	}, nil
 }
 
-// volumeBlockDevice attaches tmp to host and returns the block device it is
-// readable at. When attachment fails, no device turns up, or the device cannot
-// be read, the volume is detached and left available for the caller's
-// fallback path.
-func (c *Client) volumeBlockDevice(ctx context.Context, host *servers.Server, volume *volumes.Volume, cleanup *Cleanup) (string, error) {
+// volumeBlockDevice attaches volume to host and returns the block device it
+// turns up as, found and checked by validator: attach.DeviceReadable for a
+// backup that reads it, attach.DeviceWritable for a restore that writes it.
+// When attachment fails, no device turns up, or validator refuses it, the volume is
+// detached and left available for the caller's fallback path.
+func (c *Client) volumeBlockDevice(ctx context.Context, host *servers.Server, volume *volumes.Volume, cleanup *Cleanup, validator func(context.Context, string) (string, error)) (string, error) {
 	var device string
 	err := c.AttachTempVolume(ctx, host.ID, volume, cleanup)
 	if err == nil {
-		device, err = attach.Device(ctx, volume.ID)
+		device, err = validator(ctx, volume.ID)
 	}
 	if err != nil {
 		// Detach is a no-op when Nova never took the attach.

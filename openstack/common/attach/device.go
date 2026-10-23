@@ -44,15 +44,29 @@ const serialLen = 20
 // host, and returns the device node it turns up as, checked to be readable:
 // that takes root or the disk group, and is better found out before plakar
 // opens the record than when it does.
-func Device(ctx context.Context, volumeID string) (string, error) {
+func DeviceReadable(ctx context.Context, volumeID string) (string, error) {
+	return device(ctx, volumeID, os.O_RDONLY, "reading")
+}
+
+// DeviceWritable is DeviceReadable for a restore, which writes a raw disk's bytes
+// to the volume: the device is checked to be writable instead. A qcow2 disk
+// cannot be written to a block device, and is the caller's to refuse.
+func DeviceWritable(ctx context.Context, volumeID string) (string, error) {
+	return device(ctx, volumeID, os.O_WRONLY, "writing")
+}
+
+// device waits for the volume's device and opens it with flag once, to find
+// out before any bytes move whether the process may. verb names the access
+// in the permission error's cure.
+func device(ctx context.Context, volumeID string, flag int, verb string) (string, error) {
 	device, err := waitDevice(ctx, volumeID)
 	if err != nil {
 		return "", err
 	}
-	f, err := os.Open(device)
+	f, err := os.OpenFile(device, flag, 0)
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			return "", fmt.Errorf("%w (reading a block device takes root, or membership of the disk group)", err)
+			return "", fmt.Errorf("%w (%s a block device takes root, or membership of the disk group)", err, verb)
 		}
 		return "", err
 	}
