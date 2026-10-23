@@ -27,9 +27,11 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 )
 
 //go:embed schema.json
@@ -39,6 +41,9 @@ type Exporter struct {
 	client *common.Client
 	// imageID is the restore image, until the volume is created from it.
 	imageID string
+	// volumeID is the restored volume, once the disk was written to it
+	// through an attachment instead of going through an image.
+	volumeID string
 }
 
 // NewExporter restores into a new, detached volume: location is bare
@@ -82,7 +87,9 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 }
 
 // Export expects the importer's layout. Kloset walks the snapshot in path
-// order, so /.METADATA.json arrives before /<volume-id>.qcow2.
+// order, so /.METADATA.json arrives before /<volume-id>.qcow2. The disk is
+// restored as it arrives (see restoreDisk); through Glance, the volume is
+// created from the image once the records are in.
 func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
@@ -121,18 +128,17 @@ loop:
 			results <- record.Ok()
 
 		case isDisk:
-			// A second disk would leak the first one's restore image.
-			if exp.imageID != "" {
+			// A second disk would leak the first one's restore image, or
+			// restore over the first one's volume.
+			if exp.imageID != "" || exp.volumeID != "" {
 				err := fmt.Errorf("%s: a second disk", record.Pathname)
 				results <- record.Error(err)
 				return err
 			}
-			id, err := uploadDisk(ctx, exp.client, record, volumeID, metadata)
-			if err != nil {
+			if err := exp.restoreDisk(ctx, record, volumeID, metadata); err != nil {
 				results <- record.Error(err)
 				return err
 			}
-			exp.imageID = id
 			results <- record.Ok()
 
 		default:
@@ -140,7 +146,10 @@ loop:
 		}
 	}
 
-	if exp.imageID == "" {
+	switch {
+	case exp.volumeID != "":
+		return nil
+	case exp.imageID == "":
 		return errors.New("the snapshot has no disk")
 	}
 
@@ -153,6 +162,66 @@ loop:
 	exp.client.DeleteTempImage(ctx, exp.imageID)
 	exp.imageID = ""
 	return nil
+}
+
+// restoreDisk checks the disk against the metadata, then restores it one of
+// two ways. A raw disk, when plakar runs on a Nova server of the cloud, is
+// written to a new volume attached to that server: exp.volumeID is then the
+// restored volume, done. Otherwise, a qcow2 disk included, it is uploaded to
+// a Glance image, exp.imageID, for the volume to be created from once the
+// records are in.
+func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) error {
+	if metadata == nil {
+		return fmt.Errorf("%s before %s", record.Pathname, block.MetadataName)
+	}
+	if volumeID != metadata.Volume.ID {
+		return fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
+	}
+
+	if common.ValidateWriteAttachment(metadata) == nil {
+		vol, err := writeDisk(ctx, exp.client, record, metadata)
+		if err != nil {
+			return err
+		}
+		if vol != nil {
+			exp.volumeID = vol.ID
+			return nil
+		}
+	}
+
+	id, err := uploadDisk(ctx, exp.client, record, volumeID, metadata)
+	if err != nil {
+		return err
+	}
+	exp.imageID = id
+	return nil
+}
+
+// writeDisk restores a raw disk through an attachment to the host, when the
+// host is a Nova server of the cloud and the attach works, and returns the
+// restored volume. It returns nil, nil when the disk is better sent through
+// Glance: that is found out before any of the disk's bytes are read. A
+// failure once they are is the restore's.
+func writeDisk(ctx context.Context, client *common.Client, record *connectors.Record, metadata *common.DiskMetadata) (*volumes.Volume, error) {
+	host, err := client.PreflightHost(ctx)
+	if err != nil {
+		if !errors.Is(err, attach.ErrNotAttachable) {
+			log.Printf("openstack-block: direct attachment unavailable: %v", err)
+		}
+		return nil, nil
+	}
+	w, err := client.AttachRestoreVolume(ctx, host, metadata)
+	if err != nil {
+		log.Printf("openstack-block: volume %q: %v; restoring it through Glance", metadata.Volume.ID, err)
+		return nil, nil
+	}
+	log.Printf("openstack-block: writing volume %q to new volume %q through server %q", metadata.Volume.ID, w.Volume().ID, host.ID)
+	vol, err := w.Copy(ctx, record.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("write disk %q: %w", metadata.Volume.ID, err)
+	}
+	log.Printf("openstack-block: restored volume %q by writing it", vol.ID)
+	return vol, nil
 }
 
 // Close deletes the restore image a failed restore left behind.
@@ -186,13 +255,6 @@ func decodeMetadata(record *connectors.Record) (*common.DiskMetadata, error) {
 // result. Only the image properties a restore needs, e.g.
 // cinder_encryption_key_id, are carried over; the rest are not.
 func uploadDisk(ctx context.Context, client *common.Client, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) (string, error) {
-	if metadata == nil {
-		return "", fmt.Errorf("%s before %s", record.Pathname, block.MetadataName)
-	}
-	if volumeID != metadata.Volume.ID {
-		return "", fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
-	}
-
 	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, common.DiskFormat(metadata), common.RestoreImageProperties(metadata))
 	if err != nil {
 		return "", fmt.Errorf("upload disk %q: %w", volumeID, err)
