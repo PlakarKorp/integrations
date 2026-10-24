@@ -11,6 +11,7 @@ package importer
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -26,6 +27,18 @@ import (
 func drainImporter(t *testing.T, imp *FSImporter) map[string]struct{} {
 	t.Helper()
 
+	out := map[string]struct{}{}
+	for _, rec := range drainRecords(t, imp) {
+		out[rec.Pathname] = struct{}{}
+	}
+	return out
+}
+
+// drainRecords runs imp.Import to completion and returns every record that
+// is not an error.
+func drainRecords(t *testing.T, imp *FSImporter) []*connectors.Record {
+	t.Helper()
+
 	records := make(chan *connectors.Record, 64)
 
 	importDone := make(chan error, 1)
@@ -33,10 +46,10 @@ func drainImporter(t *testing.T, imp *FSImporter) map[string]struct{} {
 		importDone <- imp.Import(context.Background(), records, nil)
 	}()
 
-	out := map[string]struct{}{}
+	var out []*connectors.Record
 	for rec := range records {
 		if rec.Err == nil {
-			out[rec.Pathname] = struct{}{}
+			out = append(out, rec)
 		}
 	}
 
@@ -209,6 +222,8 @@ func TestToSlash(t *testing.T) {
 	}{
 		{"C:\\test", "/C:/test"},
 		{"C:\\", "/C:"},
+		{"\\\\host\\share", "/host/share"},
+		{"\\\\host\\share\\file.mp3", "/host/share/file.mp3"},
 	}
 
 	for _, test := range suite {
@@ -216,5 +231,55 @@ func TestToSlash(t *testing.T) {
 			t.Errorf("toslash(%s) yield %s; expected %s",
 				test.t, r, test.e)
 		}
+	}
+}
+
+// TestImporter_VolumeRootName is the regression test for
+// https://github.com/PlakarKorp/plakar/issues/1797
+//
+// os.Lstat names a volume root (C:\ or \\host\share) "\" on windows.
+// Backing up a share root walks that root, so its record must be named
+// after the path like the prefix directory record is, or kloset rejects
+// the entry.  A subst drive stands in for the share to keep the walk small.
+func TestImporter_VolumeRootName(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("volume roots only exist on windows")
+	}
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var drive string
+	for c := 'Z'; c >= 'D'; c-- {
+		if _, err := os.Lstat(string(c) + `:\`); err != nil {
+			drive = string(c) + ":"
+			break
+		}
+	}
+	if drive == "" {
+		t.Skip("no free drive letter")
+	}
+	if out, err := exec.Command("subst", drive, root).CombinedOutput(); err != nil {
+		t.Skipf("subst %s %s: %v: %s", drive, root, err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("subst", drive, "/D").Run() })
+
+	rootpath := toslash(drive + `\`)
+	want := path.Base(rootpath)
+
+	seen := 0
+	for _, rec := range drainRecords(t, newImporter(t, drive+`\`, nil)) {
+		if rec.Pathname != rootpath {
+			continue
+		}
+		seen++
+		if rec.FileInfo.Lname != want {
+			t.Errorf("record %q named %q; expected %q", rec.Pathname, rec.FileInfo.Lname, want)
+		}
+	}
+	if seen == 0 {
+		t.Errorf("no record for %q", rootpath)
 	}
 }

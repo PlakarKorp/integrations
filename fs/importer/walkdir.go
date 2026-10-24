@@ -59,6 +59,13 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 		fileinfo := objects.FileInfoFromStat(p.info)
 		fileinfo.Lusername, fileinfo.Lgroupname = f.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
 
+		entrypath := toslash(p.path)
+		if filepath.Dir(p.path) == p.path {
+			// a volume root (C:\ or \\host\share) is named "\" by
+			// os.Lstat on windows, see walkDir_addPrefixDirectories.
+			fileinfo.Lname = path.Base(entrypath)
+		}
+
 		var originFile string
 		if p.info.Mode()&os.ModeSymlink != 0 {
 			originFile, err = os.Readlink(p.path)
@@ -67,8 +74,6 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 				continue
 			}
 		}
-
-		entrypath := toslash(p.path)
 
 		records <- connectors.NewRecord(entrypath, originFile, fileinfo, extendedAttributes,
 			func() (io.ReadCloser, error) {
