@@ -218,3 +218,62 @@ func TestToSlash(t *testing.T) {
 		}
 	}
 }
+
+// TestImporter_RootSymlinkRecordsTarget is the regression test for
+// https://github.com/PlakarKorp/plakar/issues/1294: a root that is a symlink
+// is walked through its target, and the link record must carry that target
+// so the snapshot can be rooted there and the link restored.
+func TestImporter_RootSymlinkRecordsTarget(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "sub", "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "elsewhere"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "elsewhere", "lnk")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	imp := newImporter(t, link, nil)
+
+	records := make(chan *connectors.Record, 64)
+	results := make(chan *connectors.Result, 64)
+	go func() {
+		for range results {
+		}
+	}()
+	go func() {
+		if err := imp.Import(context.Background(), records, results); err != nil {
+			t.Errorf("Import returned error: %v", err)
+		}
+	}()
+
+	targets := map[string]string{}
+	seen := map[string]bool{}
+	for rec := range records {
+		if rec.Err != nil {
+			continue
+		}
+		seen[rec.Pathname] = true
+		if rec.Target != "" {
+			targets[rec.Pathname] = rec.Target
+		}
+		results <- rec.Ok()
+	}
+	close(results)
+
+	if got := targets[toslash(link)]; got != target {
+		t.Fatalf("root symlink target: got %q, want %q", got, target)
+	}
+	for _, p := range []string{target, filepath.Join(target, "sub", "f.txt"), filepath.Dir(link)} {
+		if !seen[toslash(p)] {
+			t.Errorf("missing record for %q", p)
+		}
+	}
+}
