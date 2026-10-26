@@ -104,6 +104,13 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 }
 
 func (p *Exporter) exportOne(record *connectors.Record) error {
+	// '\' is a path separator on the SMB server but an ordinary character to
+	// path.Clean, so it would slip ".." past safe(). SMB can't represent such
+	// names faithfully anyway.
+	if strings.Contains(record.Pathname, `\`) || strings.Contains(record.Target, `\`) {
+		return fmt.Errorf("refusing backslash in pathname or target: %q", record.Pathname)
+	}
+
 	pathname := path.Join(p.rootDir, record.Pathname)
 	if !p.safe(pathname) {
 		return fmt.Errorf("refusing to write outside share root: %q", pathname)
