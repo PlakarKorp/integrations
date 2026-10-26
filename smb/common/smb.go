@@ -181,6 +181,7 @@ func Connect(ctx context.Context, cfg *Config) (*Conn, error) {
 	}
 
 	dialer := &smb2.Dialer{
+		Negotiator: smb2.Negotiator{RequireMessageSigning: true},
 		Initiator: &smb2.NTLMInitiator{
 			User:     cfg.User,
 			Password: cfg.Password,
