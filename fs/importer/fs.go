@@ -243,8 +243,11 @@ func (p *FSImporter) Root() string {
 
 // convert paths to the internal format.  For unix nothing changes,
 // for windows we apply some edits:
-// C:\User\Omar\Plakar -> C:/User/Omar/Plakar -> /C:/User/Omar/Plakar
+// C:\User\Omar\Plakar -> C/User/Omar/Plakar -> /C/User/Omar/Plakar
 func toslash(p string) string {
+	if vol := filepath.VolumeName(p); strings.HasSuffix(vol, ":") {
+		p = vol[:len(vol)-1] + p[len(vol):]
+	}
 	p = filepath.ToSlash(p)
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p

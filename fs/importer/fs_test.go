@@ -207,8 +207,8 @@ func TestToSlash(t *testing.T) {
 		t string
 		e string
 	}{
-		{"C:\\test", "/C:/test"},
-		{"C:\\", "/C:"},
+		{"C:\\test", "/C/test"},
+		{"C:\\", "/C"},
 	}
 
 	for _, test := range suite {
