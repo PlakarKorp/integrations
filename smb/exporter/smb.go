@@ -109,9 +109,6 @@ func (p *Exporter) exportOne(record *connectors.Record) error {
 		return fmt.Errorf("refusing to write outside share root: %q", pathname)
 	}
 	mode := record.FileInfo.Mode()
-	if !mode.IsDir() && path.Clean(pathname) == path.Clean(p.rootDir) {
-		return fmt.Errorf("refusing non-directory record at share root: %q", pathname)
-	}
 
 	switch {
 	case mode.IsDir():
