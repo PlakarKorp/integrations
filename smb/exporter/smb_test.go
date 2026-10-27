@@ -131,3 +131,38 @@ func TestExportOne_RejectsBackslashEscape(t *testing.T) {
 		})
 	}
 }
+
+// Only a directory record may resolve to the restore root; a file or symlink
+// there would occupy the root and redirect every later record.
+func TestExportOne_RejectsNonDirectoryAtRoot(t *testing.T) {
+	p := &Exporter{rootDir: "/repo"}
+
+	tests := []struct {
+		name   string
+		record *connectors.Record
+	}{
+		{
+			"file at root",
+			&connectors.Record{
+				Pathname: "/",
+				FileInfo: objects.FileInfo{Lmode: 0o644},
+			},
+		},
+		{
+			"symlink at root",
+			&connectors.Record{
+				Pathname: "/",
+				Target:   "/elsewhere",
+				FileInfo: objects.FileInfo{Lmode: os.ModeSymlink | 0o777},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := p.exportOne(tt.record); err == nil {
+				t.Fatal("expected exportOne to reject a non-directory record at the restore root")
+			}
+		})
+	}
+}
