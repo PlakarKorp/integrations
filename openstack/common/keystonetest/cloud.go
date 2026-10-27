@@ -71,6 +71,8 @@ type Cloud struct {
 	// real one has for a process that is neither root nor in the disk
 	// group.
 	DeviceUnreadable bool
+	// DeviceReadOnly makes the device turn up readable but not writable.
+	DeviceReadOnly bool
 	// DetachingPolls is how many reads report a detached volume as detaching
 	// before it is available again.
 	DetachingPolls int
@@ -128,6 +130,7 @@ type Cloud struct {
 	vanished       map[string]bool
 	uploads        []Upload
 	requests       []VolumeRequest
+	written        map[string][]byte
 	serversCreated int
 	mux            *http.ServeMux
 }
@@ -139,7 +142,8 @@ type Upload struct {
 	Data                             []byte
 }
 
-// VolumeRequest is a request to create a volume from an image.
+// VolumeRequest is a request to create a volume from an image, or a blank
+// one when ImageID is empty.
 type VolumeRequest struct {
 	ImageID          string            `json:"imageRef"`
 	Name             string            `json:"name"`
@@ -162,6 +166,7 @@ type resource struct {
 	format     string // an image's disk_format, when not qcow2
 	final      string // the status a volume ends in, when not available
 	encrypted  bool   // a volume of an encrypted type
+	blank      bool   // a volume created from nothing: its device is empty
 	attachedTo string // the server a volume is attached to
 	detaching  int    // reads left reporting detaching, once detached
 	fromCinder bool   // an image Cinder uploads a volume to
@@ -188,6 +193,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		t:         t,
 		resources: map[string]*resource{},
 		vanished:  map[string]bool{},
+		written:   map[string][]byte{},
 	}
 	for _, v := range volumes {
 		c.resources[v] = &resource{kind: "volume"}
@@ -244,10 +250,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		c.decode(r, &body)
 		var id string
 		var ok bool
-		if body.Volume.ImageID != "" {
+		switch {
+		case body.Volume.ImageID != "":
 			id, ok = c.createFromImage(body.Volume.VolumeRequest)
-		} else {
+		case body.Volume.SnapshotID != "":
 			id, ok = c.create("volume", "tmp", body.Volume.SnapshotID)
+		default:
+			id, ok = c.createBlank(body.Volume.VolumeRequest), true
 		}
 		if !ok {
 			c.unexpected(w, r)
@@ -491,12 +500,20 @@ func (c *Cloud) Uploads() []Upload {
 	return slices.Clone(c.uploads)
 }
 
-// VolumeRequests lists the requests to create a volume from an image, in
-// order.
+// VolumeRequests lists the requests to create a volume from an image or
+// from nothing, in order.
 func (c *Cloud) VolumeRequests() []VolumeRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.requests)
+}
+
+// Written is what the volume's device held when it was last detached: the
+// bytes a restore wrote to it. nil for a volume never detached.
+func (c *Cloud) Written(volumeID string) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.written[volumeID]
 }
 
 // ServersCreated is how many Nova server-create calls this cloud has seen.
@@ -648,6 +665,23 @@ func (c *Cloud) createFromImage(req VolumeRequest) (string, bool) {
 	return id, true
 }
 
+// createBlank creates a volume from nothing, as a restore that writes the
+// disk itself does, ending in error for the first VolumeErrors of them.
+func (c *Cloud) createBlank(req VolumeRequest) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.next++
+	id := fmt.Sprintf("restored-%d", c.next)
+	r := &resource{kind: "volume", ours: true, blank: true, creating: c.CreatingPolls}
+	if c.VolumeErrors > 0 {
+		c.VolumeErrors--
+		r.final = "error"
+	}
+	c.resources[id] = r
+	c.requests = append(c.requests, req)
+	return id
+}
+
 func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -670,7 +704,8 @@ func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 
 // attach returns the status of attaching the volume to the server, or 0 for
 // one the client must not make. Like Nova, it refuses a volume that is not
-// available. The device turns up in DeviceDir at once.
+// available. The device turns up in DeviceDir at once, holding Disk, or
+// nothing for a blank volume.
 func (c *Cloud) attach(volumeID, serverID string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -684,16 +719,24 @@ func (c *Cloud) attach(volumeID, serverID string) int {
 	r.attachedTo = serverID
 	if !c.NoDevice {
 		mode := os.FileMode(0o600)
-		if c.DeviceUnreadable {
+		switch {
+		case c.DeviceUnreadable:
 			mode = 0
+		case c.DeviceReadOnly:
+			mode = 0o400
 		}
-		assert.NoError(c.t, os.WriteFile(c.devicePath(volumeID), c.Disk, mode))
+		content := c.Disk
+		if r.blank {
+			content = nil
+		}
+		assert.NoError(c.t, os.WriteFile(c.devicePath(volumeID), content, mode))
 	}
 	return http.StatusOK
 }
 
 // detach reports whether the volume was attached to the server, and detaches
-// it: the device goes at once, the volume reports detaching for a while.
+// it: the device goes at once, its content kept for Written, and the volume
+// reports detaching for a while.
 func (c *Cloud) detach(volumeID, serverID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -703,7 +746,11 @@ func (c *Cloud) detach(volumeID, serverID string) bool {
 	}
 	r.attachedTo = ""
 	r.detaching = c.DetachingPolls
-	if err := os.Remove(c.devicePath(volumeID)); err != nil {
+	device := c.devicePath(volumeID)
+	if data, err := os.ReadFile(device); err == nil {
+		c.written[volumeID] = data
+	}
+	if err := os.Remove(device); err != nil {
 		assert.ErrorIs(c.t, err, os.ErrNotExist)
 	}
 	return true

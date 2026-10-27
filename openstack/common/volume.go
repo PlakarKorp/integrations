@@ -579,22 +579,44 @@ func (c *Client) createVolume(ctx context.Context, opts volumes.CreateOpts) (*vo
 
 // CreateVolumeFromImage creates a restored volume shaped like src.
 func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+	opts, err := restoreVolumeOpts(src)
+	if err != nil {
+		return nil, fmt.Errorf("create volume from image: %w", err)
+	}
+	opts.ImageID = imageID
+	return c.createVolume(ctx, opts)
+}
+
+// emptyVolume creates a restored volume shaped like src with nothing on it,
+// for a restore that writes the disk's bytes to it through an attachment
+// instead of going through Glance.
+func (c *Client) emptyVolume(ctx context.Context, src *volumes.Volume) (*volumes.Volume, error) {
+	opts, err := restoreVolumeOpts(src)
+	if err != nil {
+		return nil, fmt.Errorf("create empty volume: %w", err)
+	}
+	return c.createVolume(ctx, opts)
+}
+
+// restoreVolumeOpts shapes a restored volume like src: its size, type,
+// availability zone, description and metadata, and its name, or
+// plakar-restore-<id> if it had none.
+func restoreVolumeOpts(src *volumes.Volume) (volumes.CreateOpts, error) {
 	if src == nil || src.Size <= 0 {
-		return nil, errors.New("create volume from image: the source volume has no size")
+		return volumes.CreateOpts{}, errors.New("the source volume has no size")
 	}
 	name := src.Name
 	if name == "" {
 		name = RestorePrefix + src.ID
 	}
-	return c.createVolume(ctx, volumes.CreateOpts{
-		ImageID:          imageID,
+	return volumes.CreateOpts{
 		Name:             name,
 		Size:             src.Size,
 		VolumeType:       src.VolumeType,
 		AvailabilityZone: src.AvailabilityZone,
 		Description:      src.Description,
 		Metadata:         src.Metadata,
-	})
+	}, nil
 }
 
 // CreateTempVolumeFromImage creates a volume for reading an image through an

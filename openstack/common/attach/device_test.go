@@ -32,7 +32,7 @@ func TestDeviceResolvesLink(t *testing.T) {
 		assert.NoError(t, os.Symlink(node, filepath.Join(dir, "virtio-vol-1")))
 	}()
 
-	device, err := Device(t.Context(), "vol-1")
+	device, err := DeviceReadable(t.Context(), "vol-1")
 	require.NoError(t, err)
 	// The temporary directory may sit behind a symlink of its own (macOS's
 	// /var), resolved along with the link.
@@ -46,7 +46,7 @@ func TestDeviceNeverTurnsUp(t *testing.T) {
 	deviceTimeout = 100 * time.Millisecond
 	fakeDevices(t)
 
-	_, err := Device(t.Context(), "vol-1")
+	_, err := DeviceReadable(t.Context(), "vol-1")
 	require.ErrorContains(t, err, `no device for volume "vol-1"`)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -60,9 +60,37 @@ func TestDeviceUnreadable(t *testing.T) {
 	dir := fakeDevices(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "virtio-vol-1"), []byte("disk"), 0))
 
-	_, err := Device(t.Context(), "vol-1")
+	_, err := DeviceReadable(t.Context(), "vol-1")
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.ErrorContains(t, err, "reading a block device takes root")
+}
+
+// A restore writes the device, so it checks for that; a device the process
+// may read but not write is refused with the cure.
+func TestDeviceWritable(t *testing.T) {
+	dir := fakeDevices(t)
+	node := filepath.Join(dir, "vdb")
+	require.NoError(t, os.WriteFile(node, []byte("disk"), 0o600))
+	require.NoError(t, os.Symlink(node, filepath.Join(dir, "virtio-vol-1")))
+
+	device, err := DeviceWritable(t.Context(), "vol-1")
+	require.NoError(t, err)
+	want, err := filepath.EvalSymlinks(node)
+	require.NoError(t, err)
+	assert.Equal(t, want, device)
+	data, err := os.ReadFile(node)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("disk"), data, "the check writes nothing")
+
+	if os.Getuid() == 0 {
+		t.Skip("root writes anything")
+	}
+	require.NoError(t, os.Chmod(node, 0o400))
+	_, err = DeviceReadable(t.Context(), "vol-1")
+	require.NoError(t, err, "still readable")
+	_, err = DeviceWritable(t.Context(), "vol-1")
+	require.ErrorIs(t, err, os.ErrPermission)
+	assert.ErrorContains(t, err, "writing a block device takes root")
 }
 
 // udev names the device after the disk serial, which Nova cuts to 20

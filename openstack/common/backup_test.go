@@ -239,7 +239,7 @@ func TestAttachDetachesWhenNoDeviceTurnsUp(t *testing.T) {
 	defer cancel()
 	host, err := client.PreflightHost(ctx)
 	require.NoError(t, err)
-	_, err = client.volumeBlockDevice(ctx, host, tmp, &cleanup)
+	_, err = client.volumeBlockDevice(ctx, host, tmp, &cleanup, attach.DeviceReadable)
 	require.ErrorContains(t, err, "no device for volume")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Empty(t, cloud.Attached())
@@ -270,7 +270,7 @@ func TestAttachDetachesWhenDeviceUnreadable(t *testing.T) {
 	require.NoError(t, err)
 	host, err := client.PreflightHost(t.Context())
 	require.NoError(t, err)
-	_, err = client.volumeBlockDevice(t.Context(), host, tmp, &cleanup)
+	_, err = client.volumeBlockDevice(t.Context(), host, tmp, &cleanup, attach.DeviceReadable)
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.Empty(t, cloud.Attached())
 
