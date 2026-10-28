@@ -133,6 +133,24 @@ func contained(root, pathname string) (string, error) {
 	return joined, nil
 }
 
+// verifyParent refuses a record whose parent exists but wasn't created by
+// this restore, which are the ones in dirOK: MKD fails the same way on a
+// directory or a symlink to one, so a parent symlink would otherwise be
+// followed instead of rejected.
+func (p *Exporter) verifyParent(record *integration.Record, pathname string, dirOK map[string]struct{}) error {
+	parent := path.Dir(pathname)
+	if record.Pathname == "/" || parent == path.Clean(p.rootDir) {
+		return nil
+	}
+	if _, ok := dirOK[parent]; ok {
+		return nil
+	}
+	if _, err := p.client.Stat(parent); err == nil {
+		return fmt.Errorf("refusing to restore %q: %q already exists and is not a directory created by this restore (possibly a symlink); remove it or restore into an empty directory", record.Pathname, parent)
+	}
+	return nil
+}
+
 func (p *Exporter) Root() string {
 	return p.rootDir
 }
@@ -163,6 +181,9 @@ func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-ch
 	g.SetLimit(p.opts.MaxConcurrency)
 
 	var dirPerms []dirPerm
+	// Directories this restore created, so a record isn't written through a
+	// pre-existing destination symlink.
+	dirOK := map[string]struct{}{}
 
 loop:
 	for {
@@ -192,6 +213,11 @@ loop:
 				continue
 			}
 
+			if err := p.verifyParent(record, pathname, dirOK); err != nil {
+				results <- record.Error(err)
+				continue
+			}
+
 			if record.FileInfo.Lmode.IsDir() {
 				// The restore root is the user's target, not ours to chmod.
 				if pathname == p.Root() {
@@ -199,6 +225,10 @@ loop:
 				} else if _, err := p.client.Mkdir(pathname); err != nil {
 					results <- record.Error(err)
 				} else {
+					// Only a real directory, not a symlink MKD resolved through.
+					if fi, err := p.client.Stat(pathname); err == nil && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+						dirOK[pathname] = struct{}{}
+					}
 					// Reported once its mode is set, after its
 					// children are written: a read-only
 					// directory would refuse them.
