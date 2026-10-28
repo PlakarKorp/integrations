@@ -175,6 +175,28 @@ func TestExportRefusesPathsOutsideRoot(t *testing.T) {
 	require.Error(t, err, "outside.txt was written outside the restore root")
 }
 
+// A destination symlink (the exporter can't plant one itself) must not be
+// written through.
+func TestExportRefusesWriteBelowPreExistingSymlink(t *testing.T) {
+	t.Parallel()
+	addr := server(t)
+	c := client(t, addr)
+	dir := testDir(t)
+	mkdirAll(t, c, dir+"/marker")
+	symlink(t, "marker", dir+"/escape")
+
+	errs := export(t, addr, dir,
+		dirRecord("/"),
+		dirRecord("/escape"),
+		fileRecord("/escape/canary.txt", "harmless-marker-canary"),
+	)
+
+	require.Error(t, errs["/escape"], "mkdir through an existing symlink was accepted")
+	require.Error(t, errs["/escape/canary.txt"], "write below an unverified parent was accepted")
+	_, err := c.Stat(dir + "/marker/canary.txt")
+	require.Error(t, err, "canary.txt was written through the symlink, outside the restore root")
+}
+
 // Not parallel: it counts the sessions of the whole server.
 func TestExporterCloseReleasesConnections(t *testing.T) {
 	addr := server(t)
