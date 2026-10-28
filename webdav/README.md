@@ -39,3 +39,15 @@ define a `@nextcloud` source:
 Then, back it up:
 
 	$ plakar backup @nextcloud
+
+
+## Limitations
+
+* The exporter has no symlink case: a symlink in a snapshot is skipped on
+  restore rather than recreated.
+* WebDAV has no protocol-level way to tell a symlink from a real directory,
+  so if the destination already has one, this connector cannot detect it and
+  a restore can write through it, outside the restore root. Whether that is
+  possible, and how to prevent it, is entirely up to the WebDAV server, not
+  this connector. Restore only into a destination you know to be free of
+  symlinks you don't control.
