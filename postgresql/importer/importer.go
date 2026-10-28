@@ -33,6 +33,8 @@ type Importer struct {
 	conn             pgconn.ConnConfig
 	database         string                                // empty means back up all databases
 	excludeDatabases map[string]struct{}                   // databases to skip in a full backup
+	excludeTables    []string                              // pg_dump --exclude-table patterns: no schema, no data
+	excludeTableData []string                              // pg_dump --exclude-table-data patterns: schema only
 	compress         bool                                  // enable pg_dump compression; off by default to avoid degrading Plakar's compression
 	schemaOnly       bool                                  // pass -s: dump schema only
 	dataOnly         bool                                  // pass -a: dump data only
@@ -75,12 +77,8 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, o
 	}
 
 	excludeDatabases := make(map[string]struct{})
-	if v, ok := config["exclude_databases"]; ok && v != "" {
-		for _, name := range strings.Split(v, ",") {
-			if name = strings.TrimSpace(name); name != "" {
-				excludeDatabases[name] = struct{}{}
-			}
-		}
+	for _, name := range splitList(config["exclude_databases"]) {
+		excludeDatabases[name] = struct{}{}
 	}
 
 	var (
@@ -142,6 +140,8 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, o
 		conn:             conn,
 		database:         database,
 		excludeDatabases: excludeDatabases,
+		excludeTables:    splitList(config["exclude_tables"]),
+		excludeTableData: splitList(config["exclude_table_data"]),
 		compress:         compress,
 		schemaOnly:       schemaOnly,
 		dataOnly:         dataOnly,
@@ -175,11 +175,24 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 		Database:   p.database,
 		DumpFormat: dumpFormat,
 		Options: manifest.ManifestOptions{
-			SchemaOnly: p.schemaOnly,
-			DataOnly:   p.dataOnly,
-			Compress:   p.compress,
+			SchemaOnly:       p.schemaOnly,
+			DataOnly:         p.dataOnly,
+			Compress:         p.compress,
+			ExcludeTables:    p.excludeTables,
+			ExcludeTableData: p.excludeTableData,
 		},
 	}, records)
+}
+
+// splitList splits a comma-separated option value, dropping blank entries.
+func splitList(v string) []string {
+	var items []string
+	for _, item := range strings.Split(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
@@ -329,6 +342,13 @@ func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors
 			args = append(args, "-s")
 		} else if p.dataOnly {
 			args = append(args, "-a")
+		}
+		// With "=", a pattern starting with "-" cannot be read as an option.
+		for _, pattern := range p.excludeTables {
+			args = append(args, "--exclude-table="+pattern)
+		}
+		for _, pattern := range p.excludeTableData {
+			args = append(args, "--exclude-table-data="+pattern)
 		}
 		recordPath := fmt.Sprintf("/%05d-%s", n, dbname)
 		var err error
