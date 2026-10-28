@@ -106,6 +106,28 @@ Database to back up.
 If omitted, all databases are backed up via
 .Xr pg_dumpall 1 .
 Overrides the URI path.
+.It Ar exclude_tables
+Comma-separated list of tables to leave out of the dump, definition and
+rows, as
+.Xr pg_dump 1
+.Fl \&-exclude-table
+patterns, for example
+.Li public.audit,log_* .
+Applies to every database dumped.
+A pattern without a schema only matches tables on the
+.Va search_path
+.Pq use Li *.log_* for every schema ,
+and a partitioned table's partitions must be listed too.
+.It Ar exclude_table_data
+Comma-separated list of tables whose rows are left out of the dump.
+Their definition is kept, so they are restored empty.
+.Xr pg_dump 1
+.Fl \&-exclude-table-data
+patterns, applied to every database dumped.
+A pattern without a schema only matches tables on the
+.Va search_path
+.Pq use Li *.log_* for every schema ,
+and a partitioned table's partitions must be listed too.
 .It Ar compress
 Enable
 .Xr pg_dump 1
