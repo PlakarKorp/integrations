@@ -65,3 +65,8 @@ $ plakar restore -to smb://alice:secret@nas.example.com/restore abc
   best-effort basis, but Unix permission bits and ownership are not.
 * Device nodes, sockets and FIFOs have no SMB representation and are reported as
   errors on export.
+* If the destination already has a symlink where the restore has a file or
+  directory, a restore can write through it, outside the restore root.
+  Samba resolves such a symlink before answering any query this connector
+  can make, so it cannot be detected or refused here. Restore only into a
+  destination you know to be free of symlinks you don't control.
