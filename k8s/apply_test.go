@@ -8,8 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 	yamlv3 "go.yaml.in/yaml/v3"
 	corev1 "k8s.io/api/core/v1"
@@ -65,11 +64,11 @@ func fakeDynamic(k *k8s) *dynamicfake.FakeDynamicClient {
 	return k.dclient.(*dynamicfake.FakeDynamicClient)
 }
 
-func runRestoreConfig(t *testing.T, k *k8s, records ...*connectors.Record) ([]*connectors.Result, error) {
+func runRestoreConfig(t *testing.T, k *k8s, records ...*integration.Record) ([]*integration.Result, error) {
 	t.Helper()
 
-	in := make(chan *connectors.Record, len(records))
-	out := make(chan *connectors.Result, len(records))
+	in := make(chan *integration.Record, len(records))
+	out := make(chan *integration.Result, len(records))
 	for _, r := range records {
 		in <- r
 	}
@@ -78,7 +77,7 @@ func runRestoreConfig(t *testing.T, k *k8s, records ...*connectors.Record) ([]*c
 	err := k.restoreConfig(t.Context(), in, out)
 	close(out)
 
-	var results []*connectors.Result
+	var results []*integration.Result
 	for r := range out {
 		results = append(results, r)
 	}
@@ -111,11 +110,11 @@ func TestRestoreConfigSkipsNonRegularRecords(t *testing.T) {
 	t.Parallel()
 	k := newApplyTestK8s()
 
-	errRecord := connectors.NewError("/broken", errors.New("boom"))
-	xattrRecord := connectors.NewXattr("/file", "user.foo", 0, func() (io.ReadCloser, error) {
+	errRecord := integration.NewError("/broken", errors.New("boom"))
+	xattrRecord := integration.NewXattr("/file", "user.foo", 0, func() (io.ReadCloser, error) {
 		return nil, errors.New("should not be called")
 	})
-	dirRecord := connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: fs.ModeDir | 0755}, nil,
+	dirRecord := integration.NewRecord("/dir", "", integration.FileInfo{Lmode: fs.ModeDir | 0755}, nil,
 		func() (io.ReadCloser, error) { return nil, errors.New("should not be called") })
 
 	results, err := runRestoreConfig(t, k, errRecord, xattrRecord, dirRecord)
@@ -637,8 +636,8 @@ metadata:
   name: my-cm
   namespace: source
 `
-	record := connectors.NewRecord("/source/_/ConfigMap/v1/my-cm.yaml", "",
-		objects.FileInfo{Lmode: 0644}, nil,
+	record := integration.NewRecord("/source/_/ConfigMap/v1/my-cm.yaml", "",
+		integration.FileInfo{Lmode: 0644}, nil,
 		func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(yaml)), nil
 		})

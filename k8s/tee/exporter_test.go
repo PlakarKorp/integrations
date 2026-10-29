@@ -9,14 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeExporter struct {
-	export   func(context.Context, <-chan *connectors.Record, chan<- *connectors.Result) error
+	export   func(context.Context, <-chan *integration.Record, chan<- *integration.Result) error
 	closeErr error
 	closed   atomic.Bool
 }
@@ -27,7 +26,7 @@ func (f *fakeExporter) Root() string               { return "/" }
 func (f *fakeExporter) Flags() location.Flags      { return location.FLAG_STREAM | location.FLAG_NEEDACK }
 func (f *fakeExporter) Ping(context.Context) error { return nil }
 
-func (f *fakeExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (f *fakeExporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	return f.export(ctx, records, results)
 }
 
@@ -37,7 +36,7 @@ func (f *fakeExporter) Close(context.Context) error {
 }
 
 // echo acks every record it receives and exits cleanly.
-func echo(_ context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func echo(_ context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 	for record := range records {
 		results <- record.Ok()
@@ -45,8 +44,8 @@ func echo(_ context.Context, records <-chan *connectors.Record, results chan<- *
 	return nil
 }
 
-func rec(pathname string) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lname: pathname}, nil,
+func rec(pathname string) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lname: pathname}, nil,
 		func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("")), nil
 		})
@@ -76,7 +75,7 @@ func TestPushReturnsResultForEachRecord(t *testing.T) {
 
 	for _, pathname := range []string{"/a", "/b"} {
 		var (
-			res *connectors.Result
+			res *integration.Result
 			err error
 		)
 		nohang(t, "Push("+pathname+")", func() { res, err = e.Push(rec(pathname)) })
@@ -94,7 +93,7 @@ func TestPushReturnsResultForEachRecord(t *testing.T) {
 }
 
 func TestWaitReportsExporterError(t *testing.T) {
-	exp := &fakeExporter{export: func(_ context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	exp := &fakeExporter{export: func(_ context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 		defer close(results)
 		for range records {
 			// never ack
@@ -118,14 +117,14 @@ func TestWaitReportsCloseFailure(t *testing.T) {
 }
 
 func TestPushSurfacesFailedExporter(t *testing.T) {
-	exp := &fakeExporter{export: func(_ context.Context, _ <-chan *connectors.Record, results chan<- *connectors.Result) error {
+	exp := &fakeExporter{export: func(_ context.Context, _ <-chan *integration.Record, results chan<- *integration.Result) error {
 		close(results)
 		return errors.New("boom")
 	}}
 	e := New(t.Context(), exp)
 
 	var (
-		res *connectors.Result
+		res *integration.Result
 		err error
 	)
 	// nobody is reading records, so this can only return by noticing
@@ -140,7 +139,7 @@ func TestPushAlwaysReportsResultOrError(t *testing.T) {
 	for i := range 20 {
 		// an exporter that takes a record and dies without
 		// acking it used to trigger races in Push.
-		exp := &fakeExporter{export: func(_ context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+		exp := &fakeExporter{export: func(_ context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 			defer close(results)
 			<-records
 			return errors.New("died mid-record")
@@ -148,7 +147,7 @@ func TestPushAlwaysReportsResultOrError(t *testing.T) {
 		e := New(t.Context(), exp)
 
 		var (
-			res *connectors.Result
+			res *integration.Result
 			err error
 		)
 		nohang(t, "Push", func() { res, err = e.Push(rec("/a")) })

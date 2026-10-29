@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +39,7 @@ func newWalkTestK8s(namespace string, resources []*metav1.APIResourceList, objs 
 			resources:     resources,
 		},
 		dclient: dynamicfake.NewSimpleDynamicClient(scheme.Scheme, objs...),
-		opts:    &connectors.Options{MaxConcurrency: 4},
+		opts:    &integration.Options{MaxConcurrency: 4},
 	}
 }
 
@@ -63,11 +63,11 @@ func namespaceObj(name string) *unstructured.Unstructured {
 	}}
 }
 
-func runWalk(t *testing.T, k *k8s) ([]*connectors.Record, error) {
+func runWalk(t *testing.T, k *k8s) ([]*integration.Record, error) {
 	t.Helper()
 
-	records := make(chan *connectors.Record)
-	var got []*connectors.Record
+	records := make(chan *integration.Record)
+	var got []*integration.Record
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -82,7 +82,7 @@ func runWalk(t *testing.T, k *k8s) ([]*connectors.Record, error) {
 	return got, err
 }
 
-func paths(records []*connectors.Record) []string {
+func paths(records []*integration.Record) []string {
 	var p []string
 	for _, r := range records {
 		p = append(p, r.Pathname)

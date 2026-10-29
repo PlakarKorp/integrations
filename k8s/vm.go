@@ -12,12 +12,10 @@ import (
 	"strings"
 	"time"
 
-	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
 	"github.com/PlakarKorp/integrations/k8s/tee"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/objects"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -218,8 +216,8 @@ func vmconfig(content *snapshotv1beta1.VirtualMachineSnapshotContent) ([]byte, e
 	return yaml.Marshal(&vm)
 }
 
-func manifest(records chan<- *connectors.Record, results <-chan *connectors.Result, pathname string, content []byte) error {
-	records <- connectors.NewRecord(pathname, "", objects.FileInfo{
+func manifest(records chan<- *integration.Record, results <-chan *integration.Result, pathname string, content []byte) error {
+	records <- integration.NewRecord(pathname, "", integration.FileInfo{
 		Lname:    path.Base(pathname),
 		Lsize:    int64(len(content)),
 		Lmode:    0644,
@@ -235,7 +233,7 @@ func manifest(records chan<- *connectors.Record, results <-chan *connectors.Resu
 	return res.Err
 }
 
-func (k *k8s) backupDisk(ctx context.Context, ns, prefix string, pvc *corev1.PersistentVolumeClaim, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) backupDisk(ctx context.Context, ns, prefix string, pvc *corev1.PersistentVolumeClaim, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	fp, err := k.fsServer(ctx, "backup", ns, pvc, true)
 	if err != nil {
 		return fmt.Errorf("failed to create the pod: %w", err)
@@ -245,7 +243,7 @@ func (k *k8s) backupDisk(ctx context.Context, ns, prefix string, pvc *corev1.Per
 	return k.podBackup(ctx, fp, prefix, records, results)
 }
 
-func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) backupVM(ctx context.Context, ns, name string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	vms, err := k.genvmsnap(ctx, ns, name)
 	if err != nil {
 		return fmt.Errorf("failed to snapshot vm %s/%s: %w", ns, name, err)
@@ -407,7 +405,7 @@ func pvcfrom(content []byte) (*corev1.PersistentVolumeClaim, error) {
 }
 
 type smolexporter struct {
-	exporter.Exporter
+	integration.Exporter
 	client  *grpc.ClientConn
 	stop    chan struct{}
 	killpod func(ctx context.Context)
@@ -422,7 +420,7 @@ func (s *smolexporter) Close(ctx context.Context) error {
 	return err
 }
 
-func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (exporter.Exporter, error) {
+func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (integration.Exporter, error) {
 	fp, err := k.fsServer(ctx, "restore", pvc.Namespace, pvc, false, "-export")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run the pod: %w", err)
@@ -435,7 +433,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 	}
 
 	cred := credentials.NewTLS(mtls.ClientTlsConfig(fp.cert, fp.peer))
-	client, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
+	gclient, err := grpc.NewClient(url, grpc.WithTransportCredentials(cred))
 	if err != nil {
 		k.delpod(ctx, fp.pod)
 		if stop != nil {
@@ -449,7 +447,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 		proto, path = "block", blockPath
 	}
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOARCH,
@@ -457,7 +455,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 		MaxConcurrency:  k.opts.MaxConcurrency,
 	}
 
-	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, map[string]string{
+	exporter, err := client.NewExporter(ctx, gclient, opts, proto, map[string]string{
 		"location": proto + "://" + path,
 	})
 	if err != nil {
@@ -470,7 +468,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 
 	return &smolexporter{
 		Exporter: exporter,
-		client:   client,
+		client:   gclient,
 		stop:     stop,
 		killpod: func(ctx context.Context) {
 			k.delpod(ctx, fp.pod)
@@ -478,7 +476,7 @@ func (k *k8s) exporterfor(ctx context.Context, pvc *corev1.PersistentVolumeClaim
 	}, nil
 }
 
-func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	// best effort to create the target ns
 	k.ensureNamespace(ctx, ns)
 
@@ -609,7 +607,7 @@ func (k *k8s) restoreVM(ctx context.Context, ns, name string, records <-chan *co
 			return err
 		}
 
-		results <- &connectors.Result{Record: *record, Err: res.Err}
+		results <- &integration.Result{Record: *record, Err: res.Err}
 		if res.Err != nil {
 			return res.Err
 		}

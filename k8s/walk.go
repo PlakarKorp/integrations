@@ -7,8 +7,7 @@ import (
 	"path"
 	"slices"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +45,7 @@ func classifyListError(ctx context.Context, err error) walkAction {
 	return walkRecord
 }
 
-func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Record) error {
+func (k *k8s) walkResources(ctx context.Context, records chan<- *integration.Record) error {
 	resources, err := k.discover.ServerPreferredResourcesWithContext(ctx)
 	if err != nil {
 		return err
@@ -96,7 +95,7 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 						}
 						p := path.Join("/", ns, group, res.Kind,
 							groupVersion.Version)
-						records <- connectors.NewError(p, err)
+						records <- integration.NewError(p, err)
 						return nil
 					case walkSkip:
 						return nil
@@ -129,18 +128,18 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 
 					byte, err := yaml.Marshal(item.Object)
 					if err != nil {
-						records <- connectors.NewError(p, err)
+						records <- integration.NewError(p, err)
 						continue
 					}
 
-					finfo := objects.FileInfo{
+					finfo := integration.FileInfo{
 						Lname:    name,
 						Lsize:    int64(len(byte)),
 						Lmode:    0644,
 						LmodTime: item.GetCreationTimestamp().Time,
 					}
 
-					records <- connectors.NewRecord(p, "", finfo, nil,
+					records <- integration.NewRecord(p, "", finfo, nil,
 						func() (io.ReadCloser, error) {
 							return io.NopCloser(bytes.NewReader(byte)), nil
 						})

@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/PlakarKorp/go-inventory-sdk v1.1.2
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/integration-grpc v1.1.2
+	github.com/PlakarKorp/integration-sdk v1.1.2
 	github.com/PlakarKorp/integrations/fs v1.1.9
 	github.com/PlakarKorp/kloset v1.1.9
 	github.com/PlakarKorp/pkg v1.1.8
@@ -25,6 +25,7 @@ require (
 require (
 	github.com/PlakarKorp/go-cdc-chunkers v1.1.0 // indirect
 	github.com/PlakarKorp/go-human2duration v0.1.6 // indirect
+	github.com/PlakarKorp/integration-grpc v1.1.2 // indirect
 	github.com/PlakarKorp/integrations/ptar v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect

@@ -9,11 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 const diskpath = "/disk.img"
@@ -23,7 +20,7 @@ type Block struct {
 	device   string
 }
 
-func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (*Block, error) {
+func New(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (*Block, error) {
 	device := strings.TrimPrefix(config["location"], proto+"://")
 	if device == "" {
 		return nil, fmt.Errorf("missing device path in location %q",
@@ -36,11 +33,11 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 	}, nil
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	return New(ctx, opts, proto, config)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	return New(ctx, opts, proto, config)
 }
 
@@ -63,7 +60,7 @@ func filesize(fp *os.File) (int64, error) {
 	return size, err
 }
 
-func (b *Block) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (b *Block) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 
 	fp, err := os.Open(b.device)
@@ -77,19 +74,19 @@ func (b *Block) Import(ctx context.Context, records chan<- *connectors.Record, r
 		return fmt.Errorf("failed to get %q size: %w", b.device, err)
 	}
 
-	fi := objects.FileInfo{
+	fi := integration.FileInfo{
 		Lname:    path.Base(diskpath),
 		Lsize:    size,
 		Lmode:    0600,
 		LmodTime: time.Now(),
 	}
-	records <- connectors.NewRecord(diskpath, "", fi, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord(diskpath, "", fi, nil, func() (io.ReadCloser, error) {
 		return fp, nil
 	})
 	return nil
 }
 
-func (b *Block) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (b *Block) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	var saw bool
