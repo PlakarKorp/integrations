@@ -7,6 +7,7 @@ require (
 	github.com/PlakarKorp/kloset v1.1.9
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.23
+	github.com/hanwen/go-fuse/v2 v2.12.1
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.41.0
