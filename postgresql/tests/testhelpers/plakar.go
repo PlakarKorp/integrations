@@ -12,7 +12,9 @@ import (
 
 // plakarSHA is the plakar commit installed in the test image.
 // Override via PLAKAR_SHA build arg when rebuilding the image manually.
-const plakarSHA = "main"
+// Pinned to a plakar branch with the kloset warm stage fix, which the FUSE
+// importer needs to back up with the VFS cache on.
+const plakarSHA = "6599868b"
 
 // repoRoot returns the absolute path of the repository root by walking up
 // from this source file.  Reliable regardless of where `go test` is invoked.
