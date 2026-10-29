@@ -106,7 +106,7 @@ var errUnreachable = errors.New("unreachable")
 func identify(ctx context.Context) (*identity, error) {
 	host, err := fromMetadata(ctx)
 	if err == nil || !errors.Is(err, errUnreachable) {
-		return host, err
+		return nil, err
 	}
 
 	host, dmiErr := fromDMI()

@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
@@ -169,17 +170,26 @@ func TestImportReadsAttachedVolumes(t *testing.T) {
 	assert.Equal(t, "raw", vol.DiskFormat)
 	assert.Nil(t, vol.Image)
 
+	// The disk records are named after the recorded format, so derive their
+	// paths from the metadata rather than hardcoding an extension.
+	disks := map[string]bool{
+		"/block-storage/glance-image-1/" + block.DiskName("disk", common.DiskFormat(&root)): false,
+		"/block-storage/cinder-vol-1/" + block.DiskName("disk", common.DiskFormat(&vol)):    false,
+	}
 	for _, r := range records {
 		if r.FileInfo.IsDir() {
 			continue
 		}
 		data, err := io.ReadAll(r.Reader)
 		require.NoError(t, err, r.Pathname)
-		if r.Pathname == "/block-storage/glance-image-1/disk.qcow2" ||
-			r.Pathname == "/block-storage/cinder-vol-1/disk.qcow2" {
-			assert.Equal(t, cloud.Disk, data)
+		if _, isDisk := disks[r.Pathname]; isDisk {
+			assert.Equal(t, cloud.Disk, data, r.Pathname)
+			disks[r.Pathname] = true
 		}
 		require.NoError(t, r.Close())
+	}
+	for path, checked := range disks {
+		assert.True(t, checked, "disk record %s was not emitted", path)
 	}
 	assert.Empty(t, cloud.Attached())
 	require.NoError(t, imp.Close(t.Context()))

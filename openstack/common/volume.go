@@ -45,12 +45,13 @@ const (
 	kindImage      = "image"
 	kindAttachment = "attachment"
 
-	statusAvailable = "available"
-	statusInUse     = "in-use"
-	statusUploading = "uploading"
-	statusError     = "error"
-	statusActive    = "active"
-	statusKilled    = "killed"
+	statusAvailable      = "available"
+	statusInUse          = "in-use"
+	statusUploading      = "uploading"
+	statusError          = "error"
+	statusErrorAttaching = "error_attaching"
+	statusActive         = "active"
+	statusKilled         = "killed"
 
 	// Names of the resources a backup and a restore create.
 	backupPrefix  = "plakar-backup-"
@@ -200,10 +201,18 @@ func getUploadedImage(block, image *gophercloud.ServiceClient, volumeID, imageID
 	}
 }
 
+// attachTimeout bounds AttachTempVolume's wait for Nova to finish an
+// attachment, which normally takes seconds. Nova's attach is asynchronous:
+// one that stalls, or that Nova rolls back to available, would otherwise be
+// polled for as long as the caller's context lives, which for an import is
+// forever. A variable so tests can shorten it.
+var attachTimeout = 5 * time.Minute
+
 // AttachTempVolume attaches the temporary volume to the host server, for
 // reading it from a local block device, and waits for it to be in use. The
 // attachment goes into cleanup, which detaches before deleting the volume.
-// Cleanup.Detach undoes it alone, for when no device turns up.
+// Cleanup.Detach undoes it alone, for when no device turns up, or when the
+// wait fails: the wait is bounded by a timeout and to nova returning error_attaching.
 func (c *Client) AttachTempVolume(ctx context.Context, hostID string, tmp *volumes.Volume, cleanup *Cleanup) error {
 	block, err := c.cinder()
 	if err != nil {
@@ -222,7 +231,9 @@ func (c *Client) AttachTempVolume(ctx context.Context, hostID string, tmp *volum
 		return fmt.Errorf("attach volume %q to server %q: %w", tmp.ID, hostID, err)
 	}
 	cleanup.attachedTo = hostID
-	_, err = waitStatus(ctx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusInUse, statusError)
+	waitCtx, cancel := context.WithTimeout(ctx, attachTimeout)
+	defer cancel()
+	_, err = waitStatus(waitCtx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusInUse, statusError, statusErrorAttaching)
 	return err
 }
 

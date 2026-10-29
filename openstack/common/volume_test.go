@@ -182,6 +182,60 @@ func TestAttachTempVolumeFails(t *testing.T) {
 	assert.Empty(t, cloud.Leftovers())
 }
 
+// An attachment Nova never finishes is given up on after attachTimeout, even
+// when the caller's context has no deadline, which is left intact so the
+// attachment can be undone and the volume read through Glance instead.
+func TestAttachTempVolumeGivesUpOnStalledAttachment(t *testing.T) {
+	defer func(d time.Duration) { attachTimeout = d }(attachTimeout)
+	attachTimeout = 200 * time.Millisecond
+
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.AttachedStatus = "attaching"
+	client := connectCloud(t, cloud)
+
+	ctx := context.WithoutCancel(t.Context()) // no deadline, as an import's
+	var cleanup Cleanup
+	tmp, err := cloneVolume(ctx, client, "vol-1", &cleanup)
+	require.NoError(t, err)
+	err = client.AttachTempVolume(ctx, "host-1", tmp, &cleanup)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, fmt.Sprintf(`wait for volume %q to be in-use`, tmp.ID))
+	require.NoError(t, ctx.Err(), "the caller's context is untouched")
+	assert.Equal(t, "host-1", cleanup.attachedTo, "Nova took the attach, so there is something to detach")
+
+	cloud.AttachedStatus = ""
+	require.NoError(t, cleanup.Detach(ctx))
+	assert.Empty(t, cloud.Attached())
+	_, err = client.UploadVolumeImage(ctx, tmp, &cleanup)
+	require.NoError(t, err, "the Glance fallback still works")
+	cleanup.Run(ctx)
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// An attachment Nova gives up on fails at once rather than after the timeout.
+func TestAttachTempVolumeFailsOnErrorAttaching(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.AttachedStatus = "error_attaching"
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	tmp, err := cloneVolume(t.Context(), client, "vol-1", &cleanup)
+	require.NoError(t, err)
+	start := time.Now()
+	err = client.AttachTempVolume(t.Context(), "host-1", tmp, &cleanup)
+	var failed *failedStatusError
+	require.ErrorAs(t, err, &failed)
+	assert.Equal(t, "error_attaching", failed.status)
+	assert.Less(t, time.Since(start), attachTimeout)
+	assert.Equal(t, "host-1", cleanup.attachedTo)
+
+	cloud.AttachedStatus = ""
+	require.NoError(t, cleanup.Detach(t.Context()))
+	assert.Empty(t, cloud.Attached())
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
 // Waiting for Cinder to allow a delete can take far longer than the delete
 // request itself, so the wait must not be bound by the request's timeout.
 func TestCleanupWaitOutlastsDeleteTimeout(t *testing.T) {

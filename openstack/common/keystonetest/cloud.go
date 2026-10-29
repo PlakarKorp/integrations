@@ -116,6 +116,10 @@ type Cloud struct {
 	BootFromVolume bool
 	// FailVolumeAttach makes attaching a volume to a server fail with a 400.
 	FailVolumeAttach bool
+	// AttachedStatus, when set, is what reads report for an attached volume
+	// instead of in-use: "attaching" for an attachment that never finishes,
+	// "error_attaching" for one Nova gave up on.
+	AttachedStatus string
 	// FailImageReads is how many image reads fail with a 500 before succeeding.
 	FailImageReads int
 	// EncryptionKeyID, when set, is the cinder_encryption_key_id Glance
@@ -823,7 +827,7 @@ func (c *Cloud) read(id, kind string) (string, bool) {
 		r.detaching--
 		return "detaching", true
 	case r.attachedTo != "":
-		return "in-use", true
+		return cmp.Or(c.AttachedStatus, "in-use"), true
 	case r.final != "":
 		return r.final, true
 	case kind == "image" && r.queued:
