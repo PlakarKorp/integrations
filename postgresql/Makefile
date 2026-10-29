@@ -25,7 +25,7 @@ uninstall:
 	-$(PLAKAR) pkg rm postgresql
 
 install: package
-	$(PLAKAR) pkg add ./$(PTAR)
+	$(PLAKAR) pkg add -allow-unsigned ./$(PTAR)
 
 reinstall: uninstall install
 
