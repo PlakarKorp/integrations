@@ -105,7 +105,10 @@ var errUnreachable = errors.New("unreachable")
 // answer from the metadata service is final either way.
 func identify(ctx context.Context) (*identity, error) {
 	host, err := fromMetadata(ctx)
-	if err == nil || !errors.Is(err, errUnreachable) {
+	if err == nil {
+		return host, nil
+	}
+	if !errors.Is(err, errUnreachable) {
 		return nil, err
 	}
 
