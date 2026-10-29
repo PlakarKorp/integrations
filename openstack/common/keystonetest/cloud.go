@@ -24,6 +24,8 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -31,7 +33,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const Region = "RegionOne"
+const (
+	Region  = "RegionOne"
+	Project = "p1"
+)
 
 // imageFields are the image create request's own top-level fields; anything
 // else is a custom property, e.g. cinder_encryption_key_id.
@@ -44,11 +49,43 @@ var imageFields = map[string]struct{}{
 // volume it did not create, fails the test.
 type Cloud struct {
 	AuthURL string
-	// Disk is the content of every image.
+	// MetadataURL is the metadata service a Nova server reaches at a
+	// link-local address, served here instead. It answers 404 unless HostID
+	// is set.
+	MetadataURL string
+	// HostID is the Nova server the test host pretends to be, as the
+	// metadata service reports it; empty means the host is off the cloud.
+	HostID string
+	// HostProject is the project the metadata service reports; Project if
+	// empty.
+	HostProject string
+	// DeviceDir stands in for the host's /dev/disk/by-id: attaching a volume
+	// to any server puts a file named after it there, holding Disk, as the
+	// host's kernel would show a volume attached to it; detaching removes
+	// it. The name is the one Nova's libvirt driver gives a volume,
+	// virtio-<first 20 characters of its ID>.
+	DeviceDir string
+	// NoDevice makes an attached volume never turn up in DeviceDir.
+	NoDevice bool
+	// DeviceUnreadable makes the device turn up with no permissions, as a
+	// real one has for a process that is neither root nor in the disk
+	// group.
+	DeviceUnreadable bool
+	// DeviceReadOnly makes the device turn up readable but not writable.
+	DeviceReadOnly bool
+	// DetachingPolls is how many reads report a detached volume as detaching
+	// before it is available again.
+	DetachingPolls int
+	// Disk is the content of every image, and of every attached volume.
 	Disk []byte
 	// ImageSize overrides an image's reported byte size; 0 means len(Disk).
-	ImageSize    int
-	FailUpload   bool
+	ImageSize int
+	// FailUpload makes Cinder refuse to upload a volume to an image.
+	FailUpload bool
+	// UploadDies makes Cinder's upload of a volume fail once the volume is
+	// done uploading: the image is deleted, as Cinder does, and the volume
+	// is available again.
+	UploadDies   bool
 	FailDownload bool
 	// FailDeletes is how many deletes fail with a 500, leaving the resource.
 	FailDeletes int
@@ -79,6 +116,10 @@ type Cloud struct {
 	BootFromVolume bool
 	// FailVolumeAttach makes attaching a volume to a server fail with a 400.
 	FailVolumeAttach bool
+	// AttachedStatus, when set, is what reads report for an attached volume
+	// instead of in-use: "attaching" for an attachment that never finishes,
+	// "error_attaching" for one Nova gave up on.
+	AttachedStatus string
 	// FailImageReads is how many image reads fail with a 500 before succeeding.
 	FailImageReads int
 	// EncryptionKeyID, when set, is the cinder_encryption_key_id Glance
@@ -93,6 +134,7 @@ type Cloud struct {
 	vanished       map[string]bool
 	uploads        []Upload
 	requests       []VolumeRequest
+	written        map[string][]byte
 	serversCreated int
 	mux            *http.ServeMux
 }
@@ -104,7 +146,8 @@ type Upload struct {
 	Data                             []byte
 }
 
-// VolumeRequest is a request to create a volume from an image.
+// VolumeRequest is a request to create a volume from an image, or a blank
+// one when ImageID is empty.
 type VolumeRequest struct {
 	ImageID          string            `json:"imageRef"`
 	Name             string            `json:"name"`
@@ -116,17 +159,21 @@ type VolumeRequest struct {
 }
 
 type resource struct {
-	kind      string // volume, snapshot or image
-	ours      bool   // created during the test, not given to NewCloud
-	source    string // the snapshot a volume was made from, or an image's volume
-	creating  int    // reads left reporting creating
-	uploading int    // reads left reporting uploading
-	deleting  int    // reads left reporting deleting, once deleted
-	deleted   bool
-	queued    bool   // an image created through Glance, waiting for its data
-	format    string // an image's disk_format, when not qcow2
-	final     string // the status a volume ends in, when not available
-	encrypted bool   // a volume of an encrypted type
+	kind       string // volume, snapshot or image
+	ours       bool   // created during the test, not given to NewCloud
+	source     string // the snapshot a volume was made from, or an image's volume
+	creating   int    // reads left reporting creating
+	uploading  int    // reads left reporting uploading
+	deleting   int    // reads left reporting deleting, once deleted
+	deleted    bool
+	queued     bool   // an image created through Glance, waiting for its data
+	format     string // an image's disk_format, when not qcow2
+	final      string // the status a volume ends in, when not available
+	encrypted  bool   // a volume of an encrypted type
+	blank      bool   // a volume created from nothing: its device is empty
+	attachedTo string // the server a volume is attached to
+	detaching  int    // reads left reporting detaching, once detached
+	fromCinder bool   // an image Cinder uploads a volume to
 	// imageMetadata is a volume's image metadata, set through
 	// os-set_image_metadata.
 	imageMetadata map[string]string
@@ -145,10 +192,12 @@ func (c *Cloud) Encrypt(id string) {
 func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	t.Helper()
 	c := &Cloud{
+		DeviceDir: t.TempDir(),
 		Disk:      []byte("disk bytes"),
 		t:         t,
 		resources: map[string]*resource{},
 		vanished:  map[string]bool{},
+		written:   map[string][]byte{},
 	}
 	for _, v := range volumes {
 		c.resources[v] = &resource{kind: "volume"}
@@ -158,13 +207,14 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	c.AuthURL = srv.URL + "/identity/v3/"
+	c.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
 
-	block := "/volume/v3/p1"
+	block := "/volume/v3/" + Project
 	mux.HandleFunc("POST /identity/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Subject-Token", "fake-token")
 		c.reply(w, http.StatusCreated, map[string]any{"token": map[string]any{
 			"expires_at": "2999-01-01T00:00:00.000000Z",
-			"project":    map[string]any{"id": "p1"},
+			"project":    map[string]any{"id": Project},
 			"catalog": []any{
 				catalogEntry("volumev3", srv.URL+block),
 				catalogEntry("image", srv.URL+"/image/"),
@@ -188,7 +238,8 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			return
 		}
 		v := volume(id, status)
-		if c.isEncrypted(id) {
+		// A volume made from an encrypted one's snapshot is encrypted too.
+		if c.isEncryptedChain(id) {
 			v["encrypted"] = true
 		}
 		c.reply(w, http.StatusOK, map[string]any{"volume": v})
@@ -203,10 +254,13 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 		c.decode(r, &body)
 		var id string
 		var ok bool
-		if body.Volume.ImageID != "" {
+		switch {
+		case body.Volume.ImageID != "":
 			id, ok = c.createFromImage(body.Volume.VolumeRequest)
-		} else {
+		case body.Volume.SnapshotID != "":
 			id, ok = c.create("volume", "tmp", body.Volume.SnapshotID)
+		default:
+			id, ok = c.createBlank(body.Volume.VolumeRequest), true
 		}
 		if !ok {
 			c.unexpected(w, r)
@@ -271,7 +325,7 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			c.reply(w, http.StatusNotFound, nil)
 			return
 		}
-		c.reply(w, http.StatusOK, map[string]any{"snapshot": snapshot(id, "", status)})
+		c.reply(w, http.StatusOK, map[string]any{"snapshot": snapshot(id, c.source(id), status)})
 	})
 	mux.HandleFunc("DELETE "+block+"/snapshots/{id}", c.delete)
 	// Glance's catalog URL is unversioned, so gophercloud reads its versions.
@@ -390,12 +444,33 @@ func NewCloud(t *testing.T, volumes ...string) *Cloud {
 			} `json:"volumeAttachment"`
 		}
 		c.decode(r, &body)
-		c.reply(w, http.StatusOK, map[string]any{"volumeAttachment": map[string]any{
-			"id":       body.VolumeAttachment.VolumeID,
-			"volumeId": body.VolumeAttachment.VolumeID,
-			"device":   body.VolumeAttachment.Device,
-			"serverId": r.PathValue("id"),
-		}})
+		switch status := c.attach(body.VolumeAttachment.VolumeID, r.PathValue("id")); status {
+		case 0:
+			c.unexpected(w, r)
+		case http.StatusOK:
+			c.reply(w, status, map[string]any{"volumeAttachment": map[string]any{
+				"id":       body.VolumeAttachment.VolumeID,
+				"volumeId": body.VolumeAttachment.VolumeID,
+				"device":   body.VolumeAttachment.Device,
+				"serverId": r.PathValue("id"),
+			}})
+		default:
+			c.reply(w, status, nil)
+		}
+	})
+	mux.HandleFunc("DELETE /compute/servers/{id}/os-volume_attachments/{volume}", func(w http.ResponseWriter, r *http.Request) {
+		if !c.detach(r.PathValue("volume"), r.PathValue("id")) {
+			c.unexpected(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	mux.HandleFunc("GET /openstack/latest/meta_data.json", func(w http.ResponseWriter, r *http.Request) {
+		if c.HostID == "" {
+			c.reply(w, http.StatusNotFound, nil)
+			return
+		}
+		c.reply(w, http.StatusOK, map[string]any{"uuid": c.HostID, "project_id": cmp.Or(c.HostProject, Project)})
 	})
 	mux.HandleFunc("/", c.unexpected)
 	c.mux = mux
@@ -429,12 +504,20 @@ func (c *Cloud) Uploads() []Upload {
 	return slices.Clone(c.uploads)
 }
 
-// VolumeRequests lists the requests to create a volume from an image, in
-// order.
+// VolumeRequests lists the requests to create a volume from an image or
+// from nothing, in order.
 func (c *Cloud) VolumeRequests() []VolumeRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.requests)
+}
+
+// Written is what the volume's device held when it was last detached: the
+// bytes a restore wrote to it. nil for a volume never detached.
+func (c *Cloud) Written(volumeID string) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.written[volumeID]
 }
 
 // ServersCreated is how many Nova server-create calls this cloud has seen.
@@ -542,13 +625,6 @@ func (c *Cloud) ImageMetadata(id string) map[string]string {
 	return nil
 }
 
-func (c *Cloud) isEncrypted(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r, ok := c.resources[id]
-	return ok && r.encrypted
-}
-
 // isEncryptedChain reports whether id, or whatever it was ultimately
 // snapshotted or uploaded from, is marked encrypted: real Cinder volumes and
 // images created along that chain inherit the source's encrypted type.
@@ -593,6 +669,23 @@ func (c *Cloud) createFromImage(req VolumeRequest) (string, bool) {
 	return id, true
 }
 
+// createBlank creates a volume from nothing, as a restore that writes the
+// disk itself does, ending in error for the first VolumeErrors of them.
+func (c *Cloud) createBlank(req VolumeRequest) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.next++
+	id := fmt.Sprintf("restored-%d", c.next)
+	r := &resource{kind: "volume", ours: true, blank: true, creating: c.CreatingPolls}
+	if c.VolumeErrors > 0 {
+		c.VolumeErrors--
+		r.final = "error"
+	}
+	c.resources[id] = r
+	c.requests = append(c.requests, req)
+	return id
+}
+
 func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -605,11 +698,84 @@ func (c *Cloud) create(kind, prefix, source string) (string, bool) {
 	switch kind {
 	case "image":
 		c.resources[source].uploading = c.UploadingPolls
+		r.fromCinder = true
 	default:
 		r.creating = c.CreatingPolls
 	}
 	c.resources[id] = r
 	return id, true
+}
+
+// attach returns the status of attaching the volume to the server, or 0 for
+// one the client must not make. Like Nova, it refuses a volume that is not
+// available. The device turns up in DeviceDir at once, holding Disk, or
+// nothing for a blank volume.
+func (c *Cloud) attach(volumeID, serverID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.resources[volumeID]
+	switch {
+	case !ok || r.kind != "volume" || r.deleted:
+		return 0
+	case r.creating > 0 || r.uploading > 0 || r.detaching > 0 || r.attachedTo != "" || r.final != "":
+		return http.StatusBadRequest
+	}
+	r.attachedTo = serverID
+	if !c.NoDevice {
+		mode := os.FileMode(0o600)
+		switch {
+		case c.DeviceUnreadable:
+			mode = 0
+		case c.DeviceReadOnly:
+			mode = 0o400
+		}
+		content := c.Disk
+		if r.blank {
+			content = nil
+		}
+		assert.NoError(c.t, os.WriteFile(c.devicePath(volumeID), content, mode))
+	}
+	return http.StatusOK
+}
+
+// detach reports whether the volume was attached to the server, and detaches
+// it: the device goes at once, its content kept for Written, and the volume
+// reports detaching for a while.
+func (c *Cloud) detach(volumeID, serverID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.resources[volumeID]
+	if !ok || r.attachedTo != serverID {
+		return false
+	}
+	r.attachedTo = ""
+	r.detaching = c.DetachingPolls
+	device := c.devicePath(volumeID)
+	if data, err := os.ReadFile(device); err == nil {
+		c.written[volumeID] = data
+	}
+	if err := os.Remove(device); err != nil {
+		assert.ErrorIs(c.t, err, os.ErrNotExist)
+	}
+	return true
+}
+
+func (c *Cloud) devicePath(volumeID string) string {
+	return filepath.Join(c.DeviceDir, "virtio-"+volumeID[:min(len(volumeID), 20)])
+}
+
+// Attached lists the volumes attached to any server, for checking that a
+// backup detached what it attached.
+func (c *Cloud) Attached() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, id := range slices.Sorted(maps.Keys(c.resources)) {
+		if c.resources[id].attachedTo != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // consumeFailImageRead reports whether this read should fail, decrementing FailImageReads.
@@ -621,6 +787,16 @@ func (c *Cloud) consumeFailImageRead() bool {
 		return true
 	}
 	return false
+}
+
+// source returns what the resource was made from: a snapshot's volume.
+func (c *Cloud) source(id string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r, ok := c.resources[id]; ok {
+		return r.source
+	}
+	return ""
 }
 
 // read returns the resource's status, counting down its transient states.
@@ -647,12 +823,23 @@ func (c *Cloud) read(id, kind string) (string, bool) {
 	case r.uploading > 0:
 		r.uploading--
 		return "uploading", true
+	case r.detaching > 0:
+		r.detaching--
+		return "detaching", true
+	case r.attachedTo != "":
+		return cmp.Or(c.AttachedStatus, "in-use"), true
 	case r.final != "":
 		return r.final, true
 	case kind == "image" && r.queued:
 		return "queued", true
 	case kind == "image" && c.resources[r.source] != nil && c.resources[r.source].uploading > 0:
 		return "saving", true
+	case kind == "image" && r.fromCinder && c.UploadDies:
+		// Cinder deletes the image once its upload fails, behind the
+		// client's back.
+		delete(c.resources, id)
+		c.vanished[id] = true
+		return "", false
 	case kind == "image":
 		return cmp.Or(c.ImageStatus, "active"), true
 	case kind == "snapshot":
@@ -686,8 +873,10 @@ func (c *Cloud) applyDelete(id string) int {
 	switch {
 	case !ok || !res.ours || res.deleted:
 		return 0
-	// Glance deletes an image in any state; Cinder refuses a busy resource.
-	case res.kind != "image" && (res.creating > 0 || res.uploading > 0), res.kind == "snapshot" && c.dependedOn(id):
+	// Glance deletes an image in any state; Cinder refuses a busy or attached
+	// resource.
+	case res.kind != "image" && (res.creating > 0 || res.uploading > 0 || res.detaching > 0 || res.attachedTo != ""),
+		res.kind == "snapshot" && c.dependedOn(id):
 		return http.StatusBadRequest
 	case c.FailDeletes > 0:
 		c.FailDeletes--

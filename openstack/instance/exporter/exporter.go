@@ -207,8 +207,8 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		exp.disks[id] = restore
 	}
 
-	switch name {
-	case instance.MetadataName:
+	switch {
+	case name == instance.MetadataName:
 		if restore.metadata != nil {
 			return fmt.Errorf("duplicate %s for %q", instance.MetadataName, id)
 		}
@@ -219,11 +219,11 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		restore.metadata = m
 		return nil
 
-	case instance.DiskName:
+	case instance.DiskName.MatchString(name):
 		if restore.imageID != "" {
 			return fmt.Errorf("%s: a second disk for %q", record.Pathname, id)
 		}
-		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, diskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
+		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, common.DiskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
 		if err != nil {
 			return fmt.Errorf("upload disk %q: %w", id, err)
 		}
@@ -384,13 +384,6 @@ func decodeDiskMetadata(record *connectors.Record, pathOrigin common.DiskOrigin,
 	case common.DiskOriginGlance:
 	}
 	return m, nil
-}
-
-func diskFormat(metadata *common.DiskMetadata) string {
-	if metadata == nil || metadata.Image == nil || metadata.Image.DiskFormat == "" {
-		return common.DefaultDiskFormat
-	}
-	return metadata.Image.DiskFormat
 }
 
 // volumeDevice is the original attachment's device path (e.g. /dev/vdb), or

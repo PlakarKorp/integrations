@@ -31,6 +31,7 @@ import (
 	gcopenstack "github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/snapshots"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/volumeattach"
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/imagedata"
 	"github.com/gophercloud/gophercloud/v2/openstack/image/v2/images"
 )
@@ -39,26 +40,31 @@ const (
 	serviceVolumes = "volumes"
 	serviceImages  = "images"
 
-	kindVolume   = "volume"
-	kindSnapshot = "snapshot"
-	kindImage    = "image"
+	kindVolume     = "volume"
+	kindSnapshot   = "snapshot"
+	kindImage      = "image"
+	kindAttachment = "attachment"
 
-	statusAvailable = "available"
-	statusError     = "error"
-	statusActive    = "active"
-	statusKilled    = "killed"
+	statusAvailable      = "available"
+	statusInUse          = "in-use"
+	statusUploading      = "uploading"
+	statusError          = "error"
+	statusErrorAttaching = "error_attaching"
+	statusActive         = "active"
+	statusKilled         = "killed"
 
 	// Names of the resources a backup and a restore create.
 	backupPrefix  = "plakar-backup-"
 	tmpPrefix     = "plakar-tmp-"
 	RestorePrefix = "plakar-restore-"
 
-	// DefaultDiskFormat is the format backups upload, and the one assumed
-	// when .METADATA.json records none.
+	// DefaultDiskFormat is the format backups upload to Glance, and the one
+	// assumed when .METADATA.json records none. RawDiskFormat is a block
+	// device's content as read, and the only format Cinder uploads an
+	// encrypted volume in.
 	DefaultDiskFormat = "qcow2"
+	RawDiskFormat     = "raw"
 	containerFormat   = "bare"
-
-	encryptedDiskFormat = "raw"
 )
 
 func (c *Client) cinder() (*gophercloud.ServiceClient, error) {
@@ -69,14 +75,10 @@ func (c *Client) glance() (*gophercloud.ServiceClient, error) {
 	return c.service(serviceImages, gcopenstack.NewImageV2)
 }
 
-// Creating the volume image.
-
-// VolumeImage is a Glance image of a Cinder volume, taken from a snapshot.
-type VolumeImage struct {
-	Volume   *volumes.Volume
-	Snapshot *snapshots.Snapshot
-	Image    *images.Image
-}
+// Reading a volume's bytes. No API reads a snapshot's, so a backup clones the
+// snapshot into a temporary volume, then either attaches that to the host
+// plakar runs on or uploads it to a Glance image; ReadVolume (backup.go)
+// chooses.
 
 func (c *Client) GetVolume(ctx context.Context, volumeID string) (*volumes.Volume, error) {
 	block, err := c.cinder()
@@ -90,25 +92,15 @@ func (c *Client) GetVolume(ctx context.Context, volumeID string) (*volumes.Volum
 	return vol, nil
 }
 
-// CreateVolumeImage snapshots the volume, creates a temporary volume from the
-// snapshot, and uploads that to Glance: no API reads a snapshot's bytes. Each
-// resource goes into cleanup as soon as it exists, so a failure leaves nothing
-// behind once cleanup runs.
-func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup *Cleanup) (*VolumeImage, error) {
+// SnapshotVolume snapshots the volume and waits for the snapshot to become
+// available. The snapshot goes into cleanup as soon as it exists, so a failure
+// leaves nothing behind once cleanup runs.
+func (c *Client) SnapshotVolume(ctx context.Context, volumeID string, cleanup *Cleanup) (*snapshots.Snapshot, error) {
 	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
-	image, err := c.glance()
-	if err != nil {
-		return nil, err
-	}
-	cleanup.block, cleanup.image = block, image
-
-	vol, err := c.GetVolume(ctx, volumeID)
-	if err != nil {
-		return nil, err
-	}
+	cleanup.block = block
 
 	created, err := snapshots.Create(ctx, block, snapshots.CreateOpts{
 		VolumeID: volumeID,
@@ -119,10 +111,19 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("snapshot volume %q: %w", volumeID, err)
 	}
 	cleanup.snapshotID = created.ID
-	snap, err := waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
+	return waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
+}
+
+// CreateVolumeFromSnapshot clones the snapshot into a temporary volume and
+// waits for it to become available. The snapshot is usually SnapshotVolume's,
+// but any available one does. The volume goes into cleanup as soon as it
+// exists, so a failure leaves nothing behind once cleanup runs.
+func (c *Client) CreateVolumeFromSnapshot(ctx context.Context, snap *snapshots.Snapshot, cleanup *Cleanup) (*volumes.Volume, error) {
+	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
+	cleanup.block = block
 
 	tmp, err := volumes.Create(ctx, block, volumes.CreateOpts{
 		SnapshotID: snap.ID,
@@ -133,9 +134,24 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("create volume from snapshot %q: %w", snap.ID, err)
 	}
 	cleanup.volumeID = tmp.ID
-	if _, err := waitStatus(ctx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusAvailable, statusError); err != nil {
+	return waitStatus(ctx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusAvailable, statusError)
+}
+
+// UploadVolumeImage uploads the temporary volume to a Glance image and waits
+// for it to become active. The image goes into cleanup as soon as it exists.
+// A clone of an encrypted volume is of the same encrypted type, and Cinder
+// then uploads the ciphertext as-is: the image carries the key id (see
+// EncryptionImageProperties), and only the raw format is allowed.
+func (c *Client) UploadVolumeImage(ctx context.Context, tmp *volumes.Volume, cleanup *Cleanup) (*images.Image, error) {
+	block, err := c.cinder()
+	if err != nil {
 		return nil, err
 	}
+	image, err := c.glance()
+	if err != nil {
+		return nil, err
+	}
+	cleanup.block, cleanup.image = block, image
 
 	// Cinder before 2025.1 (LP#2144550) sends Glance properties={} when the
 	// source's only custom image key is reserved, e.g. signature_verified, and
@@ -147,12 +163,11 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 	}
 
 	diskFormat := DefaultDiskFormat
-	if vol.Encrypted {
-		// Cinder rejects any other disk format for an encrypted volume type.
-		diskFormat = encryptedDiskFormat
+	if tmp.Encrypted {
+		diskFormat = RawDiskFormat
 	}
 	upload, err := volumes.UploadImage(ctx, block, tmp.ID, volumes.UploadImageOpts{
-		ImageName:       tmpPrefix + snap.ID,
+		ImageName:       tmpPrefix + tmp.ID,
 		DiskFormat:      diskFormat,
 		ContainerFormat: containerFormat,
 	}).Extract()
@@ -160,12 +175,66 @@ func (c *Client) CreateVolumeImage(ctx context.Context, volumeID string, cleanup
 		return nil, fmt.Errorf("upload volume %q to an image: %w", tmp.ID, err)
 	}
 	cleanup.imageID = upload.ImageID
-	img, err := waitStatus(ctx, kindImage, upload.ImageID, getImage(image, upload.ImageID), statusActive, statusKilled, statusError)
-	if err != nil {
-		return nil, err
-	}
+	return waitStatus(ctx, kindImage, upload.ImageID, getUploadedImage(block, image, tmp.ID, upload.ImageID), statusActive, statusKilled, statusError)
+}
 
-	return &VolumeImage{Volume: vol, Snapshot: snap, Image: img}, nil
+// getUploadedImage reads the image Cinder is uploading tmp to. Cinder
+// deletes the image when the upload fails on its side (a conversion to
+// qcow2 with no room for it on the Cinder host, say), so a 404 on it is the
+// upload's failure, not a transient error, once the volume is no longer
+// uploading. While it still is, Glance may just be behind.
+func getUploadedImage(block, image *gophercloud.ServiceClient, volumeID, imageID string) getter[*images.Image] {
+	get := getImage(image, imageID)
+	return func(ctx context.Context) (*images.Image, string, error) {
+		img, status, err := get(ctx)
+		if !gophercloud.ResponseCodeIs(err, http.StatusNotFound) {
+			return img, status, err
+		}
+		vol, volErr := volumes.Get(ctx, block, volumeID).Extract()
+		switch {
+		case volErr != nil:
+			return nil, "", err
+		case vol.Status == statusUploading:
+			return nil, statusUploading, nil
+		}
+		return nil, "", &finalError{fmt.Errorf("upload volume %q to image %q: Cinder deleted the image, so the upload failed on its side (the volume is %s); see cinder-volume's log", volumeID, imageID, vol.Status)}
+	}
+}
+
+// attachTimeout bounds AttachTempVolume's wait for Nova to finish an
+// attachment, which normally takes seconds. Nova's attach is asynchronous:
+// one that stalls, or that Nova rolls back to available, would otherwise be
+// polled for as long as the caller's context lives, which for an import is
+// forever. A variable so tests can shorten it.
+var attachTimeout = 5 * time.Minute
+
+// AttachTempVolume attaches the temporary volume to the host server, for
+// reading it from a local block device, and waits for it to be in use. The
+// attachment goes into cleanup, which detaches before deleting the volume.
+// Cleanup.Detach undoes it alone, for when no device turns up, or when the
+// wait fails: the wait is bounded by a timeout and to nova returning error_attaching.
+func (c *Client) AttachTempVolume(ctx context.Context, hostID string, tmp *volumes.Volume, cleanup *Cleanup) error {
+	block, err := c.cinder()
+	if err != nil {
+		return err
+	}
+	nova, err := c.nova()
+	if err != nil {
+		return err
+	}
+	if cleanup.volumeID != tmp.ID {
+		return fmt.Errorf("attach volume %q: it is not cleanup's temporary volume", tmp.ID)
+	}
+	cleanup.block, cleanup.nova = block, nova
+
+	if _, err := volumeattach.Create(ctx, nova, hostID, volumeattach.CreateOpts{VolumeID: tmp.ID}).Extract(); err != nil {
+		return fmt.Errorf("attach volume %q to server %q: %w", tmp.ID, hostID, err)
+	}
+	cleanup.attachedTo = hostID
+	waitCtx, cancel := context.WithTimeout(ctx, attachTimeout)
+	defer cancel()
+	_, err = waitStatus(waitCtx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusInUse, statusError, statusErrorAttaching)
+	return err
 }
 
 // Deleting the temporary resources.
@@ -178,14 +247,16 @@ var (
 	waitTimeout   = 15 * time.Minute // Cinder finishing what blocks a delete
 )
 
-// Cleanup deletes temporary resources: the image, the temporary volume, then
-// the snapshot it was made from, skipping those it does not hold. It tries each
-// once and logs a failure, as plakar ignores the errors of the importer's and
-// exporter's Close.
+// Cleanup deletes temporary resources: the image, the temporary volume (first
+// detaching it from the host it was attached to), then the snapshot it was
+// made from, skipping those it does not hold. It tries each once and logs a
+// failure, as plakar ignores the errors of the importer's and exporter's
+// Close.
 type Cleanup struct {
 	mu                            sync.Mutex
-	block, image                  *gophercloud.ServiceClient
+	block, image, nova            *gophercloud.ServiceClient
 	snapshotID, volumeID, imageID string
+	attachedTo                    string // the server volumeID is attached to
 }
 
 // Run ignores cancellation of ctx, so it still cleans up once the backup's or
@@ -195,6 +266,10 @@ func (c *Cleanup) Run(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ctx = context.WithoutCancel(ctx)
+
+	if c.attachedTo != "" {
+		logFailure(kindAttachment, c.volumeID, c.detach(ctx))
+	}
 
 	if c.imageID != "" {
 		logFailure(kindImage, c.imageID, c.deleteImage(ctx))
@@ -213,6 +288,34 @@ func (c *Cleanup) Run(ctx context.Context) {
 		c.snapshotID = ""
 	}
 	c.volumeID = ""
+}
+
+// Detach detaches the temporary volume from the host, if it is attached, and
+// waits for Cinder to report it available again, so it can be uploaded or
+// deleted. The rest of Cleanup is untouched.
+func (c *Cleanup) Detach(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.attachedTo == "" {
+		return nil
+	}
+	return c.detach(context.WithoutCancel(ctx))
+}
+
+// detach forgets the attachment whether or not Nova accepted the detach: like
+// a delete, it is tried once.
+func (c *Cleanup) detach(ctx context.Context) error {
+	serverID := c.attachedTo
+	c.attachedTo = ""
+
+	reqCtx, cancel := context.WithTimeout(ctx, deleteTimeout)
+	defer cancel()
+	err := volumeattach.Delete(reqCtx, c.nova, serverID, c.volumeID).ExtractErr()
+	if !isDeleted(err) {
+		return err
+	}
+	// Cinder reports the volume detaching for a while, then available.
+	return waitDeletable(ctx, getVolume(c.block, c.volumeID))
 }
 
 func (c *Cleanup) deleteImage(ctx context.Context) error {
@@ -303,18 +406,28 @@ func (e *failedStatusError) Error() string {
 	return fmt.Sprintf("%s %q entered %s", e.kind, e.id, e.status)
 }
 
+// finalError is a get error waitStatus gives up on at once, instead of
+// taking it for a transient one.
+type finalError struct{ err error }
+
+func (e *finalError) Error() string { return e.err.Error() }
+func (e *finalError) Unwrap() error { return e.err }
+
 // Consecutive transient get errors waitStatus tolerates before giving up.
 var maxTransientGetFailures = 5
 
 // waitStatus waits for the resource to reach want, and fails with a
 // *failedStatusError once it reaches one of failed. A single get error does
-// not abort it, up to maxTransientGetFailures.
+// not abort it, up to maxTransientGetFailures, unless it is a *finalError.
 func waitStatus[T any](ctx context.Context, kind, id string, get getter[T], want string, failed ...string) (T, error) {
 	var got T
 	failures := 0
 	err := gophercloud.WaitFor(ctx, func(ctx context.Context) (bool, error) {
 		r, status, err := get(ctx)
 		if err != nil {
+			if final, ok := errors.AsType[*finalError](err); ok {
+				return false, final.err
+			}
 			failures++
 			if failures > maxTransientGetFailures {
 				return false, fmt.Errorf("get %s %q: %w", kind, id, err)
@@ -429,53 +542,36 @@ func (c *Client) DeleteTempVolume(ctx context.Context, volumeID string) {
 	(&Cleanup{block: block, volumeID: volumeID}).Run(ctx)
 }
 
-// CreateVolumeFromImage creates a volume shaped like src. A volume that does
-// not become available is deleted, and one in "error" is created again.
-func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+// createVolume creates a volume from opts. It raises an image-backed
+// volume's size when the image requires more space. A volume that does not
+// become available is deleted, and one in "error" is created again.
+func (c *Client) createVolume(ctx context.Context, opts volumes.CreateOpts) (*volumes.Volume, error) {
 	block, err := c.cinder()
 	if err != nil {
 		return nil, err
 	}
-	image, err := c.glance()
-	if err != nil {
-		return nil, err
+	if opts.Size <= 0 {
+		return nil, errors.New("create volume: no size")
 	}
 
-	// Guessing a size risks a volume too small for the image.
-	if src == nil || src.Size <= 0 {
-		return nil, errors.New("create volume from image: the source volume has no size")
-	}
-
-	img, err := images.Get(ctx, image, imageID).Extract()
-	if err != nil {
-		return nil, fmt.Errorf("get image %q: %w", imageID, err)
-	}
-
-	// Cinder rejects a volume smaller than the image's byte size rounded up to
-	// GiB; a volume that was near-full when backed up can exceed its own
-	// nominal src.Size once exported.
-	size := src.Size
-	if minSize := requiredSizeGiB(img.SizeBytes); minSize > size {
-		size = minSize
-	}
-
-	opts := volumes.CreateOpts{
-		ImageID:          imageID,
-		Name:             src.Name,
-		Size:             size,
-		VolumeType:       src.VolumeType,
-		AvailabilityZone: src.AvailabilityZone,
-		Description:      src.Description,
-		Metadata:         src.Metadata,
-	}
-	if opts.Name == "" {
-		opts.Name = RestorePrefix + src.ID
+	if opts.ImageID != "" {
+		image, err := c.glance()
+		if err != nil {
+			return nil, err
+		}
+		img, err := images.Get(ctx, image, opts.ImageID).Extract()
+		if err != nil {
+			return nil, fmt.Errorf("get image %q: %w", opts.ImageID, err)
+		}
+		if minSize := requiredSizeGiB(img.SizeBytes); minSize > opts.Size {
+			opts.Size = minSize
+		}
 	}
 
 	for attempt := 1; ; attempt++ {
 		created, err := volumes.Create(ctx, block, opts, nil).Extract()
 		if err != nil {
-			return nil, fmt.Errorf("create volume from image %q: %w", imageID, err)
+			return nil, fmt.Errorf("create volume: %w", err)
 		}
 
 		vol, err := waitStatus(ctx, kindVolume, created.ID, getVolume(block, created.ID), statusAvailable, statusError)
@@ -490,4 +586,65 @@ func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src 
 		}
 		log.Printf("openstack: %v; creating it again", err)
 	}
+}
+
+// CreateVolumeFromImage creates a restored volume shaped like src.
+func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src *volumes.Volume) (*volumes.Volume, error) {
+	opts, err := restoreVolumeOpts(src)
+	if err != nil {
+		return nil, fmt.Errorf("create volume from image: %w", err)
+	}
+	opts.ImageID = imageID
+	return c.createVolume(ctx, opts)
+}
+
+// emptyVolume creates a restored volume shaped like src with nothing on it,
+// for a restore that writes the disk's bytes to it through an attachment
+// instead of going through Glance.
+func (c *Client) emptyVolume(ctx context.Context, src *volumes.Volume) (*volumes.Volume, error) {
+	opts, err := restoreVolumeOpts(src)
+	if err != nil {
+		return nil, fmt.Errorf("create empty volume: %w", err)
+	}
+	return c.createVolume(ctx, opts)
+}
+
+// restoreVolumeOpts shapes a restored volume like src: its size, type,
+// availability zone, description and metadata, and its name, or
+// plakar-restore-<id> if it had none.
+func restoreVolumeOpts(src *volumes.Volume) (volumes.CreateOpts, error) {
+	if src == nil || src.Size <= 0 {
+		return volumes.CreateOpts{}, errors.New("the source volume has no size")
+	}
+	name := src.Name
+	if name == "" {
+		name = RestorePrefix + src.ID
+	}
+	return volumes.CreateOpts{
+		Name:             name,
+		Size:             src.Size,
+		VolumeType:       src.VolumeType,
+		AvailabilityZone: src.AvailabilityZone,
+		Description:      src.Description,
+		Metadata:         src.Metadata,
+	}, nil
+}
+
+// CreateTempVolumeFromImage creates a volume for reading an image through an
+// attachment. The volume is registered with cleanup and given a temporary
+// name; unlike CreateVolumeFromImage, it is never a restored result.
+func (c *Client) CreateTempVolumeFromImage(ctx context.Context, imageID string, opts volumes.CreateOpts, cleanup *Cleanup) (*volumes.Volume, error) {
+	opts.ImageID = imageID
+	opts.Name = tmpPrefix + imageID
+	tmp, err := c.createVolume(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	block, err := c.cinder()
+	if err != nil {
+		c.DeleteTempVolume(ctx, tmp.ID)
+		return nil, err
+	}
+	cleanup.block, cleanup.volumeID = block, tmp.ID
+	return tmp, nil
 }

@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
@@ -132,7 +133,7 @@ func diskMetadataRecord(t *testing.T, dir string, m common.DiskMetadata) *connec
 }
 
 func diskRecord(dir string) *connectors.Record {
-	return record(nil, dir+"/"+instance.DiskName, disk)
+	return record(nil, dir+"/"+block.DiskName("disk", "qcow2"), disk)
 }
 
 func serverMetadata() common.ServerMetadata {
