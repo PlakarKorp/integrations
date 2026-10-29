@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -19,6 +20,9 @@ import (
 func init() {
 	exporter.Register("postgres", 0, NewExporter)
 }
+
+// ErrDirectoryFormat is returned for files of a dump taken with format=directory.
+var ErrDirectoryFormat = errors.New("restoring directory-format dumps (format=directory) is not supported yet")
 
 type Exporter struct {
 	conn          pgconn.ConnConfig
@@ -234,6 +238,9 @@ func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error
 			return p.psqlRestore(ctx, record.Reader)
 		}
 		return nil
+	}
+	if path.Dir(record.Pathname) != "/" {
+		return fmt.Errorf("%s: %w", record.Pathname, ErrDirectoryFormat)
 	}
 	return fmt.Errorf("unable to restore file %q", record.Pathname)
 }

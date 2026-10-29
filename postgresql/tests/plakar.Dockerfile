@@ -6,14 +6,14 @@
 #
 # Build manually:
 #   docker build --build-arg PLAKAR_SHA=abc1234 -t plakar-test -f tests/plakar.Dockerfile .
-ARG PLAKAR_SHA=main
+ARG PLAKAR_SHA=6599868b
 
 FROM golang:1.26
 
 ARG PLAKAR_SHA
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-client && \
+    apt-get install -y --no-install-recommends postgresql-client fuse3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
