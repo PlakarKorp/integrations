@@ -58,6 +58,17 @@
       "minLength": 1,
       "description": "Directory containing the PostgreSQL client binaries (pg_dump, pg_dumpall, psql). When omitted, binaries are resolved via $PATH."
     },
+    "format": {
+      "type": "string",
+      "enum": ["custom", "directory"],
+      "default": "custom",
+      "description": "Dump format: custom, one file per database (pg_dump -Fc), or directory, one directory per database with one file per table, dumped in parallel (pg_dump -Fd -j). directory requires Linux with FUSE (fuse3)."
+    },
+    "parallel_dumps": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of parallel pg_dump jobs per database with format=directory, each one a connection to the server. Defaults to 4, or plakar's concurrency if lower."
+    },
     "compress": {
       "type": "boolean",
       "default": false,

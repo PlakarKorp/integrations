@@ -90,6 +90,8 @@ restored roles will have no password set.
 | `database` | — | Database to back up. If omitted, all connectable databases are backed up. Overrides the URI path. |
 | `exclude_databases` | — | Comma-separated list of database names to skip during a full backup (e.g. `rdsadmin,template1`). Has no effect when a single database is selected. |
 | `compress` | `false` | Enable `pg_dump` compression. By default dumps are stored uncompressed so that Plakar's own compression is not degraded. |
+| `format` | `custom` | Dump format. `custom`: one `pg_dump -Fc` file per database. `directory`: one directory per database with one file per table (`/00001-<db>/toc.dat`, …), dumped in parallel with `pg_dump -Fd -j` into a FUSE mount, without using local disk. `directory` needs Linux with `/dev/fuse` and `fusermount3` (Debian package `fuse3`), and its snapshots cannot be restored with `plakar restore` yet: mount the snapshot with `plakar mount` and run `pg_restore -Fd` on the database directory. |
+| `parallel_dumps` | `4` | Number of parallel `pg_dump` jobs per database with `format=directory`. Each job is a connection running a `COPY` on the server. Defaults to 4, or to plakar's concurrency if lower. |
 | `schema_only` | `false` | Dump only the schema (no data). Mutually exclusive with `data_only`. |
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries (`pg_dump`, `pg_dumpall`, `psql`). When omitted, binaries are resolved via `$PATH`. Useful when multiple PostgreSQL versions are installed. |
@@ -302,6 +304,8 @@ functions (execution role).
 | `database` | — | Database to back up. If omitted, all connectable databases are backed up individually (`/00000-globals.sql` + one `.dump` per database). Overrides the URI path. |
 | `exclude_databases` | `rdsadmin` | Comma-separated list of database names to skip during a full backup. Defaults to `rdsadmin` (an internal AWS system database that cannot be dumped). Set to an empty string to disable all exclusions. |
 | `compress` | `false` | Enable `pg_dump` compression. By default dumps are stored uncompressed so that Plakar's own compression is not degraded. |
+| `format` | `custom` | Dump format. `custom`: one `pg_dump -Fc` file per database. `directory`: one directory per database with one file per table (`/00001-<db>/toc.dat`, …), dumped in parallel with `pg_dump -Fd -j` into a FUSE mount, without using local disk. `directory` needs Linux with `/dev/fuse` and `fusermount3` (Debian package `fuse3`), and its snapshots cannot be restored with `plakar restore` yet: mount the snapshot with `plakar mount` and run `pg_restore -Fd` on the database directory. |
+| `parallel_dumps` | `4` | Number of parallel `pg_dump` jobs per database with `format=directory`. Each job is a connection running a `COPY` on the server. Defaults to 4, or to plakar's concurrency if lower. |
 | `schema_only` | `false` | Dump only the schema (no data). Mutually exclusive with `data_only`. |
 | `data_only` | `false` | Dump only the data (no schema). Mutually exclusive with `schema_only`. |
 | `pg_bin_dir` | — | Directory containing the PostgreSQL client binaries. When omitted, binaries are resolved via `$PATH`. |

@@ -3,16 +3,20 @@ package importer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/PlakarKorp/integrations/postgresql/dumpfs"
 	"github.com/PlakarKorp/integrations/postgresql/manifest"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -32,6 +36,8 @@ type Importer struct {
 	compress         bool                                  // enable pg_dump compression; off by default to avoid degrading Plakar's compression
 	schemaOnly       bool                                  // pass -s: dump schema only
 	dataOnly         bool                                  // pass -a: dump data only
+	directory        bool                                  // format=directory: pg_dump -Fd through a FUSE mount, one file per table
+	parallelDumps    int                                   // pg_dump -j with format=directory
 	pgBinDir         string                                // directory containing pg_dump, pg_dumpall, psql; empty means use $PATH
 	connType         string                                // returned by Type(); if empty, "postgresql" is used
 	TokenProvider    func(context.Context) (string, error) // optional; refreshes conn.Password before each subprocess
@@ -46,11 +52,18 @@ func (p *Importer) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
+// defaultParallelDumps is pg_dump's -j with format=directory, unless
+// parallel_dumps sets it or plakar's concurrency is lower. Each job is a
+// connection running a COPY on the server, and beyond a few the largest table,
+// dumped by a single job, sets the end of the dump anyway.
+const defaultParallelDumps = 4
+
 // NewImporterFromConfigMap creates an Importer from an already-constructed
 // ConnConfig (e.g. one whose password was replaced with a fetched token) and
 // the raw config map for the remaining option parsing.  connType is the value
 // returned by Type(); pass an empty string to use the default "postgresql".
-func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, config map[string]string) (*Importer, error) {
+// opts gives plakar's concurrency; it may be nil.
+func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, opts *connectors.Options, config map[string]string) (*Importer, error) {
 	database := dbPath
 	if db, ok := config["database"]; ok && db != "" {
 		database = db
@@ -96,6 +109,35 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
 	}
 
+	var directory bool
+	switch format := config["format"]; format {
+	case "", "custom":
+	case "directory":
+		directory = true
+		if err := dumpfs.Available(); err != nil {
+			return nil, fmt.Errorf("format: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("format: %q is neither custom nor directory", format)
+	}
+
+	parallelDumps := defaultParallelDumps
+	if opts != nil && opts.MaxConcurrency > 0 {
+		parallelDumps = min(parallelDumps, opts.MaxConcurrency)
+	}
+	if v, ok := config["parallel_dumps"]; ok && v != "" {
+		if !directory {
+			return nil, fmt.Errorf("parallel_dumps: requires format=directory")
+		}
+		parallelDumps, err = strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("parallel_dumps: %w", err)
+		}
+		if parallelDumps < 1 {
+			return nil, fmt.Errorf("parallel_dumps: must be at least 1, got %d", parallelDumps)
+		}
+	}
+
 	return &Importer{
 		conn:             conn,
 		database:         database,
@@ -103,6 +145,8 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		compress:         compress,
 		schemaOnly:       schemaOnly,
 		dataOnly:         dataOnly,
+		directory:        directory,
+		parallelDumps:    parallelDumps,
 		pgBinDir:         pgBinDir,
 		connType:         connType,
 	}, nil
@@ -113,7 +157,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	if err != nil {
 		return nil, err
 	}
-	imp, err := NewImporterFromConfigMap(conn, dbPath, "postgresql", config)
+	imp, err := NewImporterFromConfigMap(conn, dbPath, "postgresql", opts, config)
 	if err != nil {
 		conn.Cleanup()
 		return nil, err
@@ -141,10 +185,18 @@ func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
-	if err := p.emitManifest(ctx, records, "custom"); err != nil {
+	if err := p.emitManifest(ctx, records, p.dumpFormat()); err != nil {
 		return err
 	}
 	return p.dumpAllDatabases(ctx, records)
+}
+
+// dumpFormat is the pg_dump archive format recorded in the manifest.
+func (p *Importer) dumpFormat() string {
+	if p.directory {
+		return "directory"
+	}
+	return "custom"
 }
 
 // Some managed instances (e.g. CleverCloud) don't grant CONNECT on "postgres".
@@ -225,7 +277,9 @@ func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
 //  1. Emitting /00000-globals.sql via pg_dumpall --globals-only (roles, tablespaces).
 //  2. Listing all connectable databases (datallowconn = true).
 //  3. Emitting one /00001-<name>.dump, /00002-<name>.dump, … per database via
-//     pg_dump -Fc, skipping databases that do not match p.database when it is set.
+//     pg_dump -Fc, or with format=directory one /00001-<name>/ directory of
+//     pg_dump -Fd files, skipping databases that do not match p.database when
+//     it is set.
 //
 // The lexicographic ordering of the filenames guarantees that globals are
 // always restored before any database dump.
@@ -252,7 +306,8 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 	return p.dumpDatabases(ctx, records, databases)
 }
 
-// dumpDatabases emits one pg_dump record per selected database.
+// dumpDatabases emits one pg_dump record, or with format=directory one
+// directory of records, per selected database.
 func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors.Record, databases []string) error {
 	n := 0
 	for _, dbname := range databases {
@@ -266,7 +321,7 @@ func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors
 			return fmt.Errorf("backing up database: %w", err)
 		}
 		n++
-		args := append(p.conn.Args(), "-Fc")
+		args := p.conn.Args()
 		if !p.compress {
 			args = append(args, "-Z0")
 		}
@@ -275,8 +330,17 @@ func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors
 		} else if p.dataOnly {
 			args = append(args, "-a")
 		}
-		args = append(args, dbname)
-		if err := p.emitRecord(ctx, records, p.bin("pg_dump"), args, fmt.Sprintf("/%05d-%s.dump", n, dbname)); err != nil {
+		recordPath := fmt.Sprintf("/%05d-%s", n, dbname)
+		var err error
+		if p.directory {
+			// --no-sync: pg_dump would otherwise reopen every file to fsync it.
+			args = append(args, "-Fd", "-j", strconv.Itoa(p.parallelDumps), "--no-sync", dbname)
+			err = p.emitDirectory(ctx, records, args, recordPath)
+		} else {
+			args = append(args, "-Fc", dbname)
+			err = p.emitRecord(ctx, records, p.bin("pg_dump"), args, recordPath+".dump")
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -303,7 +367,6 @@ func (p *Importer) refreshToken(ctx context.Context) error {
 }
 
 // emitRecord starts bin with args and sends a streaming Record on records.
-// The record size is 0 because the dump size is not known until the stream is consumed.
 func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Record, bin string, args []string, recordPath string) error {
 	if err := p.refreshToken(ctx); err != nil {
 		return err
@@ -324,25 +387,87 @@ func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Re
 		return fmt.Errorf("%s: %w", bin, err)
 	}
 
-	fileinfo := objects.FileInfo{
-		Lname:    path.Base(recordPath),
-		Lsize:    0,
-		Lmode:    0444,
-		LmodTime: time.Time{},
-	}
-
 	readerFunc := func() (io.ReadCloser, error) {
 		return &cmdReader{cmd: cmd, stdout: stdout, stderr: &stderr}, nil
 	}
 
-	select {
-	case <-ctx.Done():
+	if err := sendRecord(ctx, records, recordPath, readerFunc); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return ctx.Err()
-	case records <- connectors.NewRecord(recordPath, "", fileinfo, nil, readerFunc):
+		return err
 	}
 	return nil
+}
+
+// sendRecord sends a streaming record for recordPath on records.
+func sendRecord(ctx context.Context, records chan<- *connectors.Record, recordPath string, read func() (io.ReadCloser, error)) error {
+	// kloset reuses the previous snapshot's data for a record whose metadata
+	// matches it. The size is unknown until the stream is consumed, and an
+	// empty table gives an empty file, so the mtime is what tells them apart.
+	// The size must be 0, not -1: kloset ignores a -1 size. A kloset way to
+	// mark a record as never cached would make this unnecessary.
+	fileinfo := objects.FileInfo{
+		Lname:    path.Base(recordPath),
+		Lmode:    0444,
+		LmodTime: time.Now(),
+	}
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case records <- connectors.NewRecord(recordPath, "", fileinfo, nil, read):
+		return nil
+	}
+}
+
+// holdLargeObjectTOC keeps pg_dump's blobs_<id>.toc in memory until closed,
+// the only file it opens with O_APPEND. pg_dump keeps the TOC open while it
+// writes and closes the blob files it lists, and stdio flushes the TOC every
+// 8 KiB: streamed, it would hold a reader that the next blob file needs, which
+// breaks dumpfs's contract.
+func holdLargeObjectTOC(name string, flags uint32) bool {
+	return flags&syscall.O_APPEND != 0
+}
+
+// emitDirectory runs pg_dump -Fd with args into a FUSE mount and emits each
+// file it writes as a streaming record under recordDir.
+func (p *Importer) emitDirectory(ctx context.Context, records chan<- *connectors.Record, args []string, recordDir string) error {
+	if err := p.refreshToken(ctx); err != nil {
+		return err
+	}
+	mnt, err := os.MkdirTemp("", "plakar-pgdump-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(mnt) }() // fails only if the mount outlived us, already reported
+
+	fsys, err := dumpfs.Mount(mnt, func(name string, r io.ReadCloser) error {
+		// Not path.Join: it would resolve a ".." in the database name.
+		return sendRecord(ctx, records, recordDir+"/"+name, func() (io.ReadCloser, error) { return r, nil })
+	}, &dumpfs.Options{Hold: holdLargeObjectTOC, Name: "plakar-pgdump"})
+	if err != nil {
+		return err
+	}
+
+	// Killing the pg_dump leader leaves its workers blocked in FUSE writes,
+	// still holding stderr open: unblock them or cmd.Run never returns.
+	stop := context.AfterFunc(ctx, func() { fsys.Abort(context.Cause(ctx)) })
+	defer stop()
+
+	bin := p.bin("pg_dump")
+	cmd := exec.CommandContext(ctx, bin, append([]string{"-f", mnt}, args...)...)
+	cmd.Env = p.conn.Env()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err = cmd.Run(); err != nil {
+		err = fmt.Errorf("%s: %w: %s", bin, err, pgconn.TruncateOutput(stderr.Bytes()))
+		// Fail the backup: the files pg_dump handed over before failing
+		// may be cut short, and the snapshot must not hold them as complete.
+		// A database that cannot be dumped (rdsadmin on RDS, say) belongs in
+		// exclude_databases.
+		fsys.Abort(err)
+	}
+	// pg_dump may exit cleanly after an abort on cancel, with files cut short.
+	return errors.Join(ctx.Err(), err, fsys.Unmount())
 }
 
 // cmdReader wraps a command's stdout pipe and surfaces a non-zero exit status

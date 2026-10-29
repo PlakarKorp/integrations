@@ -13,7 +13,7 @@ FROM golang:1.26
 ARG PLAKAR_SHA
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-client && \
+    apt-get install -y --no-install-recommends postgresql-client fuse3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}

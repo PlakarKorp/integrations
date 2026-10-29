@@ -44,7 +44,7 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 		cfg["exclude_databases"] = "rdsadmin"
 	}
 
-	imp, err := pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
+	imp, err := pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", opts, cfg)
 	if err != nil {
 		return nil, err
 	}
