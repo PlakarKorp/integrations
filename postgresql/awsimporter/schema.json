@@ -43,6 +43,14 @@
       "default": "rdsadmin",
       "description": "Comma-separated list of database names to skip during a full backup. Defaults to 'rdsadmin' (an internal AWS system database that cannot be dumped by regular users). Set to an empty string to disable all exclusions."
     },
+    "exclude_tables": {
+      "type": "string",
+      "description": "Comma-separated list of tables to leave out of the dump, definition and rows, as pg_dump --exclude-table patterns. Applies to every database dumped. Example: public.audit,log_*."
+    },
+    "exclude_table_data": {
+      "type": "string",
+      "description": "Comma-separated list of tables whose rows are left out of the dump; their definition is kept, so they are restored empty. pg_dump --exclude-table-data patterns, applied to every database dumped. Example: public.events."
+    },
     "schema_only": {
       "type": "boolean",
       "default": false,

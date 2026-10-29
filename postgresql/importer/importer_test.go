@@ -115,6 +115,63 @@ func readAll(records <-chan *connectors.Record) <-chan map[string]string {
 	return out
 }
 
+// exclude_tables and exclude_table_data reach pg_dump as one option per
+// pattern, blank entries dropped, with "=" so a pattern cannot pass for an
+// option.
+func TestExcludeTablesOptions(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]string
+		want   []string
+		absent []string
+	}{
+		{
+			name:   "unset",
+			config: map[string]string{},
+			absent: []string{"--exclude-table"},
+		},
+		{
+			name: "tables and table data",
+			config: map[string]string{
+				"exclude_tables":     "public.audit, log_* ,",
+				"exclude_table_data": "events",
+			},
+			want: []string{
+				"--exclude-table=public.audit --exclude-table=log_* --exclude-table-data=events",
+			},
+		},
+		{
+			name:   "pattern starting with a dash",
+			config: map[string]string{"exclude_tables": "-h127.0.0.1"},
+			want:   []string{"--exclude-table=-h127.0.0.1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bin := fakePgDump(t, "")
+			tt.config["pg_bin_dir"] = bin
+			p, err := NewImporterFromConfigMap(pgconn.ConnConfig{}, "appdb", "", nil, tt.config)
+			require.NoError(t, err)
+
+			records := make(chan *connectors.Record)
+			files := readAll(records)
+			err = p.dumpDatabases(context.Background(), records, []string{"appdb"})
+			close(records)
+			<-files
+			require.NoError(t, err)
+
+			args, err := os.ReadFile(filepath.Join(bin, "args"))
+			require.NoError(t, err)
+			for _, w := range tt.want {
+				assert.Contains(t, string(args), w)
+			}
+			for _, a := range tt.absent {
+				assert.NotContains(t, string(args), a)
+			}
+		})
+	}
+}
+
 // requireFUSE skips a test that mounts a dumpfs where FUSE is unavailable.
 func requireFUSE(t *testing.T) {
 	t.Helper()
