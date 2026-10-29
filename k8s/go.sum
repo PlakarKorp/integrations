@@ -15,6 +15,8 @@ github.com/PlakarKorp/go-kloset-sdk v1.1.0 h1:0wB66dyTwFp3Ky0TLAqehiOVwBDhQr3cTi
 github.com/PlakarKorp/go-kloset-sdk v1.1.0/go.mod h1:AOdpltJ9LlbmnKxxrnh48vNttHa/dOQG0FVRzK4z0BQ=
 github.com/PlakarKorp/integration-grpc v1.1.2 h1:fSTa9fv3bFgRMkkbKHf3zeS3OapK3Jy2cYJxLK8qGWI=
 github.com/PlakarKorp/integration-grpc v1.1.2/go.mod h1:/QMbuiV5qJFUhYg/Xc98FVXa9tiH4dBCAKc5FwjMFXU=
+github.com/PlakarKorp/integration-sdk v1.1.2 h1:MJZ6N6trDYKAZg8/+drVgcD/QXGPOuhzPpo1HHjfoaw=
+github.com/PlakarKorp/integration-sdk v1.1.2/go.mod h1:uRMG7TOmAkTdB7YDzBtGv7ThqMAX5ARTKEdPSLCNFvo=
 github.com/PlakarKorp/integrations/fs v1.1.9 h1:9RBSGKDynzDCAbkhZelaIYJLYfGkr5zh3IgEsWiHXlY=
 github.com/PlakarKorp/integrations/fs v1.1.9/go.mod h1:6xJ42qfe77lDG+o7NVpz5X44Nbk9vCvFxxT88WvrgRc=
 github.com/PlakarKorp/integrations/ptar v1.1.1 h1:44E8NHkx4cKA/bCUtcF82Qj75LyK4vkWdmaSInEylX8=

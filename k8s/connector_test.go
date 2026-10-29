@@ -3,7 +3,7 @@ package k8s
 import (
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -301,7 +301,7 @@ users:
 
 	newK8s := func(t *testing.T, options ...Options) *k8s {
 		t.Helper()
-		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+		k, err := New(t.Context(), &integration.Options{}, "k8s+pvc", map[string]string{
 			"location":   "k8s+pvc://cluster.example/ns/data",
 			"kubeconfig": kubeconf,
 		}, true, options...)

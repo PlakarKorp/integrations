@@ -5,30 +5,29 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
-// Exporter wraps an [exporter.Exporter] into a structure that's
+// Exporter wraps an [integration.Exporter] into a structure that's
 // easier to "push" to.  If the exporter fails at any point, [Push]
 // will return its failure.  In any case, call [Wait] when done to
-// close the [exporter.Exporter].
+// close the [integration.Exporter].
 type Exporter struct {
 	ctx        context.Context
 	err        <-chan error
 	terminated bool
-	exp        exporter.Exporter
+	exp        integration.Exporter
 	inner      struct {
-		records chan *connectors.Record
-		results chan *connectors.Result
+		records chan *integration.Record
+		results chan *integration.Result
 	}
 }
 
-func New(ctx context.Context, exp exporter.Exporter) *Exporter {
+func New(ctx context.Context, exp integration.Exporter) *Exporter {
 	var (
 		errch   = make(chan error, 1)
-		records = make(chan *connectors.Record)
-		results = make(chan *connectors.Result)
+		records = make(chan *integration.Record)
+		results = make(chan *integration.Result)
 	)
 
 	go func() {
@@ -41,8 +40,8 @@ func New(ctx context.Context, exp exporter.Exporter) *Exporter {
 		exp: exp,
 		err: errch,
 		inner: struct {
-			records chan *connectors.Record
-			results chan *connectors.Result
+			records chan *integration.Record
+			results chan *integration.Result
 		}{
 			records: records,
 			results: results,
@@ -58,9 +57,9 @@ func (e *Exporter) failed(err error) error {
 	return fmt.Errorf("exporter exited successfully too early")
 }
 
-// Push sends a [connectors.Record] to the exporter and returns the
+// Push sends a [integration.Record] to the exporter and returns the
 // result.  It can only fail if the exporter itself failed.
-func (e *Exporter) Push(record *connectors.Record) (*connectors.Result, error) {
+func (e *Exporter) Push(record *integration.Record) (*integration.Result, error) {
 	if e.terminated {
 		return nil, fmt.Errorf("exporter already terminated")
 	}

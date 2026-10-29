@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 	yamlv3 "go.yaml.in/yaml/v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -239,7 +239,7 @@ func (k *k8s) ensureNamespace(ctx context.Context, ns string) {
 	}
 }
 
-func (k *k8s) restoreConfig(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) restoreConfig(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	if k.namespace != "" {
 		k.ensureNamespace(ctx, k.namespace)
 	}

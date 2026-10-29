@@ -17,10 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -503,11 +502,11 @@ func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
 	}
 }
 
-func filter(ctx context.Context, imp importer.Importer, Records chan<- *connectors.Record, Results <-chan *connectors.Result, fn func(*connectors.Record) *connectors.Record) error {
+func filter(ctx context.Context, imp integration.Importer, Records chan<- *integration.Record, Results <-chan *integration.Result, fn func(*integration.Record) *integration.Record) error {
 	var (
 		size    = max(cap(Records), cap(Results), 2)
-		records = make(chan *connectors.Record, size)
-		results = make(chan *connectors.Result, size)
+		records = make(chan *integration.Record, size)
+		results = make(chan *integration.Result, size)
 		retch   = make(chan error, 1)
 		done    = make(chan struct{})
 		drained = make(chan struct{})
@@ -565,7 +564,7 @@ func filter(ctx context.Context, imp importer.Importer, Records chan<- *connecto
 	}
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	if prefix == "" {
 		prefix = "/"
 	}
@@ -578,7 +577,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	}
 	defer gclient.Close()
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
@@ -596,7 +595,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	}
 	defer importer.Close(ctx)
 
-	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
+	err = filter(ctx, importer, records, results, func(record *integration.Record) *integration.Record {
 		if proto == "block" {
 			newrecord := *record
 			newrecord.Pathname = path.Join(prefix, record.Pathname)
@@ -668,7 +667,7 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -685,7 +684,7 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records c
 	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, prefix, records, results)
 }
 
-func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -706,7 +705,7 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 		proto, path = "block", blockPath
 	}
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
@@ -728,7 +727,7 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	return exporter.Export(ctx, records, results)
 }
 
-func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	var (
 		pvc *corev1.PersistentVolumeClaim
 		err error
@@ -773,7 +772,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	return k.podBackup(ctx, fp, "/", records, results)
 }
 
-func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	pvc, err := k.getpvc(ctx, ns, name)
 	if err != nil {
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)

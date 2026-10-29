@@ -12,10 +12,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -42,7 +40,7 @@ type k8s struct {
 	mapper         *restmapper.DeferredDiscoveryRESTMapper
 	snapClient     versioned.Interface
 	kubevirtClient kubevirt.Interface
-	opts           *connectors.Options
+	opts           *integration.Options
 	export         bool
 
 	host      string
@@ -65,25 +63,14 @@ type k8s struct {
 	remapped map[remapKey]string
 }
 
-func init() {
-	importer.Register("k8s", 0, NewImporter)
-	importer.Register("k8s+csi", 0, NewImporter)
-	importer.Register("k8s+pvc", 0, NewImporter)
-	importer.Register("k8s+vm", 0, NewImporter)
-
-	exporter.Register("k8s", 0, NewExporter)
-	exporter.Register("k8s+pvc", 0, NewExporter)
-	exporter.Register("k8s+vm", 0, NewExporter)
-}
-
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Importer, error) {
 	if params["fs_access"] == "" {
 		params["fs_access"] = "read"
 	}
 	return New(ctx, opts, name, params, false)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Exporter, error) {
 	if params["fs_access"] == "" {
 		params["fs_access"] = "full"
 	}
@@ -124,7 +111,7 @@ func WithSkipRootPermsAndTime(skipRootPermsAndTime bool) Options {
 
 func New(
 	ctx context.Context,
-	opts *connectors.Options,
+	opts *integration.Options,
 	proto string,
 	params map[string]string,
 	export bool,
@@ -440,7 +427,7 @@ func (k *k8s) Ping(ctx context.Context) error {
 	}
 }
 
-func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 
 	switch k.proto {
@@ -455,7 +442,7 @@ func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, res
 	}
 }
 
-func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	switch k.proto {
 	case "k8s":
 		defer close(results)

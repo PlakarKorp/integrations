@@ -13,14 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeImporter struct {
-	records []*connectors.Record
+	records []*integration.Record
 	err     error
 	acked   atomic.Uint64
 }
@@ -32,7 +31,7 @@ func (f *fakeImporter) Flags() location.Flags       { return location.FLAG_STREA
 func (f *fakeImporter) Ping(context.Context) error  { return nil }
 func (f *fakeImporter) Close(context.Context) error { return nil }
 
-func (f *fakeImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (f *fakeImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	go func() {
 		defer close(records)
 		for _, record := range f.records {
@@ -46,10 +45,10 @@ func (f *fakeImporter) Import(ctx context.Context, records chan<- *connectors.Re
 	return f.err
 }
 
-func mkrecords(pathnames ...string) []*connectors.Record {
-	out := make([]*connectors.Record, 0, len(pathnames))
+func mkrecords(pathnames ...string) []*integration.Record {
+	out := make([]*integration.Record, 0, len(pathnames))
 	for _, pathname := range pathnames {
-		out = append(out, connectors.NewRecord(pathname, "", objects.FileInfo{
+		out = append(out, integration.NewRecord(pathname, "", integration.FileInfo{
 			Lname: path.Base(pathname),
 		}, nil, func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("")), nil
@@ -60,8 +59,8 @@ func mkrecords(pathnames ...string) []*connectors.Record {
 
 // sink simulates kloset: it reads the records and acks all of them.
 type sink struct {
-	Records chan *connectors.Record
-	Results chan *connectors.Result
+	Records chan *integration.Record
+	Results chan *integration.Result
 
 	mu   sync.Mutex
 	seen []string
@@ -73,8 +72,8 @@ type sink struct {
 
 func newSink(t *testing.T, size int) *sink {
 	s := &sink{
-		Records: make(chan *connectors.Record, size),
-		Results: make(chan *connectors.Result, size),
+		Records: make(chan *integration.Record, size),
+		Results: make(chan *integration.Result, size),
 		stop:    make(chan struct{}),
 		drained: make(chan struct{}),
 	}
@@ -112,13 +111,13 @@ func (s *sink) paths() []string {
 }
 
 func TestFilter(t *testing.T) {
-	keep := func(record *connectors.Record) *connectors.Record { return record }
+	keep := func(record *integration.Record) *integration.Record { return record }
 
 	t.Run("forwards the records the callback keeps", func(t *testing.T) {
 		imp := &fakeImporter{records: mkrecords("/a", "/b")}
 		s := newSink(t, 4)
 
-		err := filter(t.Context(), imp, s.Records, s.Results, func(record *connectors.Record) *connectors.Record {
+		err := filter(t.Context(), imp, s.Records, s.Results, func(record *integration.Record) *integration.Record {
 			out := *record
 			out.Pathname = "/disk" + record.Pathname
 			return &out
@@ -133,7 +132,7 @@ func TestFilter(t *testing.T) {
 		imp := &fakeImporter{records: mkrecords("/", "/a")}
 		s := newSink(t, 4)
 
-		err := filter(t.Context(), imp, s.Records, s.Results, func(record *connectors.Record) *connectors.Record {
+		err := filter(t.Context(), imp, s.Records, s.Results, func(record *integration.Record) *integration.Record {
 			if record.Pathname == "/" {
 				return nil
 			}
@@ -159,7 +158,7 @@ func TestFilter(t *testing.T) {
 		for _, disk := range []string{"/disk1", "/disk2", "/disk3"} {
 			imp := &fakeImporter{records: mkrecords("/", "/disk.img")}
 
-			err := filter(t.Context(), imp, s.Records, s.Results, func(record *connectors.Record) *connectors.Record {
+			err := filter(t.Context(), imp, s.Records, s.Results, func(record *integration.Record) *integration.Record {
 				out := *record
 				out.Pathname = path.Join(disk, record.Pathname)
 				return &out

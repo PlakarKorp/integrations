@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 
 	"github.com/PlakarKorp/integration-sdk/server"
@@ -9,5 +8,5 @@ import (
 )
 
 func main() {
-	server.EntrypointImporter(context.Background(), os.Args, k8s.NewImporter)
+	server.EntrypointImporter(k8s.NewImporter, os.Args)
 }
