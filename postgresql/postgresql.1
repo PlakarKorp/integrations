@@ -123,6 +123,44 @@ Dump only the data, no schema (default:
 .Li false ) .
 Mutually exclusive with
 .Ar schema_only .
+.It Ar format
+Dump format (default:
+.Li custom ) .
+With
+.Li custom ,
+each database is one
+.Xr pg_dump 1
+.Fl \&Fc
+file.
+With
+.Li directory ,
+each database is dumped with
+.Fl \&Fd Fl j
+into a FUSE mount and stored as a directory with one file per table
+.Pq Pa /00001-<db>/toc.dat , ...
+without using local disk.
+.Li directory
+is Linux only, requires
+.Pa /dev/fuse
+and
+.Xr fusermount3 1
+(Debian package fuse3), and its snapshots cannot be restored with
+.Nm plakar Cm restore
+yet: mount the snapshot with
+.Nm plakar Cm mount
+and run
+.Xr pg_restore 1
+.Fl \&Fd
+on the database directory.
+.It Ar parallel_dumps
+Number of parallel
+.Xr pg_dump 1
+jobs per database with
+.Ar format
+set to
+.Li directory .
+Each job is a connection running a COPY on the server.
+Defaults to 4, or to plakar's concurrency if lower.
 .It Ar pg_bin_dir
 Directory containing the PostgreSQL client binaries
 .Pq pg_dump , pg_dumpall , psql .

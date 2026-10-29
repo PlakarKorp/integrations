@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -29,6 +30,25 @@ func repoRoot() string {
 // The container is automatically terminated when the test ends.
 func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
 	t.Helper()
+	return startPlakarContainer(ctx, t, net, nil)
+}
+
+// StartPlakarFUSEContainer is StartPlakarContainer with the privileges a FUSE
+// mount needs, for backups with format=directory.
+func StartPlakarFUSEContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork) testcontainers.Container {
+	t.Helper()
+	return startPlakarContainer(ctx, t, net, func(hc *container.HostConfig) {
+		hc.Devices = append(hc.Devices, container.DeviceMapping{
+			PathOnHost: "/dev/fuse", PathInContainer: "/dev/fuse", CgroupPermissions: "rwm",
+		})
+		hc.CapAdd = append(hc.CapAdd, "SYS_ADMIN")
+		// Docker's default AppArmor profile denies mount(2).
+		hc.SecurityOpt = append(hc.SecurityOpt, "apparmor:unconfined")
+	})
+}
+
+func startPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers.DockerNetwork, hostConfig func(*container.HostConfig)) testcontainers.Container {
+	t.Helper()
 	root := repoRoot()
 	sha := plakarSHA
 
@@ -48,7 +68,8 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 		Cmd:      []string{"sleep", "infinity"},
 		Networks: networks,
 		// The tests use a -plaintext store, which plakar refuses without it.
-		Env: map[string]string{"PLAKAR_INSECURE_PLAINTEXT": "1"},
+		Env:                map[string]string{"PLAKAR_INSECURE_PLAINTEXT": "1"},
+		HostConfigModifier: hostConfig,
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
