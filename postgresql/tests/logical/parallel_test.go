@@ -13,8 +13,8 @@ import (
 // TestParallelLogicalBackup verifies a format=directory backup: pg_dump -Fd -j
 // writes through a FUSE mount and each file lands in the snapshot as written.
 //  1. Seed a database with a partitioned table and a large object.
-//  2. Back it up twice with 4 parallel dumps and -cache no: the second run
-//     covers a backup with a previous snapshot of the same origin.
+//  2. Back it up twice with 4 parallel dumps: the second run has a parent
+//     snapshot, so its records go through kloset's VFS cache warm stage.
 //  3. In each snapshot, compare every file except toc.dat (it holds a
 //     timestamp) with a pg_dump -Fd taken directly to local disk.
 func TestParallelLogicalBackup(t *testing.T) {
@@ -39,7 +39,7 @@ SELECT lo_from_bytea(0, 'large object');`
 
 	for range 2 {
 		testhelpers.ExecOK(ctx, t, plakarContainer,
-			"plakar", "at", "/var/backups", "backup", "-cache", "no", "-o", "format=directory", "-o", "parallel_dumps=4",
+			"plakar", "at", "/var/backups", "backup", "-o", "format=directory", "-o", "parallel_dumps=4",
 			"postgres://postgres:secret@postgres/testdb",
 		)
 	}
