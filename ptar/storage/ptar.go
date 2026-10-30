@@ -27,9 +27,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
+	"github.com/PlakarKorp/kloset/connectors/storage" // for Register
 	"github.com/PlakarKorp/kloset/versioning"
 	"github.com/dustin/go-humanize"
 )
@@ -41,7 +41,7 @@ type Store struct {
 	host       string
 	root       string
 
-	mode storage.Mode
+	mode integration.Mode
 
 	fp ReadWriteSeekStatReadAtCloser
 
@@ -57,8 +57,8 @@ type Store struct {
 	proto string
 }
 
-var stateMAC = objects.MAC{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00}
-var packfileMAC = objects.MAC{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
+var stateMAC = integration.MAC{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00}
+var packfileMAC = integration.MAC{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
 
 func init() {
 	storage.Register("ptar", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
@@ -66,7 +66,7 @@ func init() {
 	storage.Register("ptar+https", location.FLAG_FILE, NewStore)
 }
 
-func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
 	return &Store{
 		location: storeConfig["location"],
 		proto:    proto,
@@ -75,7 +75,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 
 func (s *Store) Create(ctx context.Context, config []byte) error {
 	s.config = config
-	s.mode = storage.ModeRead | storage.ModeWrite
+	s.mode = integration.ModeRead | integration.ModeWrite
 
 	if s.proto != "ptar" {
 		return fmt.Errorf("unsupported protocol: %s", s.proto)
@@ -105,7 +105,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	s.mode = storage.ModeRead
+	s.mode = integration.ModeRead
 
 	var fp ReadWriteSeekStatReadAtCloser
 	var err error
@@ -206,7 +206,7 @@ func (s *Store) Ping(ctx context.Context) error {
 }
 
 func (s *Store) Close(ctx context.Context) error {
-	if s.mode&storage.ModeWrite != 0 {
+	if s.mode&integration.ModeWrite != 0 {
 		binary.Write(s.fp, binary.LittleEndian, s.configOffset)
 		binary.Write(s.fp, binary.LittleEndian, s.configLength)
 		binary.Write(s.fp, binary.LittleEndian, s.packfileOffset)
@@ -240,7 +240,7 @@ func (s *Store) Flags() location.Flags {
 	}
 }
 
-func (s *Store) Mode(context.Context) (storage.Mode, error) {
+func (s *Store) Mode(context.Context) (integration.Mode, error) {
 	return s.mode, nil
 }
 
@@ -252,31 +252,31 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return fi.Size(), nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+func (s *Store) List(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
 	switch res {
-	case storage.StorageResourceState:
-		if s.mode&storage.ModeWrite != 0 {
-			return []objects.MAC{}, nil
+	case integration.StorageResourceState:
+		if s.mode&integration.ModeWrite != 0 {
+			return []integration.MAC{}, nil
 		}
 
-		return []objects.MAC{
+		return []integration.MAC{
 			stateMAC,
 		}, nil
-	case storage.StorageResourcePackfile:
-		return []objects.MAC{
+	case integration.StorageResourcePackfile:
+		return []integration.MAC{
 			packfileMAC,
 		}, nil
-	case storage.StorageResourceLock:
-		return []objects.MAC{}, nil
+	case integration.StorageResourceLock:
+		return []integration.MAC{}, nil
 	}
 
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
-	case storage.StorageResourceState:
-		if s.mode&storage.ModeWrite == 0 {
+	case integration.StorageResourceState:
+		if s.mode&integration.ModeWrite == 0 {
 			return 0, storage.ErrNotWritable
 		}
 
@@ -288,8 +288,8 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		s.stateLength = nbytes
 
 		return nbytes, nil
-	case storage.StorageResourcePackfile:
-		if s.mode&storage.ModeWrite == 0 {
+	case integration.StorageResourcePackfile:
+		if s.mode&integration.ModeWrite == 0 {
 			return 0, storage.ErrNotWritable
 		}
 
@@ -301,8 +301,8 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		s.packfileLength = nbytes
 
 		return nbytes, nil
-	case storage.StorageResourceLock:
-		if s.mode&storage.ModeWrite == 0 {
+	case integration.StorageResourceLock:
+		if s.mode&integration.ModeWrite == 0 {
 			return 0, storage.ErrNotWritable
 		}
 		return 0, nil
@@ -311,28 +311,28 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		if mac != stateMAC {
 			return nil, fmt.Errorf("invalid MAC: %s", mac)
 		}
 		return io.NopCloser(io.NewSectionReader(s.fp, s.stateOffset, s.stateLength)), nil
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		if rg == nil {
 			return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset, s.packfileLength)), nil
 		} else {
 			return io.NopCloser(io.NewSectionReader(s.fp, s.packfileOffset+int64(rg.Offset), int64(rg.Length))), nil
 		}
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return io.NopCloser(bytes.NewBuffer([]byte{})), nil
 	}
 
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(context.Context, storage.StorageResource, objects.MAC) error {
-	if s.mode&storage.ModeWrite == 0 {
+func (s *Store) Delete(context.Context, integration.StorageResource, integration.MAC) error {
+	if s.mode&integration.ModeWrite == 0 {
 		return storage.ErrNotWritable
 	}
 	return nil
