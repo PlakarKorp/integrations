@@ -61,6 +61,19 @@ is set).
 - Restore time scales with data volume — large databases take longer than
   a binary restore.
 
+### Restoring untrusted snapshots
+
+`00000-globals.sql` is fed to `psql`, which runs backslash meta-commands.
+A globals file containing `\! <command>` runs that command on the machine
+that runs `plakar restore`, with its privileges. `ON_ERROR_STOP` and
+`--no-psqlrc` do not prevent it. The same applies to `postgres+aws://`.
+
+This only matters when the snapshot's content is not trusted: a snapshot
+or `.ptar` received from someone else, or a repository that is not
+encrypted and can be written by others. Do not restore such a snapshot
+with this integration. Set `no_globals=true` to skip the globals file, and
+create the roles and tablespaces on the target yourself.
+
 ### Prerequisites
 
 The following PostgreSQL client tools must be in `$PATH` on the machine
