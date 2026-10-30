@@ -59,6 +59,12 @@ func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, re
 
 	dirPerms := make([]dirPerm, 0, 1024)
 
+	// The server resolves symlinks in every path it is handed, so a
+	// restore may only write below directories it created itself or
+	// verified with Lstat to be real directories, never below a
+	// symlink that was already in the destination.
+	dirOK := make(map[string]bool)
+
 loop:
 	for {
 		select {
@@ -86,9 +92,20 @@ loop:
 				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
 				continue
 			}
+			if parent := path.Dir(pathname); record.Pathname != "/" && parent != path.Clean(s.Root()) && !dirOK[parent] {
+				results <- record.Error(fmt.Errorf("refusing to restore %q: parent %q is not a directory created by this restore", record.Pathname, parent))
+				continue
+			}
 			if record.FileInfo.Lmode.IsDir() {
 				err := s.directory(record, pathname)
 				results <- record.Error(err)
+
+				if err == nil {
+					dirOK[pathname] = true
+				} else if fi, serr := s.client.Lstat(pathname); serr == nil && fi.IsDir() {
+					// Already there from an earlier restore.
+					dirOK[pathname] = true
+				}
 
 				if err == nil && restoreMode(record.FileInfo)&0700 != 0700 {
 					dirPerms = append(dirPerms, dirPerm{
