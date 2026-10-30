@@ -25,7 +25,6 @@ package common
 import (
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path"
@@ -175,11 +174,10 @@ func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) (err error) {
 
 // Config is the parsed, normalized form of a connector configuration map.
 type Config struct {
-	// Host is the NFS server hostname or IP.
+	// Host is the NFS server hostname or IP. The MOUNT and NFS services
+	// are located through the server's portmapper on port 111; neither the
+	// portmapper nor the service ports can be overridden.
 	Host string
-	// Port is the MOUNT/NFS service port. NFS servers are normally reached
-	// through the portmapper, so this is only set when the user pins it.
-	Port string
 	// Export is the server-side export to mount, e.g. "/exports/data".
 	Export string
 	// Root is the path to walk, relative to the export ("/" for the whole
@@ -195,7 +193,7 @@ type Config struct {
 //
 // The location is an nfs:// URL of the form:
 //
-//	nfs://<host>[:<port>]/<export>[/<subpath>]
+//	nfs://<host>/<export>[/<subpath>]
 //
 // Everything in the URL path is treated as the export to mount; a "root"
 // parameter (or a deeper subpath) narrows the walk within that export. This
@@ -205,7 +203,12 @@ type Config struct {
 // The export to mount can also be given out-of-band through the "export"
 // parameter, which takes precedence over the URL path. This lets a UI expose
 // the mountpoint as its own field instead of burying it in the location URL;
-// when it is set the location may be a bare nfs://<host>[:<port>].
+// when it is set the location may be a bare nfs://<host>.
+//
+// A port in the location or a "port" parameter is rejected: the client always
+// goes through the portmapper on port 111 and dials the ports it returns, so
+// a user-supplied port could not be honored and used to fail at dial time
+// with a confusing error.
 func ParseConfig(config map[string]string) (*Config, error) {
 	target := config["location"]
 	if target == "" {
@@ -225,9 +228,8 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		return nil, fmt.Errorf("missing host in location %q", target)
 	}
 
-	port := parsed.Port()
-	if port == "" {
-		port = config["port"]
+	if parsed.Port() != "" || config["port"] != "" {
+		return nil, fmt.Errorf("port is not supported: the NFS and MOUNT services are located through the server's portmapper on port 111")
 	}
 
 	// The export field, when set, takes precedence over the URL path.
@@ -246,7 +248,6 @@ func ParseConfig(config map[string]string) (*Config, error) {
 
 	cfg := &Config{
 		Host:   host,
-		Port:   port,
 		Export: export,
 		Root:   root,
 	}
@@ -263,12 +264,9 @@ func ParseConfig(config map[string]string) (*Config, error) {
 	return cfg, nil
 }
 
-// Origin returns the host[:port] identifier for a Config, used as the snapshot
+// Origin returns the host identifier for a Config, used as the snapshot
 // origin.
 func (c *Config) Origin() string {
-	if c.Port != "" {
-		return net.JoinHostPort(c.Host, c.Port)
-	}
 	return c.Host
 }
 
@@ -280,11 +278,12 @@ func (c *Config) auth() rpc.Auth {
 
 // Connect dials the MOUNT service, mounts the export and returns a target
 // rooted at it. The caller owns the returned Conn and must Close it.
+//
+// The address handed to the client is the bare host: go-nfs-client appends
+// ":111" itself to reach the portmapper, so a host:port here would produce
+// host:port:111 and never dial.
 func Connect(cfg *Config) (*Conn, error) {
 	addr := cfg.Host
-	if cfg.Port != "" {
-		addr = net.JoinHostPort(cfg.Host, cfg.Port)
-	}
 
 	mount, err := nfs.DialMount(addr)
 	if err != nil {

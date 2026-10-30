@@ -24,12 +24,6 @@
       "pattern": "^/",
       "description": "Destination path, relative to the mounted export (default: the export root)"
     },
-    "port": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 65535,
-      "description": "NFS/MOUNT service port (default: resolved through the portmapper)"
-    },
     "uid": {
       "type": "integer",
       "minimum": 0,

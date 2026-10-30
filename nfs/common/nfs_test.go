@@ -13,7 +13,6 @@ func TestParseConfig(t *testing.T) {
 		config     map[string]string
 		wantErr    bool
 		wantHost   string
-		wantPort   string
 		wantExport string
 		wantRoot   string
 		wantUID    uint32
@@ -29,13 +28,12 @@ func TestParseConfig(t *testing.T) {
 			wantOrigin: "nas.example.com",
 		},
 		{
-			name:       "export with subpath and port in url",
-			config:     map[string]string{"location": "nfs://10.0.0.5:2049/srv/share/sub/dir"},
+			name:       "export with subpath",
+			config:     map[string]string{"location": "nfs://10.0.0.5/srv/share/sub/dir"},
 			wantHost:   "10.0.0.5",
-			wantPort:   "2049",
 			wantExport: "/srv/share/sub/dir",
 			wantRoot:   "/",
-			wantOrigin: "10.0.0.5:2049",
+			wantOrigin: "10.0.0.5",
 		},
 		{
 			name: "root narrows walk, uid/gid set",
@@ -51,11 +49,6 @@ func TestParseConfig(t *testing.T) {
 			wantUID:    1000,
 			wantGID:    1000,
 			wantOrigin: "host",
-		},
-		{
-			name:     "port param when absent from url",
-			config:   map[string]string{"location": "nfs://host/export", "port": "20490"},
-			wantPort: "20490",
 		},
 		{
 			name: "export param supplies mountpoint with bare location",
@@ -83,6 +76,10 @@ func TestParseConfig(t *testing.T) {
 		{name: "missing export", config: map[string]string{"location": "nfs://host"}, wantErr: true},
 		{name: "missing export trailing slash", config: map[string]string{"location": "nfs://host/"}, wantErr: true},
 		{name: "bad uid", config: map[string]string{"location": "nfs://host/e", "uid": "abc"}, wantErr: true},
+		// The client always reaches the server through the portmapper on
+		// 111, so a port cannot be honored and must be refused up front.
+		{name: "port in url", config: map[string]string{"location": "nfs://10.0.0.5:2049/srv/share"}, wantErr: true},
+		{name: "port param", config: map[string]string{"location": "nfs://host/export", "port": "20490"}, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -99,9 +96,6 @@ func TestParseConfig(t *testing.T) {
 			}
 			if tt.wantHost != "" && cfg.Host != tt.wantHost {
 				t.Errorf("Host = %q, want %q", cfg.Host, tt.wantHost)
-			}
-			if tt.wantPort != "" && cfg.Port != tt.wantPort {
-				t.Errorf("Port = %q, want %q", cfg.Port, tt.wantPort)
 			}
 			if tt.wantExport != "" && cfg.Export != tt.wantExport {
 				t.Errorf("Export = %q, want %q", cfg.Export, tt.wantExport)

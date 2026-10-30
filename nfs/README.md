@@ -27,13 +27,11 @@ This integration allows:
 
 The supported configuration options are:
 
-* `location` (**required**): the NFS target as `nfs://<host>[:<port>]/<export>[/<subpath>]`.
+* `location` (**required**): the NFS target as `nfs://<host>/<export>[/<subpath>]`.
   Everything in the path is the server-side export to mount; an optional deeper
   subpath (or the `root` option) narrows the walk within that export.
 * `root`: path to walk/restore, relative to the mounted export (default: the
   whole export).
-* `port`: NFS/MOUNT service port. By default the service is resolved through the
-  server's portmapper (port 111).
 * `uid` / `gid`: numeric credentials presented to the server as the `AUTH_UNIX`
   identity used for authorization (default: `0`).
 
@@ -58,6 +56,9 @@ $ plakar restore -to nfs://nas.example.com/exports/restore abc
 
 * Only **NFSv3** is supported. NFSv4, Kerberos (`sec=krb5`) and NFS-over-UDP are
   not.
+* The server is always reached through its **portmapper on port 111**, which
+  hands out the MOUNT and NFS ports. Neither can be set by hand: a port in the
+  location is rejected.
 * Authorization uses `AUTH_UNIX` (numeric uid/gid). The export must permit the
   presented credentials (e.g. an `*(rw,no_root_squash)`-style export, or a
   matching uid).
