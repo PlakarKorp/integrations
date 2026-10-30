@@ -91,7 +91,7 @@ func TestSafe(t *testing.T) {
 func TestExportOne_RejectsPathEscapingRoot(t *testing.T) {
 	p := &Exporter{rootDir: "/repo"}
 
-	err := p.exportOne(&connectors.Record{Pathname: "/../../outside.txt"})
+	err := p.exportOne(&connectors.Record{Pathname: "/../../outside.txt"}, map[string]struct{}{})
 	if err == nil {
 		t.Fatal("expected exportOne to reject a pathname escaping the restore root")
 	}
@@ -125,7 +125,7 @@ func TestExportOne_RejectsBackslashEscape(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := p.exportOne(tt.record); err == nil {
+			if err := p.exportOne(tt.record, map[string]struct{}{}); err == nil {
 				t.Fatal("expected exportOne to reject a backslash path escape")
 			}
 		})
@@ -160,8 +160,36 @@ func TestExportOne_RejectsNonDirectoryAtRoot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := p.exportOne(tt.record); err == nil {
+			if err := p.exportOne(tt.record, map[string]struct{}{}); err == nil {
 				t.Fatal("expected exportOne to reject a non-directory record at the restore root")
+			}
+		})
+	}
+}
+
+func TestSafeTarget(t *testing.T) {
+	p := &Exporter{rootDir: "/repo"}
+
+	tests := []struct {
+		name     string
+		target   string
+		linkpath string
+		ok       bool
+	}{
+		{"sibling", "b.txt", "/repo/sub/a", true},
+		{"up, still inside the root", "../x", "/repo/sub/a", true},
+		{"up to the root", "..", "/repo/sub/a", true},
+		{"up past the root", "../../x", "/repo/sub/a", false},
+		{"up from a root-level link", "../x", "/repo/a", false},
+		{"absolute, even inside the root", "/repo/x", "/repo/a", false},
+		{"drive letter", "C:/x", "/repo/a", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := p.safeTarget(tt.target, tt.linkpath)
+			if (err == nil) != tt.ok {
+				t.Errorf("safeTarget(%q, %q) = %v; want ok=%v", tt.target, tt.linkpath, err, tt.ok)
 			}
 		})
 	}
