@@ -18,11 +18,13 @@ package exporter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	plakarsmb "github.com/PlakarKorp/integrations/smb/common"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -34,11 +36,27 @@ func init() {
 	exporter.Register("smb", 0, NewExporter)
 }
 
+// share is the part of *plakarsmb.Conn the exporter uses; tests stand in an
+// in-memory server for it.
+type share interface {
+	Lstat(p string) (os.FileInfo, error)
+	Mkdir(p string, perm os.FileMode) error
+	MkdirAll(p string, perm os.FileMode) error
+	Create(p string) (io.WriteCloser, error)
+	Symlink(target, linkpath string) error
+	Chtimes(p string, mtime time.Time) error
+	Close() error
+}
+
+// autoDirPerm is the mode of directories created on the way to a restored
+// entry whose own directory record was not seen.
+const autoDirPerm = 0o755
+
 type Exporter struct {
 	opts *connectors.Options
 
 	cfg  *plakarsmb.Config
-	conn *plakarsmb.Conn
+	conn share
 
 	rootDir string
 }
@@ -79,6 +97,13 @@ func (p *Exporter) Close(ctx context.Context) error {
 func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
 	defer close(results)
 
+	// The server resolves symlinks on our behalf and, without reparse point
+	// support, does not even let us see them, so a directory already on the
+	// share can never be told apart from a symlink to one. Records are only
+	// written below the restore root and below directories this restore
+	// created itself, which are collected here.
+	created := make(map[string]struct{})
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -94,7 +119,7 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 				continue
 			}
 
-			if err := p.exportOne(record); err != nil {
+			if err := p.exportOne(record, created); err != nil {
 				results <- record.Error(err)
 			} else {
 				results <- record.Ok()
@@ -103,7 +128,7 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 	}
 }
 
-func (p *Exporter) exportOne(record *connectors.Record) error {
+func (p *Exporter) exportOne(record *connectors.Record, created map[string]struct{}) error {
 	// '\' is a path separator on the SMB server but an ordinary character to
 	// path.Clean, so it would slip ".." past safe(). SMB can't represent such
 	// names faithfully anyway.
@@ -111,18 +136,33 @@ func (p *Exporter) exportOne(record *connectors.Record) error {
 		return fmt.Errorf("refusing backslash in pathname or target: %q", record.Pathname)
 	}
 
+	root := path.Clean(p.rootDir)
 	pathname := path.Join(p.rootDir, record.Pathname)
 	if !p.safe(pathname) {
 		return fmt.Errorf("refusing to write outside share root: %q", pathname)
 	}
 	mode := record.FileInfo.Mode()
-	if !mode.IsDir() && path.Clean(pathname) == path.Clean(p.rootDir) {
+	if !mode.IsDir() && pathname == root {
 		return fmt.Errorf("refusing non-directory record at share root: %q", pathname)
+	}
+	if mode&os.ModeSymlink != 0 {
+		if err := p.safeTarget(record.Target, pathname); err != nil {
+			return err
+		}
+	}
+
+	if err := p.parents(pathname, created); err != nil {
+		return err
 	}
 
 	switch {
 	case mode.IsDir():
-		return p.conn.MkdirAll(pathname, mode.Perm())
+		if pathname == root {
+			// The root is the user's target: create it if it is missing,
+			// take it as it is otherwise.
+			return p.conn.MkdirAll(pathname, mode.Perm())
+		}
+		return p.mkdir(pathname, mode.Perm(), created)
 	case mode&os.ModeSymlink != 0:
 		return p.symlink(record, pathname)
 	case mode.IsRegular():
@@ -133,23 +173,70 @@ func (p *Exporter) exportOne(record *connectors.Record) error {
 	}
 }
 
-func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
-	if err := p.conn.MkdirAll(path.Dir(pathname), 0o755); err != nil {
+// parents makes sure every directory between the restore root and pathname
+// was created by this restore, creating the missing ones. The root itself is
+// trusted as given.
+func (p *Exporter) parents(pathname string, created map[string]struct{}) error {
+	root := path.Clean(p.rootDir)
+	if pathname == root {
+		return nil
+	}
+
+	var missing []string
+	for dir := path.Dir(pathname); dir != root && dir != "/"; dir = path.Dir(dir) {
+		if _, ok := created[dir]; ok {
+			break
+		}
+		missing = append(missing, dir)
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		if err := p.mkdir(missing[i], autoDirPerm, created); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mkdir creates the directory at pathname and records it as ours. Anything
+// already there is refused unless this restore created it: it may be a
+// symlink the server would resolve outside the root.
+func (p *Exporter) mkdir(pathname string, perm os.FileMode, created map[string]struct{}) error {
+	if _, ok := created[pathname]; ok {
+		return nil
+	}
+	if err := p.fresh(pathname); err != nil {
 		return err
 	}
+	if err := p.conn.Mkdir(pathname, perm); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return existsErr(pathname)
+		}
+		return fmt.Errorf("mkdir %q: %w", pathname, err)
+	}
+	created[pathname] = struct{}{}
+	return nil
+}
+
+func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	if err := p.conn.Symlink(record.Target, pathname); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return existsErr(pathname)
+		}
 		return fmt.Errorf("symlink %q: %w", pathname, err)
 	}
 	return nil
 }
 
 func (p *Exporter) writeFile(record *connectors.Record, pathname string) error {
-	if err := p.conn.MkdirAll(path.Dir(pathname), 0o755); err != nil {
+	if err := p.fresh(pathname); err != nil {
 		return err
 	}
 
 	f, err := p.conn.Create(pathname)
 	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return existsErr(pathname)
+		}
 		return fmt.Errorf("create %q: %w", pathname, err)
 	}
 
@@ -165,6 +252,48 @@ func (p *Exporter) writeFile(record *connectors.Record, pathname string) error {
 	// Best-effort: preserve modification time. SMB has no Unix mode/ownership,
 	// so permission bits are not restored.
 	_ = p.conn.Chtimes(pathname, record.FileInfo.ModTime())
+	return nil
+}
+
+// fresh refuses pathname when something already sits there. Only the direct
+// children of the restore root can: everything deeper lives in a directory
+// this restore created. The exclusive create that follows would fail on an
+// existing entry too, but a server that follows symlinks on create would
+// first create the target of a dangling one; Lstat sees the link where the
+// server reports reparse points, and the exclusive create catches it where
+// it does not.
+func (p *Exporter) fresh(pathname string) error {
+	if path.Dir(pathname) != path.Clean(p.rootDir) {
+		return nil
+	}
+	_, err := p.conn.Lstat(pathname)
+	switch {
+	case err == nil:
+		return existsErr(pathname)
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	default:
+		return fmt.Errorf("lstat %q: %w", pathname, err)
+	}
+}
+
+func existsErr(pathname string) error {
+	return fmt.Errorf("refusing to restore over %q: it exists and was not created by this restore (it may be a symlink); restore into an empty directory", pathname)
+}
+
+// safeTarget refuses a symlink target that lexically points outside the
+// restore root. The check does not follow other symlinks along the target, so
+// a chain of links within the root can still end up outside it; the restore
+// never writes through such a link, it only leaves it behind. An absolute
+// target is refused outright: go-smb2 hands it to the server as a
+// volume-absolute NT path, which is not the Unix path the snapshot recorded.
+func (p *Exporter) safeTarget(target, linkpath string) error {
+	if path.IsAbs(target) || (len(target) >= 2 && target[1] == ':') {
+		return fmt.Errorf("refusing absolute symlink target %q for %q", target, linkpath)
+	}
+	if !p.safe(path.Join(path.Dir(linkpath), target)) {
+		return fmt.Errorf("refusing symlink target %q escaping the restore root for %q", target, linkpath)
+	}
 	return nil
 }
 
