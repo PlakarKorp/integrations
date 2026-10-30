@@ -511,11 +511,9 @@ func TestExport_ErrorIsolation(t *testing.T) {
 	assert.Len(t, got, 1, "expected exactly one result for the record that causes an isolated error")
 	assert.Equal(t, "/nonexistentdir/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the record that causes an isolated error")
 	assert.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
-	// The error should indicate that the parent directory does not exist.
-	// Note: this goes through the SFTP protocol (writeAtomic's temp-file
-	// creation), so the message is pkg/sftp's own wording for
-	// SSH_FX_NO_SUCH_FILE, not the raw OS errno string.
-	assert.Contains(t, got[0].Err.Error(), "file does not exist", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
+	// The parent was never created by this restore, so the exporter
+	// refuses the record before anything reaches the server.
+	assert.Contains(t, got[0].Err.Error(), "/repo/nonexistentdir", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
 }
 
 func TestExport_XattrRecordsSkipped(t *testing.T) {
@@ -942,4 +940,145 @@ func TestExport_FileNeverExposesBroaderMode(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Empty(t, exposed)
+}
+
+func exportRecords(t *testing.T, ts *testServer, root string, recs ...*connectors.Record) []*connectors.Result {
+	t.Helper()
+	s := ts.newTestExportSftp(t, root)
+	records := make(chan *connectors.Record, len(recs))
+	results, wait := runExporter(t, s, records)
+	for _, r := range recs {
+		records <- r
+	}
+	close(records)
+	got := drainResults(results)
+	require.NoError(t, wait())
+	return got
+}
+
+// resultsByPath indexes results by pathname, since file and symlink results
+// are produced concurrently and arrive in no particular order.
+func resultsByPath(t *testing.T, got []*connectors.Result, n int) map[string]error {
+	t.Helper()
+	require.Len(t, got, n)
+	m := make(map[string]error, n)
+	for _, r := range got {
+		m[r.Record.Pathname] = r.Err
+	}
+	return m
+}
+
+func dirRecord(p string, mode os.FileMode) *connectors.Record {
+	return connectors.NewRecord(p, "", objects.FileInfo{Lmode: os.ModeDir | mode}, nil, nil)
+}
+
+func linkRecord(p, target string) *connectors.Record {
+	return connectors.NewRecord(p, target, objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+}
+
+func fileRecord(p string) *connectors.Record {
+	return connectors.NewRecord(p, "", objects.FileInfo{Lmode: 0644, Lsize: 1}, nil,
+		func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("x")), nil })
+}
+
+// TestExport_RefusesWriteBelowPreexistingSymlink covers the restore escape
+// of PlakarKorp/security#51: root/logs already is a symlink to a directory
+// outside the restore root, and the snapshot holds logs/authorized_keys.
+// The server would follow the symlink, so the records must be refused.
+func TestExport_RefusesWriteBelowPreexistingSymlink(t *testing.T) {
+	const root = "/r1/r2/repo"
+
+	tests := []struct {
+		name    string
+		records []*connectors.Record
+	}{
+		{
+			name:    "file",
+			records: []*connectors.Record{fileRecord("/logs/authorized_keys")},
+		},
+		{
+			name:    "file below the directory record",
+			records: []*connectors.Record{dirRecord("/logs", 0755), fileRecord("/logs/authorized_keys")},
+		},
+		{
+			name:    "directory with a mode to apply",
+			records: []*connectors.Record{dirRecord("/logs", 0755), dirRecord("/logs/sub", 0000)},
+		},
+		{
+			name:    "symlink",
+			records: []*connectors.Record{dirRecord("/logs", 0755), linkRecord("/logs/authorized_keys", "../../../etc/passwd")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+			require.NoError(t, os.MkdirAll(ts.realPath("/outside"), 0755))
+			require.NoError(t, os.Symlink(ts.realPath("/outside"), ts.realPath(root+"/logs")))
+
+			got := exportRecords(t, ts, root, tt.records...)
+			require.Len(t, got, len(tt.records))
+			for _, r := range got {
+				assert.Error(t, r.Err, r.Record.Pathname)
+			}
+
+			entries, err := os.ReadDir(ts.realPath("/outside"))
+			require.NoError(t, err)
+			assert.Empty(t, entries, "something was written through the symlink")
+			fi, err := os.Stat(ts.realPath("/outside"))
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0755), fi.Mode().Perm(), "mode was applied through the symlink")
+		})
+	}
+}
+
+// TestExport_RefusesWriteBelowRestoredSymlink covers a symlink created by
+// the restore itself: its target stays inside the root, but a later record
+// below it would be resolved through it by the server. Symlinks are created
+// concurrently, so the refusal must not depend on whether the link exists
+// yet.
+func TestExport_RefusesWriteBelowRestoredSymlink(t *testing.T) {
+	const root = "/r1/r2/repo"
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+	require.NoError(t, os.MkdirAll(ts.realPath("/outside"), 0755))
+	require.NoError(t, os.Symlink(ts.realPath("/outside"), ts.realPath(root+"/x")))
+
+	errs := resultsByPath(t, exportRecords(t, ts, root,
+		dirRecord("/a", 0755), linkRecord("/a/b", ".."), linkRecord("/a/b/x", "../y"), fileRecord("/a/b/x/f")), 4)
+	assert.NoError(t, errs["/a"])
+	assert.NoError(t, errs["/a/b"])
+	assert.Error(t, errs["/a/b/x"])
+	assert.Error(t, errs["/a/b/x/f"])
+
+	entries, err := os.ReadDir(ts.realPath("/outside"))
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+	_, err = os.Lstat(ts.realPath(root + "/y"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestExport_NestedRestore is the control: a plain nested restore must
+// still work, and so must restoring again into the tree it produced.
+func TestExport_NestedRestore(t *testing.T) {
+	const root = "/r1/r2/repo"
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+
+	got := exportRecords(t, ts, root,
+		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/f"), linkRecord("/a/b/l", "f"))
+	for _, r := range got {
+		assert.NoError(t, r.Err, r.Record.Pathname)
+	}
+	_, err := os.Stat(ts.realPath(root + "/a/b/f"))
+	assert.NoError(t, err)
+
+	errs := resultsByPath(t, exportRecords(t, ts, root,
+		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/g")), 3)
+	assert.Error(t, errs["/a"], "mkdir of an existing directory fails as before")
+	assert.Error(t, errs["/a/b"], "mkdir of an existing directory fails as before")
+	assert.NoError(t, errs["/a/b/g"], "a file below an existing real directory is written")
+	_, err = os.Stat(ts.realPath(root + "/a/b/g"))
+	assert.NoError(t, err)
 }
