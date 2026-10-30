@@ -24,17 +24,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 type StdioImporter struct {
 	stdin   io.Reader
 	fileDir string
 	ctx     context.Context
-	opts    *connectors.Options
+	opts    *integration.Options
 	name    string
 }
 
@@ -42,7 +41,7 @@ func init() {
 	importer.Register("stdin", 0, NewStdioImporter)
 }
 
-func NewStdioImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewStdioImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := config["location"]
 	location = strings.TrimPrefix(location, "stdin://")
 	if !strings.HasPrefix(location, "/") {
@@ -59,7 +58,7 @@ func NewStdioImporter(ctx context.Context, opts *connectors.Options, name string
 	}, nil
 }
 
-func (p *StdioImporter) stdioWalker_addPrefixDirectories(results chan<- *connectors.Record) {
+func (p *StdioImporter) stdioWalker_addPrefixDirectories(results chan<- *integration.Record) {
 	directory := path.Clean(p.fileDir)
 	atoms := strings.Split(directory, string(os.PathSeparator))
 
@@ -70,7 +69,7 @@ func (p *StdioImporter) stdioWalker_addPrefixDirectories(results chan<- *connect
 			subpath = "/" + subpath
 		}
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:      path.Base(subpath),
 			Lmode:      0755 | os.ModeDir,
 			Lsize:      0,
@@ -83,14 +82,14 @@ func (p *StdioImporter) stdioWalker_addPrefixDirectories(results chan<- *connect
 			Lusername:  "",
 			Lgroupname: "",
 		}
-		results <- connectors.NewRecord(subpath, "", fi, nil, nil)
+		results <- integration.NewRecord(subpath, "", fi, nil, nil)
 	}
 }
 
-func (p *StdioImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *StdioImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 	p.stdioWalker_addPrefixDirectories(records)
-	fi := objects.FileInfo{
+	fi := integration.FileInfo{
 		Lname:      path.Base(p.fileDir),
 		Lmode:      0644,
 		Lsize:      -1,
@@ -103,7 +102,7 @@ func (p *StdioImporter) Import(ctx context.Context, records chan<- *connectors.R
 		Lusername:  "",
 		Lgroupname: "",
 	}
-	records <- connectors.NewRecord(p.fileDir, "", fi, nil,
+	records <- integration.NewRecord(p.fileDir, "", fi, nil,
 		func() (io.ReadCloser, error) { return io.NopCloser(p.stdin), nil })
 
 	return nil

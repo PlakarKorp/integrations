@@ -22,16 +22,16 @@ import (
 	"io"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 type StdioExporter struct {
 	filePath string
 	appCtx   context.Context
 	w        io.Writer
-	opts     *connectors.Options
+	opts     *integration.Options
 }
 
 func init() {
@@ -39,7 +39,7 @@ func init() {
 	exporter.Register("stderr", 0, NewStdioExporter)
 }
 
-func NewStdioExporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewStdioExporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	var w io.Writer
 
 	switch name {
@@ -64,7 +64,7 @@ func (p *StdioExporter) Type() string          { return "stdio" }
 func (p *StdioExporter) Root() string          { return "/" }
 func (p *StdioExporter) Flags() location.Flags { return 0 }
 
-func (p *StdioExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (p *StdioExporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	for record := range records {
 		if record.Err != nil || !record.FileInfo.Mode().IsRegular() {
 			results <- record.Ok()
