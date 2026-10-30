@@ -58,7 +58,6 @@ func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, re
 	g.SetLimit(s.maxConcurrency)
 
 	dirPerms := make([]dirPerm, 0, 1024)
-	dirOK := map[string]bool{} // paths verified to be real directories
 
 loop:
 	for {
@@ -87,25 +86,9 @@ loop:
 				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
 				continue
 			}
-			if parent := path.Dir(pathname); record.Pathname != "/" && parent != path.Clean(s.Root()) {
-				// A missing parent fails naturally on write; an existing one
-				// we did not verify may be a symlink.
-				if !dirOK[parent] {
-					if _, err := s.client.Lstat(parent); err == nil {
-						results <- record.Error(fmt.Errorf("refusing to restore %q: %q already exists and is not a directory created by this restore (possibly a symlink); remove it or restore into an empty directory", record.Pathname, parent))
-						continue
-					}
-				}
-			}
 			if record.FileInfo.Lmode.IsDir() {
 				err := s.directory(record, pathname)
 				results <- record.Error(err)
-
-				// The server follows symlinks, so only directories that
-				// are really directories may be written below.
-				if fi, serr := s.client.Lstat(pathname); err == nil || serr == nil && fi.IsDir() {
-					dirOK[pathname] = true
-				}
 
 				if err == nil && restoreMode(record.FileInfo)&0700 != 0700 {
 					dirPerms = append(dirPerms, dirPerm{
