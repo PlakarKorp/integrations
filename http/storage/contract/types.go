@@ -1,7 +1,7 @@
 package contract
 
 import (
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/google/uuid"
 )
 
@@ -34,12 +34,12 @@ type ReqGetStates struct {
 }
 
 type ResGetStates struct {
-	MACs []objects.MAC
+	MACs []integration.MAC
 	Err  string
 }
 
 type ReqPutState struct {
-	MAC  objects.MAC
+	MAC  integration.MAC
 	Data []byte
 }
 
@@ -48,7 +48,7 @@ type ResPutState struct {
 }
 
 type ReqGetState struct {
-	MAC objects.MAC
+	MAC integration.MAC
 }
 
 type ResGetState struct {
@@ -57,7 +57,7 @@ type ResGetState struct {
 }
 
 type ReqDeleteState struct {
-	MAC objects.MAC
+	MAC integration.MAC
 }
 type ResDeleteState struct {
 	Err string
@@ -68,12 +68,12 @@ type ReqGetPackfiles struct {
 }
 
 type ResGetPackfiles struct {
-	MACs []objects.MAC
+	MACs []integration.MAC
 	Err  string
 }
 
 type ReqPutPackfile struct {
-	MAC  objects.MAC
+	MAC  integration.MAC
 	Data []byte
 }
 
@@ -82,7 +82,7 @@ type ResPutPackfile struct {
 }
 
 type ReqGetPackfile struct {
-	MAC objects.MAC
+	MAC integration.MAC
 }
 
 type ResGetPackfile struct {
@@ -91,7 +91,7 @@ type ResGetPackfile struct {
 }
 
 type ReqGetPackfileBlob struct {
-	MAC    objects.MAC
+	MAC    integration.MAC
 	Offset uint64
 	Length uint32
 }
@@ -102,7 +102,7 @@ type ResGetPackfileBlob struct {
 }
 
 type ReqDeletePackfile struct {
-	MAC objects.MAC
+	MAC integration.MAC
 }
 type ResDeletePackfile struct {
 	Err string
@@ -111,12 +111,12 @@ type ResDeletePackfile struct {
 // Locks
 type ReqGetLocks struct{}
 type ResGetLocks struct {
-	Locks []objects.MAC
+	Locks []integration.MAC
 	Err   string
 }
 
 type ReqPutLock struct {
-	Mac  objects.MAC
+	Mac  integration.MAC
 	Data []byte
 }
 type ResPutLock struct {
@@ -124,7 +124,7 @@ type ResPutLock struct {
 }
 
 type ReqGetLock struct {
-	Mac objects.MAC
+	Mac integration.MAC
 }
 type ResGetLock struct {
 	Data []byte
@@ -132,7 +132,7 @@ type ResGetLock struct {
 }
 
 type ReqDeleteLock struct {
-	Mac objects.MAC
+	Mac integration.MAC
 }
 type ResDeleteLock struct {
 	Err string
