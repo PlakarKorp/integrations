@@ -27,9 +27,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 )
 
@@ -49,13 +49,13 @@ type TarImporter struct {
 	rd  *gzip.Reader
 	tar *tar.Reader
 
-	opts *connectors.Options
+	opts *integration.Options
 
 	location string
 	name     string
 }
 
-func NewTarImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewTarImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := strings.TrimPrefix(config["location"], name+"://")
 
 	fp, err := os.Open(location)
@@ -85,7 +85,7 @@ func (t *TarImporter) Root() string          { return "/" }
 func (t *TarImporter) Origin() string        { return t.opts.Hostname }
 func (t *TarImporter) Flags() location.Flags { return flags }
 
-func (t *TarImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 
 	for {
@@ -98,7 +98,7 @@ func (t *TarImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 		}
 
 		name := path.Join("/", hdr.Name)
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: name,
 			Target:   linkTarget(hdr),
 			FileInfo: finfo(hdr),
