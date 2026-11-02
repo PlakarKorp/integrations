@@ -11,13 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 type testConnector struct{}
@@ -29,22 +24,18 @@ type testStore struct {
 	locks     sync.Map
 }
 
-func init() {
-	// Register only fails on a duplicate name, which is a bug in the plugin.
-	_ = importer.Register("example", location.FLAG_LOCALFS, NewImporter)
-	_ = exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
-	_ = storage.Register("example", location.FLAG_LOCALFS, NewStore)
-}
+// ErrNotFound is returned by Get for a missing object.
+var ErrNotFound = errors.New("not found")
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	return &testConnector{}, nil
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	return &testConnector{}, nil
 }
 
-func NewStore(ctx context.Context, proto string, config map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, config map[string]string) (integration.Store, error) {
 	return &testStore{}, nil
 }
 
@@ -57,7 +48,7 @@ func (f *testConnector) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (f *testConnector) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 
 	for i := range 5 {
@@ -67,14 +58,14 @@ func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.R
 			content  = fmt.Sprintf("content of the file %d\n", i)
 		)
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:    base,
 			Lsize:    int64(len(content)),
 			Lmode:    0x644,
 			LmodTime: time.Now(),
 		}
 
-		records <- connectors.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
+		records <- integration.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(content)), nil
 		})
 	}
@@ -82,7 +73,7 @@ func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.R
 	return nil
 }
 
-func (f *testConnector) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (f *testConnector) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {
@@ -117,8 +108,8 @@ func (s *testStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (s *testStore) Mode(context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *testStore) Mode(context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *testStore) Create(ctx context.Context, config []byte) error {
@@ -141,33 +132,33 @@ func (s *testStore) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *testStore) mapFor(res storage.StorageResource) (*sync.Map, error) {
+func (s *testStore) mapFor(res integration.StorageResource) (*sync.Map, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return &s.packfiles, nil
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return &s.states, nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return &s.locks, nil
 	default:
 		return nil, errors.ErrUnsupported
 	}
 }
 
-func (s *testStore) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+func (s *testStore) List(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return nil, err
 	}
-	var macs []objects.MAC
+	var macs []integration.MAC
 	m.Range(func(key, _ any) bool {
-		macs = append(macs, key.(objects.MAC))
+		macs = append(macs, key.(integration.MAC))
 		return true
 	})
 	return macs, nil
 }
 
-func (s *testStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *testStore) Put(ctx context.Context, res integration.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return -1, err
@@ -180,17 +171,14 @@ func (s *testStore) Put(ctx context.Context, res storage.StorageResource, mac ob
 	return int64(len(data)), nil
 }
 
-func (s *testStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *testStore) Get(ctx context.Context, res integration.StorageResource, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return nil, err
 	}
 	v, ok := m.Load(mac)
 	if !ok {
-		if res == storage.StorageResourcePackfile {
-			return nil, repository.ErrPackfileNotFound
-		}
-		return nil, errors.New("not found")
+		return nil, ErrNotFound
 	}
 	data := v.([]byte)
 	if rg != nil {
@@ -200,7 +188,7 @@ func (s *testStore) Get(ctx context.Context, res storage.StorageResource, mac ob
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
-func (s *testStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *testStore) Delete(ctx context.Context, res integration.StorageResource, mac integration.MAC) error {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return err
