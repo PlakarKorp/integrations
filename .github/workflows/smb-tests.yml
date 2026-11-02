@@ -1,0 +1,22 @@
+name: smb tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/smb
+    paths:
+      - .github/workflows/smb-tests.yml
+      - 'smb/**'
+  pull_request:
+    paths:
+      - .github/workflows/smb-tests.yml
+      - 'smb/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
+    with:
+      dir: smb
+      qa-version-file: smb/.qa-version
