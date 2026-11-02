@@ -1,0 +1,22 @@
+name: oci tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/oci
+    paths:
+      - .github/workflows/oci-tests.yml
+      - 'oci/**'
+  pull_request:
+    paths:
+      - .github/workflows/oci-tests.yml
+      - 'oci/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
+    with:
+      dir: oci
+      qa-version-file: oci/.qa-version
