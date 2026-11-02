@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -242,9 +243,17 @@ func (c *Conn) MkdirAll(p string, perm os.FileMode) error {
 	return c.Share.MkdirAll(SharePath(p), perm)
 }
 
-// Create truncates/creates the file at p for writing.
-func (c *Conn) Create(p string) (*smb2.File, error) {
-	return c.Share.Create(SharePath(p))
+// Mkdir creates the directory at p. It fails if p already exists, whatever
+// it is: the create is exclusive on the server.
+func (c *Conn) Mkdir(p string, perm os.FileMode) error {
+	return c.Share.Mkdir(SharePath(p), perm)
+}
+
+// Create creates the file at p for writing. It fails if p already exists,
+// whatever it is: the create is exclusive on the server, so an existing file
+// is never truncated.
+func (c *Conn) Create(p string) (io.WriteCloser, error) {
+	return c.Share.OpenFile(SharePath(p), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 }
 
 // Symlink creates a symlink at linkpath pointing at target.
