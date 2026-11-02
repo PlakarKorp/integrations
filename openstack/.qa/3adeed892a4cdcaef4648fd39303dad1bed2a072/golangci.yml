@@ -1,0 +1,50 @@
+# golangci-lint configuration shared by every plakar integration. The
+# integration workflow lints with it; locally:
+#
+#   golangci-lint run --config <QA checkout>/integrations/golangci.yml ./...
+version: "2"
+
+run:
+  # The default is relative to this file, which lives outside the integration.
+  relative-path-mode: gomod
+
+linters:
+  default: none
+  enable:
+    - testifylint
+    - govet
+    - bodyclose
+    - rowserrcheck
+    - copyloopvar
+    - mirror
+    - canonicalheader
+    - asasalint
+    - fatcontext
+    - iface
+    - nolintlint
+    - usestdlibvars
+    - sqlclosecheck
+    - durationcheck
+    - errname
+    - recvcheck
+    - ineffassign
+    - makezero
+    - predeclared
+    - misspell
+    - unused
+    - nilerr
+    - exhaustive
+    - nilnil
+    - errorlint
+    - staticcheck
+    - perfsprint
+    - errcheck
+  settings:
+    exhaustive:
+      # A switch with a default case has made its "everything else" choice
+      # explicit.
+      default-signifies-exhaustive: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

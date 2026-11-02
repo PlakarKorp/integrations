@@ -43,17 +43,19 @@ The example connectors has no options, so their schemas only accept a
 
 ```sh
 make build      # example-importer, example-exporter, example-storage
-make create     # example_v1.0.0_<os>_<arch>.ptar
+make create     # example_v1.1.0_<os>_<arch>.ptar (alias: package)
 make install    # plakar pkg add -allow-unsigned
+make reinstall  # plakar pkg rm, then install
 ```
 
 Set `VERSION` to package another version, for example
-`make create install VERSION=v1.2.3`.
+`make create install VERSION=v1.2.3`. `GO`, `PLAKAR` and `EXT` (binary
+suffix, e.g. `.exe`) override the tools and output names.
 
 ## Checks
 
 ```sh
-make test       # go vet and go test -race
+make test       # go vet and go test -race (alias: check)
 make lint       # golangci-lint with the shared QA rules
 make validate   # run the plakar package validator on the integration
 ```
