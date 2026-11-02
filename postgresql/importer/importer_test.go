@@ -6,10 +6,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/postgresql/pgconn"
 	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/kloset/location"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// A dump is new data on every run: the VFS cache must never serve it.
+func TestImporterDisablesVFSCache(t *testing.T) {
+	p, err := NewImporterFromConfigMap(pgconn.ConnConfig{}, "", "", map[string]string{})
+	require.NoError(t, err)
+	assert.NotZero(t, p.Flags()&location.FLAG_NOCACHE)
+}
 
 // A single-database backup must not need CONNECT on "postgres".
 func TestListDatabasesSingleDatabaseSkipsClusterEnumeration(t *testing.T) {

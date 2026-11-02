@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgres", location.FLAG_STREAM, NewImporter)
+	importer.Register("postgres", location.FLAG_STREAM|location.FLAG_NOCACHE, NewImporter)
 }
 
 type Importer struct {
@@ -387,6 +387,9 @@ func (p *Importer) Type() string   { return p.connType }
 // pass. Without it, the framework calls Import twice — once to enumerate
 // records and once to read their contents — which would cause the manifest
 // and the dump to be emitted twice.
+//
+// FLAG_NOCACHE: a dump is new data on every run, so the VFS cache can only
+// cost time or reuse a stale file.
 func (p *Importer) Flags() location.Flags {
-	return location.FLAG_STREAM
+	return location.FLAG_STREAM | location.FLAG_NOCACHE
 }

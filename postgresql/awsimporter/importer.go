@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
+	importer.Register("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
 }
 
 func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
