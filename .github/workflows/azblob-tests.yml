@@ -1,0 +1,22 @@
+name: azblob tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/azblob
+    paths:
+      - .github/workflows/azblob-tests.yml
+      - 'azblob/**'
+  pull_request:
+    paths:
+      - .github/workflows/azblob-tests.yml
+      - 'azblob/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
+    with:
+      dir: azblob
+      qa-version-file: azblob/.qa-version
