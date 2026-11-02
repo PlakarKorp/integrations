@@ -1,0 +1,22 @@
+name: example tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/example
+    paths:
+      - .github/workflows/example-tests.yml
+      - 'example/**'
+  pull_request:
+    paths:
+      - .github/workflows/example-tests.yml
+      - 'example/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
+    with:
+      dir: example
+      qa-version-file: example/.qa-version

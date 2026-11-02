@@ -20,8 +20,9 @@ import (
 	"github.com/PlakarKorp/kloset/repository"
 )
 
-type Example struct {
-	// used in the storage
+type testConnector struct{}
+
+type testStore struct {
 	config    []byte
 	packfiles sync.Map
 	states    sync.Map
@@ -29,39 +30,40 @@ type Example struct {
 }
 
 func init() {
-	importer.Register("example", location.FLAG_LOCALFS, NewImporter)
-	exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
-	storage.Register("example", location.FLAG_LOCALFS, NewStore)
+	// Register only fails on a duplicate name, which is a bug in the plugin.
+	_ = importer.Register("example", location.FLAG_LOCALFS, NewImporter)
+	_ = exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
+	_ = storage.Register("example", location.FLAG_LOCALFS, NewStore)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
-	return &Example{}, nil
+	return &testConnector{}, nil
 }
 
 func NewExporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
-	return &Example{}, nil
+	return &testConnector{}, nil
 }
 
 func NewStore(ctx context.Context, proto string, config map[string]string) (storage.Store, error) {
-	return &Example{}, nil
+	return &testStore{}, nil
 }
 
-func (e *Example) Root() string          { return "/" }
-func (e *Example) Origin() string        { return "localhost" }
-func (e *Example) Type() string          { return "example" }
-func (e *Example) Flags() location.Flags { return 0 }
+func (f *testConnector) Root() string          { return "/" }
+func (f *testConnector) Origin() string        { return "localhost" }
+func (f *testConnector) Type() string          { return "example" }
+func (f *testConnector) Flags() location.Flags { return location.FLAG_LOCALFS }
 
-func (e *Example) Ping(ctx context.Context) error {
+func (f *testConnector) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (e *Example) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
 	defer close(records)
 
 	for i := range 5 {
 		var (
 			base     = fmt.Sprintf("file-%d", i)
-			fullpath = fmt.Sprintf("/path/to/%s", base)
+			fullpath = "/path/to/" + base
 			content  = fmt.Sprintf("content of the file %d\n", i)
 		)
 
@@ -80,7 +82,7 @@ func (e *Example) Import(ctx context.Context, records chan<- *connectors.Record,
 	return nil
 }
 
-func (e *Example) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (f *testConnector) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
 	for record := range records {
@@ -100,23 +102,38 @@ func (e *Example) Export(ctx context.Context, records <-chan *connectors.Record,
 	return nil
 }
 
-func (e *Example) Mode(context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
-}
-
-func (e *Example) Create(ctx context.Context, config []byte) error {
-	e.config = config
+func (f *testConnector) Close(ctx context.Context) error {
 	return nil
 }
 
-func (e *Example) Open(ctx context.Context) ([]byte, error) {
-	if e.config == nil {
-		return nil, fmt.Errorf("store not created")
-	}
-	return e.config, nil
+// Storage connector methods
+
+func (s *testStore) Origin() string        { return "localhost" }
+func (s *testStore) Root() string          { return "/" }
+func (s *testStore) Type() string          { return "example" }
+func (s *testStore) Flags() location.Flags { return location.FLAG_LOCALFS }
+
+func (s *testStore) Ping(ctx context.Context) error {
+	return nil
 }
 
-func (e *Example) Size(ctx context.Context) (int64, error) {
+func (s *testStore) Mode(context.Context) (storage.Mode, error) {
+	return storage.ModeRead | storage.ModeWrite, nil
+}
+
+func (s *testStore) Create(ctx context.Context, config []byte) error {
+	s.config = config
+	return nil
+}
+
+func (s *testStore) Open(ctx context.Context) ([]byte, error) {
+	if s.config == nil {
+		return nil, errors.New("store not created")
+	}
+	return s.config, nil
+}
+
+func (s *testStore) Size(ctx context.Context) (int64, error) {
 	// leave to plakar the job of figuring the actual size using
 	// the states.  it's usually implemented only if there is an
 	// easy way of getting the space used by the store, and only
@@ -124,20 +141,21 @@ func (e *Example) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (e *Example) mapFor(res storage.StorageResource) (*sync.Map, error) {
+func (s *testStore) mapFor(res storage.StorageResource) (*sync.Map, error) {
 	switch res {
 	case storage.StorageResourcePackfile:
-		return &e.packfiles, nil
+		return &s.packfiles, nil
 	case storage.StorageResourceState:
-		return &e.states, nil
+		return &s.states, nil
 	case storage.StorageResourceLock:
-		return &e.locks, nil
+		return &s.locks, nil
+	default:
+		return nil, errors.ErrUnsupported
 	}
-	return nil, errors.ErrUnsupported
 }
 
-func (e *Example) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	m, err := e.mapFor(res)
+func (s *testStore) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
+	m, err := s.mapFor(res)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +167,8 @@ func (e *Example) List(ctx context.Context, res storage.StorageResource) ([]obje
 	return macs, nil
 }
 
-func (e *Example) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
-	m, err := e.mapFor(res)
+func (s *testStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+	m, err := s.mapFor(res)
 	if err != nil {
 		return -1, err
 	}
@@ -162,8 +180,8 @@ func (e *Example) Put(ctx context.Context, res storage.StorageResource, mac obje
 	return int64(len(data)), nil
 }
 
-func (e *Example) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
-	m, err := e.mapFor(res)
+func (s *testStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+	m, err := s.mapFor(res)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +190,7 @@ func (e *Example) Get(ctx context.Context, res storage.StorageResource, mac obje
 		if res == storage.StorageResourcePackfile {
 			return nil, repository.ErrPackfileNotFound
 		}
-		return nil, fmt.Errorf("not found")
+		return nil, errors.New("not found")
 	}
 	data := v.([]byte)
 	if rg != nil {
@@ -182,8 +200,8 @@ func (e *Example) Get(ctx context.Context, res storage.StorageResource, mac obje
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
-func (e *Example) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
-	m, err := e.mapFor(res)
+func (s *testStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+	m, err := s.mapFor(res)
 	if err != nil {
 		return err
 	}
@@ -191,6 +209,6 @@ func (e *Example) Delete(ctx context.Context, res storage.StorageResource, mac o
 	return nil
 }
 
-func (e *Example) Close(ctx context.Context) error {
+func (s *testStore) Close(ctx context.Context) error {
 	return nil
 }
