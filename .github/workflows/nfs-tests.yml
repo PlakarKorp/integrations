@@ -1,0 +1,22 @@
+name: nfs tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/nfs
+    paths:
+      - .github/workflows/nfs-tests.yml
+      - 'nfs/**'
+  pull_request:
+    paths:
+      - .github/workflows/nfs-tests.yml
+      - 'nfs/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
+    with:
+      dir: nfs
+      qa-version-file: nfs/.qa-version
