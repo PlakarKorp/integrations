@@ -3,3 +3,4 @@ rsyncImporter.exe
 *.ptar
 rsyncExporter
 rsyncExporter.exe
+/.qa
