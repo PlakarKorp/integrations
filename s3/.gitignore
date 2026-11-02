@@ -3,3 +3,4 @@
 /s3Storage
 /s3_*.ptar
 /vendor
+/.qa
