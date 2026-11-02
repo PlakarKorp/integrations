@@ -6,3 +6,4 @@
 /postgresql_*.ptar
 *.local.json
 /vendor
+/.qa
