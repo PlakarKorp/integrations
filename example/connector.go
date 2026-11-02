@@ -30,9 +30,10 @@ type testStore struct {
 }
 
 func init() {
-	importer.Register("example", location.FLAG_LOCALFS, NewImporter)
-	exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
-	storage.Register("example", location.FLAG_LOCALFS, NewStore)
+	// Register only fails on a duplicate name, which is a bug in the plugin.
+	_ = importer.Register("example", location.FLAG_LOCALFS, NewImporter)
+	_ = exporter.Register("example", location.FLAG_LOCALFS, NewExporter)
+	_ = storage.Register("example", location.FLAG_LOCALFS, NewStore)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
@@ -62,7 +63,7 @@ func (f *testConnector) Import(ctx context.Context, records chan<- *connectors.R
 	for i := range 5 {
 		var (
 			base     = fmt.Sprintf("file-%d", i)
-			fullpath = fmt.Sprintf("/path/to/%s", base)
+			fullpath = "/path/to/" + base
 			content  = fmt.Sprintf("content of the file %d\n", i)
 		)
 
@@ -127,7 +128,7 @@ func (s *testStore) Create(ctx context.Context, config []byte) error {
 
 func (s *testStore) Open(ctx context.Context) ([]byte, error) {
 	if s.config == nil {
-		return nil, fmt.Errorf("store not created")
+		return nil, errors.New("store not created")
 	}
 	return s.config, nil
 }
@@ -148,8 +149,9 @@ func (s *testStore) mapFor(res storage.StorageResource) (*sync.Map, error) {
 		return &s.states, nil
 	case storage.StorageResourceLock:
 		return &s.locks, nil
+	default:
+		return nil, errors.ErrUnsupported
 	}
-	return nil, errors.ErrUnsupported
 }
 
 func (s *testStore) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
@@ -188,7 +190,7 @@ func (s *testStore) Get(ctx context.Context, res storage.StorageResource, mac ob
 		if res == storage.StorageResourcePackfile {
 			return nil, repository.ErrPackfileNotFound
 		}
-		return nil, fmt.Errorf("not found")
+		return nil, errors.New("not found")
 	}
 	data := v.([]byte)
 	if rg != nil {
