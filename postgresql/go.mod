@@ -4,7 +4,7 @@ go 1.26.10
 
 require (
 	github.com/PlakarKorp/go-kloset-sdk v1.1.0
-	github.com/PlakarKorp/kloset v1.1.9
+	github.com/PlakarKorp/kloset v1.1.11
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.6.23
 	github.com/hanwen/go-fuse/v2 v2.12.1
