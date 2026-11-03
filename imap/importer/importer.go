@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	importer.Register("imap", 0, NewImporter)
+	_ = importer.Register("imap", 0, NewImporter)
 }
 
 type Importer struct {

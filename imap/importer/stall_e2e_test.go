@@ -49,7 +49,7 @@ func newStallProxyN(t *testing.T, backend string, stallAfter int64, stallConns i
 	require.NoError(t, err)
 	p := &stallProxy{backend: backend, stallAfter: stallAfter, ln: ln, stallConns: stallConns}
 	go p.serve()
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	return p
 }
 
@@ -66,19 +66,19 @@ func (p *stallProxy) serve() {
 }
 
 func (p *stallProxy) handle(client net.Conn) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	server, err := net.Dial("tcp", p.backend)
 	if err != nil {
 		return
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 	// client -> server, verbatim
 	go func() {
 		defer wg.Done()
-		io.Copy(server, client)
+		_, _ = io.Copy(server, client)
 	}()
 	// server -> client, until stallAfter bytes then (maybe) go silent. The
 	// stall budget is consumed only when a connection actually reaches the
@@ -96,11 +96,11 @@ func (p *stallProxy) handle(client net.Conn) {
 					decided = true
 					if p.stallConns < 0 || p.connSeq.Add(1) <= p.stallConns {
 						p.stalls.Add(1)
-						io.Copy(io.Discard, server) // stall: keep socket open, relay nothing
+						_, _ = io.Copy(io.Discard, server) // stall: keep socket open, relay nothing
 						return
 					}
 				}
-				client.Write(buf[:n])
+				_, _ = client.Write(buf[:n])
 				relayed += int64(n)
 			}
 			if err != nil {
@@ -129,7 +129,7 @@ func TestBackupStallDoesNotHangForever(t *testing.T) {
 		"io_timeout": "3s", // short so the stalled reads fail fast
 	})
 	require.NoError(t, err)
-	defer imp.Close(context.Background())
+	defer func() { _ = imp.Close(context.Background()) }()
 
 	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestBackupTransientStallRetries(t *testing.T) {
 		"io_timeout": "2s",
 	})
 	require.NoError(t, err)
-	defer imp.Close(context.Background())
+	defer func() { _ = imp.Close(context.Background()) }()
 
 	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestBackupTransientStallRetries(t *testing.T) {
 
 	snap, err := snapshot.Load(repo, builder.Header.Identifier)
 	require.NoError(t, err)
-	defer snap.Close()
+	defer func() { _ = snap.Close() }()
 
 	fs, err := snap.Filesystem()
 	require.NoError(t, err)

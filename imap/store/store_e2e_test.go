@@ -85,7 +85,7 @@ func newIMAPRepository(t *testing.T, cfg map[string]string) *repository.Reposito
 
 	tmpCacheDir, err := os.MkdirTemp("", "imap_store_cache")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpCacheDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(tmpCacheDir) })
 	ctx.SetCache(caching.NewManager(pebble.Constructor(tmpCacheDir)))
 	ctx.CacheDir = tmpCacheDir
 
@@ -134,7 +134,7 @@ func TestStoreBackupRestore(t *testing.T) {
 	}
 
 	snap := ptesting.GenerateSnapshot(t, repo, files)
-	defer snap.Close()
+	defer func() { _ = snap.Close() }()
 
 	fs, err := snap.Filesystem()
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestStoreBackupRestore(t *testing.T) {
 	require.NoError(t, err)
 	got, err := io.ReadAll(fp)
 	require.NoError(t, err)
-	fp.Close()
+	_ = fp.Close()
 	require.Equal(t, "hello world!\n", string(got))
 
 	// the large binary file, verifying multi-chunk reassembly through IMAP
@@ -152,8 +152,8 @@ func TestStoreBackupRestore(t *testing.T) {
 	require.NoError(t, err)
 	gotBig, err := io.ReadAll(fp)
 	require.NoError(t, err)
-	fp.Close()
-	require.Equal(t, len(big), len(gotBig))
+	_ = fp.Close()
+	require.Len(t, gotBig, len(big))
 	require.True(t, bytes.Equal(big, gotBig), "large file content mismatch after IMAP round-trip")
 
 	t.Logf("backed up and restored %d files through the IMAP store", len(files))
@@ -169,7 +169,7 @@ func TestStoreContract(t *testing.T) {
 	ctx := context.Background()
 	st, err := NewStore(ctx, "imap", cfg)
 	require.NoError(t, err)
-	defer st.Close(ctx)
+	defer func() { _ = st.Close(ctx) }()
 
 	// Create initializes the mailboxes + config.
 	cfgBlob := []byte("repository-configuration-blob")
@@ -204,14 +204,14 @@ func TestStoreContract(t *testing.T) {
 	rc, err := st.Get(ctx, storage.StorageResourcePackfile, macA, nil)
 	require.NoError(t, err)
 	gotA, _ := io.ReadAll(rc)
-	rc.Close()
+	_ = rc.Close()
 	require.True(t, bytes.Equal(blobA, gotA))
 
 	// Get (ranged) returns the requested slice.
 	rc, err = st.Get(ctx, storage.StorageResourcePackfile, macA, &storage.Range{Offset: 10, Length: 5})
 	require.NoError(t, err)
 	gotRange, _ := io.ReadAll(rc)
-	rc.Close()
+	_ = rc.Close()
 	require.Equal(t, blobA[10:15], gotRange)
 
 	// Delete removes a blob.

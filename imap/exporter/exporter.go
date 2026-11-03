@@ -21,7 +21,7 @@ import (
 const defaultPoolSize = 5
 
 func init() {
-	exporter.Register("imap", 0, NewExporter)
+	_ = exporter.Register("imap", 0, NewExporter)
 }
 
 type Exporter struct {
@@ -205,7 +205,7 @@ func (exp *Exporter) exportFile(ctx context.Context, record *connectors.Record) 
 	}
 	if common.IsTryCreate(err) {
 		if e := exp.ensureMailbox(ctx, mbox); e != nil {
-			return fmt.Errorf("append to %q returned TRYCREATE but ensuring mailbox failed: %w (orig: %v)", mbox, e, err)
+			return fmt.Errorf("append to %q returned TRYCREATE but ensuring mailbox failed: %w (orig: %w)", mbox, e, err)
 		}
 		return exp.appendMessage(ctx, mbox, msg, aopts)
 	}

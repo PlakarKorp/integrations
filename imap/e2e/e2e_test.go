@@ -243,7 +243,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewImporter: %v", err)
 	}
-	defer imp.Close(ctx)
+	defer func() { _ = imp.Close(ctx) }()
 
 	type captured struct {
 		rec  *connectors.Record
@@ -268,7 +268,7 @@ func TestRoundTrip(t *testing.T) {
 		var body []byte
 		if !rec.FileInfo.Lmode.IsDir() && rec.Reader != nil {
 			b, err := io.ReadAll(rec.Reader)
-			rec.Reader.Close()
+			_ = rec.Reader.Close()
 			if err != nil {
 				t.Fatalf("read import body %q: %v", rec.Pathname, err)
 			}
@@ -308,7 +308,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewExporter: %v", err)
 	}
-	defer exp.Close(ctx)
+	defer func() { _ = exp.Close(ctx) }()
 
 	expRecords := make(chan *connectors.Record, 64)
 	expResults := make(chan *connectors.Result, 64)

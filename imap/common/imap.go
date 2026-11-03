@@ -55,14 +55,14 @@ type idleConn struct {
 
 func (c *idleConn) Read(b []byte) (int, error) {
 	if c.timeout > 0 {
-		_ = c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+		_ = c.SetReadDeadline(time.Now().Add(c.timeout))
 	}
 	return c.Conn.Read(b)
 }
 
 func (c *idleConn) Write(b []byte) (int, error) {
 	if c.timeout > 0 {
-		_ = c.Conn.SetWriteDeadline(time.Now().Add(c.timeout))
+		_ = c.SetWriteDeadline(time.Now().Add(c.timeout))
 	}
 	return c.Conn.Write(b)
 }
@@ -124,7 +124,7 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	if ic.Username == "" {
 		v, ok := config["username"]
 		if !ok {
-			return fmt.Errorf("missing username")
+			return errors.New("missing username")
 		}
 		ic.Username = v
 	}
@@ -132,7 +132,7 @@ func (ic *ImapConnector) InitFromConfig(config map[string]string) error {
 	if ic.Password == "" {
 		v, ok := config["password"]
 		if !ok {
-			return fmt.Errorf("missing password")
+			return errors.New("missing password")
 		}
 		ic.Password = v
 	}
@@ -202,7 +202,7 @@ func (imp *ImapConnector) Connect() (*ImapSession, error) {
 	case "starttls":
 		client, err = imapclient.NewStartTLS(conn, opts)
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("failed to start TLS: %w", err)
 		}
 	case "tls":
@@ -211,14 +211,14 @@ func (imp *ImapConnector) Connect() (*ImapSession, error) {
 		}
 		tlsConn := tls.Client(conn, tlsCfg)
 		if err := tlsConn.Handshake(); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("TLS handshake failed: %w", err)
 		}
 		client = imapclient.New(tlsConn, opts)
 	}
 
 	if err := client.Login(imp.Username, imp.Password).Wait(); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to login: %w", err)
 	}
 
@@ -268,7 +268,7 @@ func (session *ImapSession) Append(mailbox string, fp io.Reader, size int64) err
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 	if w != size {
-		return fmt.Errorf("inconsistent number of bytes written")
+		return errors.New("inconsistent number of bytes written")
 	}
 	err = appendCmd.Close()
 	if err != nil {
@@ -295,7 +295,8 @@ func IsAlreadyExists(err error) bool {
 	if err == nil {
 		return false
 	}
-	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeAlreadyExists {
+	var e *imap.Error
+	if errors.As(err, &e) && e.Code == imap.ResponseCodeAlreadyExists {
 		return true
 	}
 	up := strings.ToUpper(err.Error())
@@ -308,7 +309,8 @@ func IsTryCreate(err error) bool {
 	if err == nil {
 		return false
 	}
-	if e, ok := err.(*imap.Error); ok && e.Code == imap.ResponseCodeTryCreate {
+	var e *imap.Error
+	if errors.As(err, &e) && e.Code == imap.ResponseCodeTryCreate {
 		return true
 	}
 	return strings.Contains(strings.ToUpper(err.Error()), "TRYCREATE")
@@ -326,7 +328,8 @@ func IsRetryable(err error) bool {
 	if errors.Is(err, ErrOperationTimeout) {
 		return true
 	}
-	if _, ok := err.(*imap.Error); ok {
+	var ie *imap.Error
+	if errors.As(err, &ie) {
 		return false
 	}
 	var ne net.Error

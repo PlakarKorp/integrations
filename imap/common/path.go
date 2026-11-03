@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -190,7 +191,7 @@ func DecodeFlags(block string) []imap.Flag {
 
 // MessageFileName builds the kloset file name for a message.
 func MessageFileName(uid imap.UID, flags []imap.Flag, subject string) string {
-	name := fmt.Sprint(uint32(uid))
+	name := strconv.FormatUint(uint64(uid), 10)
 	if block := EncodeFlags(flags); block != "" {
 		name += "," + block
 	}
