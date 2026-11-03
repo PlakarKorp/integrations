@@ -161,7 +161,7 @@ func newFsRepo(t *testing.T) *repository.Repository {
 	serializedConfig, err := st.Open(ctx)
 	require.NoError(t, err)
 
-	repo, err := repository.New(ctx, nil, st, serializedConfig)
+	repo, err := repository.NewRepository(ctx, nil, st, serializedConfig, &repository.RepositoryOpts{DoRebuild: true, RWStateCache: true})
 	require.NoError(t, err)
 	return repo
 }
