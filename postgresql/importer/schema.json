@@ -39,6 +39,14 @@
       "type": "string",
       "description": "Comma-separated list of database names to skip during a full backup. Has no effect when a single database is selected via the database parameter or URI path. Example: rdsadmin,template1."
     },
+    "exclude_tables": {
+      "type": "string",
+      "description": "Comma-separated list of tables to leave out of the dump, definition and rows, as pg_dump --exclude-table patterns. Applies to every database dumped. Example: public.audit,log_*."
+    },
+    "exclude_table_data": {
+      "type": "string",
+      "description": "Comma-separated list of tables whose rows are left out of the dump; their definition is kept, so they are restored empty. pg_dump --exclude-table-data patterns, applied to every database dumped. Example: public.events."
+    },
     "schema_only": {
       "type": "boolean",
       "default": false,
@@ -53,6 +61,17 @@
       "type": "string",
       "minLength": 1,
       "description": "Directory containing the PostgreSQL client binaries (pg_dump, pg_dumpall, psql). When omitted, binaries are resolved via $PATH."
+    },
+    "format": {
+      "type": "string",
+      "enum": ["custom", "directory"],
+      "default": "custom",
+      "description": "Dump format: custom, one file per database (pg_dump -Fc), or directory, one directory per database with one file per table, dumped in parallel (pg_dump -Fd -j). directory requires Linux with FUSE (fuse3)."
+    },
+    "parallel_dumps": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of parallel pg_dump jobs per database with format=directory, each one a connection to the server. Defaults to 4, or plakar's concurrency if lower."
     },
     "compress": {
       "type": "boolean",

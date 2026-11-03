@@ -2,7 +2,7 @@ GO      = go
 EXT     =
 
 PLAKAR  ?= plakar
-VERSION ?= v1.1.2
+VERSION ?= v1.1.3
 
 GOOS   := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
@@ -25,7 +25,7 @@ uninstall:
 	-$(PLAKAR) pkg rm postgresql
 
 install: package
-	$(PLAKAR) pkg add ./$(PTAR)
+	$(PLAKAR) pkg add -allow-unsigned ./$(PTAR)
 
 reinstall: uninstall install
 
