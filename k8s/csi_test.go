@@ -312,7 +312,7 @@ func TestPodReadyErrorEventAlwaysFails(t *testing.T) {
 func newCsiTestK8s(objs ...runtime.Object) *k8s {
 	return &k8s{
 		clientset:  k8sfake.NewSimpleClientset(objs...),
-		snapClient: snapfake.NewSimpleClientset(),
+		snapClient: snapfake.NewSimpleClientset(), //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 	}
 }
 
@@ -549,7 +549,7 @@ func TestGensnap(t *testing.T) {
 	t.Run("ready", func(t *testing.T) {
 		t.Parallel()
 
-		snapClient := snapfake.NewSimpleClientset()
+		snapClient := snapfake.NewSimpleClientset() //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 		withGeneratedResourceVersion(snapClient)
 		snapClient.PrependWatchReactor("volumesnapshots", singleEventWatchReactor(watch.Event{
 			Type: watch.Modified,
@@ -576,7 +576,7 @@ func TestGensnap(t *testing.T) {
 	t.Run("failed status deletes the snapshot and returns the error", func(t *testing.T) {
 		t.Parallel()
 
-		snapClient := snapfake.NewSimpleClientset()
+		snapClient := snapfake.NewSimpleClientset() //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 		withGeneratedResourceVersion(snapClient)
 		snapClient.PrependWatchReactor("volumesnapshots", singleEventWatchReactor(watch.Event{
 			Type: watch.Modified,
@@ -614,7 +614,7 @@ func TestDelsnap(t *testing.T) {
 		t.Parallel()
 
 		snap := newSnap()
-		snapClient := snapfake.NewSimpleClientset(snap)
+		snapClient := snapfake.NewSimpleClientset(snap) //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 		k := &k8s{snapClient: snapClient}
 
 		k.delsnap(t.Context(), snap)
@@ -627,7 +627,7 @@ func TestDelsnap(t *testing.T) {
 		t.Parallel()
 
 		snap := newSnap()
-		snapClient := snapfake.NewSimpleClientset(snap)
+		snapClient := snapfake.NewSimpleClientset(snap) //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 		snapClient.PrependReactor("delete", "volumesnapshots", func(clienttesting.Action) (bool, runtime.Object, error) {
 			return true, nil, errors.New("boom")
 		})
