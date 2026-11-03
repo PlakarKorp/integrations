@@ -195,7 +195,7 @@ func (t *Importer) Close(ctx context.Context) (err error) {
 }
 
 func dockerImageSaveReader(ctx context.Context, imageName string) (io.ReadCloser, func() error, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -216,7 +216,7 @@ func dockerImageSaveReader(ctx context.Context, imageName string) (io.ReadCloser
 }
 
 func dockerContainerSaveReader(ctx context.Context, imageName string) (io.ReadCloser, func() error, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, nil, err
 	}
