@@ -4,19 +4,17 @@ description: Integration providing import and export capabilities for FTP server
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
+homepage: https://github.com/PlakarKorp/integrations/tree/main/ftp
+license: ISC
 connectors:
 - type: importer
   executable: ftpImporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/ftp
-  license: ISC
   protocols: [ftp]
   validator: ./importer/schema.json
   class: service
   subclass: ftp
 - type: exporter
   executable: ftpExporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/ftp
-  license: ISC
   protocols: [ftp]
   validator: ./exporter/schema.json
   class: service
