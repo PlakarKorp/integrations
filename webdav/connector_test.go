@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -123,7 +124,7 @@ func TestInsecureOption(t *testing.T) {
 	}
 
 	for _, test := range suite {
-		webdav, err := newwebdav(t.Context(), nil, test.proto, fmt.Sprint(test.insecure), "")
+		webdav, err := newwebdav(t.Context(), nil, test.proto, strconv.FormatBool(test.insecure), "")
 
 		msg := fmt.Sprintf("proto=%s insecure=%v", test.proto, test.insecure)
 		if test.ok {
@@ -148,7 +149,7 @@ func TestPing(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	err = webdav.Ping(t.Context())
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestUserAgent(t *testing.T) {
@@ -159,12 +160,12 @@ func TestUserAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	locationWithNoProto := strings.Replace(srv.URL, "http://", "", -1)
+	locationWithNoProto := strings.ReplaceAll(srv.URL, "http://", "")
 
 	webdav, err := newwebdav(t.Context(), nil, "dav", "true", locationWithNoProto)
 	require.NoError(t, err)
 
-	webdav.Ping(t.Context())
+	_ = webdav.Ping(t.Context())
 	require.Equal(t, "PlakarBackup/1.0", got)
 }
 
@@ -224,12 +225,12 @@ func TestImport(t *testing.T) {
 
 			t.Errorf("%s %q not of the type expected", typ, item.name)
 
-			record.Close()
+			_ = record.Close()
 			continue
 		}
 
 		if item.dir {
-			record.Close()
+			_ = record.Close()
 			continue
 		}
 
@@ -237,7 +238,7 @@ func TestImport(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, buf)
 
-		record.Close()
+		_ = record.Close()
 
 		require.Equal(t, item.content, string(buf))
 	}

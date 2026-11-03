@@ -2,6 +2,7 @@ package webdav
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -37,11 +38,11 @@ func (c *CustomUserAgentTransport) RoundTrip(req *http.Request) (*http.Response,
 }
 
 func init() {
-	importer.Register("dav", 0, NewImporter)
-	importer.Register("davs", 0, NewImporter)
+	_ = importer.Register("dav", 0, NewImporter)
+	_ = importer.Register("davs", 0, NewImporter)
 
-	exporter.Register("dav", 0, NewExporter)
-	exporter.Register("davs", 0, NewExporter)
+	_ = exporter.Register("dav", 0, NewExporter)
+	_ = exporter.Register("davs", 0, NewExporter)
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string, baseClient webdav.HTTPClient) (*WebDAV, error) {
@@ -71,13 +72,13 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 	switch name {
 	case "dav":
 		if insecure, _ := strconv.ParseBool(params["insecure"]); !insecure {
-			return nil, fmt.Errorf("to use dav:// insecure needs to be set as well, use davs:// for an encrypted tunnel")
+			return nil, errors.New("to use dav:// insecure needs to be set as well, use davs:// for an encrypted tunnel")
 		}
 		loc.Scheme = "http"
 
 	case "davs":
 		if insecure, _ := strconv.ParseBool(params["insecure"]); insecure {
-			return nil, fmt.Errorf("cannot use davs:// with insecure=true")
+			return nil, errors.New("cannot use davs:// with insecure=true")
 		}
 		loc.Scheme = "https"
 
@@ -204,7 +205,7 @@ func (w *WebDAV) Export(ctx context.Context, records <-chan *connectors.Record, 
 		}
 
 		if _, err := io.Copy(fp, record.Reader); err != nil {
-			fp.Close()
+			_ = fp.Close()
 			err = fmt.Errorf("write failed: %w", err)
 			results <- record.Error(err)
 			continue
