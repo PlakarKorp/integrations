@@ -4,27 +4,23 @@ description: Integration providing storage, import and export capabilities to an
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
+homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
+license: ISC
 connectors:
 - type: importer
   executable: sftp-importer
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
-  license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
   validator: ./cmd/importer/schema.json
 - type: exporter
   executable: sftp-exporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
-  license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
   validator: ./cmd/exporter/schema.json
 - type: storage
   executable: sftp-storage
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/sftp
-  license: ISC
   protocols: [sftp]
   class: service
   subclass: sftp
