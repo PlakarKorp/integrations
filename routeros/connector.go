@@ -48,9 +48,9 @@ type Routeros struct {
 }
 
 func init() {
-	importer.Register("routeros+export", 0, NewImporter)
-	importer.Register("routeros+backup", 0, NewImporter)
-	exporter.Register("routeros", 0, NewExporter)
+	_ = importer.Register("routeros+export", 0, NewImporter)
+	_ = importer.Register("routeros+backup", 0, NewImporter)
+	_ = exporter.Register("routeros", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
@@ -78,7 +78,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		}
 	}
 	if user == "" {
-		return nil, fmt.Errorf("user not specified")
+		return nil, errors.New("user not specified")
 	}
 
 	hostKeyCall, err := hostKeyCallback(config)
@@ -123,7 +123,7 @@ func New(ctx context.Context, opts *connectors.Options, proto string, config map
 		ag := agent.NewClient(agentConn)
 		authm = ssh.PublicKeysCallback(ag.Signers)
 	} else {
-		return nil, fmt.Errorf("a password, a private key or $SSH_AUTH_SOCK needs to be specified")
+		return nil, errors.New("a password, a private key or $SSH_AUTH_SOCK needs to be specified")
 	}
 
 	var mode Mode
@@ -205,7 +205,7 @@ func (m *Routeros) exec(cmd string) error {
 		return fmt.Errorf("failed to open session: %w", err)
 	}
 
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	return session.Run(cmd)
 }
@@ -245,10 +245,10 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 	switch m.mode {
 	case ModeExport:
 		filename += ".rsc"
-		cmd = fmt.Sprintf("/export file=%s", filename)
+		cmd = "/export file=" + filename
 	case ModeBackup:
 		filename += ".backup"
-		cmd = fmt.Sprintf("/system backup save name=%s", filename)
+		cmd = "/system backup save name=" + filename
 	default:
 		return fmt.Errorf("unknown mode %q", m.mode)
 	}
@@ -261,9 +261,9 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 	if err != nil {
 		return fmt.Errorf("sftp client: %w", err)
 	}
-	defer sftpClient.Close()
+	defer func() { _ = sftpClient.Close() }()
 
-	defer sftpClient.Remove(filename) // best effort
+	defer func() { _ = sftpClient.Remove(filename) }() // best effort
 
 	if m.mode == ModeBackup {
 		if err := m.waitStable(sftpClient, filename, 10*time.Second); err != nil {
@@ -275,7 +275,7 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 	if err != nil {
 		return fmt.Errorf("failed to open %s file %s: %w", m.mode, filename, err)
 	}
-	defer f.Close() // safe to double-close
+	defer func() { _ = f.Close() }() // safe to double-close
 
 	records <- connectors.NewRecord("/"+filename, "", objects.FileInfo{
 		Lname:    filename,
@@ -294,7 +294,7 @@ func (m *Routeros) restoreRsc(src io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("sftp client: %w", err)
 	}
-	defer sftpClient.Close()
+	defer func() { _ = sftpClient.Close() }()
 
 	dst, err := sftpClient.Create(remoteName)
 	if err != nil {
@@ -302,7 +302,7 @@ func (m *Routeros) restoreRsc(src io.Reader) error {
 	}
 
 	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
+		_ = dst.Close()
 		return fmt.Errorf("upload: %w", err)
 	}
 
@@ -314,7 +314,7 @@ func (m *Routeros) restoreRsc(src io.Reader) error {
 	if m.dryRun {
 		cmd += " dry-run=yes"
 	}
-	cmd += fmt.Sprintf(" file=%s", remoteName)
+	cmd += " file=" + remoteName
 
 	if err := m.exec(cmd); err != nil {
 		return fmt.Errorf("restore: %w", err)
