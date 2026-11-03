@@ -127,7 +127,7 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 
 					p := path.Join("/", ns, group, gvk.Kind, gvk.Version, name)
 
-					byte, err := yaml.Marshal(item.Object)
+					b, err := yaml.Marshal(item.Object)
 					if err != nil {
 						records <- connectors.NewError(p, err)
 						continue
@@ -135,14 +135,14 @@ func (k *k8s) walkResources(ctx context.Context, records chan<- *connectors.Reco
 
 					finfo := objects.FileInfo{
 						Lname:    name,
-						Lsize:    int64(len(byte)),
+						Lsize:    int64(len(b)),
 						Lmode:    0644,
 						LmodTime: item.GetCreationTimestamp().Time,
 					}
 
 					records <- connectors.NewRecord(p, "", finfo, nil,
 						func() (io.ReadCloser, error) {
-							return io.NopCloser(bytes.NewReader(byte)), nil
+							return io.NopCloser(bytes.NewReader(b)), nil
 						})
 				}
 

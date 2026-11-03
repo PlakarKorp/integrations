@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	kvcorev1 "kubevirt.io/api/core/v1"
 	snapshotv1beta1 "kubevirt.io/api/snapshot/v1beta1"
 	"sigs.k8s.io/yaml"
@@ -39,7 +38,7 @@ const (
 	vmSnapshotTimeout = 10 * time.Minute
 )
 
-func (k *k8s) getvm(ctx context.Context, ns, name string) (*kubevirtv1.VirtualMachine, error) {
+func (k *k8s) getvm(ctx context.Context, ns, name string) (*kvcorev1.VirtualMachine, error) {
 	return k.kubevirtClient.KubevirtV1().VirtualMachines(ns).
 		Get(ctx, name, metav1.GetOptions{})
 }

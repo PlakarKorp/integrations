@@ -68,14 +68,14 @@ type k8s struct {
 }
 
 func init() {
-	importer.Register("k8s", 0, NewImporter)
-	importer.Register("k8s+csi", 0, NewImporter)
-	importer.Register("k8s+pvc", 0, NewImporter)
-	importer.Register("k8s+vm", 0, NewImporter)
+	_ = importer.Register("k8s", 0, NewImporter)
+	_ = importer.Register("k8s+csi", 0, NewImporter)
+	_ = importer.Register("k8s+pvc", 0, NewImporter)
+	_ = importer.Register("k8s+vm", 0, NewImporter)
 
-	exporter.Register("k8s", 0, NewExporter)
-	exporter.Register("k8s+pvc", 0, NewExporter)
-	exporter.Register("k8s+vm", 0, NewExporter)
+	_ = exporter.Register("k8s", 0, NewExporter)
+	_ = exporter.Register("k8s+pvc", 0, NewExporter)
+	_ = exporter.Register("k8s+vm", 0, NewExporter)
 }
 
 func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
@@ -192,12 +192,12 @@ func New(
 	switch proto {
 	case "k8s+csi":
 		if export {
-			return nil, fmt.Errorf("k8s+csi is for importers only; use k8s+pvc for restore")
+			return nil, errors.New("k8s+csi is for importers only; use k8s+pvc for restore")
 		}
 
 		snapClass = params["volume_snapshot_class"]
 		if snapClass == "" {
-			return nil, fmt.Errorf("missing volume_snapshot_class option")
+			return nil, errors.New("missing volume_snapshot_class option")
 		}
 
 		fallthrough

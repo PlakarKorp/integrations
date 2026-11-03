@@ -98,7 +98,7 @@ func unboundAnnotations(annotations map[string]string) map[string]string {
 }
 
 // restorable drops the source cluster-specific info that don't make
-// sense when restoring, or that might fail alltogether.
+// sense when restoring, or that might fail altogether.
 func restorable(obj *unstructured.Unstructured) {
 	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
 	unstructured.RemoveNestedField(obj.Object, "metadata", "uid")
