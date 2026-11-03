@@ -19,7 +19,7 @@ func TestPutLockRenewalUpdatesData(t *testing.T) {
 	st, err := NewStore(ctx, "sqlite", map[string]string{"location": "sqlite://" + path})
 	require.NoError(t, err)
 	require.NoError(t, st.Create(ctx, []byte("config")))
-	defer st.Close(ctx)
+	defer func() { _ = st.Close(ctx) }()
 
 	id := objects.MAC{1}
 	for _, data := range []string{"lock-v1", "lock-v2"} {
@@ -29,7 +29,7 @@ func TestPutLockRenewalUpdatesData(t *testing.T) {
 
 	rd, err := st.Get(ctx, storage.StorageResourceLock, id, nil)
 	require.NoError(t, err)
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 	got, err := io.ReadAll(rd)
 	require.NoError(t, err)
 	assert.Equal(t, "lock-v2", string(got))

@@ -28,7 +28,7 @@ func TestCreateRestrictsFileModes(t *testing.T) {
 	st, err := NewStore(ctx, "sqlite", map[string]string{"location": "sqlite://" + path})
 	require.NoError(t, err)
 	require.NoError(t, st.Create(ctx, []byte("config")))
-	defer st.Close(ctx)
+	defer func() { _ = st.Close(ctx) }()
 
 	_, err = st.Put(ctx, storage.StorageResourceState, objects.MAC{1}, bytes.NewReader([]byte("state")))
 	require.NoError(t, err)
