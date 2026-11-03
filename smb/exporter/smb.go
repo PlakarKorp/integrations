@@ -33,7 +33,7 @@ import (
 )
 
 func init() {
-	exporter.Register("smb", 0, NewExporter)
+	_ = exporter.Register("smb", 0, NewExporter)
 }
 
 // share is the part of *plakarsmb.Conn the exporter uses; tests stand in an
@@ -241,7 +241,7 @@ func (p *Exporter) writeFile(record *connectors.Record, pathname string) error {
 	}
 
 	if _, err := io.Copy(f, record.Reader); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("write %q: %w", pathname, err)
 	}
 
