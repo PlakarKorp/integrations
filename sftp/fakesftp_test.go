@@ -330,11 +330,11 @@ func (h *localRootHandlers) Lstat(r *sftp.Request) (sftp.ListerAt, error) {
 // Readlink implements the sftp.ReadlinkFileLister interface, returning the
 // raw target string stored in the symlink at p (without resolving it).
 func (h *localRootHandlers) Readlink(p string) (string, error) {
-	real, err := h.real(p)
+	rp, err := h.real(p)
 	if err != nil {
 		return "", err
 	}
-	return os.Readlink(real)
+	return os.Readlink(rp)
 }
 
 // listerAt is a trivial slice-backed implementation of sftp.ListerAt, used
@@ -469,7 +469,7 @@ func TestHarnessRoundtrip(t *testing.T) {
 	// Read back through the client.
 	rf, err := ts.client.Open("/hello.txt")
 	require.NoError(t, err)
-	defer rf.Close()
+	defer func() { _ = rf.Close() }()
 	buf := make([]byte, 32)
 	n, _ := rf.Read(buf)
 	require.Equal(t, "hello world", string(buf[:n]))

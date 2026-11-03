@@ -18,6 +18,7 @@ package sftp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -73,7 +74,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	}
 
 	if parsed.Host == "" {
-		return nil, fmt.Errorf("hostname is empty")
+		return nil, errors.New("hostname is empty")
 	}
 
 	if strings.HasPrefix(parsed.Hostname(), "-") {
@@ -82,7 +83,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	}
 
 	if parsed.User != nil && config["username"] != "" {
-		return nil, fmt.Errorf("cannot use user@host syntax and username parameter")
+		return nil, errors.New("cannot use user@host syntax and username parameter")
 	}
 
 	rootDir := parsed.Path
@@ -131,7 +132,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 
 	sftp.client, err = Connect(sftp.endpoint, config)
 	if err != nil {
-		return nil, fmt.Errorf("SSH connection to %q failed: %w\n", parsed.Host, err)
+		return nil, fmt.Errorf("SSH connection to %q failed: %w", parsed.Host, err)
 	}
 
 	return &sftp, nil
