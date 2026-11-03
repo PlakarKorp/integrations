@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/pkg/xattr"
@@ -56,7 +57,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 			}
 		}
 
-		fileinfo := objects.FileInfoFromStat(p.info)
+		fileinfo := integration.FileInfoFromStat(p.info)
 		fileinfo.Lusername, fileinfo.Lgroupname = f.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
 
 		entrypath := toslash(p.path)
@@ -110,7 +111,7 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 				Lmode: os.ModeDir | 0755,
 			}
 		} else {
-			finfo = objects.FileInfoFromStat(sb)
+			finfo = integration.FileInfoFromStat(sb)
 			if isroot {
 				// this prevents on windows Lname from
 				// being / or \ for C:.
