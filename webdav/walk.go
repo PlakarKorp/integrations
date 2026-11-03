@@ -2,6 +2,7 @@ package webdav
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"path"
 
@@ -32,7 +33,7 @@ func (w *WebDAV) walkdir(ctx context.Context, finfo *webdav.FileInfo, fn walkDir
 		}
 
 		if err := w.walkdir(ctx, &dirents[i], fn); err != nil {
-			if err == fs.SkipDir {
+			if errors.Is(err, fs.SkipDir) {
 				continue
 			}
 			return err
@@ -51,7 +52,7 @@ func (w *WebDAV) walk(ctx context.Context, fn walkDirFunc) error {
 	sb.Path = path.Clean(sb.Path)
 
 	if err = w.walkdir(ctx, sb, fn); err != nil {
-		if err == fs.SkipDir || err == fs.SkipAll {
+		if errors.Is(err, fs.SkipDir) || errors.Is(err, fs.SkipAll) {
 			err = nil
 		}
 	}

@@ -52,7 +52,7 @@ func (tfs *testFS) Stat(ctx context.Context, name string) (*webdav.FileInfo, err
 	if err != nil {
 		return nil, err
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 
 	sb, err := fp.Stat()
 	if err != nil {
@@ -92,7 +92,7 @@ func (tfs *testFS) Create(ctx context.Context, name string, body io.ReadCloser, 
 	tfs.mtx.Lock()
 	defer tfs.mtx.Unlock()
 
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	if _, ok := tfs.overlay[name]; ok {
 		return nil, false, fmt.Errorf("%s already exists", name)
