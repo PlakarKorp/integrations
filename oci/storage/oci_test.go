@@ -23,15 +23,15 @@ func fakeRegistry(t *testing.T, startLoc, patchLoc string) *httptest.Server {
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == "POST" && r.URL.Path == "/v2/repo/blobs/uploads/":
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/repo/blobs/uploads/":
 			w.Header().Set("Location", strings.ReplaceAll(startLoc, "%h", srv.Listener.Addr().String()))
 			w.WriteHeader(http.StatusAccepted)
-		case r.Method == "PATCH" && strings.HasPrefix(r.URL.Path, "/v2/repo/blobs/uploads/"):
+		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/v2/repo/blobs/uploads/"):
 			if patchLoc != "" {
 				w.Header().Set("Location", strings.ReplaceAll(patchLoc, "%h", srv.Listener.Addr().String()))
 			}
 			w.WriteHeader(http.StatusAccepted)
-		case r.Method == "PUT":
+		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		default:
 			assert.Failf(t, "unexpected request", "%s %s", r.Method, r.URL)
