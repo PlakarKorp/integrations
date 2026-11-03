@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Rclone Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "rclone_type"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^rclone://",
+      "description": "Rclone location URI: rclone://[path]"
+    },
+    "rclone_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Rclone backend type (e.g. drive, onedrive, dropbox)"
+    }
+  },
+  "patternProperties": {
+    "^rclone_": {
+      "type": "string",
+      "description": "Rclone remote option, passed to the backend without the rclone_ prefix"
+    }
+  }
+}
