@@ -220,8 +220,9 @@ func setupCloudSqlProxy(cc ConnConfig) (int, error) {
 				defer func() { _ = s.Close() }()
 
 				wg := sync.WaitGroup{}
-				wg.Go(func() { io.Copy(s, c) })
-				wg.Go(func() { io.Copy(c, s) })
+				// Either side closing ends both copies with an error; that is the normal end.
+				wg.Go(func() { _, _ = io.Copy(s, c) })
+				wg.Go(func() { _, _ = io.Copy(c, s) })
 
 				wg.Wait()
 			}()
