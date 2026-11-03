@@ -411,7 +411,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 			}
 		}
 
-		e.stdin.Close()
+		_ = e.stdin.Close()
 		e.stdin = nil
 	}()
 
@@ -447,7 +447,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 func (e *mongodbExporter) Close(ctx context.Context) error {
 	if e.stdin != nil {
-		e.stdin.Close()
+		_ = e.stdin.Close()
 	}
 	cleanupTempFile(e.ca_cert_file)
 	cleanupTempFile(e.client_cert_file)
