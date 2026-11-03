@@ -4,16 +4,14 @@ description: Integration providing import and export capabilities to and from NF
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
+homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
+license: ISC
 connectors:
 - type: importer
   executable: nfsImporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
-  license: ISC
   protocols: [nfs]
   validator: ./importer/schema.json
 - type: exporter
   executable: nfsExporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
-  license: ISC
   protocols: [nfs]
   validator: ./exporter/schema.json
