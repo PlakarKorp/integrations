@@ -46,7 +46,7 @@ var (
 	serverOnce sync.Once
 	serverCtr  testcontainers.Container
 	serverAddr string
-	serverErr  error
+	errServer  error
 )
 
 func TestMain(m *testing.M) {
@@ -67,9 +67,9 @@ func server(t *testing.T) string {
 	testcontainers.SkipIfProviderIsNotHealthy(t)
 
 	serverOnce.Do(func() {
-		serverAddr, serverErr = startServer(context.Background())
+		serverAddr, errServer = startServer(context.Background())
 	})
-	require.NoError(t, serverErr)
+	require.NoError(t, errServer)
 	return serverAddr
 }
 

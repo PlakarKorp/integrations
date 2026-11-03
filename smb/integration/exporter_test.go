@@ -98,7 +98,7 @@ func TestExportWritesTree(t *testing.T) {
 		fileRecord("/deep/er/c.txt", "charlie"),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "alpha", sh(t, "cat "+shareDir+dir+"/a.txt"))
@@ -121,15 +121,15 @@ func TestExportRefusesWriteBelowPreExistingSymlink(t *testing.T) {
 		dirRecord("/keys"),
 		fileRecord("/keys/authorized_keys", "attacker"),
 	)
-	assert.NoError(t, errs["/"])
-	assert.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
-	assert.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
+	require.NoError(t, errs["/"])
+	require.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
+	require.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
 	assert.Equal(t, "original", sh(t, "cat "+shareDir+dir+"/.ssh/authorized_keys"), "the write escaped the restore root")
 
 	// Without the directory record the parent is created on the way, and
 	// must be refused the same.
 	errs = export(t, addr, root, fileRecord("/keys/authorized_keys", "attacker"))
-	assert.Error(t, errs["/keys/authorized_keys"])
+	require.Error(t, errs["/keys/authorized_keys"])
 	assert.Equal(t, "original", sh(t, "cat "+shareDir+dir+"/.ssh/authorized_keys"))
 }
 
@@ -147,9 +147,9 @@ func TestExportRefusesDanglingSymlinkAtRoot(t *testing.T) {
 		dirRecord("/keys"),
 		fileRecord("/keys/id", "attacker"),
 	)
-	assert.NoError(t, errs["/"])
+	require.NoError(t, errs["/"])
 	for _, name := range []string{"/authorized_keys", "/keys", "/keys/id"} {
-		assert.Error(t, errs[name], "%s was restored through a dangling symlink", name)
+		require.Error(t, errs[name], "%s was restored through a dangling symlink", name)
 	}
 	assert.False(t, exists(t, dir+"/.ssh/authorized_keys"), "the dangling link's target was created")
 	assert.False(t, exists(t, dir+"/.ssh/keys"), "the dangling link's target was created")
@@ -168,11 +168,11 @@ func TestExportRefusesPreExistingEntries(t *testing.T) {
 		fileRecord("/a.txt", "new"),
 		fileRecord("/b.txt", "new"),
 	)
-	assert.NoError(t, errs["/"])
-	assert.Error(t, errs["/old"])
-	assert.Error(t, errs["/old/x.txt"])
-	assert.Error(t, errs["/a.txt"])
-	assert.NoError(t, errs["/b.txt"])
+	require.NoError(t, errs["/"])
+	require.Error(t, errs["/old"])
+	require.Error(t, errs["/old/x.txt"])
+	require.Error(t, errs["/a.txt"])
+	require.NoError(t, errs["/b.txt"])
 	assert.Equal(t, "old", sh(t, "cat "+shareDir+dir+"/a.txt"), "an existing file was truncated")
 	assert.False(t, exists(t, dir+"/old/x.txt"))
 	assert.Equal(t, "new", sh(t, "cat "+shareDir+dir+"/b.txt"))
