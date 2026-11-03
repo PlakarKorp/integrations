@@ -289,7 +289,7 @@ func (c *Client) handshake(rd *bufio.Reader, w io.Writer, sender bool, opts, rem
 				return err
 			}
 		case line == "@RSYNCD: EXIT":
-			return fmt.Errorf("server closed the session")
+			return errors.New("server closed the session")
 		case strings.HasPrefix(line, "@ERROR"):
 			return errors.New(strings.TrimSpace(strings.TrimPrefix(line, "@ERROR:")))
 		}
@@ -382,7 +382,7 @@ func (r *fileReader) Read(p []byte) (int, error) {
 // fail reports an io.EOF as unexpected: only next returns io.EOF, once the
 // checksum matched.
 func (r *fileReader) fail(err error) error {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		err = io.ErrUnexpectedEOF
 	}
 	return r.s.wrap(err)

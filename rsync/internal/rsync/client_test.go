@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"io/fs"
 	"maps"
@@ -275,7 +274,7 @@ func TestMaxConnections(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err = c.Open(ctx, "hello.txt")
-	require.True(t, errors.Is(err, context.DeadlineExceeded), err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	require.NoError(t, rd.Close())
 	rd, err = c.Open(context.Background(), "hello.txt")

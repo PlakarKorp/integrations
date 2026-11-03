@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	importer.Register("rsync", 0, NewImporter)
+	_ = importer.Register("rsync", 0, NewImporter)
 }
 
 type Importer struct {
