@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	importer.Register("ftp", 0, NewImporter)
+	_ = importer.Register("ftp", 0, NewImporter)
 }
 
 type Importer struct {
@@ -132,21 +132,6 @@ func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, re
 
 		results <- connectors.NewRecord(filePath, "", fileinfo, nil, readerFunc)
 	}
-}
-
-type readerCloser struct {
-	File *os.File
-}
-
-func (rc readerCloser) Read(p []byte) (int, error) {
-	return rc.File.Read(p)
-}
-
-func (rc readerCloser) Close() error {
-	name := rc.File.Name()
-	err := rc.File.Close()
-	_ = os.Remove(name)
-	return err
 }
 
 func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
