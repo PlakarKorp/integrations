@@ -1,4 +1,4 @@
-// Package connector containes the openWRT plakar importer/exporter integrations.
+// Package connector contains the openWRT plakar importer/exporter integrations.
 package connector
 
 import (
