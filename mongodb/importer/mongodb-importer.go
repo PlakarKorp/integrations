@@ -110,8 +110,10 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 			if err != nil {
 				return nil, err
 			}
-			ca_cert_file.WriteString(ca_cert_data + "\n")
-			ca_cert_file.Sync()
+			if err := writePEM(ca_cert_file, ca_cert_data); err != nil {
+				cleanupTempFile(ca_cert_file)
+				return nil, err
+			}
 			tls_ca_cert = ca_cert_file.Name()
 		} else {
 			tls_ca_cert = params["tls_ca_cert"]
@@ -138,9 +140,10 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 				return nil, err
 			}
 
-			client_cert_file.WriteString(cert_data + "\n")
-			client_cert_file.WriteString(cert_key + "\n")
-			client_cert_file.Sync()
+			if err := writePEM(client_cert_file, cert_data, cert_key); err != nil {
+				cleanupTempFile(client_cert_file)
+				return nil, err
+			}
 			tls_client_cert = client_cert_file.Name()
 		} else if cert_data != "" || cert_key != "" {
 			return nil, errors.New("tls_client_cert_data and " +
@@ -234,6 +237,16 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 	}
 
 	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
+}
+
+// writePEM writes each PEM block to f, newline-terminated, and syncs it.
+func writePEM(f *os.File, blocks ...string) error {
+	for _, b := range blocks {
+		if _, err := f.WriteString(b + "\n"); err != nil {
+			return fmt.Errorf("write %s: %w", f.Name(), err)
+		}
+	}
+	return f.Sync()
 }
 
 func cleanupTempFile(f *os.File) {
