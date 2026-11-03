@@ -205,8 +205,9 @@ func buildMessage(name string, blob []byte) []byte {
 	buf.WriteString("Content-Type: application/octet-stream\r\n")
 	buf.WriteString("\r\n")
 	enc := base64.NewEncoder(base64.StdEncoding, &lineWrapper{w: &buf})
-	enc.Write(blob)
-	enc.Close()
+	// Writes to a bytes.Buffer cannot fail.
+	_, _ = enc.Write(blob)
+	_ = enc.Close()
 	buf.WriteString("\r\n")
 	return buf.Bytes()
 }
