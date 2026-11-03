@@ -5,6 +5,8 @@ connectors:
   - type: importer
     executable: importer-caldav
     protocols: [caldav]
+    validator: ./importer/schema.json
   - type: exporter
     executable: exporter-caldav
     protocols: [caldav]
+    validator: ./exporter/schema.json
