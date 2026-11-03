@@ -19,6 +19,7 @@ package importer
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -47,7 +48,7 @@ type S3Importer struct {
 }
 
 func init() {
-	importer.Register("s3", 0, NewS3Importer)
+	_ = importer.Register("s3", 0, NewS3Importer)
 }
 
 func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
@@ -99,7 +100,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["use_tls"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid use_tls value")
+			return nil, errors.New("invalid use_tls value")
 		}
 		useSsl = tmp
 	}
@@ -108,7 +109,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["tls_insecure_no_verify"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+			return nil, errors.New("invalid tls_insecure_no_verify value")
 		}
 		insecure = tmp
 	}
@@ -117,7 +118,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["virtual_host"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid virtual_host value")
+			return nil, errors.New("invalid virtual_host value")
 		}
 		virtualHost = tmp
 	}
@@ -159,7 +160,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	var bucket, scanDir, host string
 	if virtualHost {
 		if endpoint == "" {
-			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
+			return nil, errors.New("missing endpoint when virtual_host=true")
 		}
 
 		bucket, host, err = common.SplitVirtualHost(parsed.Host, endpoint)
@@ -187,7 +188,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	if bucket == "" || host == "" {
-		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
+		return nil, errors.New("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if !strings.HasPrefix(scanDir, "/") {
@@ -219,7 +220,7 @@ func (p *S3Importer) Ping(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("bucket does not exist")
+		return errors.New("bucket does not exist")
 	}
 	return nil
 }
