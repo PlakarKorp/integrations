@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,12 +31,12 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 
 	location, found := config["location"]
 	if !found {
-		return nil, fmt.Errorf("missing 'location' in configuration")
+		return nil, errors.New("missing 'location' in configuration")
 	}
 
 	username, ok := config["username"]
 	if !ok {
-		return nil, fmt.Errorf("missing 'username' in configuration")
+		return nil, errors.New("missing 'username' in configuration")
 	}
 	name, isOAuthClient := config["name"]
 
@@ -44,7 +45,7 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 	if !isOAuthClient {
 		password, ok := config["password"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'password' in configuration")
+			return nil, errors.New("missing 'password' in configuration")
 		}
 		url = strings.TrimPrefix(location, "caldav://")
 		client = gowebdav.NewClient(url, username, password)
@@ -52,11 +53,11 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 
 		clientID, ok := config["client_id"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'client_id' in configuration")
+			return nil, errors.New("missing 'client_id' in configuration")
 		}
 		clientSecret, ok := config["client_secret"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'client_secret' in configuration")
+			return nil, errors.New("missing 'client_secret' in configuration")
 		}
 		serviceScopes, err := oauth2utils.GetOAuth2Scopes(name)
 		if err != nil {
@@ -123,7 +124,7 @@ func (c *CaldavImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult,
 			LmodTime: entries[0].ModTime(),
 		}, nil, nil)
 		if len(entries) == 0 {
-			results <- importer.NewScanError("/", fmt.Errorf("no entries found in the root directory"))
+			results <- importer.NewScanError("/", errors.New("no entries found in the root directory"))
 			return
 		}
 
