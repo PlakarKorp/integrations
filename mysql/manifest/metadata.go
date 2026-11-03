@@ -403,15 +403,10 @@ ORDER BY t.TABLE_NAME`, schema)
 		tableIdx[t.Name] = i
 	}
 
-	if err := queryColumns(ctx, db, schema, tables, tableIdx); err == nil {
-		// columns populated
-	}
-	if err := queryIndexes(ctx, db, schema, tables, tableIdx); err == nil {
-		// indexes populated
-	}
-	if err := queryConstraints(ctx, db, schema, tables, tableIdx); err == nil {
-		// constraints populated
-	}
+	// Best effort: a table is still listed when its details can't be read.
+	_ = queryColumns(ctx, db, schema, tables, tableIdx)
+	_ = queryIndexes(ctx, db, schema, tables, tableIdx)
+	_ = queryConstraints(ctx, db, schema, tables, tableIdx)
 
 	return tables, nil
 }
