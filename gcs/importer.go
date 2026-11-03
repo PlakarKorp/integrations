@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -16,7 +17,7 @@ import (
 )
 
 func init() {
-	importer.Register("gs", 0, NewImporter)
+	_ = importer.Register("gs", 0, NewImporter)
 }
 
 type gcsImporter struct {
@@ -73,7 +74,7 @@ func (g *gcsImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	it := g.bucket.Objects(ctx, &query)
 	for {
 		obj, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return nil
 		}
 		if err != nil {

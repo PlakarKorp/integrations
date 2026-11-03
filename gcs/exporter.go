@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	exporter.Register("gs", 0, NewExporter)
+	_ = exporter.Register("gs", 0, NewExporter)
 }
 
 type gcsExporter struct {
