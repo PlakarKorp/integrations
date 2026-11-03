@@ -23,6 +23,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -93,7 +94,7 @@ func (c *Conn) Readlink(p string) (link string, err error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return f.Readlink()
 }
 
@@ -166,7 +167,7 @@ func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) (err error) {
 		return err
 	}
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()
@@ -212,7 +213,7 @@ type Config struct {
 func ParseConfig(config map[string]string) (*Config, error) {
 	target := config["location"]
 	if target == "" {
-		return nil, fmt.Errorf("missing location")
+		return nil, errors.New("missing location")
 	}
 
 	parsed, err := url.Parse(target)
@@ -229,7 +230,7 @@ func ParseConfig(config map[string]string) (*Config, error) {
 	}
 
 	if parsed.Port() != "" || config["port"] != "" {
-		return nil, fmt.Errorf("port is not supported: the NFS and MOUNT services are located through the server's portmapper on port 111")
+		return nil, errors.New("port is not supported: the NFS and MOUNT services are located through the server's portmapper on port 111")
 	}
 
 	// The export field, when set, takes precedence over the URL path.
@@ -238,7 +239,7 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		export = cleanAbs(e)
 	}
 	if export == "/" || export == "" {
-		return nil, fmt.Errorf("missing export path: set it in the location (nfs://host/export) or the export parameter")
+		return nil, errors.New("missing export path: set it in the location (nfs://host/export) or the export parameter")
 	}
 
 	root := "/"
@@ -292,7 +293,7 @@ func Connect(cfg *Config) (*Conn, error) {
 
 	target, err := mount.Mount(cfg.Export, cfg.auth())
 	if err != nil {
-		mount.Close()
+		_ = mount.Close()
 		return nil, fmt.Errorf("mount export %q on %s: %w", cfg.Export, addr, err)
 	}
 
@@ -314,7 +315,7 @@ func (c *Conn) Close() (first error) {
 		}
 	}
 	if c.mount != nil {
-		c.mount.Unmount()
+		_ = c.mount.Unmount()
 		if err := c.mount.Close(); err != nil && first == nil {
 			first = err
 		}

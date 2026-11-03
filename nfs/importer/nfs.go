@@ -29,7 +29,7 @@ import (
 )
 
 func init() {
-	importer.Register("nfs", 0, NewImporter)
+	_ = importer.Register("nfs", 0, NewImporter)
 }
 
 type Importer struct {
