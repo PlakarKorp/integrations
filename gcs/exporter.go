@@ -73,8 +73,11 @@ func (g *gcsExporter) Export(ctx context.Context, records <-chan *connectors.Rec
 
 		w := g.bucket.Object(path.Join(g.path, record.Pathname)).NewWriter(ctx)
 		_, err := io.Copy(w, record.Reader)
+		// The object is only uploaded on Close.
+		if cerr := w.Close(); err == nil {
+			err = cerr
+		}
 		results <- record.Error(err)
-		w.Close()
 	}
 
 	return nil

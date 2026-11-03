@@ -117,9 +117,11 @@ func (g *gcsStore) Create(ctx context.Context, config []byte) error {
 	_, err := obj.Attrs(ctx)
 	if errors.Is(err, gstorage.ErrObjectNotExist) {
 		w := obj.NewWriter(ctx)
-		defer w.Close()
-		_, err = w.Write(config)
-		return err
+		if _, err := w.Write(config); err != nil {
+			_ = w.Close()
+			return err
+		}
+		return w.Close()
 	}
 	if err != nil {
 		return err
