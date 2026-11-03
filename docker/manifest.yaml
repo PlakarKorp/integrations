@@ -6,4 +6,4 @@ license: ISC
 connectors:
 - type: importer
   executable: dockerImporter
-  protocols: [docker]
+  protocols: [docker+container, docker+image]
