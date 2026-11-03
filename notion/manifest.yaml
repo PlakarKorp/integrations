@@ -7,6 +7,8 @@ connectors:
   - type: importer
     executable: notion-importer
     protocols: [notion]
+    validator: ./importer/schema.json
   - type: exporter
     executable: notion-exporter
     protocols: [notion]
+    validator: ./exporter/schema.json

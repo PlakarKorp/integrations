@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Notion Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "token",
+    "rootID"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "pattern": "^notion://",
+      "description": "Notion location URI: notion://"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Notion integration token"
+    },
+    "rootID": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the Notion page to restore under"
+    }
+  }
+}
