@@ -106,7 +106,7 @@ func (s *Sftp) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Close() // do we care about err?
+	defer func() { _ = rd.Close() }() // do we care about err?
 
 	data, err := io.ReadAll(rd)
 	if err != nil {

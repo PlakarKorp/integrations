@@ -19,6 +19,7 @@ package sftp
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -152,7 +153,7 @@ func checkMaster(sock string) error {
 	if err != nil {
 		return fmt.Errorf("ssh master not up; failed to connect: %w", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 	return nil
 }
 
@@ -194,7 +195,7 @@ func ensureMaster(endpoint *url.URL, params map[string]string, host, knownHostsF
 		return "", err
 	}
 
-	defer lockfile.Close()
+	defer func() { _ = lockfile.Close() }()
 
 	var spawned bool
 	for range 100 {
@@ -216,13 +217,13 @@ func ensureMaster(endpoint *url.URL, params map[string]string, host, knownHostsF
 				return "", fmt.Errorf("failed to set private key: %w", err)
 			}
 
-			os.Remove(sock)
+			_ = os.Remove(sock)
 			if err := startMaster(endpoint, params, host, sock, knownHostsFile); err != nil {
 				return "", err
 			}
 		}
 	}
-	return "", fmt.Errorf("ssh master failed to come up")
+	return "", errors.New("ssh master failed to come up")
 }
 
 func dial(args []string) (*sftp.Client, error) {
@@ -258,7 +259,7 @@ func dial(args []string) (*sftp.Client, error) {
 		// ssh should already be dead, but make sure it is
 		// anyway.
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 		<-done
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
@@ -283,7 +284,7 @@ func checkParamSupportForWindows(params map[string]string) error {
 /* Must be public. Called externally from VSS integration. */
 func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) {
 	if endpoint == nil {
-		return nil, fmt.Errorf("nil endpoint")
+		return nil, errors.New("nil endpoint")
 	}
 
 	host := endpoint.Hostname()
@@ -296,7 +297,7 @@ func Connect(endpoint *url.URL, params map[string]string) (*sftp.Client, error) 
 		return nil, fmt.Errorf("failed to set up known_hosts: %w", err)
 	}
 	if knownHostsFile != "" {
-		defer os.Remove(knownHostsFile)
+		defer func() { _ = os.Remove(knownHostsFile) }()
 	}
 
 	args := sshArgs(endpoint, params, knownHostsFile)

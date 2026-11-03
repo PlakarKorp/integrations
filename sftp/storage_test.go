@@ -93,7 +93,7 @@ func TestStoragePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
 			s := ts.newTestSftp(t, tt.rootDir)
-			defer s.Close(context.Background())
+			defer func() { _ = s.Close(context.Background()) }()
 
 			got := s.path(tt.args...)
 			require.Equal(t, tt.want, got)
@@ -104,7 +104,7 @@ func TestStoragePath(t *testing.T) {
 func TestStorageCreate_FreshRepo(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -127,7 +127,7 @@ func TestStorageCreate_FreshRepo(t *testing.T) {
 func TestStorageCreate_NonEmptyRepo(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	// Create a non-empty directory at /repo.
 	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0700))
@@ -140,9 +140,9 @@ func TestStorageCreate_NonEmptyRepo(t *testing.T) {
 func TestStorageOpen(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
-	s.Create(context.Background(), []byte("test config"))
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 	_, err := s.Open(context.Background())
 
 	require.NoError(t, err, "failed to open CONFIG file")
@@ -151,7 +151,7 @@ func TestStorageOpen(t *testing.T) {
 func TestStorageOpen_MissingConfig(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	_, err := s.Open(context.Background())
 
@@ -161,7 +161,7 @@ func TestStorageOpen_MissingConfig(t *testing.T) {
 func TestStorageMetadata(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	mode, err := s.Mode(context.Background())
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestStorageMetadata(t *testing.T) {
 func TestStorageList_Supported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 	supportedStorageFiletypes := []storage.StorageResource{
@@ -205,9 +205,9 @@ func TestStorageList_Supported(t *testing.T) {
 func TestStorageList_UnsupportedResource(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
-	s.Create(context.Background(), []byte("test config"))
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 	unsupportedStorageFiletypes := []storage.StorageResource{
 		storage.StorageResourceUndefined,
 		storage.StorageResourceECCPackfile,
@@ -224,7 +224,7 @@ func TestStorageList_UnsupportedResource(t *testing.T) {
 func TestStorageGetPut_Packfile(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -236,7 +236,7 @@ func TestStorageGetPut_Packfile(t *testing.T) {
 
 	rc, err := s.Get(context.Background(), storage.StorageResourcePackfile, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -246,7 +246,7 @@ func TestStorageGetPut_Packfile(t *testing.T) {
 func TestStorageGetPut_State(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -258,7 +258,7 @@ func TestStorageGetPut_State(t *testing.T) {
 
 	rc, err := s.Get(context.Background(), storage.StorageResourceState, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestStorageGetPut_State(t *testing.T) {
 func TestStorageGet_PackfileRange(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -280,7 +280,7 @@ func TestStorageGet_PackfileRange(t *testing.T) {
 
 	rc, err := s.Get(context.Background(), storage.StorageResourcePackfile, m, &storage.Range{Offset: 5, Length: 8})
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestStorageGet_PackfileRange(t *testing.T) {
 func TestStorageGet_StateRangeUnsupported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -307,7 +307,7 @@ func TestStorageGet_StateRangeUnsupported(t *testing.T) {
 func TestStorageGetPut_Lock(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -319,7 +319,7 @@ func TestStorageGetPut_Lock(t *testing.T) {
 
 	rc, err := s.Get(context.Background(), storage.StorageResourceLock, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestStorageGetPut_Lock(t *testing.T) {
 func TestStorageGet_LockRangeUnsupported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -346,7 +346,7 @@ func TestStorageGet_LockRangeUnsupported(t *testing.T) {
 func TestStorageDelete_Packfile(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -364,7 +364,7 @@ func TestStorageDelete_Packfile(t *testing.T) {
 func TestStorageDelete_State(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -382,7 +382,7 @@ func TestStorageDelete_State(t *testing.T) {
 func TestStorageDelete_LockNonExistent(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -395,7 +395,7 @@ func TestStorageDelete_LockNonExistent(t *testing.T) {
 func TestStorageDelete_UnsupportedResource(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -408,7 +408,7 @@ func TestStorageDelete_UnsupportedResource(t *testing.T) {
 func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -439,7 +439,7 @@ func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 func TestStorageConcurrentPacksAndStates(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 

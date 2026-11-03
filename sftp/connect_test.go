@@ -33,7 +33,7 @@ func TestSetupKnownHosts_EmptyHostKey(t *testing.T) {
 
 	path, err := setupKnownHosts(params)
 	require.NoError(t, err)
-	assert.Equal(t, "", path)
+	assert.Empty(t, path)
 }
 
 func TestSetupKnownHosts_CreatesFile(t *testing.T) {

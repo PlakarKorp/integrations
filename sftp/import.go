@@ -36,8 +36,8 @@ type file struct {
 }
 
 var (
-	skipDir = errors.New("skip this directory")
-	skipAll = errors.New("skip everything and stop the walk")
+	errSkipDir = errors.New("skip this directory")
+	errSkipAll = errors.New("skip everything and stop the walk")
 )
 
 func (s *Sftp) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
@@ -105,7 +105,7 @@ func (s *Sftp) walkDir_walker(ctx context.Context, records chan<- *connectors.Re
 
 		if path != "/" {
 			if s.excludes.IsExcluded(path, info.IsDir()) {
-				return skipDir
+				return errSkipDir
 			}
 		}
 
@@ -135,7 +135,7 @@ func walkdir(client *sftp.Client, info os.FileInfo, mode os.FileMode, p string, 
 	for _, entry := range entries {
 		newPath := path.Join(p, entry.Name())
 		if err := walkdir(client, entry, entry.Mode(), newPath, walkFn); err != nil {
-			if err == skipDir {
+			if errors.Is(err, errSkipDir) {
 				continue
 			}
 			return err
@@ -176,7 +176,7 @@ func walk(client *sftp.Client, remotePath string, walkFn func(path string, info 
 
 	err = walkdir(client, info, mode, remotePath, walkFn)
 done:
-	if err == skipDir || err == skipAll {
+	if errors.Is(err, errSkipDir) || errors.Is(err, errSkipAll) {
 		err = nil
 	}
 	return err

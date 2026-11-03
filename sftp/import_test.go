@@ -162,7 +162,7 @@ func TestImport_WalksNestedTree(t *testing.T) {
 	seedTree(t, ts.realPath("/repo"))
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -202,7 +202,7 @@ func TestImport_FileMetadata(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -250,7 +250,7 @@ func TestImport_SymlinkTarget(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -333,7 +333,7 @@ func TestImport_ExcludeRules(t *testing.T) {
 			seedTree(t, ts.realPath("/repo"))
 
 			s := ts.newTestImportSftp(t, "/repo")
-			defer s.Close(context.Background())
+			defer func() { _ = s.Close(context.Background()) }()
 
 			require.NoError(t, s.excludes.AddRulesFromArray(tc.rules),
 				"failed to add exclude rules")
@@ -369,7 +369,7 @@ func TestImport_ExcludeRules(t *testing.T) {
 func TestWalk_RootLstatError(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -385,7 +385,7 @@ func TestWalk_RootLstatError(t *testing.T) {
 	require.Len(t, got, 1, "expected exactly one record for the root Lstat error")
 	rec := got[0]
 	assert.Equal(t, "/repo", rec.Pathname)
-	assert.Error(t, rec.Err, "expected record for root Lstat error to have non-nil Err")
+	require.Error(t, rec.Err, "expected record for root Lstat error to have non-nil Err")
 	assert.Contains(t, rec.Err.Error(), "file does not exist", "unexpected record error message: %v", rec.Err)
 }
 
@@ -394,7 +394,7 @@ func TestImport_ContextCancellation(t *testing.T) {
 	seedTree(t, ts.realPath("/repo"))
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -412,7 +412,7 @@ func TestImport_ContextCancellation(t *testing.T) {
 	err := <-done
 
 	require.Error(t, err, "expected Import to return an error when context is already cancelled")
-	assert.ErrorIs(t, err, context.Canceled, "unexpected error: %v", err)
+	require.ErrorIs(t, err, context.Canceled, "unexpected error: %v", err)
 
 	// No records should have been produced: the walk aborts on the
 	// root entry before any job is ever dispatched to the workers.
@@ -450,7 +450,7 @@ func TestImport_WorkerPoolConcurrency(t *testing.T) {
 
 	s := ts.newTestImportSftp(t, "/repo")
 	s.maxConcurrency = 8
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -496,7 +496,7 @@ func TestImport_FileReaderReturnsContent(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -510,7 +510,7 @@ func TestImport_FileReaderReturnsContent(t *testing.T) {
 	// Reader is a LazyReader: the underlying client.Open runs on first Read,
 	// not when the record was emitted. This call exercises that deferred open.
 	require.NotNil(t, rec.Reader, "expected a non-nil Reader on /repo/file.txt record")
-	defer rec.Reader.Close()
+	defer func() { _ = rec.Reader.Close() }()
 
 	data, err := io.ReadAll(rec.Reader)
 	require.NoError(t, err, "io.ReadAll from lazy Reader failed")

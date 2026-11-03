@@ -18,6 +18,7 @@ package sftp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -190,7 +191,7 @@ func (s *Sftp) symlink(record *connectors.Record, pathname string) error {
 		return fmt.Errorf("symlink target %q escapes restore root", record.Target)
 	}
 	if err := s.client.Symlink(record.Target, pathname); err != nil {
-		return fmt.Errorf("could not create symlink")
+		return errors.New("could not create symlink")
 	}
 	// don't attempt to p.setPerms in here, sftp lacks a lchown(2)
 	// thingy.
@@ -266,7 +267,7 @@ func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo, mode os.F
 func (s *Sftp) chmod(pathname string, fileinfo objects.FileInfo, mode os.FileMode) error {
 	if fileinfo.Mode()&os.ModeSymlink == 0 && !s.skipPermissions {
 		if err := s.client.Chmod(pathname, mode); err != nil {
-			return fmt.Errorf("could not chmod")
+			return errors.New("could not chmod")
 		}
 	}
 	return nil

@@ -111,7 +111,7 @@ func TestExport_DirectoryCreate(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the directory create")
 	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the directory create")
 
 	// Verify that the directory was actually created on the fake SFTP
 	// server. Use the client (SFTP-visible path "/repo/dir"), not
@@ -141,7 +141,7 @@ func TestExport_RootDirectoryIdempotent(t *testing.T) {
 	require.NoError(t, wait(), "Export should not return an error for exporting the root directory")
 	assert.Len(t, got, 1, "expected exactly one result for the root directory export")
 	assert.Equal(t, "/", got[0].Record.Pathname, "unexpected pathname in the result for the root directory export")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the root directory export")
+	require.NoError(t, got[0].Err, "expected no error in the result for the root directory export")
 
 	// Verify that the root directory still exists and has the expected mode.
 	rootInfo, err := ts.client.Stat("/repo")
@@ -172,7 +172,7 @@ func TestExport_FileWrite(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the file write")
 	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the file write")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the file write")
+	require.NoError(t, got[0].Err, "expected no error in the result for the file write")
 
 	// Verify that the file was actually created on the fake SFTP server.
 	fileInfo, err := ts.client.Stat("/repo/file.txt")
@@ -183,7 +183,7 @@ func TestExport_FileWrite(t *testing.T) {
 	// Verify the content of the file.
 	f, err := ts.client.Open("/repo/file.txt")
 	require.NoError(t, err, "expected Open to succeed for the created file")
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fileContent, err := io.ReadAll(f)
 	require.NoError(t, err, "expected reading the created file to succeed")
 	assert.Equal(t, content, fileContent, "unexpected content in the created file")
@@ -208,7 +208,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the symlink create")
 	assert.Equal(t, "/link.txt", got[0].Record.Pathname, "unexpected pathname in the result for the symlink create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the symlink create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the symlink create")
 
 	// Verify that the symlink was actually created on the fake SFTP server.
 	// Note: symlink() (export.go) intentionally never chmods the link -
@@ -217,7 +217,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	// Only the symlink bit itself is meaningful to assert here.
 	linkInfo, err := ts.client.Lstat("/repo/link.txt")
 	require.NoError(t, err, "expected Lstat to succeed for the created symlink")
-	assert.True(t, linkInfo.Mode()&os.ModeSymlink != 0, "expected the created path to be a symlink, got mode %v", linkInfo.Mode())
+	assert.NotEqual(t, os.FileMode(0), linkInfo.Mode()&os.ModeSymlink, "expected the created path to be a symlink, got mode %v", linkInfo.Mode())
 
 	// Verify that the symlink points to the correct target.
 	target, err := ts.client.ReadLink("/repo/link.txt")
@@ -276,7 +276,7 @@ func TestExport_SymlinkTargetEscape(t *testing.T) {
 			got := drainResults(results)
 			require.NoError(t, wait())
 			require.Len(t, got, 1)
-			assert.Error(t, got[0].Err)
+			require.Error(t, got[0].Err)
 
 			_, err := os.Lstat(ts.realPath("/repo/link.txt"))
 			assert.ErrorIs(t, err, os.ErrNotExist)
@@ -318,7 +318,7 @@ func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
 	got := drainResults(results)
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
-	assert.NoError(t, got[0].Err, "chown with current uid/gid should succeed")
+	require.NoError(t, got[0].Err, "chown with current uid/gid should succeed")
 
 	// Verify the file was written and ownership matches.
 	info, err := ts.realStat("/repo/file.txt")
@@ -353,7 +353,7 @@ func TestExport_HardlinkCanonicalOnce(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the hardlink create")
 	assert.Equal(t, "/hardlink.txt", got[0].Record.Pathname, "unexpected pathname in the result for the hardlink create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the hardlink create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the hardlink create")
 
 	// Verify that the hardlink was actually created on the fake SFTP server.
 	hardlinkInfo, err := ts.client.Stat("/repo/hardlink.txt")
@@ -388,7 +388,7 @@ func TestExport_HardlinkConcurrentRace(t *testing.T) {
 
 	assert.Len(t, got, 2, "expected exactly two results for the concurrent hardlink creates")
 	for _, r := range got {
-		assert.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
+		require.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
 	}
 
 	// Verify that both paths exist with the expected mode.
@@ -445,7 +445,7 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 
 	require.Len(t, got, 2)
 	for _, r := range got {
-		assert.NoError(t, r.Err, "unexpected error for %q", r.Record.Pathname)
+		require.NoError(t, r.Err, "unexpected error for %q", r.Record.Pathname)
 	}
 
 	// Both directories must exist with their requested modes.
@@ -480,7 +480,7 @@ func TestExport_ChownNoopByDefault(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the directory create with chown info")
 	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create with chown info")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create with chown info")
+	require.NoError(t, got[0].Err, "expected no error in the result for the directory create with chown info")
 
 	// Verify that the directory was actually created on the fake SFTP server
 	// and that its owner has not changed (i.e., it remains the same as the
@@ -510,7 +510,7 @@ func TestExport_ErrorIsolation(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the record that causes an isolated error")
 	assert.Equal(t, "/nonexistentdir/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the record that causes an isolated error")
-	assert.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
+	require.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
 	// The parent was never created by this restore, so the exporter
 	// refuses the record before anything reaches the server.
 	assert.Contains(t, got[0].Err.Error(), "/repo/nonexistentdir", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
@@ -538,7 +538,7 @@ func TestExport_XattrRecordsSkipped(t *testing.T) {
 
 	require.Len(t, got, 1, "expected exactly one result for the xattr record")
 	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the xattr record")
-	assert.NoError(t, got[0].Err, "xattr records should be acked without error")
+	require.NoError(t, got[0].Err, "xattr records should be acked without error")
 
 	// No file should have been created on disk: the xattr record was
 	// never written to, only acked.
@@ -582,28 +582,28 @@ func TestExport_PathTraversalEscape(t *testing.T) {
 
 	// The two legitimate files should succeed and land inside /repo.
 	require.Contains(t, byPath, "/good1.txt")
-	assert.NoError(t, byPath["/good1.txt"].Err, "expected the first well-behaved file to succeed")
+	require.NoError(t, byPath["/good1.txt"].Err, "expected the first well-behaved file to succeed")
 	good1, err := ts.client.Open("/repo/good1.txt")
 	require.NoError(t, err, "expected the first well-behaved file to exist inside the restore root")
 	good1Content, err := io.ReadAll(good1)
 	require.NoError(t, err)
-	good1.Close()
+	_ = good1.Close()
 	assert.Equal(t, "good1-content", string(good1Content))
 
 	require.Contains(t, byPath, "/good2.txt")
-	assert.NoError(t, byPath["/good2.txt"].Err, "expected the second well-behaved file to succeed")
+	require.NoError(t, byPath["/good2.txt"].Err, "expected the second well-behaved file to succeed")
 	good2, err := ts.client.Open("/repo/good2.txt")
 	require.NoError(t, err, "expected the second well-behaved file to exist inside the restore root")
 	good2Content, err := io.ReadAll(good2)
 	require.NoError(t, err)
-	good2.Close()
+	_ = good2.Close()
 	assert.Equal(t, "good2-content", string(good2Content))
 
 	// The hostile record should fail with a path containment error, and
 	// nothing should be written outside of /repo on the fake server's
 	// filesystem.
 	require.Contains(t, byPath, "/../../outside.txt")
-	assert.Error(t, byPath["/../../outside.txt"].Err, "expected Export to reject a path that escapes the restore root")
+	require.Error(t, byPath["/../../outside.txt"].Err, "expected Export to reject a path that escapes the restore root")
 
 	_, statErr := ts.client.Stat("/outside.txt")
 	assert.Error(t, statErr, "expected no file to have been written outside of the restore root")
@@ -726,7 +726,7 @@ func TestExport_SkipPermissions(t *testing.T) {
 			got := drainResults(results)
 			require.NoError(t, wait())
 			require.Len(t, got, 1)
-			assert.NoError(t, got[0].Err)
+			require.NoError(t, got[0].Err)
 
 			info, err := ts.client.Stat(pathname)
 			require.NoError(t, err)
@@ -773,7 +773,7 @@ func TestExport_DirectorySetgidSurvivesChownOrdering(t *testing.T) {
 	got := drainResults(results)
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
-	assert.NoError(t, got[0].Err)
+	require.NoError(t, got[0].Err)
 
 	info, err := ts.client.Stat("/repo/dir")
 	require.NoError(t, err)
@@ -1020,7 +1020,7 @@ func TestExport_RefusesWriteBelowPreexistingSymlink(t *testing.T) {
 			got := exportRecords(t, ts, root, tt.records...)
 			require.Len(t, got, len(tt.records))
 			for _, r := range got {
-				assert.Error(t, r.Err, r.Record.Pathname)
+				require.Error(t, r.Err, r.Record.Pathname)
 			}
 
 			entries, err := os.ReadDir(ts.realPath("/outside"))
@@ -1049,8 +1049,8 @@ func TestExport_RefusesWriteBelowRestoredSymlink(t *testing.T) {
 		dirRecord("/a", 0755), linkRecord("/a/b", ".."), linkRecord("/a/b/x", "../y"), fileRecord("/a/b/x/f")), 4)
 	assert.NoError(t, errs["/a"])
 	assert.NoError(t, errs["/a/b"])
-	assert.Error(t, errs["/a/b/x"])
-	assert.Error(t, errs["/a/b/x/f"])
+	require.Error(t, errs["/a/b/x"])
+	require.Error(t, errs["/a/b/x/f"])
 
 	entries, err := os.ReadDir(ts.realPath("/outside"))
 	require.NoError(t, err)
@@ -1069,16 +1069,16 @@ func TestExport_NestedRestore(t *testing.T) {
 	got := exportRecords(t, ts, root,
 		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/f"), linkRecord("/a/b/l", "f"))
 	for _, r := range got {
-		assert.NoError(t, r.Err, r.Record.Pathname)
+		require.NoError(t, r.Err, r.Record.Pathname)
 	}
 	_, err := os.Stat(ts.realPath(root + "/a/b/f"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	errs := resultsByPath(t, exportRecords(t, ts, root,
 		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/g")), 3)
-	assert.Error(t, errs["/a"], "mkdir of an existing directory fails as before")
-	assert.Error(t, errs["/a/b"], "mkdir of an existing directory fails as before")
-	assert.NoError(t, errs["/a/b/g"], "a file below an existing real directory is written")
+	require.Error(t, errs["/a"], "mkdir of an existing directory fails as before")
+	require.Error(t, errs["/a/b"], "mkdir of an existing directory fails as before")
+	require.NoError(t, errs["/a/b/g"], "a file below an existing real directory is written")
 	_, err = os.Stat(ts.realPath(root + "/a/b/g"))
 	assert.NoError(t, err)
 }
