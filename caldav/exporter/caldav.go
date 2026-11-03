@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"path"
 	"strings"
 
@@ -31,12 +30,12 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 
 	location, found := config["location"]
 	if !found {
-		return nil, fmt.Errorf("missing 'location' in configuration")
+		return nil, errors.New("missing 'location' in configuration")
 	}
 
 	username, ok := config["username"]
 	if !ok {
-		return nil, fmt.Errorf("missing 'username' in configuration")
+		return nil, errors.New("missing 'username' in configuration")
 	}
 	name, isOAuthClient := config["name"]
 
@@ -45,7 +44,7 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 	if !isOAuthClient {
 		password, ok := config["password"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'password' in configuration")
+			return nil, errors.New("missing 'password' in configuration")
 		}
 		url = strings.TrimPrefix(location, "caldav://")
 		client = gowebdav.NewClient(url, username, password)
@@ -53,11 +52,11 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 
 		clientID, ok := config["client_id"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'client_id' in configuration")
+			return nil, errors.New("missing 'client_id' in configuration")
 		}
 		clientSecret, ok := config["client_secret"]
 		if !ok {
-			return nil, fmt.Errorf("missing 'client_secret' in configuration")
+			return nil, errors.New("missing 'client_secret' in configuration")
 		}
 		serviceScopes, err := oauth2utils.GetOAuth2Scopes(name)
 		if err != nil {
@@ -107,7 +106,7 @@ func (c *CaldavExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 		return fmt.Errorf("unsupported file type %s, only .ics files are supported", pathname)
 	}
 
-	data, err := ioutil.ReadAll(fp)
+	data, err := io.ReadAll(fp)
 	if err != nil {
 		return fmt.Errorf("failed to read file %s: %w", pathname, err)
 	}
