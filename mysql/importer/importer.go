@@ -3,6 +3,7 @@ package importer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -90,7 +91,7 @@ func New(proto string, conn mysqlconn.ConnConfig, config map[string]string) (*Im
 		return nil, err
 	}
 	if imp.NoData && imp.NoCreateInfo {
-		return nil, fmt.Errorf("no_data and no_create_info are mutually exclusive")
+		return nil, errors.New("no_data and no_create_info are mutually exclusive")
 	}
 	return imp, nil
 }
@@ -181,7 +182,7 @@ var _ iimporter.Importer = (*Importer)(nil)
 
 // Import must be overridden by each provider plugin.
 func (i *Importer) Import(_ context.Context, _ chan<- *connectors.Record, _ <-chan *connectors.Result) error {
-	return fmt.Errorf("Import not implemented: provider must override this method")
+	return errors.New("Import not implemented: provider must override this method")
 }
 
 func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *connectors.Record, flags []string) error {
@@ -208,7 +209,7 @@ type cmdReader struct {
 }
 
 func (r *cmdReader) Close() error {
-	r.ReadCloser.Close()
+	_ = r.ReadCloser.Close()
 	err := r.cmd.Wait()
 	r.cleanup()
 	if err != nil {

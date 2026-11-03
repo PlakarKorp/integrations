@@ -89,13 +89,6 @@ func (cc ConnConfig) clientBin() string {
 	return "mysql"
 }
 
-func (cc ConnConfig) dumpBin() string {
-	if cc.DumpBin != "" {
-		return cc.DumpBin
-	}
-	return "mysqldump"
-}
-
 // ParseConnConfig builds a ConnConfig from the connector configuration map.
 // Standalone keys (host, port, …) always take precedence over the location URI.
 func ParseConnConfig(proxy bool, config map[string]string) (ConnConfig, error) {
@@ -204,8 +197,8 @@ func setupCloudSqlProxy(cc ConnConfig) (int, error) {
 	port := l.Addr().(*net.TCPAddr).Port
 
 	go func() {
-		defer cleanup()
-		defer d.Close()
+		defer func() { _ = cleanup() }()
+		defer func() { _ = d.Close() }()
 		for {
 			c, err := l.Accept()
 			if err != nil {
@@ -213,14 +206,14 @@ func setupCloudSqlProxy(cc ConnConfig) (int, error) {
 			}
 
 			go func() {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				s, err := d.Dial(context.Background(), cc.Host)
 				if err != nil {
 					log.Printf("failed to dial to %s: %s", cc.Host, err)
 					return
 				}
 
-				defer s.Close()
+				defer func() { _ = s.Close() }()
 
 				wg := sync.WaitGroup{}
 				wg.Go(func() { io.Copy(s, c) })
@@ -320,9 +313,9 @@ func (cc ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
 		return "", func() {}, fmt.Errorf("creating password file: %w", err)
 	}
 	name := f.Name()
-	cleanup = func() { os.Remove(name) }
+	cleanup = func() { _ = os.Remove(name) }
 	if _, err := fmt.Fprintf(f, "[client]\npassword=%s\n", cc.Password); err != nil {
-		f.Close()
+		_ = f.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("writing password file: %w", err)
 	}
