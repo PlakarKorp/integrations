@@ -149,26 +149,12 @@ func openDB(conn mysqlconn.ConnConfig, database string) (*sql.DB, error) {
 	return db, nil
 }
 
-func nullableString(ns sql.NullString) string {
-	if ns.Valid {
-		return ns.String
-	}
-	return ""
-}
-
 func nullableTime(nt sql.NullTime) *time.Time {
 	if nt.Valid {
 		t := nt.Time
 		return &t
 	}
 	return nil
-}
-
-func nullableInt64(ni sql.NullInt64) int64 {
-	if ni.Valid {
-		return ni.Int64
-	}
-	return 0
 }
 
 // collectServerConfig queries key server variables from INFORMATION_SCHEMA / SHOW VARIABLES.
@@ -189,7 +175,7 @@ ORDER BY VARIABLE_NAME`
 		// Fallback: performance_schema may not be available on all setups.
 		return collectServerConfigFallback(ctx, db)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cfg ServerConfig
 	for rows.Next() {
@@ -239,7 +225,7 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 	if err != nil {
 		return ServerConfig{}, fmt.Errorf("SHOW GLOBAL VARIABLES: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cfg ServerConfig
 	for rows.Next() {
@@ -293,7 +279,7 @@ ORDER BY User, Host`)
 	if err != nil {
 		return nil, fmt.Errorf("querying mysql.user: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []UserInfo
 	for rows.Next() {
@@ -331,7 +317,7 @@ ORDER BY SCHEMA_NAME`
 	if err != nil {
 		return nil, fmt.Errorf("querying SCHEMATA: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var dbs []DatabaseInfo
 	for rows.Next() {
@@ -387,7 +373,7 @@ ORDER BY t.TABLE_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying TABLES for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tables []TableInfo
 	for rows.Next() {
@@ -448,7 +434,7 @@ ORDER BY TABLE_NAME, ORDINAL_POSITION`, schema)
 	if err != nil {
 		return fmt.Errorf("querying COLUMNS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var tableName string
@@ -482,10 +468,9 @@ ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`, schema)
 	if err != nil {
 		return fmt.Errorf("querying STATISTICS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// Accumulate columns per (table, index).
-	type key struct{ table, index string }
 	type entry struct {
 		idx       int // position in tables[tableIdx[table]].Indexes
 		nonUnique bool
@@ -544,7 +529,7 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`, schema)
 	if err != nil {
 		return fmt.Errorf("querying TABLE_CONSTRAINTS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type key struct{ table, constraint string }
 	type entry struct{ idx int }
@@ -599,7 +584,7 @@ ORDER BY ROUTINE_TYPE, ROUTINE_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying ROUTINES for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var routines []RoutineInfo
 	for rows.Next() {
@@ -633,7 +618,7 @@ ORDER BY TRIGGER_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying TRIGGERS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var triggers []TriggerInfo
 	for rows.Next() {
@@ -666,7 +651,7 @@ ORDER BY EVENT_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying EVENTS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []EventInfo
 	for rows.Next() {

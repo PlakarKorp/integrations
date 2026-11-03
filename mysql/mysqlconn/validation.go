@@ -1,6 +1,7 @@
 package mysqlconn
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -17,7 +18,7 @@ import (
 // appear in a real database name.
 func ValidDatabaseName(name string) error {
 	if name == "" {
-		return fmt.Errorf("empty database name")
+		return errors.New("empty database name")
 	}
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("invalid database name %q: may not start with a dash", name)

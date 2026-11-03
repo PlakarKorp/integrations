@@ -71,7 +71,7 @@ func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) er
 	if err != nil {
 		return fmt.Errorf("manifest: connecting to MySQL: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("manifest: pinging MySQL: %w", err)

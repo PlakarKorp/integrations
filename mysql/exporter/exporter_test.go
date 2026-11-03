@@ -2,7 +2,7 @@ package exporter
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -19,7 +19,7 @@ type tripwireReader struct {
 
 func (r *tripwireReader) Read([]byte) (int, error) {
 	require.Fail(r.t, "record body was read: the restore reached the client subprocess")
-	return 0, fmt.Errorf("unexpected read")
+	return 0, errors.New("unexpected read")
 }
 
 func (r *tripwireReader) Close() error { return nil }
