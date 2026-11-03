@@ -40,7 +40,9 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token { //TODO: look if this
 
 	var authCode string
 	fmt.Print("Enter the authorization code: ")
-	fmt.Scan(&authCode)
+	if _, err := fmt.Scan(&authCode); err != nil {
+		log.Fatalf("Reading the authorization code failed: %v", err)
+	}
 
 	tok, err := config.Exchange(context.Background(), authCode)
 	if err != nil {
