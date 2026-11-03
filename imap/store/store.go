@@ -43,7 +43,7 @@ const (
 )
 
 func init() {
-	storage.Register("imap", 0, NewStore)
+	_ = storage.Register("imap", 0, NewStore)
 }
 
 // resourceMailbox maps a storage resource to its leaf mailbox name.

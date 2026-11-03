@@ -89,9 +89,10 @@ func seedTricky(t *testing.T, a, user string) int {
 		}
 		raw := []byte(fmt.Sprintf("From: a@b.c\r\nSubject: %s\r\n\r\nbody\r\n", msg.subject))
 		cmd := c.Append(msg.mbox, int64(len(raw)), &imap.AppendOptions{Time: time.Unix(1700000000, 0)})
-		cmd.Write(raw)
+		_, err := cmd.Write(raw)
+		require.NoError(t, err)
 		require.NoError(t, cmd.Close())
-		_, err := cmd.Wait()
+		_, err = cmd.Wait()
 		require.NoError(t, err)
 	}
 	return len(msgs)
@@ -122,9 +123,10 @@ func seedLarge(t *testing.T, a, user string, n, bodyBytes int) {
 	for i := 0; i < n; i++ {
 		raw := []byte(fmt.Sprintf("From: a@b.c\r\nSubject: large-%d\r\n\r\n%s\r\n", i, filler))
 		cmd := c.Append("INBOX", int64(len(raw)), &imap.AppendOptions{Time: time.Unix(1700000000, 0)})
-		cmd.Write(raw)
+		_, err := cmd.Write(raw)
+		require.NoError(t, err)
 		require.NoError(t, cmd.Close())
-		_, err := cmd.Wait()
+		_, err = cmd.Wait()
 		require.NoError(t, err)
 	}
 }
@@ -140,7 +142,7 @@ func newFsRepo(t *testing.T) *repository.Repository {
 	require.NoError(t, err)
 	repoDir, err := os.MkdirTemp("", "imapbk_repo")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cacheDir); os.RemoveAll(repoDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(cacheDir); _ = os.RemoveAll(repoDir) })
 	ctx.SetCache(caching.NewManager(pebble.Constructor(cacheDir)))
 	ctx.CacheDir = cacheDir
 
@@ -177,7 +179,7 @@ func TestBackupTrickyMailbox(t *testing.T) {
 		"tls":      "no-tls",
 	})
 	require.NoError(t, err)
-	defer imp.Close(context.Background())
+	defer func() { _ = imp.Close(context.Background()) }()
 
 	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
@@ -209,7 +211,7 @@ func TestBackupTrickyMailbox(t *testing.T) {
 
 	snap, err := snapshot.Load(repo, builder.Header.Identifier)
 	require.NoError(t, err)
-	defer snap.Close()
+	defer func() { _ = snap.Close() }()
 
 	// Count regular files in the snapshot filesystem.
 	fs, err := snap.Filesystem()
@@ -263,9 +265,10 @@ func TestBackupSubfolderScope(t *testing.T) {
 		}
 		raw := []byte(fmt.Sprintf("From: a@b.c\r\nSubject: %s\r\n\r\nbody\r\n", subj))
 		cmd := c.Append(mbox, int64(len(raw)), &imap.AppendOptions{Time: time.Unix(1700000000, 0)})
-		cmd.Write(raw)
+		_, err := cmd.Write(raw)
+		require.NoError(t, err)
 		require.NoError(t, cmd.Close())
-		_, err := cmd.Wait()
+		_, err = cmd.Wait()
 		require.NoError(t, err)
 	}
 	put("INBOX", "inbox-msg")
@@ -282,7 +285,7 @@ func TestBackupSubfolderScope(t *testing.T) {
 		"tls":      "no-tls",
 	})
 	require.NoError(t, err)
-	defer imp.Close(context.Background())
+	defer func() { _ = imp.Close(context.Background()) }()
 
 	src, err := snapshot.NewSource(repo.AppContext(), imp)
 	require.NoError(t, err)
@@ -295,7 +298,7 @@ func TestBackupSubfolderScope(t *testing.T) {
 
 	snap, err := snapshot.Load(repo, builder.Header.Identifier)
 	require.NoError(t, err)
-	defer snap.Close()
+	defer func() { _ = snap.Close() }()
 
 	files := snapshotFiles(t, snap)
 	t.Logf("subfolder-scoped snapshot files: %v", files)
