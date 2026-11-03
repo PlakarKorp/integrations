@@ -2,7 +2,7 @@ package awsexporter
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/PlakarKorp/integrations/postgresql/awsauth"
 	pqexporter "github.com/PlakarKorp/integrations/postgresql/exporter"
@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	exporter.Register("postgres+aws", 0, NewAWSExporter)
+	_ = exporter.Register("postgres+aws", 0, NewAWSExporter)
 }
 
 func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
@@ -29,11 +29,11 @@ func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name strin
 
 	region := cfg["region"]
 	if region == "" {
-		return nil, fmt.Errorf("postgres+aws: region is required")
+		return nil, errors.New("postgres+aws: region is required")
 	}
 
 	if conn.Username == "" {
-		return nil, fmt.Errorf("postgres+aws: username is required for IAM authentication")
+		return nil, errors.New("postgres+aws: username is required for IAM authentication")
 	}
 
 	exp, err := pqexporter.NewExporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)

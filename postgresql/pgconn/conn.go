@@ -3,9 +3,11 @@ package pgconn
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -203,7 +205,7 @@ func (c ConnConfig) DSN(dbname string) string {
 		}
 	}
 	q := url.Values{}
-	q.Set("connect_timeout", fmt.Sprintf("%d", defaultConnectTimeout))
+	q.Set("connect_timeout", strconv.Itoa(defaultConnectTimeout))
 	if c.SSLMode != "" {
 		q.Set("sslmode", c.SSLMode)
 	}
@@ -237,7 +239,7 @@ func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
 	if err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
@@ -266,7 +268,7 @@ func TruncateOutput(out []byte) string {
 // database name, so both are refused outright.
 func ValidDatabaseName(name string) error {
 	if name == "" {
-		return fmt.Errorf("empty database name")
+		return errors.New("empty database name")
 	}
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("invalid database name %q: may not start with a dash", name)

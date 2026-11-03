@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgres+bin", location.FLAG_STREAM|location.FLAG_NEEDACK, NewBinImporter)
+	_ = importer.Register("postgres+bin", location.FLAG_STREAM|location.FLAG_NEEDACK, NewBinImporter)
 }
 
 type BinImporter struct {

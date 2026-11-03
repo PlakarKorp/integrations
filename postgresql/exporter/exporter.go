@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	exporter.Register("postgres", 0, NewExporter)
+	_ = exporter.Register("postgres", 0, NewExporter)
 }
 
 // ErrDirectoryFormat is returned for files of a dump taken with format=directory.
@@ -97,7 +97,7 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		}
 	}
 	if exp.clean && exp.recreate {
-		return nil, fmt.Errorf("clean and recreate are mutually exclusive")
+		return nil, errors.New("clean and recreate are mutually exclusive")
 	}
 	if v, ok := config["no_globals"]; ok && v != "" {
 		exp.noGlobals, err = strconv.ParseBool(v)
@@ -118,7 +118,7 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		}
 	}
 	if exp.schemaOnly && exp.dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+		return nil, errors.New("schema_only and data_only are mutually exclusive")
 	}
 	if v, ok := config["pg_bin_dir"]; ok && v != "" {
 		exp.pgBinDir = v

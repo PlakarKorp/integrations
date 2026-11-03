@@ -69,7 +69,7 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", connectDB, err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sv, svNum, err := serverVersion(ctx, db)
 	if err != nil {
@@ -127,7 +127,7 @@ func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	sv, svNum, err := serverVersion(ctx, db)
 	if err != nil {
