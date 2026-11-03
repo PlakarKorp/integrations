@@ -38,7 +38,7 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 	if !ok {
 		return nil, errors.New("missing 'username' in configuration")
 	}
-	name, isOAuthClient := config["name"]
+	provider, isOAuthClient := config["name"]
 
 	var client *gowebdav.Client
 	var url string
@@ -59,17 +59,17 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 		if !ok {
 			return nil, errors.New("missing 'client_secret' in configuration")
 		}
-		serviceScopes, err := oauth2utils.GetOAuth2Scopes(name)
+		serviceScopes, err := oauth2utils.GetOAuth2Scopes(provider)
 		if err != nil {
-			return nil, fmt.Errorf("error getting OAuth2 scopes for provider '%s': %w", name, err)
+			return nil, fmt.Errorf("error getting OAuth2 scopes for provider '%s': %w", provider, err)
 		}
-		endpoint, err := oauth2utils.GetOAuth2Endpoint(name)
+		endpoint, err := oauth2utils.GetOAuth2Endpoint(provider)
 		if err != nil {
-			return nil, fmt.Errorf("error getting OAuth2 endpoint for provider '%s': %w", name, err)
+			return nil, fmt.Errorf("error getting OAuth2 endpoint for provider '%s': %w", provider, err)
 		}
 
 		calOAuthProvider := oauth2utils.OAuthProvider{
-			Name: name,
+			Name: provider,
 			Config: &oauth2.Config{
 				ClientID:     clientID,     // client ID (provided by the plakar app (production) or by the user directly in a personal app)
 				ClientSecret: clientSecret, // client secret (same as above)
@@ -79,7 +79,7 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 			},
 		}
 
-		url = oauth2utils.GetOAuth2Url(name, username)
+		url = oauth2utils.GetOAuth2Url(provider, username)
 
 		client = calOAuthProvider.GetClient(url) // maybe not using the url directly... the url could be built from the username
 	}
