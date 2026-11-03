@@ -37,8 +37,8 @@ import (
 const flags = location.FLAG_STREAM | location.FLAG_NEEDACK
 
 func init() {
-	importer.Register("docker+container", flags, NewImporter)
-	importer.Register("docker+image", flags, NewImporter)
+	_ = importer.Register("docker+container", flags, NewImporter)
+	_ = importer.Register("docker+image", flags, NewImporter)
 }
 
 type Importer struct {
