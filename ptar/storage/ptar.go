@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/url"
 	"os"
 	"strings"
@@ -252,28 +253,27 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return fi.Size(), nil
 }
 
-func (s *Store) List(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
-	switch res {
-	case integration.StorageResourceState:
-		if s.mode&integration.ModeWrite != 0 {
-			return []integration.MAC{}, nil
+func (s *Store) List(ctx context.Context, res integration.StorageResource, flags integration.StorageFlag) iter.Seq2[integration.Resource, error] {
+	return func(yield func(integration.Resource, error) bool) {
+		switch res {
+		case integration.StorageResourceState:
+			if s.mode&integration.ModeWrite != 0 {
+				yield(integration.Resource{}, nil)
+				return
+			}
+			yield(integration.Resource{MAC: stateMAC}, nil)
+		case integration.StorageResourcePackfile:
+			yield(integration.Resource{MAC: packfileMAC}, nil)
+		case integration.StorageResourceLock:
+			yield(integration.Resource{}, nil)
+		default:
+			yield(integration.Resource{}, errors.ErrUnsupported)
 		}
-
-		return []integration.MAC{
-			stateMAC,
-		}, nil
-	case integration.StorageResourcePackfile:
-		return []integration.MAC{
-			packfileMAC,
-		}, nil
-	case integration.StorageResourceLock:
-		return []integration.MAC{}, nil
 	}
 
-	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res integration.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flags integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
 	case integration.StorageResourceState:
 		if s.mode&integration.ModeWrite == 0 {
@@ -311,7 +311,7 @@ func (s *Store) Put(ctx context.Context, res integration.StorageResource, mac in
 	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res integration.StorageResource, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, flags integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
 	case integration.StorageResourceState:
 		if mac != stateMAC {
@@ -331,7 +331,7 @@ func (s *Store) Get(ctx context.Context, res integration.StorageResource, mac in
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(context.Context, integration.StorageResource, integration.MAC) error {
+func (s *Store) Delete(context.Context, integration.StorageResource, integration.StorageFlag, integration.MAC) error {
 	if s.mode&integration.ModeWrite == 0 {
 		return storage.ErrNotWritable
 	}
