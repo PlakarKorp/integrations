@@ -25,10 +25,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/s3/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
@@ -36,17 +35,13 @@ import (
 )
 
 type S3Exporter struct {
-	opts        *connectors.Options
+	opts        *integration.Options
 	minioClient *minio.Client
 	rootDir     string
 	host        string
 	bucket      string
 	restoreDir  string
 	ssec        encrypt.ServerSide
-}
-
-func init() {
-	exporter.Register("s3", 0, NewS3Exporter)
 }
 
 func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
@@ -84,7 +79,7 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 	return client, nil
 }
 
-func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewS3Exporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	target := config["location"]
 	var accessKey string
 	if tmp, ok := config["access_key"]; ok {
@@ -234,7 +229,7 @@ func (p *S3Exporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (p *S3Exporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	g, ctx := errgroup.WithContext(ctx)

@@ -30,11 +30,9 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/s3/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 type S3Importer struct {
@@ -44,10 +42,6 @@ type S3Importer struct {
 	host    string
 	scanDir string
 	ssec    encrypt.ServerSide
-}
-
-func init() {
-	importer.Register("s3", 0, NewS3Importer)
 }
 
 func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
@@ -82,7 +76,7 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 	return client, nil
 }
 
-func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewS3Importer(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	target := config["location"]
 
 	var accessKey string
@@ -224,7 +218,7 @@ func (p *S3Importer) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *S3Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	defer close(records)
 
 	listopts := minio.ListObjectsOptions{
@@ -244,7 +238,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			continue
 		}
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:    path.Base("/" + object.Key),
 			Lsize:    object.Size,
 			Lmode:    0o700,
@@ -252,7 +246,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			Ldev:     1,
 		}
 
-		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
+		records <- integration.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
 			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
 		})
 	}
