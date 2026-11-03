@@ -332,7 +332,7 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 				return -1, fmt.Errorf("failed to create temp file: %w", err)
 			}
 			defer func() { _ = os.Remove(fp.Name()) }()
-			defer fp.Close()
+			defer func() { _ = fp.Close() }()
 
 			n, err := io.Copy(fp, rd)
 			if err != nil {
