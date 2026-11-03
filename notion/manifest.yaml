@@ -1,4 +1,5 @@
 name: notion
+display_name: Notion
 description: notion backend
 version: v1.0.0-beta.2
 connectors:
