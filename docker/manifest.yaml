@@ -1,10 +1,9 @@
 name: docker
 display_name: Docker
 description: Integration providing import capabilities from Docker images.
-version: v.1.0.0-beta
+homepage: https://github.com/PlakarKorp/integrations/tree/main/docker
+license: ISC
 connectors:
 - type: importer
   executable: dockerImporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/docker
-  license: ISC
   protocols: [docker]
