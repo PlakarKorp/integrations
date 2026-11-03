@@ -3,6 +3,7 @@ package etcd
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -49,7 +50,7 @@ func etcdTLS(config map[string]string) (*tls.Config, error) {
 	}
 
 	if (certFile == "") != (keyFile == "") {
-		return nil, fmt.Errorf("cert_file and key_file must be given together")
+		return nil, errors.New("cert_file and key_file must be given together")
 	}
 	if certFile != "" {
 		pair, err := tls.LoadX509KeyPair(certFile, keyFile)
