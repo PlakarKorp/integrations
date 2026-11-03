@@ -4,16 +4,14 @@ description: Integration providing import and export capabilities to and from SM
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
+homepage: https://github.com/PlakarKorp/integrations/tree/main/smb
+license: ISC
 connectors:
 - type: importer
   executable: smbImporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/smb
-  license: ISC
   protocols: [smb]
   validator: ./importer/schema.json
 - type: exporter
   executable: smbExporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/smb
-  license: ISC
   protocols: [smb]
   validator: ./exporter/schema.json
