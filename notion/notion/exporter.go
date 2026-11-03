@@ -206,13 +206,16 @@ func (n *NotionExporter) storeFile(dest string, fp io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", dest, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := io.Copy(f, fp); err != nil {
 		return fmt.Errorf("failed to copy data to file %s: %w", dest, err)
 	}
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file %s: %w", dest, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close file %s: %w", dest, err)
 	}
 	return nil
 }
