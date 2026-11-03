@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -18,7 +19,7 @@ func SplitVirtualHost(hostname, endpoint string) (bucket, host string, err error
 	endpoint = strings.TrimPrefix(endpoint, ".")
 
 	if endpoint == "" {
-		return "", "", fmt.Errorf("empty endpoint")
+		return "", "", errors.New("empty endpoint")
 	}
 
 	bucket = strings.TrimSuffix(hostname, "."+endpoint) // foo.bar.com. -> foo.bar.com

@@ -71,7 +71,7 @@ func (r *RetryReader) Read(p []byte) (int, error) {
 			return n, err
 		}
 
-		r.rc.Close()
+		_ = r.rc.Close()
 		r.rc = nil
 
 		if r.pastEnd(err) {
@@ -121,7 +121,8 @@ func retryable(err error) bool {
 	var resp minio.ErrorResponse
 	if errors.As(err, &resp) {
 		switch resp.StatusCode {
-		case 408, 429, 500, 502, 503, 504:
+		case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError,
+			http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 			return true
 		}
 		return false

@@ -54,7 +54,7 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("s3", 0, NewStore)
+	_ = storage.Register("s3", 0, NewStore)
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -72,7 +72,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["use_tls"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid use_tls value")
+			return nil, errors.New("invalid use_tls value")
 		}
 		useSsl = tmp
 	}
@@ -81,7 +81,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["tls_insecure_no_verify"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+			return nil, errors.New("invalid tls_insecure_no_verify value")
 		}
 		insecure = tmp
 	}
@@ -90,7 +90,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["storage_class"]; ok {
 		storageClass = strings.ToUpper(value)
 		if storageClass != "STANDARD" && storageClass != "REDUCED_REDUNDANCY" && storageClass != "STANDARD_IA" && storageClass != "ONEZONE_IA" && storageClass != "INTELLIGENT_TIERING" && storageClass != "GLACIER" && storageClass != "GLACIER_IR" && storageClass != "DEEP_ARCHIVE" {
-			return nil, fmt.Errorf("invalid storage_class value")
+			return nil, errors.New("invalid storage_class value")
 		}
 	}
 
@@ -98,7 +98,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["virtual_host"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid virtual_host value")
+			return nil, errors.New("invalid virtual_host value")
 		}
 		virtualHost = tmp
 	}
@@ -140,7 +140,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	var bucket, prefixDir, host string
 	if virtualHost {
 		if endpoint == "" {
-			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
+			return nil, errors.New("missing endpoint when virtual_host=true")
 		}
 
 		bucket, host, err = common.SplitVirtualHost(u.Host, endpoint)
@@ -168,7 +168,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	if bucket == "" || host == "" {
-		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
+		return nil, errors.New("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if !strings.HasPrefix(prefixDir, "/") {
@@ -246,7 +246,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 			return fmt.Errorf("stat object CONFIG: %w", err)
 		}
 	} else {
-		return fmt.Errorf("bucket already initialized")
+		return errors.New("bucket already initialized")
 	}
 
 	if err := s.checkObjectLockHistory(ctx); err != nil {
@@ -311,7 +311,7 @@ func (s *Store) checkObjectLockHistory(ctx context.Context) error {
 	if object.Err != nil {
 		return fmt.Errorf("list CONFIG versions: %w", object.Err)
 	}
-	return fmt.Errorf("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
+	return errors.New("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
@@ -320,7 +320,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("error checking if bucket exists: %w", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("bucket does not exist")
+		return nil, errors.New("bucket does not exist")
 	}
 
 	object := common.NewRetryReader(ctx, -1, func(offset int64) (io.ReadCloser, error) {
@@ -332,7 +332,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		}
 		return s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), opts)
 	})
-	defer object.Close()
+	defer func() { _ = object.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(object, maxConfigSize+1))
 	if err != nil {
@@ -351,7 +351,7 @@ func (p *Store) Ping(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("bucket does not exist")
+		return errors.New("bucket does not exist")
 	}
 	return nil
 }

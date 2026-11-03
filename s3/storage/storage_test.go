@@ -84,7 +84,9 @@ func page(macHex string, token string) string {
 func TestList(t *testing.T) {
 	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(page(strings.Repeat("ab", 32), "")))
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), ""))); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
@@ -105,10 +107,14 @@ func TestListErrorMidListing(t *testing.T) {
 		w.Header().Set("Content-Type", "application/xml")
 		if r.URL.Query().Get("continuation-token") != "" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(listError))
+			if _, err := w.Write([]byte(listError)); err != nil {
+				t.Fatal(err)
+			}
 			return
 		}
-		w.Write([]byte(page(strings.Repeat("ab", 32), "next")))
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), "next"))); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
@@ -148,7 +154,9 @@ func TestGetReusesConnections(t *testing.T) {
 		w.Header().Set("ETag", `"etag"`)
 		w.Header().Set("Content-Range", "bytes 0-3/4")
 		w.WriteHeader(http.StatusPartialContent)
-		w.Write([]byte("data"))
+		if _, err := w.Write([]byte("data")); err != nil {
+			t.Fatal(err)
+		}
 	}))
 	var dials atomic.Int64
 	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
@@ -188,7 +196,7 @@ func TestGetReusesConnections(t *testing.T) {
 					t.Errorf("Get: %v", err)
 					return
 				}
-				defer rd.Close()
+				defer func() { _ = rd.Close() }()
 				if _, err := io.ReadAll(rd); err != nil {
 					t.Errorf("read: %v", err)
 				}
@@ -209,7 +217,9 @@ func TestOpenRejectsOversizedConfig(t *testing.T) {
 		case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/bucket/CONFIG":
-			w.Write(data)
+			if _, err := w.Write(data); err != nil {
+				t.Fatal(err)
+			}
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -293,13 +303,19 @@ func TestCreateObjectLockHistoryCheck(t *testing.T) {
 				w.Header().Set("Content-Type", "application/xml")
 				switch {
 				case r.URL.Query().Has("object-lock") && tt.lockEnabled:
-					w.Write([]byte(objectLockEnabledXML))
+					if _, err := w.Write([]byte(objectLockEnabledXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.URL.Query().Has("object-lock"):
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(objectLockNotFoundXML))
+					if _, err := w.Write([]byte(objectLockNotFoundXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.URL.Query().Has("versions"):
 					listCalled = true
-					w.Write([]byte(tt.versionsXML))
+					if _, err := w.Write([]byte(tt.versionsXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.Method == http.MethodPut:
 					w.WriteHeader(http.StatusOK)
 				default:
@@ -330,11 +346,13 @@ func TestCreateObjectLockUnsupported(t *testing.T) {
 		case r.URL.Query().Has("object-lock"):
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusNotImplemented)
-			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+			if _, err := w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <Error>
 	<Code>NotImplemented</Code>
 	<Message>Unimplemented action: GetObjectLockConfiguration</Message>
-</Error>`))
+</Error>`)); err != nil {
+				t.Fatal(err)
+			}
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusOK)
 		default:
