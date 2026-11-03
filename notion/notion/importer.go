@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,7 +40,7 @@ type NotionImporter struct {
 func NewNotionImporter(ctx context.Context, options *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
 	token, ok := config["token"]
 	if !ok {
-		return nil, fmt.Errorf("missing token in config")
+		return nil, errors.New("missing token in config")
 	}
 
 	return &NotionImporter{
@@ -124,7 +125,7 @@ func (p *NotionImporter) Import(ctx context.Context, records chan<- *connectors.
 			select {
 			case record = <-p.notionChan:
 				// process the record
-				if record.EOF == true {
+				if record.EOF {
 					p.nReader--
 					continue
 				}
@@ -235,18 +236,16 @@ func (p *NotionImporter) NewReader(pathname string) (io.ReadCloser, error) {
 	var rd io.Reader
 	var err error
 
-	if name == "page.json" {
+	switch name {
+	case "page.json":
 		rd, err = NewNotionReaderFile(p.token, id, path.Dir(pathname), p.notionChan)
-	} else if name == "blocks.json" {
+	case "blocks.json":
 		rd, err = NewNotionReaderBlocks(p.token, id, path.Dir(pathname), p.notionChan)
-	} else if name == "database.json" {
+	case "database.json":
 		rd, err = NewNotionReaderDatabase(p.token, id)
 		p.nReader-- // This counter is used to track the number of readers that can produce records, databases can't.
-	} else if name == "content.json" {
-		for {
-			if len(p.done) == 1 {
-				break
-			}
+	case "content.json":
+		for len(p.done) != 1 {
 			time.Sleep(10 * time.Millisecond)
 		}
 		buff := make([]byte, 0)
@@ -265,7 +264,7 @@ func (p *NotionImporter) NewReader(pathname string) (io.ReadCloser, error) {
 		}
 		p.topLevelPagesMtx.RUnlock()
 		rd = bytes.NewReader(buff)
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported file type: %s", name)
 	}
 

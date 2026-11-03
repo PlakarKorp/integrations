@@ -53,7 +53,7 @@ func (p *NotionImporter) fetchAllPages(cursor string, results chan<- *connectors
 	}
 	bodyJSON, _ := json.Marshal(bodyMap)
 
-	req, err := http.NewRequest("POST", notionSearchURL, bytes.NewBuffer(bodyJSON))
+	req, err := http.NewRequest(http.MethodPost, notionSearchURL, bytes.NewBuffer(bodyJSON))
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (p *NotionImporter) fetchAllPages(cursor string, results chan<- *connectors
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("notion returned status code %d", resp.StatusCode)

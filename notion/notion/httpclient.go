@@ -1,6 +1,7 @@
 package notion
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,7 +32,7 @@ func fetchAttachment(rawurl string) (*http.Response, error) {
 		Timeout: Client.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
+				return errors.New("too many redirects")
 			}
 			return checkAttachmentURL(req.URL.String())
 		},
@@ -52,7 +53,7 @@ func checkAttachmentURL(rawurl string) error {
 
 	host := u.Hostname()
 	if host == "" {
-		return fmt.Errorf("attachment URL has no host")
+		return errors.New("attachment URL has no host")
 	}
 
 	// Only literal addresses can be checked without resolving; a name that

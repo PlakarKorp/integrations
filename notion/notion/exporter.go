@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -72,11 +73,11 @@ func normalizeUUID(id string) string {
 func NewNotionExporter(ctx context.Context, options *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	token, ok := config["token"]
 	if !ok {
-		return nil, fmt.Errorf("missing token in config")
+		return nil, errors.New("missing token in config")
 	}
 	rootID, ok := config["rootID"]
 	if !ok {
-		return nil, fmt.Errorf("missing rootID in config")
+		return nil, errors.New("missing rootID in config")
 	}
 	rootID = normalizeUUID(rootID)
 
@@ -87,7 +88,7 @@ func NewNotionExporter(ctx context.Context, options *connectors.Options, name st
 
 	root, err := os.OpenRoot(tempDir)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to open staging directory: %w", err)
 	}
 
@@ -237,7 +238,7 @@ func (n *NotionExporter) makeRequest(method, url string, payload []byte) (map[st
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		DebugResponse(resp)
@@ -253,7 +254,7 @@ func (n *NotionExporter) makeRequest(method, url string, payload []byte) (map[st
 }
 
 func (n *NotionExporter) createPage(payload []byte) (string, error) {
-	url := fmt.Sprintf("%s/pages", NotionURL)
+	url := NotionURL + "/pages"
 	jsonData, err := n.makeRequest("POST", url, payload)
 	if err != nil {
 		return "", err
@@ -262,7 +263,7 @@ func (n *NotionExporter) createPage(payload []byte) (string, error) {
 }
 
 func (n *NotionExporter) createDatabase(payload []byte) (string, error) {
-	url := fmt.Sprintf("%s/databases", NotionURL)
+	url := NotionURL + "/databases"
 	jsonData, err := n.makeRequest("POST", url, payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to create database: %w", err)
@@ -286,7 +287,7 @@ func loadJSONFromFile(filePath string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open %s: %w", filePath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var data map[string]any
 	if err := json.NewDecoder(f).Decode(&data); err != nil {
@@ -379,17 +380,18 @@ func (n *NotionExporter) addAllBlocks(jsonData []map[string]any, newID, pathTo s
 			continue
 		}
 
-		if block["type"] == "child_page" {
+		switch block["type"] {
+		case "child_page":
 			err := n.exportPageFromFile(path.Join(dir, "page.json"), "page_id", newID)
 			if err != nil {
 				return fmt.Errorf("failed to export child page: %w", err)
 			}
-		} else if block["type"] == "child_database" {
+		case "child_database":
 			err := n.exportDatabaseFromFile(path.Join(dir, "database.json"), "page_id", newID)
 			if err != nil {
 				return fmt.Errorf("failed to export child database: %w", err)
 			}
-		} else { //standard block
+		default: //standard block
 			payload := map[string]any{
 				"children": []any{
 					block,
@@ -410,7 +412,7 @@ func (n *NotionExporter) addAllBlocks(jsonData []map[string]any, newID, pathTo s
 				if err != nil {
 					return fmt.Errorf("failed to open %s: %w", pathname, err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 
 				var data []map[string]any
 				if err := json.NewDecoder(f).Decode(&data); err != nil {
@@ -453,7 +455,7 @@ func (n *NotionExporter) export() error {
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", pathname, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var jsonData []map[string]any
 	if err := json.NewDecoder(file).Decode(&jsonData); err != nil {
@@ -463,18 +465,19 @@ func (n *NotionExporter) export() error {
 	for _, entry := range jsonData {
 		dir := path.Join(n.tempDir, entry["id"].(string))
 
-		if entry["object"] == "page" {
+		switch entry["object"] {
+		case "page":
 			err := n.exportPageFromFile(path.Join(dir, "page.json"), "page_id", n.rootID)
 			if err != nil {
 				return fmt.Errorf("failed to export page: %w", err)
 			}
 
-		} else if entry["object"] == "database" {
+		case "database":
 			err := n.exportDatabaseFromFile(path.Join(dir, "database.json"), "page_id", n.rootID)
 			if err != nil {
 				return fmt.Errorf("failed to export database: %w", err)
 			}
-		} else {
+		default:
 			return fmt.Errorf("unsupported object type: %s", entry["object"])
 		}
 	}

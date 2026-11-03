@@ -3,6 +3,7 @@ package notion
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,7 +28,7 @@ type BlockResponse struct {
 }
 
 func fetchFromURL(url, token string) (map[string]any, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -38,7 +39,7 @@ func fetchFromURL(url, token string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to execute request, status code: %d", resp.StatusCode)
@@ -130,7 +131,7 @@ func NewNotionReaderBlocks(token, pageID, path string, recordChan chan<- notionR
 func (nr *NotionReaderBlocks) fetchBlocks() (*BlockResponse, error) {
 	url := fmt.Sprintf("%s/blocks/%s/children?page_size=%d", NotionURL, nr.pageID, PageSize)
 	if nr.cursor != "" {
-		url += fmt.Sprintf("&start_cursor=%s", nr.cursor)
+		url += "&start_cursor=" + nr.cursor
 	}
 
 	rawResponse, err := fetchFromURL(url, nr.token)
@@ -245,17 +246,17 @@ func NewNotionReaderFile(token, pageID, path string, recordChan chan<- notionRec
 func (nrf *NotionReaderFile) Read(p []byte) (int, error) {
 	// Attempt to read from the header reader
 	n, err := nrf.headerReader.Read(p)
-	if n > 0 || err != io.EOF {
+	if n > 0 || !errors.Is(err, io.EOF) {
 		return n, err
 	}
 
 	// Fallback to the block reader
 	n, err = nrf.blockReader.Read(p)
-	if n > 0 || err != io.EOF {
+	if n > 0 || !errors.Is(err, io.EOF) {
 		return n, err
 	}
 
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		p[0] = '}'
 		return 1, io.EOF
 	}
