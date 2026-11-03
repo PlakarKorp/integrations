@@ -17,9 +17,11 @@ import (
 )
 
 type ManifestOptions struct {
-	SchemaOnly bool `json:"schema_only"`
-	DataOnly   bool `json:"data_only"`
-	Compress   bool `json:"compress"`
+	SchemaOnly       bool     `json:"schema_only"`
+	DataOnly         bool     `json:"data_only"`
+	Compress         bool     `json:"compress"`
+	ExcludeTables    []string `json:"exclude_tables,omitempty"`
+	ExcludeTableData []string `json:"exclude_table_data,omitempty"`
 }
 
 type Manifest struct {
@@ -82,11 +84,7 @@ func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- 
 		ServerVersionNum: svNum,
 		Database:         cfg.Database,
 		DumpFormat:       cfg.DumpFormat,
-		Options: &ManifestOptions{
-			SchemaOnly: cfg.Options.SchemaOnly,
-			DataOnly:   cfg.Options.DataOnly,
-			Compress:   cfg.Options.Compress,
-		},
+		Options:          &cfg.Options,
 	}
 
 	m.PgDumpVersion = pgDumpVersion(cfg.PgDumpBin)

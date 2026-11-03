@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgres+aws", location.FLAG_STREAM, NewAWSImporter)
+	importer.Register("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
 }
 
 func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
@@ -44,7 +44,7 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 		cfg["exclude_databases"] = "rdsadmin"
 	}
 
-	imp, err := pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
+	imp, err := pqimporter.NewImporterFromConfigMap(conn, dbPath, "postgresql+aws", opts, cfg)
 	if err != nil {
 		return nil, err
 	}
