@@ -44,7 +44,7 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("sqlite", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
+	_ = storage.Register("sqlite", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -71,11 +71,11 @@ func (s *Store) connect(addr string) error {
 
 	if s.backend == "sqlite" {
 		if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return fmt.Errorf("setting journal_mode=WAL: %w", err)
 		}
 		if _, err := conn.Exec("PRAGMA busy_timeout=2000;"); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return fmt.Errorf("setting busy_timeout: %w", err)
 		}
 	}
@@ -107,7 +107,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 	statement.Exec()
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS states (
@@ -117,7 +117,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 	statement.Exec()
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS packfiles (
@@ -127,7 +127,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 	statement.Exec()
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS locks (
@@ -137,14 +137,14 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 	statement.Exec()
 
 	statement, err = s.conn.Prepare(`INSERT INTO configuration(value) VALUES(?)`)
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	_, err = statement.Exec(config)
 	if err != nil {
@@ -258,7 +258,7 @@ func (s *Store) getStates(context context.Context) ([]objects.MAC, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	macs := make([]objects.MAC, 0)
 	for rows.Next() {
@@ -270,6 +270,9 @@ func (s *Store) getStates(context context.Context) ([]objects.MAC, error) {
 		var mac32 objects.MAC
 		copy(mac32[:], mac)
 		macs = append(macs, mac32)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return macs, nil
 }
@@ -284,7 +287,7 @@ func (s *Store) putState(context context.Context, mac objects.MAC, rd io.Reader)
 	if err != nil {
 		return 0, err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(mac[:], data)
@@ -310,7 +313,7 @@ func (s *Store) deleteState(context context.Context, mac objects.MAC) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(mac[:])
@@ -328,7 +331,7 @@ func (s *Store) getPackfiles(context context.Context) ([]objects.MAC, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	macs := make([]objects.MAC, 0)
 	for rows.Next() {
@@ -340,6 +343,9 @@ func (s *Store) getPackfiles(context context.Context) ([]objects.MAC, error) {
 		var mac32 objects.MAC
 		copy(mac32[:], mac)
 		macs = append(macs, mac32)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return macs, nil
 }
@@ -354,7 +360,7 @@ func (s *Store) putPackfile(context context.Context, mac objects.MAC, rd io.Read
 	if err != nil {
 		return 0, err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(mac[:], data)
@@ -392,7 +398,7 @@ func (s *Store) deletePackfile(context context.Context, mac objects.MAC) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(mac[:])
@@ -409,7 +415,7 @@ func (s *Store) getLocks(context context.Context) ([]objects.MAC, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	ret := make([]objects.MAC, 0)
 	for rows.Next() {
@@ -430,6 +436,9 @@ func (s *Store) getLocks(context context.Context) ([]objects.MAC, error) {
 
 		ret = append(ret, objects.MAC(lockID))
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return ret, nil
 }
@@ -444,7 +453,7 @@ func (s *Store) putLock(context context.Context, lockID objects.MAC, rd io.Reade
 	if err != nil {
 		return 0, err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(hex.EncodeToString(lockID[:]), data)
@@ -470,7 +479,7 @@ func (s *Store) deleteLock(context context.Context, lockID objects.MAC) error {
 	if err != nil {
 		return err
 	}
-	defer statement.Close()
+	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
 	_, err = statement.Exec(hex.EncodeToString(lockID[:]))
