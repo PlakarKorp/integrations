@@ -408,7 +408,7 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 	if err != nil {
 		return "", 0, err
 	}
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
@@ -431,7 +431,7 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 	if err != nil {
 		return "", 0, err
 	}
-	io.Copy(io.Discard, rc)
+	_, _ = io.Copy(io.Discard, rc)
 	_ = resp2.Body.Close()
 
 	// IMPORTANT: many registries return an updated Location (updated _state)
@@ -460,7 +460,7 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 	if err != nil {
 		return "", 0, err
 	}
-	io.Copy(io.Discard, rc3)
+	_, _ = io.Copy(io.Discard, rc3)
 	_ = resp3.Body.Close()
 
 	return digest, size, nil
