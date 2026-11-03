@@ -51,9 +51,9 @@ type Rclone struct {
 }
 
 func init() {
-	importer.Register("rclone", 0, NewImporter)
-	exporter.Register("rclone", 0, NewExporter)
-	storage.Register("rclone", 0, NewStorage)
+	_ = importer.Register("rclone", 0, NewImporter)
+	_ = exporter.Register("rclone", 0, NewExporter)
+	_ = storage.Register("rclone", 0, NewStorage)
 }
 
 func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (*Rclone, error) {
@@ -62,7 +62,7 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 
 	typ := params["rclone_type"]
 	if typ == "" {
-		return nil, fmt.Errorf("missing rclone_type")
+		return nil, errors.New("missing rclone_type")
 	}
 
 	rconfig := make(map[string]string, len(params)-1)
@@ -205,7 +205,7 @@ func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, 
 func (r *Rclone) Create(ctx context.Context, conf []byte) error {
 	_, err := r.fs.NewObject(ctx, "CONFIG")
 	if err == nil {
-		return fmt.Errorf("kloset already initialized")
+		return errors.New("kloset already initialized")
 	}
 	if err != nil && !errors.Is(err, rclonefs.ErrorObjectNotFound) {
 		return fmt.Errorf("failed to check whether CONFIG exists: %w", err)
@@ -246,7 +246,7 @@ func (r *Rclone) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("can't open CONFIG: %w", err)
 	}
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 
 	buf, err := io.ReadAll(rd)
 	if err != nil {
@@ -331,7 +331,7 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 			if err != nil {
 				return -1, fmt.Errorf("failed to create temp file: %w", err)
 			}
-			defer os.Remove(fp.Name())
+			defer func() { _ = os.Remove(fp.Name()) }()
 			defer fp.Close()
 
 			n, err := io.Copy(fp, rd)
