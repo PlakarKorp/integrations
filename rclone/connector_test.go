@@ -166,7 +166,7 @@ func TestImportFileContent(t *testing.T) {
 		}
 		require.NotNil(t, rec.Reader)
 		got, err := io.ReadAll(rec.Reader)
-		rec.Reader.Close()
+		_ = rec.Reader.Close()
 		require.NoError(t, err)
 		assert.Equal(t, "world", string(got))
 		found = true
@@ -213,7 +213,7 @@ func TestExport(t *testing.T) {
 	require.NoError(t, err)
 	rd, err := obj.Open(t.Context())
 	require.NoError(t, err)
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 	got, err := io.ReadAll(rd)
 	require.NoError(t, err)
 	assert.Equal(t, "hello", string(got))
@@ -259,7 +259,7 @@ func TestExportUnsupportedTypeIsAnError(t *testing.T) {
 	}()
 
 	res := <-results
-	assert.ErrorIs(t, res.Err, errors.ErrUnsupported)
+	require.ErrorIs(t, res.Err, errors.ErrUnsupported)
 	require.NoError(t, wait())
 
 	_, err := r.fs.NewObject(t.Context(), "link")
@@ -314,7 +314,6 @@ func TestStoragePutGetRoundtrip(t *testing.T) {
 	}
 
 	for _, res := range resources {
-		res := res
 		t.Run(res.String(), func(t *testing.T) {
 			r := newRclone(t)
 			mac := objects.RandomMAC()
@@ -326,7 +325,7 @@ func TestStoragePutGetRoundtrip(t *testing.T) {
 
 			rd, err := r.Get(t.Context(), res, mac, nil)
 			require.NoError(t, err)
-			defer rd.Close()
+			defer func() { _ = rd.Close() }()
 			got, err := io.ReadAll(rd)
 			require.NoError(t, err)
 			assert.Equal(t, data, got)
@@ -345,7 +344,7 @@ func TestStoragePutGetRange(t *testing.T) {
 	rg := &storage.Range{Offset: 2, Length: 5}
 	rd, err := r.Get(t.Context(), storage.StorageResourcePackfile, mac, rg)
 	require.NoError(t, err)
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 	got, err := io.ReadAll(rd)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("23456"), got)

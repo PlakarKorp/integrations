@@ -32,7 +32,7 @@ func (m *mapconfig) Save() error                    { return nil }
 func (m *mapconfig) Serialize() (string, error)     { return "", nil }
 func (m *mapconfig) GetSectionList() []string       { return []string{m.name} }
 func (m *mapconfig) HasSection(section string) bool { return section == m.name }
-func (m *mapconfig) DeleteSection(section string)   { return }
+func (m *mapconfig) DeleteSection(section string)   {}
 
 func (m *mapconfig) GetKeyList(section string) []string {
 	if section != m.name {
