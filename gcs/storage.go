@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	storage.Register("gs", 0, NewStore)
+	_ = storage.Register("gs", 0, NewStore)
 }
 
 type gcsStore struct {
@@ -124,7 +124,7 @@ func (g *gcsStore) Create(ctx context.Context, config []byte) error {
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("repository already exists")
+	return errors.New("repository already exists")
 }
 
 func (g *gcsStore) Open(ctx context.Context) ([]byte, error) {
@@ -136,7 +136,7 @@ func (g *gcsStore) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 
 	data, err := io.ReadAll(rd)
 	if err != nil {
@@ -197,7 +197,7 @@ func (g *gcsStore) List(ctx context.Context, res storage.StorageResource) (ret [
 	it := g.bucket.Objects(ctx, query)
 	for {
 		obj, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -228,9 +228,9 @@ func (g *gcsStore) Put(ctx context.Context, res storage.StorageResource, mac obj
 	name := fmt.Sprintf("%s/%02x/%016x", prefix, mac[0], mac)
 	w := g.bucket.Object(g.realpath(name)).NewWriter(ctx)
 
-	len, err := io.Copy(w, rd)
+	n, err := io.Copy(w, rd)
 	if err != nil {
-		w.Close()
+		_ = w.Close()
 		return 0, fmt.Errorf("failed to write %s object: %w", res, err)
 	}
 
@@ -238,7 +238,7 @@ func (g *gcsStore) Put(ctx context.Context, res storage.StorageResource, mac obj
 		return 0, fmt.Errorf("failed to write %s object: %w", res, err)
 	}
 
-	return len, nil
+	return n, nil
 }
 
 func (g *gcsStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, r *storage.Range) (io.ReadCloser, error) {
