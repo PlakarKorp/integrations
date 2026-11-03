@@ -16,9 +16,9 @@ import (
 )
 
 func init() {
-	importer.Register("etcd", 0, NewImporter)
-	importer.Register("etcd+http", 0, NewImporter)
-	importer.Register("etcd+https", 0, NewImporter)
+	_ = importer.Register("etcd", 0, NewImporter)
+	_ = importer.Register("etcd+http", 0, NewImporter)
+	_ = importer.Register("etcd+https", 0, NewImporter)
 }
 
 type etcd struct {
