@@ -108,7 +108,9 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 	defer func() { _ = statement.Close() }()
-	statement.Exec()
+	if _, err := statement.Exec(); err != nil {
+		return err
+	}
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS states (
 		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -118,7 +120,9 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 	defer func() { _ = statement.Close() }()
-	statement.Exec()
+	if _, err := statement.Exec(); err != nil {
+		return err
+	}
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS packfiles (
 		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -128,7 +132,9 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 	defer func() { _ = statement.Close() }()
-	statement.Exec()
+	if _, err := statement.Exec(); err != nil {
+		return err
+	}
 
 	statement, err = s.conn.Prepare(`CREATE TABLE IF NOT EXISTS locks (
 		mac	VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -138,7 +144,9 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 	defer func() { _ = statement.Close() }()
-	statement.Exec()
+	if _, err := statement.Exec(); err != nil {
+		return err
+	}
 
 	statement, err = s.conn.Prepare(`INSERT INTO configuration(value) VALUES(?)`)
 	if err != nil {
