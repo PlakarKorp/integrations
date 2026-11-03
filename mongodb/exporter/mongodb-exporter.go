@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -60,7 +61,7 @@ type mongodbExporter struct {
 }
 
 func init() {
-	exporter.Register("mongodb", 0, NewExporter)
+	_ = exporter.Register("mongodb", 0, NewExporter)
 }
 
 func (e *mongodbExporter) Root() string          { return "/" }
@@ -88,7 +89,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	if len(port) == 0 {
-		port = fmt.Sprintf("%d", defaultMongoDBPort)
+		port = strconv.Itoa(defaultMongoDBPort)
 	}
 
 	var tls_ca_cert string
@@ -101,7 +102,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		ca_cert_data := params["tls_ca_cert_data"]
 		if ca_cert_data != "" {
 			if params["tls_ca_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous CA certificate parameters: " +
+				return nil, errors.New("ambiguous CA certificate parameters: " +
 					"both a CA cert file path and inline PEM CA data have been specified")
 			}
 			ca_cert_file, err = os.CreateTemp("", "plakar-mongodb")
@@ -120,7 +121,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 
 		if cert_data != "" && cert_key != "" {
 			if params["tls_client_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous client certificate parameters: " +
+				return nil, errors.New("ambiguous client certificate parameters: " +
 					"both a client cert file path and inline PEM cert data " +
 					"have been specified")
 			}
@@ -141,7 +142,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 			client_cert_file.Sync()
 			tls_client_cert = client_cert_file.Name()
 		} else if cert_data != "" || cert_key != "" {
-			return nil, fmt.Errorf("tls_client_cert_data and " +
+			return nil, errors.New("tls_client_cert_data and " +
 				"tls_client_key_data must both be specified together")
 		} else {
 			tls_client_cert = params["tls_client_cert"]
@@ -167,8 +168,8 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 
 func cleanupTempFile(f *os.File) {
 	if f != nil {
-		os.Remove(f.Name())
-		f.Close()
+		_ = os.Remove(f.Name())
+		_ = f.Close()
 	}
 }
 
@@ -237,7 +238,7 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		}
 	}
 
-	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
+	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
 }
 
 type commandResult struct {
@@ -402,32 +403,30 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	}()
 
 	var res commandResult
-	for err == nil && res.exit == false {
-		select {
-		case r := <-c:
-			if len(r.stdout) > 0 {
-				res.stdout = append(res.stdout, r.stdout...)
-			}
-			if len(r.stderr) > 0 {
-				res.stderr = append(res.stderr, r.stderr...)
-			}
-			if res.exit == false {
-				res.exit = r.exit
-			}
-			if r.err != nil {
-				err = r.err
-			}
+	for err == nil && !res.exit {
+		r := <-c
+		if len(r.stdout) > 0 {
+			res.stdout = append(res.stdout, r.stdout...)
+		}
+		if len(r.stderr) > 0 {
+			res.stderr = append(res.stderr, r.stderr...)
+		}
+		if !res.exit {
+			res.exit = r.exit
+		}
+		if r.err != nil {
+			err = r.err
 		}
 	}
 
 	if debug && len(res.stdout) > 0 {
 		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
 	}
-	if err != nil && res.exit == true && len(res.stderr) > 0 {
+	if err != nil && res.exit && len(res.stderr) > 0 {
 		if debug {
 			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
 		}
-		err = fmt.Errorf("%s: %s", err, res.stderr)
+		err = fmt.Errorf("%w: %s", err, res.stderr)
 	}
 
 	return err
