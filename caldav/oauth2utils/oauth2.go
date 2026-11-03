@@ -67,8 +67,9 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 
 func saveToken(path string, token *oauth2.Token) {
 	f, _ := os.Create(path)
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
+	// Best effort: without a cached token the user is asked to authorize again.
+	defer func() { _ = f.Close() }()
+	_ = json.NewEncoder(f).Encode(token)
 }
 
 func GetOAuth2Endpoint(provider string) (oauth2.Endpoint, error) {
