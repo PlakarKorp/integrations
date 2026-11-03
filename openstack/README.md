@@ -264,9 +264,18 @@ neither resolves. Security groups are attached by name, as saved, with no
 resolution. Each volume is reattached to its original device (e.g.
 `/dev/vdb`) when the backup recorded one, or left for Nova to pick otherwise.
 
-Each disk's restore image goes through the same temporary Glance upload as
-the volume restore, and is deleted once the server or the volume is created
-from it, or when the exporter closes if a later disk's restore fails first.
+Each disk that ends up as a Cinder volume is restored one of two ways. When
+plakar runs on a Nova server of the same cloud, project and region (found as
+the volume backup finds it) and the disk is raw and unencrypted, as one read
+from a block device is, a new volume is attached to that server, the disk
+written to it and the volume detached, then attached to the restored server;
+nothing goes through Glance. Otherwise, or when the attach fails, the disk is
+uploaded to a temporary Glance image, in the format the backup recorded, and
+the volume created from it. The root disk of a server to spawn always goes
+through Glance, as Nova boots the server from an image. Each restore image
+is deleted once the server or the volume is created from it; when the
+exporter closes because a later step failed, the images left, and the
+volumes written but not yet attached, are deleted.
 
 ### Configuration
 
@@ -282,7 +291,9 @@ create, upload and delete rights, Neutron network read rights, and the Cinder
 rights the volume restore needs, on the target project. Existing-server mode
 needs fewer: no Nova server-create, flavor-read, or network-read rights —
 only Nova volume-attach, Glance image create, upload and delete, and Cinder
-volume create and delete.
+volume create and delete. Writing a volume through the host also needs Nova
+server read and volume detach rights, and root or the `disk` group on the
+host, as reading one does.
 
 ### Usage
 
