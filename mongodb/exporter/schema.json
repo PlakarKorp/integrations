@@ -9,7 +9,7 @@
       "type": "string",
       "minLength": 1,
       "description": "MongoDB server URL",
-      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-\\]+$"
+      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-]+$"
     },
     "port": {
       "type": "integer",
