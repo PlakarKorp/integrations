@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"path"
@@ -211,27 +212,36 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]integration.MAC, error) {
-	uri := "/resources/" + strres(res)
-	r, err := s.sendRequest(ctx, "GET", uri, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Body.Close()
+func (s *Store) List(ctx context.Context, res storage.StorageResource, flags integration.StorageFlag) iter.Seq2[integration.Resource, error] {
+	return func(yield func(integration.Resource, error) bool) {
+		uri := "/resources/" + strres(res)
+		r, err := s.sendRequest(ctx, "GET", uri, nil, nil)
+		if err != nil {
+			yield(integration.Resource{}, err)
+			return
+		}
+		defer r.Body.Close()
 
-	if r.StatusCode != 200 {
-		return nil, fmt.Errorf("%s", errorBody(r))
-	}
+		if r.StatusCode != 200 {
+			yield(integration.Resource{}, fmt.Errorf("%s", errorBody(r)))
+			return
+		}
 
-	var ret []integration.MAC
-	if err := json.NewDecoder(r.Body).Decode(&ret); err != nil {
-		return nil, err
-	} else {
-		return ret, nil
+		var ret []integration.MAC
+		if err := json.NewDecoder(r.Body).Decode(&ret); err != nil {
+			yield(integration.Resource{}, err)
+			return
+		}
+
+		for i := range res {
+			if !yield(integration.Resource{MAC: ret[i]}, nil) {
+				return
+			}
+		}
 	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, flags integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	cr := &countingReader{rc: rd}
 	r, err := s.sendRequest(ctx, "PUT", uri, cr, nil)
@@ -247,7 +257,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integr
 	return cr.n, nil
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, flags integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest(ctx, "GET", uri, nil, rg)
 	if err != nil {
@@ -260,7 +270,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integr
 	return r.Body, nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac integration.MAC) error {
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flags integration.StorageFlag, mac integration.MAC) error {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest(ctx, "DELETE", uri, nil, nil)
 	if err != nil {
