@@ -37,7 +37,7 @@ func TestGencertFingerprintMatchesCertificate(t *testing.T) {
 
 	cert, fp := gencert(t)
 
-	require.Equal(t, 1, len(cert.Certificate), "too many certs generated")
+	require.Len(t, cert.Certificate, 1, "too many certs generated")
 
 	parsed, err := x509.ParseCertificate(cert.Certificate[0])
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestFingerprintRoundTrip(t *testing.T) {
 	_, fp := gencert(t)
 
 	s := Fingerprint(fp)
-	require.Equal(t, 2*sha256.Size, len(s))
+	require.Len(t, s, 2*sha256.Size)
 
 	back, err := ParseFingerprint(s)
 	require.NoError(t, err)
@@ -158,8 +158,8 @@ func exchange(t *testing.T, e pair) (server, client error) {
 	t.Helper()
 
 	cconn, sconn := net.Pipe()
-	defer cconn.Close()
-	defer sconn.Close()
+	defer func() { _ = cconn.Close() }()
+	defer func() { _ = sconn.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -170,9 +170,9 @@ func exchange(t *testing.T, e pair) (server, client error) {
 		err := c.HandshakeContext(ctx)
 		serrc <- err // report before reading, or the caller deadlocks
 		if err == nil {
-			c.SetReadDeadline(time.Now().Add(time.Second))
+			_ = c.SetReadDeadline(time.Now().Add(time.Second))
 			var b [1]byte
-			c.Read(b[:])
+			_, _ = c.Read(b[:])
 		}
 	}()
 
@@ -183,9 +183,9 @@ func exchange(t *testing.T, e pair) (server, client error) {
 		cerrc <- err
 		if err == nil {
 			// keep reading to get the close_notify
-			c.SetReadDeadline(time.Now().Add(time.Second))
+			_ = c.SetReadDeadline(time.Now().Add(time.Second))
 			var b [1]byte
-			c.Read(b[:])
+			_, _ = c.Read(b[:])
 		}
 	}()
 
@@ -267,8 +267,8 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 			cfg.NextProtos = tt.nextProtos
 
 			cconn, sconn := net.Pipe()
-			defer cconn.Close()
-			defer sconn.Close()
+			defer func() { _ = cconn.Close() }()
+			defer func() { _ = sconn.Close() }()
 
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -280,7 +280,7 @@ func TestGRPCNeedsH2InNextProtos(t *testing.T) {
 				}
 				// keep reading to get the close_notify
 				var b [1]byte
-				c.Read(b[:])
+				_, _ = c.Read(b[:])
 			}()
 
 			creds := credentials.NewTLS(ClientTlsConfig(&cliCert, srvFP))

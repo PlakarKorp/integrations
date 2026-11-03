@@ -145,7 +145,7 @@ func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, e
 		return [32]byte{}, fmt.Errorf("failed to read logs of %s/%s: %w",
 			pod.Namespace, pod.Name, err)
 	}
-	defer rc.Close() // aborts the stream once we have what we came for
+	defer func() { _ = rc.Close() }() // aborts the stream once we have what we came for
 
 	scanner := bufio.NewScanner(io.LimitReader(rc, 64*1024))
 	for scanner.Scan() {
@@ -241,7 +241,7 @@ func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) {
 	defer cancel()
 
 	err := k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
-		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
+		Delete(ctx, snap.Name, metav1.DeleteOptions{})
 	if err != nil {
 		log.Printf("failed to delete volumesnapshot %s/%s: %s",
 			snap.Namespace, snap.Name, err)
@@ -582,7 +582,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", dest, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	opts := &connectors.Options{
 		Hostname:        "plakar-pod",
@@ -600,7 +600,7 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the importer: %w", err)
 	}
-	defer importer.Close(ctx)
+	defer func() { _ = importer.Close(ctx) }()
 
 	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
 		if proto == "block" {
@@ -725,7 +725,7 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	proto, path := "fs", fsPath
 	if fp.block {
@@ -749,7 +749,7 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
 	}
-	defer exporter.Close(ctx)
+	defer func() { _ = exporter.Close(ctx) }()
 
 	return exporter.Export(ctx, records, results)
 }

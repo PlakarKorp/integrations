@@ -73,7 +73,7 @@ func (b *Block) Import(ctx context.Context, records chan<- *connectors.Record, r
 
 	size, err := filesize(fp)
 	if err != nil {
-		fp.Close()
+		_ = fp.Close()
 		return fmt.Errorf("failed to get %q size: %w", b.device, err)
 	}
 

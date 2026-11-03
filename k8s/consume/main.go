@@ -76,7 +76,7 @@ func main() {
 	err = progress(context.Background(), importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
 		for record := range records {
 			if results == nil {
-				record.Close()
+				_ = record.Close()
 			} else {
 				results <- record.Ok()
 			}
