@@ -12,7 +12,7 @@ import (
 
 // plakarSHA is the plakar commit installed in the test image.
 // Override via PLAKAR_SHA build arg when rebuilding the image manually.
-const plakarSHA = "main"
+const plakarSHA = "6574a2c153c0b35db2ed98a2490aa9dda86bddbe"
 
 // repoRoot returns the absolute path of the repository root by walking up
 // from this source file.  Reliable regardless of where `go test` is invoked.
