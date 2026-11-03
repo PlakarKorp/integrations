@@ -3,7 +3,6 @@ display_name: SQLite
 homepage: https://github.com/PlakarKorp/integrations/tree/main/sqlite
 license: ISC
 description: Integration providing storage capabilities to SQLite databases.
-version: v1.0.4
 connectors:
 - type: storage
   executable: sqliteStorage
