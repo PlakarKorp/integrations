@@ -36,7 +36,7 @@ func newExporterWithConfig(t *testing.T, root string, extra map[string]string) *
 
 	exp, err := NewFSExporter(t.Context(), &connectors.Options{MaxConcurrency: 1}, "fs", config)
 	require.NoError(t, err)
-	t.Cleanup(func() { exp.Close(context.Background()) })
+	t.Cleanup(func() { _ = exp.Close(context.Background()) })
 
 	return exp.(*FSExporter)
 }

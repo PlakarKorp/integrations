@@ -41,7 +41,7 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("fs", location.FLAG_LOCALFS, NewStore)
+	_ = storage.Register("fs", location.FLAG_LOCALFS, NewStore)
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -78,7 +78,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 			return err
 		}
 	} else {
-		defer dirfp.Close()
+		defer func() { _ = dirfp.Close() }()
 		entries, err := dirfp.Readdir(1)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return err
@@ -115,7 +115,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Close() // do we care about err?
+	defer func() { _ = rd.Close() }() // do we care about err?
 
 	data, err := io.ReadAll(rd)
 	if err != nil {
