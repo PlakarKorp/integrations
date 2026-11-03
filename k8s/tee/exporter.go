@@ -55,14 +55,14 @@ func (e *Exporter) failed(err error) error {
 	if err != nil {
 		return fmt.Errorf("exporter failed: %w", err)
 	}
-	return fmt.Errorf("exporter exited successfully too early")
+	return errors.New("exporter exited successfully too early")
 }
 
 // Push sends a [connectors.Record] to the exporter and returns the
 // result.  It can only fail if the exporter itself failed.
 func (e *Exporter) Push(record *connectors.Record) (*connectors.Result, error) {
 	if e.terminated {
-		return nil, fmt.Errorf("exporter already terminated")
+		return nil, errors.New("exporter already terminated")
 	}
 
 	// attempt to send the record, but catch a concurrent failure.
