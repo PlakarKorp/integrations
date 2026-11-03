@@ -156,7 +156,7 @@ func TestImport(t *testing.T) {
 	require.Equal(t, fs.ModeSymlink, link.FileInfo.Mode().Type())
 
 	b := got["/mod/dir/b.txt"]
-	require.Nil(t, b.Err)
+	require.NoError(t, b.Err)
 	require.Equal(t, "b.txt", b.FileInfo.Name())
 	require.Equal(t, int64(3), b.FileInfo.Size())
 	require.Equal(t, fs.FileMode(0o600), b.FileInfo.Mode())
@@ -236,7 +236,7 @@ func TestImportUnsupportedType(t *testing.T) {
 
 	got := importAll(t, imp)
 	require.Error(t, got["/mod/dir/fifo"].Err)
-	require.Nil(t, got["/mod/dir/b.txt"].Err)
+	require.NoError(t, got["/mod/dir/b.txt"].Err)
 }
 
 func readFile(t *testing.T, snap *snapshot.Snapshot, name string) string {

@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	exporter.Register("rsync", 0, NewExporter)
+	_ = exporter.Register("rsync", 0, NewExporter)
 }
 
 type Exporter struct {
