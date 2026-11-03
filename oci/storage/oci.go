@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	storage.Register("oci", 0, New)
+	_ = storage.Register("oci", 0, New)
 }
 
 type ociStore struct {
@@ -66,7 +66,7 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 		scheme = "http"
 	}
 	if noVerify && insecure {
-		return nil, fmt.Errorf("tls_insecure_no_verify is meaningless with insecure=true (no TLS to verify)")
+		return nil, errors.New("tls_insecure_no_verify is meaningless with insecure=true (no TLS to verify)")
 	}
 
 	u, err := url.Parse(scheme + "://" + loc)
@@ -76,7 +76,7 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 
 	repo := strings.Trim(u.Path, "/")
 	if repo == "" {
-		return nil, fmt.Errorf("need a repo")
+		return nil, errors.New("need a repo")
 	}
 
 	u.Path = ""
@@ -84,7 +84,7 @@ func New(ctx context.Context, name string, config map[string]string) (storage.St
 
 	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok || defaultTransport == nil {
-		return nil, fmt.Errorf("http.DefaultTransport is not a usable *http.Transport")
+		return nil, errors.New("http.DefaultTransport is not a usable *http.Transport")
 	}
 	tr := defaultTransport.Clone()
 
@@ -260,8 +260,12 @@ func (s *ociStore) putByTag(ctx context.Context, tag string, rd io.Reader) (int6
 
 	h := http.Header{}
 	h.Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
-	_, err = s.doRepo(ctx, "PUT", "/manifests/"+tag, bytes.NewReader(body), h)
-	return size, err
+	resp, err := s.doRepo(ctx, "PUT", "/manifests/"+tag, bytes.NewReader(body), h)
+	if err != nil {
+		return size, err
+	}
+	_ = resp.Body.Close()
+	return size, nil
 }
 
 func (s *ociStore) getByTag(ctx context.Context, tag string, extraHeaders http.Header) (io.ReadCloser, error) {
@@ -272,7 +276,7 @@ func (s *ociStore) getByTag(ctx context.Context, tag string, extraHeaders http.H
 	if err != nil {
 		return nil, err
 	}
-	defer manifestRC.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var man ociManifest
 	if err := json.NewDecoder(manifestRC).Decode(&man); err != nil {
@@ -281,11 +285,11 @@ func (s *ociStore) getByTag(ctx context.Context, tag string, extraHeaders http.H
 	_ = resp // may be useful for ETag/digest caching later
 
 	if len(man.Layers) < 1 {
-		return nil, fmt.Errorf("manifest has no layers")
+		return nil, errors.New("manifest has no layers")
 	}
 	layer := man.Layers[0]
 	if layer.Digest == "" {
-		return nil, fmt.Errorf("manifest layer digest missing")
+		return nil, errors.New("manifest layer digest missing")
 	}
 
 	// GET blob by digest (optionally ranged)
@@ -304,8 +308,12 @@ func (s *ociStore) deleteByTag(ctx context.Context, tag string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.doRepo(ctx, "DELETE", "/manifests/"+digest, nil, nil)
-	return err
+	resp, err := s.doRepo(ctx, "DELETE", "/manifests/"+digest, nil, nil)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	return nil
 }
 
 type tagsList struct {
@@ -316,11 +324,11 @@ type tagsList struct {
 func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.MAC, error) {
 	// /v2/<name>/tags/list is spec'd but pagination is registry-dependent.
 	// good enough to start but will need pagination support.
-	rc, _, err := s.doRepoRC(ctx, "GET", "/tags/list", nil, nil)
+	rc, resp, err := s.doRepoRC(ctx, "GET", "/tags/list", nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var tl tagsList
 	if err := json.NewDecoder(rc).Decode(&tl); err != nil {
@@ -387,9 +395,10 @@ func (s *ociStore) headManifestDigest(ctx context.Context, ref string) (string, 
 	if err != nil {
 		return "", err
 	}
+	defer func() { _ = resp.Body.Close() }()
 	d := resp.Header.Get("Docker-Content-Digest")
 	if d == "" {
-		return "", fmt.Errorf("missing Docker-Content-Digest header on HEAD manifest")
+		return "", errors.New("missing Docker-Content-Digest header on HEAD manifest")
 	}
 	return d, nil
 }
@@ -400,11 +409,11 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 		return "", 0, err
 	}
 	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
 	if loc == "" {
-		return "", 0, fmt.Errorf("registry missing Location on upload start")
+		return "", 0, errors.New("registry missing Location on upload start")
 	}
 	uploadURL, err := s.resolveLocation(loc)
 	if err != nil {
@@ -423,7 +432,7 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 		return "", 0, err
 	}
 	io.Copy(io.Discard, rc)
-	rc.Close()
+	_ = resp2.Body.Close()
 
 	// IMPORTANT: many registries return an updated Location (updated _state)
 	if loc2 := resp2.Header.Get("Location"); loc2 != "" {
@@ -438,7 +447,7 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 
 	// Finalize with digest using the *latest* uploadURL
 	sum := h.Sum(nil)
-	digest = "sha256:" + fmt.Sprintf("%x", sum)
+	digest = "sha256:" + hex.EncodeToString(sum)
 
 	finalURL := uploadURL
 	if strings.Contains(finalURL, "?") {
@@ -447,12 +456,12 @@ func (s *ociStore) uploadBlob(ctx context.Context, rd io.Reader) (digest string,
 		finalURL += "?digest=" + url.QueryEscape(digest)
 	}
 
-	rc3, _, err := s.do(ctx, "PUT", finalURL, nil, nil)
+	rc3, resp3, err := s.do(ctx, "PUT", finalURL, nil, nil)
 	if err != nil {
 		return "", 0, err
 	}
 	io.Copy(io.Discard, rc3)
-	rc3.Close()
+	_ = resp3.Body.Close()
 
 	return digest, size, nil
 }
@@ -496,11 +505,9 @@ func (s *ociStore) do(ctx context.Context, method, fullURL string, body io.Reade
 	if err != nil {
 		return nil, nil, err
 	}
-	if headers != nil {
-		for k, vv := range headers {
-			for _, v := range vv {
-				req.Header.Add(k, v)
-			}
+	for k, vv := range headers {
+		for _, v := range vv {
+			req.Header.Add(k, v)
 		}
 	}
 	// Auth
@@ -526,7 +533,7 @@ func (s *ociStore) do(ctx context.Context, method, fullURL string, body io.Reade
 	}
 
 	// Read small error body for debugging
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return nil, resp, fmt.Errorf("oci %s %s: %s: %s", method, fullURL, resp.Status, strings.TrimSpace(string(b)))
 }
