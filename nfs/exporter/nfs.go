@@ -31,7 +31,7 @@ import (
 )
 
 func init() {
-	exporter.Register("nfs", 0, NewExporter)
+	_ = exporter.Register("nfs", 0, NewExporter)
 }
 
 // errUnsupportedType is reported for entries NFSv3-over-RPC cannot reconstruct
