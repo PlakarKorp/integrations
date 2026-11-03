@@ -110,7 +110,7 @@ func newIMAPRepository(t *testing.T, cfg map[string]string) *repository.Reposito
 	serializedConfig, err := st.Open(ctx)
 	require.NoError(t, err, "store Open")
 
-	repo, err := repository.New(ctx, nil, st, serializedConfig)
+	repo, err := repository.NewRepository(ctx, nil, st, serializedConfig, &repository.RepositoryOpts{DoRebuild: true, RWStateCache: true})
 	require.NoError(t, err, "repository.New")
 	return repo
 }
