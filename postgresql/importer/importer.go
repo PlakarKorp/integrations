@@ -26,7 +26,7 @@ import (
 )
 
 func init() {
-	importer.Register("postgres", location.FLAG_STREAM|location.FLAG_NOCACHE, NewImporter)
+	_ = importer.Register("postgres", location.FLAG_STREAM|location.FLAG_NOCACHE, NewImporter)
 }
 
 type Importer struct {
@@ -104,7 +104,7 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, o
 		}
 	}
 	if schemaOnly && dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+		return nil, errors.New("schema_only and data_only are mutually exclusive")
 	}
 
 	var directory bool
@@ -232,14 +232,14 @@ func (p *Importer) canReadPgAuthid(ctx context.Context) bool {
 	if err != nil {
 		return true
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var n int
 	err = db.QueryRowContext(ctx, `SELECT 1 FROM pg_authid LIMIT 1`).Scan(&n)
 	if err == nil {
 		return true
 	}
 	s := err.Error()
-	return !(strings.Contains(s, "permission denied") && strings.Contains(s, "pg_authid"))
+	return !strings.Contains(s, "permission denied") || !strings.Contains(s, "pg_authid")
 }
 
 // noRolePasswordsArgs returns --no-role-passwords appended to args when the
@@ -266,14 +266,14 @@ func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT datname FROM pg_database WHERE datallowconn = true ORDER BY datname`)
 	if err != nil {
 		return nil, fmt.Errorf("list databases: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var names []string
 	for rows.Next() {
