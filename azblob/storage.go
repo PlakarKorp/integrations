@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	storage.Register("azblob", 0, NewStore)
+	_ = storage.Register("azblob", 0, NewStore)
 }
 
 type azblobStore struct {
@@ -82,7 +82,7 @@ func parse(params map[string]string, proto string) (container, prefix, endpoint,
 	}
 
 	if container == "" {
-		return "", "", "", "", "", "", false, false, "", fmt.Errorf("missing container in location")
+		return "", "", "", "", "", "", false, false, "", errors.New("missing container in location")
 	}
 
 	return
@@ -123,7 +123,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 
 	case g.noAuth:
 		if g.endpoint == "" {
-			return fmt.Errorf("no_auth requires endpoint")
+			return errors.New("no_auth requires endpoint")
 		}
 		client, err := azblob.NewClientWithNoCredential(g.endpoint+"/", nil)
 		if err != nil {
@@ -154,7 +154,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 		serviceURL := g.endpoint
 		if serviceURL == "" {
 			if g.accountName == "" {
-				return fmt.Errorf("managed identity requires endpoint or account_name")
+				return errors.New("managed identity requires endpoint or account_name")
 			}
 			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
 		}
@@ -177,7 +177,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 		return nil
 
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
+		return errors.New("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
@@ -204,7 +204,7 @@ func (g *azblobStore) Create(ctx context.Context, config []byte) error {
 	rd, err := g.client.DownloadStream(ctx, g.containerName, cfgName, nil)
 	if err == nil {
 		_ = rd.Body.Close()
-		return fmt.Errorf("repository already exists")
+		return errors.New("repository already exists")
 	}
 	if !bloberror.HasCode(err, bloberror.BlobNotFound) {
 		return err
@@ -223,7 +223,7 @@ func (g *azblobStore) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Body.Close()
+	defer func() { _ = rd.Body.Close() }()
 
 	data, err := io.ReadAll(rd.Body)
 	if err != nil {

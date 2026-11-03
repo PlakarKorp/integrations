@@ -2,6 +2,7 @@ package azblob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -17,7 +18,7 @@ import (
 )
 
 func init() {
-	importer.Register("azblob", 0, NewImporter)
+	_ = importer.Register("azblob", 0, NewImporter)
 }
 
 type azblobImporter struct {
@@ -78,7 +79,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 
 	case g.noAuth:
 		if g.endpoint == "" {
-			return fmt.Errorf("no_auth requires endpoint")
+			return errors.New("no_auth requires endpoint")
 		}
 		client, err := azblob.NewClientWithNoCredential(strings.TrimRight(g.endpoint, "/")+"/", nil)
 		if err != nil {
@@ -109,7 +110,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 		serviceURL := g.endpoint
 		if serviceURL == "" {
 			if g.accountName == "" {
-				return fmt.Errorf("managed identity requires endpoint or account_name")
+				return errors.New("managed identity requires endpoint or account_name")
 			}
 			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
 		}
@@ -132,7 +133,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 		return nil
 
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
+		return errors.New("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
