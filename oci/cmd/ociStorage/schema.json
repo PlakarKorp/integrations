@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar OCI Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^oci://[^/]+/.+$",
+      "description": "OCI registry repository: oci://<host>[:<port>]/<repository>"
+    },
+    "insecure": {
+      "type": "boolean",
+      "default": false,
+      "description": "Talk to the registry over plain HTTP"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "allow_cross_host_uploads": {
+      "type": "boolean",
+      "default": false,
+      "description": "Follow upload locations that point to another host than the registry"
+    }
+  },
+  "not": {
+    "properties": {
+      "insecure": {
+        "const": true
+      },
+      "tls_insecure_no_verify": {
+        "const": true
+      }
+    },
+    "required": [
+      "insecure",
+      "tls_insecure_no_verify"
+    ]
+  }
+}

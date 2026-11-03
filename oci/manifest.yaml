@@ -7,3 +7,4 @@ connectors:
 - type: storage
   executable: bin/ociStorage
   protocols: [oci]
+  validator: ./cmd/ociStorage/schema.json
