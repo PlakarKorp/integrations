@@ -36,9 +36,7 @@ func TestImportReadsTree(t *testing.T) {
 
 	got := map[string]string{}
 	for rec := range records {
-		if !assert.NoError(t, rec.Err, rec.Pathname) {
-			continue
-		}
+		require.NoError(t, rec.Err, rec.Pathname)
 		assert.True(t, rec.FileInfo.Lmode.IsRegular(), "%s: mode %v, want a regular file", rec.Pathname, rec.FileInfo.Lmode)
 		got[rec.Pathname] = readAll(t, rec.Reader)
 	}

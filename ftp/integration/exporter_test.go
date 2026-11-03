@@ -82,7 +82,7 @@ func TestExportWritesTree(t *testing.T) {
 		fileRecord("/sub/b.txt", "bravo"),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "alpha", get(t, c, dir+"/a.txt"))
@@ -115,7 +115,7 @@ func TestExportRestoresPermissions(t *testing.T) {
 		fileRecordMode("/a.txt", "alpha", 0o640),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "555", mode(t, dir+"/ro"))
@@ -140,7 +140,7 @@ func TestExportWithoutPermissions(t *testing.T) {
 		fileRecordMode("/ro/a.txt", "alpha", 0o600),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "alpha", get(t, c, dir+"/ro/a.txt"))
@@ -158,7 +158,7 @@ func TestExportLeavesRootAlone(t *testing.T) {
 
 	errs := export(t, addr, dir+"/", dirRecordMode("/", 0o700))
 
-	assert.NoError(t, errs["/"])
+	require.NoError(t, errs["/"])
 	assert.Equal(t, "750", mode(t, dir))
 }
 
@@ -171,9 +171,9 @@ func TestExportRefusesPathsOutsideRoot(t *testing.T) {
 
 	errs := export(t, addr, dir+"/restore", fileRecord("/../outside.txt", "pwned"))
 
-	assert.Error(t, errs["/../outside.txt"], "record escaping the restore root was accepted")
+	require.Error(t, errs["/../outside.txt"], "record escaping the restore root was accepted")
 	_, err := c.Stat(dir + "/outside.txt")
-	assert.Error(t, err, "outside.txt was written outside the restore root")
+	require.Error(t, err, "outside.txt was written outside the restore root")
 }
 
 // Not parallel: it counts the sessions of the whole server.

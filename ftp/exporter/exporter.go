@@ -37,7 +37,7 @@ import (
 )
 
 func init() {
-	exporter.Register("ftp", 0, NewExporter)
+	_ = exporter.Register("ftp", 0, NewExporter)
 }
 
 type Exporter struct {
