@@ -7,3 +7,4 @@ connectors:
 - type: importer
   executable: dockerImporter
   protocols: [docker+container, docker+image]
+  validator: ./plugin/importer/schema.json

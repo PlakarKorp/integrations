@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Docker Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "pattern": "^docker\\+(container|image)://",
+      "description": "docker+container://<container> or docker+image://<image>; with nothing after ://, a docker save archive is read from stdin"
+    }
+  }
+}
