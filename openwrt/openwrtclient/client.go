@@ -90,7 +90,7 @@ func (b *OpenWRTClient) getSession(ctx context.Context) error {
 		return fmt.Errorf("cannot fetch session id %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("cannot get session %s", resp.Status)
 	}
 
@@ -118,7 +118,7 @@ func (b *OpenWRTClient) getArchive(ctx context.Context) (*BackupFile, error) {
 		return nil, fmt.Errorf("cannot fetch archive %w", err)
 	}
 	// We return the body from here let caller Close himself
-	if response.StatusCode != 200 {
+	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
 		return nil, fmt.Errorf("cannot fetch archive %s", response.Status)
 	}
@@ -132,7 +132,7 @@ func (b *OpenWRTClient) getArchive(ctx context.Context) (*BackupFile, error) {
 	filename, ok := param["filename"]
 	if !ok {
 		_ = response.Body.Close()
-		return nil, fmt.Errorf("no filename")
+		return nil, errors.New("no filename")
 	}
 
 	return &BackupFile{
@@ -308,7 +308,7 @@ func (b *OpenWRTClient) sysupgrade(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("cannot perform sysupgrade %s", resp.Status)
 	}
 
@@ -366,7 +366,7 @@ func (b *OpenWRTClient) rebootDevice(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("cannot perform reboot %s", resp.Status)
 	}
 
