@@ -74,10 +74,14 @@ func writeTempFile(label, content string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s_data: create temp file: %w", label, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := f.WriteString(content); err != nil {
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("%s_data: write temp file: %w", label, err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%s_data: close temp file: %w", label, err)
 	}
 	return f.Name(), nil
 }
