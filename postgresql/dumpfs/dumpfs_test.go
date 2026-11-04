@@ -96,7 +96,7 @@ func TestStreamsFilesAsWritten(t *testing.T) {
 	c.wait(len(want)) // each reader ends on its file's release
 	require.NoError(t, fsys.Unmount())
 	for name, content := range want {
-		assert.NoError(t, c.errs[name], name)
+		require.NoError(t, c.errs[name], name)
 		assert.Equal(t, content, c.files[name], name)
 	}
 }
@@ -128,11 +128,11 @@ func TestRejectsAccessAStreamCannotServe(t *testing.T) {
 	f, err := os.Create(name)
 	require.NoError(t, err)
 	_, err = f.WriteAt([]byte("x"), 10)
-	assert.Error(t, err, "non-sequential write")
+	require.Error(t, err, "non-sequential write")
 	require.NoError(t, f.Close())
 
 	_, err = os.Open(name)
-	assert.Error(t, err, "reopening a written file")
+	require.Error(t, err, "reopening a written file")
 
 	c.wait(1)
 	require.NoError(t, fsys.Unmount())
@@ -159,13 +159,13 @@ func TestAbortFailsUnfinishedFiles(t *testing.T) {
 	r := <-readers
 	fsys.Abort(cause)
 
-	assert.Error(t, <-written)
+	require.Error(t, <-written)
 	_, err = io.ReadAll(r)
-	assert.ErrorIs(t, err, cause)
+	require.ErrorIs(t, err, cause)
 	require.NoError(t, f.Close())
 
 	_, err = os.Create(filepath.Join(dir, "b"))
-	assert.Error(t, err, "file created after abort")
+	require.Error(t, err, "file created after abort")
 	require.NoError(t, fsys.Unmount())
 }
 
@@ -261,9 +261,9 @@ func TestFailedEmitFailsEveryWrite(t *testing.T) {
 	f, err := os.Create(filepath.Join(dir, "a"))
 	require.NoError(t, err)
 	_, err = f.Write([]byte("rows"))
-	assert.Error(t, err, "first write")
+	require.Error(t, err, "first write")
 	_, err = f.Write([]byte("rows"))
-	assert.Error(t, err, "second write")
+	require.Error(t, err, "second write")
 	require.NoError(t, f.Close())
 	require.NoError(t, fsys.Unmount())
 }
