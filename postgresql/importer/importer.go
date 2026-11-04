@@ -125,7 +125,7 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, o
 	}
 	if v, ok := config["parallel_dumps"]; ok && v != "" {
 		if !directory {
-			return nil, fmt.Errorf("parallel_dumps: requires format=directory")
+			return nil, errors.New("parallel_dumps: requires format=directory")
 		}
 		parallelDumps, err = strconv.Atoi(v)
 		if err != nil {
