@@ -533,9 +533,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 			return 0, fmt.Errorf("put %s object: %w", res, err)
 		}
 		return info.Size, nil
+	default:
+		return -1, errors.ErrUnsupported
 	}
-
-	return -1, errors.ErrUnsupported
 }
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
