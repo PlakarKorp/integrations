@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -471,5 +472,20 @@ func TestNewStorePathStyleControlPlaneLocation(t *testing.T) {
 				t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, tt.wantBucket, tt.wantPrefix)
 			}
 		})
+	}
+}
+
+func TestDeleteUnsupportedResource(t *testing.T) {
+	var requests atomic.Int32
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	})
+
+	err := s.Delete(context.Background(), storage.StorageResourceECCPackfile, objects.MAC{})
+	if !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("got %v, want %v", err, errors.ErrUnsupported)
+	}
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("sent %d requests, want none", n)
 	}
 }

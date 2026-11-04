@@ -585,6 +585,8 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 		path = s.realpath(fmt.Sprintf("states/%02x/%016x", mac[0], mac))
 	case storage.StorageResourceLock:
 		path = s.realpath(fmt.Sprintf("locks/%016x", mac))
+	default:
+		return errors.ErrUnsupported
 	}
 
 	err := s.minioClient.RemoveObject(ctx, s.bucket, path, minio.RemoveObjectOptions{})
