@@ -171,7 +171,7 @@ func startJanitor(dir string) (*janitor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start janitor: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	cmd := exec.Command("sh", "-c", janitorScript, dir)
 	cmd.Stdin = r
@@ -179,7 +179,7 @@ func startJanitor(dir string) (*janitor, error) {
 	// group, and the janitor must outlive us.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		w.Close()
+		_ = w.Close()
 		return nil, fmt.Errorf("start janitor: %w", err)
 	}
 	return &janitor{cmd: cmd, pipe: w}, nil
@@ -191,7 +191,7 @@ func (j *janitor) stop(unmounted bool) error {
 	if unmounted {
 		_, _ = fmt.Fprintln(j.pipe, "unmounted")
 	}
-	j.pipe.Close()
+	_ = j.pipe.Close()
 	if err := j.cmd.Wait(); err != nil {
 		return fmt.Errorf("janitor: %w", err)
 	}
