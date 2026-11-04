@@ -111,7 +111,7 @@ func TestEmitsOnFirstWrite(t *testing.T) {
 	assert.Empty(t, c.files, "emitted before the first write")
 	c.mu.Unlock()
 
-	_, err = f.Write([]byte("rows"))
+	_, err = f.WriteString("rows")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
@@ -239,7 +239,7 @@ func TestManyReleasesDoNotBlockAStream(t *testing.T) {
 
 	stream, err := os.Create(filepath.Join(dir, "a"))
 	require.NoError(t, err)
-	_, err = stream.Write([]byte("rows"))
+	_, err = stream.WriteString("rows")
 	require.NoError(t, err)
 
 	for i := range 20 {
@@ -260,9 +260,9 @@ func TestFailedEmitFailsEveryWrite(t *testing.T) {
 
 	f, err := os.Create(filepath.Join(dir, "a"))
 	require.NoError(t, err)
-	_, err = f.Write([]byte("rows"))
+	_, err = f.WriteString("rows")
 	require.Error(t, err, "first write")
-	_, err = f.Write([]byte("rows"))
+	_, err = f.WriteString("rows")
 	require.Error(t, err, "second write")
 	require.NoError(t, f.Close())
 	require.NoError(t, fsys.Unmount())
