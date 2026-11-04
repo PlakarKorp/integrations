@@ -43,7 +43,8 @@ func drainRecords(t *testing.T, imp *FSImporter) []*connectors.Record {
 
 	importDone := make(chan error, 1)
 	go func() {
-		importDone <- imp.Import(context.Background(), records, nil)
+		_, err := imp.Import(context.Background(), records, nil)
+		importDone <- err
 	}()
 
 	var out []*connectors.Record

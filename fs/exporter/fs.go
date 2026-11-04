@@ -165,7 +165,7 @@ type dirPerm struct {
 	Fileinfo objects.FileInfo
 }
 
-func (p *FSExporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
+func (p *FSExporter) Export(ctx context.Context, meta map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 
 	var g errgroup.Group

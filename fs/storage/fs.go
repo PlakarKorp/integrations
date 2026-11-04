@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,20 +154,33 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return size, err
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]integration.MAC, error) {
-	switch res {
-	case storage.StorageResourcePackfile:
-		return s.packfiles.List()
-	case storage.StorageResourceState:
-		return s.states.List()
-	case storage.StorageResourceLock:
-		return s.getLocks(ctx)
+func (s *Store) List(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var m []integration.MAC
+		var err error
+		switch res {
+		case storage.StorageResourcePackfile:
+			m, err = s.packfiles.List()
+		case storage.StorageResourceState:
+			m, err = s.states.List()
+		case storage.StorageResourceLock:
+			m, err = s.getLocks(ctx)
+		default:
+			m, err = nil, errors.ErrUnsupported
+		}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for i := range m {
+			if !yield(&integration.StorageResourceEntry{MAC: m[i]}, nil) {
+				return
+			}
+		}
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
@@ -179,7 +193,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integr
 	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	switch res {
 	case storage.StorageResourcePackfile:
 		var fp io.ReadCloser
@@ -207,7 +221,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integr
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac integration.MAC) error {
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	switch res {
 	case storage.StorageResourcePackfile:
 		return s.packfiles.Remove(mac)

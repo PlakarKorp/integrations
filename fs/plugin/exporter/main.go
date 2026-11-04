@@ -15,7 +15,7 @@ type failingExporter struct {
 	exporter.Exporter
 }
 
-func (failingExporter) Export(context.Context, <-chan *connectors.Record, chan<- *connectors.Result) error {
+func (failingExporter) Export(context.Context, map[string]string, <-chan *connectors.Record, chan<- *connectors.Result) error {
 	return errors.New("fs integration cannot be used in this context")
 }
 

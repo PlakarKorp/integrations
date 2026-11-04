@@ -86,7 +86,7 @@ func run(t *testing.T, exp *FSExporter, recs ...*connectors.Record) []error {
 		}
 	}()
 
-	require.NoError(t, exp.Export(t.Context(), records, results))
+	require.NoError(t, exp.Export(t.Context(), nil, records, results))
 
 	var errs []error
 	for res := range results {
