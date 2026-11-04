@@ -239,7 +239,7 @@ exit 1
 			err := p.dumpDatabases(context.Background(), records, tt.databases)
 			close(records)
 			got := <-files
-			assert.ErrorContains(t, err, "connection lost")
+			require.ErrorContains(t, err, "connection lost")
 			assert.NotContains(t, got, "/00002-good/3001.dat", "dumped the next database")
 		})
 	}
