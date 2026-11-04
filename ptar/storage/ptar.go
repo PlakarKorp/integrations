@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/url"
 	"os"
 	"strings"
@@ -61,9 +62,9 @@ var stateMAC = integration.MAC{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0
 var packfileMAC = integration.MAC{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
 
 func init() {
-	storage.Register("ptar", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
-	storage.Register("ptar+http", location.FLAG_FILE, NewStore)
-	storage.Register("ptar+https", location.FLAG_FILE, NewStore)
+	integration.RegisterStore("ptar", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
+	integration.RegisterStore("ptar+http", location.FLAG_FILE, NewStore)
+	integration.RegisterStore("ptar+https", location.FLAG_FILE, NewStore)
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
@@ -252,28 +253,30 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return fi.Size(), nil
 }
 
-func (s *Store) List(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
-	switch res {
-	case integration.StorageResourceState:
-		if s.mode&integration.ModeWrite != 0 {
-			return []integration.MAC{}, nil
+func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var m integration.MAC
+		switch res {
+		case integration.StorageResourceState:
+			if s.mode&integration.ModeWrite != 0 {
+				return
+			}
+
+			m = stateMAC
+		case integration.StorageResourcePackfile:
+			m = packfileMAC
+		case integration.StorageResourceLock:
+			return
+		default:
+			yield(nil, errors.ErrUnsupported)
+			return
 		}
 
-		return []integration.MAC{
-			stateMAC,
-		}, nil
-	case integration.StorageResourcePackfile:
-		return []integration.MAC{
-			packfileMAC,
-		}, nil
-	case integration.StorageResourceLock:
-		return []integration.MAC{}, nil
+		yield(&integration.StorageResourceEntry{MAC: m}, nil)
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res integration.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
 	case integration.StorageResourceState:
 		if s.mode&integration.ModeWrite == 0 {
@@ -311,7 +314,7 @@ func (s *Store) Put(ctx context.Context, res integration.StorageResource, mac in
 	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res integration.StorageResource, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
 	case integration.StorageResourceState:
 		if mac != stateMAC {
@@ -331,7 +334,7 @@ func (s *Store) Get(ctx context.Context, res integration.StorageResource, mac in
 	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(context.Context, integration.StorageResource, integration.MAC) error {
+func (s *Store) Delete(context.Context, integration.StorageResource, integration.StorageFlag, integration.MAC) error {
 	if s.mode&integration.ModeWrite == 0 {
 		return storage.ErrNotWritable
 	}
