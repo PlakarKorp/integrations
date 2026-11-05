@@ -101,6 +101,8 @@ func TestDeviceNames(t *testing.T) {
 		"virtio-384ba87e-a23e-4965-b",
 		"scsi-0QEMU_QEMU_HARDDISK_384ba87e-a23e-4965-b",
 		"scsi-SQEMU_QEMU_HARDDISK_384ba87e-a23e-4965-b",
+		"scsi-0QEMU_QEMU_HARDDISK_384ba87e-a23e-4965-b3be-8f180e8a8625",
+		"scsi-SQEMU_QEMU_HARDDISK_384ba87e-a23e-4965-b3be-8f180e8a8625",
 	}, names)
 	assert.Equal(t, "virtio-vol-1", deviceNames("vol-1")[0])
 }

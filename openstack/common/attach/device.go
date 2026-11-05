@@ -84,6 +84,8 @@ func deviceNames(volumeID string) []string {
 		"virtio-" + serial,
 		"scsi-0QEMU_QEMU_HARDDISK_" + serial,
 		"scsi-SQEMU_QEMU_HARDDISK_" + serial,
+		"scsi-0QEMU_QEMU_HARDDISK_" + volumeID,
+		"scsi-SQEMU_QEMU_HARDDISK_" + volumeID,
 	}
 }
 
