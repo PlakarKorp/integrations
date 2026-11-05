@@ -339,6 +339,8 @@ func queryRoles(ctx context.Context, db *sql.DB) ([]Role, error) {
 				roles[idx].MemberOf = append(roles[idx].MemberOf, parent)
 			}
 		}
+		// Best effort, like the query error above: memberships are informational.
+		_ = memRows.Err()
 	}
 
 	return roles, nil
