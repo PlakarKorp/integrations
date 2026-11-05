@@ -123,7 +123,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		Lname:    name,
 		Lmode:    0600,
 		Lsize:    -1,
-		LmodTime: time.Unix(0, 0),
+		LmodTime: time.Now(),
 	}, nil, disk.Reader):
 	}
 
@@ -136,7 +136,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		Lname:    block.MetadataName,
 		Lmode:    0600,
 		Lsize:    -1,
-		LmodTime: time.Unix(0, 0),
+		LmodTime: time.Now(),
 	}, nil, common.JSONReader(disk.Metadata)):
 	}
 	return nil
