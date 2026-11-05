@@ -161,9 +161,9 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]integr
 		return s.states.List()
 	case storage.StorageResourceLock:
 		return s.getLocks(ctx)
+	default:
+		return nil, errors.ErrUnsupported
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
@@ -174,9 +174,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integr
 		return s.states.Put(mac, rd)
 	case storage.StorageResourceLock:
 		return s.putLock(ctx, mac, rd)
+	default:
+		return -1, errors.ErrUnsupported
 	}
-
-	return -1, errors.ErrUnsupported
 }
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
@@ -202,9 +202,9 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integr
 		return s.states.Get(mac)
 	case storage.StorageResourceLock:
 		return s.getLock(ctx, mac)
+	default:
+		return nil, errors.ErrUnsupported
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac integration.MAC) error {
@@ -215,9 +215,9 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac int
 		return s.states.Remove(mac)
 	case storage.StorageResourceLock:
 		return s.deleteLock(ctx, mac)
+	default:
+		return errors.ErrUnsupported
 	}
-
-	return errors.ErrUnsupported
 }
 
 func (s *Store) Close(ctx context.Context) error {
