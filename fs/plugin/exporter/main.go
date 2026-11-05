@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	fs "github.com/PlakarKorp/integrations/fs/exporter"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -28,5 +28,5 @@ func failer(ctx context.Context, opts *connectors.Options, name string, config m
 }
 
 func main() {
-	sdk.EntrypointExporter(os.Args, failer)
+	server.EntrypointExporter(failer, os.Args)
 }

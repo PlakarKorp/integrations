@@ -30,16 +30,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
 type FSExporter struct {
-	opts    *connectors.Options
+	opts    *integration.Options
 	rootDir string
 
 	root *os.Root
@@ -57,7 +57,7 @@ func init() {
 	exporter.Register("fs", location.FLAG_LOCALFS, NewFSExporter)
 }
 
-func NewFSExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewFSExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (exporter.Exporter, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
@@ -165,7 +165,7 @@ type dirPerm struct {
 	Fileinfo objects.FileInfo
 }
 
-func (p *FSExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *FSExporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 
 	var g errgroup.Group
@@ -263,7 +263,7 @@ loop:
 	return ret
 }
 
-func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
+func (p *FSExporter) symlink(record *integration.Record, pathname string) error {
 	if err := p.root.Symlink(record.Target, pathname); err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (p *FSExporter) symlink(record *connectors.Record, pathname string) error {
 	return nil
 }
 
-func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error {
+func (p *FSExporter) hardlink(record *integration.Record, pathname string) error {
 	fileinfo := record.FileInfo
 	key := fmt.Sprintf("%d:%d", fileinfo.Dev(), fileinfo.Ino())
 
@@ -316,7 +316,7 @@ func (p *FSExporter) hardlink(record *connectors.Record, pathname string) error 
 	return nil
 }
 
-func (p *FSExporter) file(record *connectors.Record, pathname string) error {
+func (p *FSExporter) file(record *integration.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return p.hardlink(record, pathname)
 	}
@@ -348,7 +348,7 @@ func (p *FSExporter) createTemp(dir string) (*os.File, string, error) {
 	return nil, "", fmt.Errorf("could not create a temporary file in %s", dir)
 }
 
-func (p *FSExporter) writeAtomic(record *connectors.Record, pathname string) error {
+func (p *FSExporter) writeAtomic(record *integration.Record, pathname string) error {
 	tmp, tmpName, err := p.createTemp(filepath.Dir(pathname))
 	if err != nil {
 		return err

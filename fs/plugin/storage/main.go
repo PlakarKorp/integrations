@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	fs "github.com/PlakarKorp/integrations/fs/storage"
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
@@ -52,5 +52,5 @@ func failer(ctx context.Context, name string, config map[string]string) (storage
 }
 
 func main() {
-	sdk.EntrypointStorage(os.Args, failer)
+	server.EntrypointStorage(failer, os.Args)
 }
