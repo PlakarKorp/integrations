@@ -29,7 +29,7 @@ func etcdTLS(config map[string]string) (*tls.Config, error) {
 	}
 
 	if caFile == "" && certFile == "" && keyFile == "" && !noVerify {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a nil config keeps the clientv3 default
 	}
 
 	cfg := &tls.Config{
