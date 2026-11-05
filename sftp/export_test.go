@@ -342,7 +342,7 @@ func TestExport_HardlinkCanonicalOnce(t *testing.T) {
 	// for file() to route through hardlink() (see export.go); a nil read
 	// func would otherwise panic once anything actually reads the lazy
 	// Reader, so provide real content too.
-	content := []byte("hardlinked content")
+	content := []byte("hardlinked content") //nolint:misspell // a hard link, not "hardline"
 	records <- connectors.NewRecord("/hardlink.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(content)), nil
 	})
@@ -791,7 +791,7 @@ func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
 		lnlink uint16
 	}{
 		{name: "regular file", lnlink: 1},
-		{name: "hardlinked file", lnlink: 2},
+		{name: "hardlinked file", lnlink: 2}, //nolint:misspell // a hard link, not "hardline"
 	}
 
 	for _, tc := range cases {
