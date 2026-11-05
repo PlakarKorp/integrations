@@ -1,3 +1,4 @@
+//nolint:misspell // RouterOS is a product name.
 package main
 
 import (
