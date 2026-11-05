@@ -163,7 +163,7 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 
 // Args returns the common connection flags shared by all PostgreSQL client
 // tools: -h host -p port -w, plus -U username when one is configured.
-func (c ConnConfig) Args() []string {
+func (c *ConnConfig) Args() []string {
 	args := []string{"-h", c.Host, "-p", c.Port, "-w"}
 	if c.Username != "" {
 		args = append(args, "-U", c.Username)
@@ -173,7 +173,7 @@ func (c ConnConfig) Args() []string {
 
 // Env returns the current process environment with PostgreSQL authentication
 // and TLS variables injected when configured.
-func (c ConnConfig) Env() []string {
+func (c *ConnConfig) Env() []string {
 	env := os.Environ()
 	if c.Password != "" {
 		env = append(env, "PGPASSWORD="+c.Password)
@@ -195,7 +195,7 @@ func (c ConnConfig) Env() []string {
 }
 
 // DSN builds a PostgreSQL connection string for the given database.
-func (c ConnConfig) DSN(dbname string) string {
+func (c *ConnConfig) DSN(dbname string) string {
 	u := &url.URL{
 		Scheme: "postgresql",
 		Host:   c.Host + ":" + c.Port,
@@ -229,13 +229,13 @@ func (c ConnConfig) DSN(dbname string) string {
 }
 
 // Open returns a *sql.DB connected to the given database.
-func (c ConnConfig) Open(dbname string) (*sql.DB, error) {
+func (c *ConnConfig) Open(dbname string) (*sql.DB, error) {
 	return sql.Open("pgx", c.DSN(dbname))
 }
 
 // Ping verifies connectivity by running a ping against the server.
 // If connectDB is empty, "postgres" is used.
-func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
+func (c *ConnConfig) Ping(ctx context.Context, connectDB string) error {
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
