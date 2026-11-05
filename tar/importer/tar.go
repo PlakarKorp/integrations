@@ -85,16 +85,16 @@ func (t *TarImporter) Root() string          { return "/" }
 func (t *TarImporter) Origin() string        { return t.opts.Hostname }
 func (t *TarImporter) Flags() location.Flags { return flags }
 
-func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
+func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	for {
 		hdr, err := t.tar.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				return err
+				return nil, err
 			}
-			return nil
+			return nil, nil
 		}
 
 		name := path.Join("/", hdr.Name)
@@ -107,7 +107,7 @@ func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Re
 
 		select {
 		case <-t.ctx.Done():
-			return t.ctx.Err()
+			return nil, t.ctx.Err()
 
 		case <-results:
 			// wait for the ack before continuing
