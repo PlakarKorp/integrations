@@ -70,3 +70,9 @@ $ plakar restore -to smb://alice:secret@nas.example.com/restore abc
   Samba resolves such a symlink before answering any query this connector
   can make, so it cannot be detected or refused here. Restore only into a
   destination you know to be free of symlinks you don't control.
+* A restore only writes into the restore root and into directories it created
+  itself, and never over an entry that is already there. The server resolves
+  symlinks on the connector's behalf and, on most Samba versions, hides them
+  from it, so an existing directory cannot be told apart from a symlink to one
+  and a write through it could land anywhere on the share. Restore into an
+  empty directory, and re-run an interrupted restore into a fresh one.
