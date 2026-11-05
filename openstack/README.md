@@ -87,6 +87,10 @@ reads a snapshot's bytes. It then reads the temporary volume one of two ways:
   temporary volume is uploaded to Glance and the image streamed into the
   snapshot.
 
+That is `openstack_disk_transfer=auto`, the default. `attach` fails the backup
+instead of going through Glance when the block device is not to be had, and
+`glance` goes through Glance without trying to attach.
+
 The snapshot, the temporary volume (detached first) and the image, if any, are
 deleted once the disk has been read, or when the importer closes if it never
 is. Each delete is tried once; one that fails is logged with the resource's
@@ -133,6 +137,7 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-block://<volume-id>` |
 | `openstack_region` | The volume's region. Exactly one is required. |
+| `openstack_disk_transfer` | How the volume is read: `auto` (the default) from a block device when plakar runs on a Nova server of the cloud, else through Glance; `attach` from a block device only, failing otherwise; `glance` through Glance only. |
 
 The credential needs Cinder snapshot, volume and upload-to-image rights, and
 Glance download and delete rights, on the volume's project. To read from a
@@ -153,9 +158,21 @@ plakar backup @myvol
 ## Volume restore
 
 The `openstack-block` exporter restores a volume backup into a new Cinder
-volume. It uploads the disk to a temporary Glance image, with the disk format
-recorded in `.METADATA.json`, creates the volume from it, then deletes the
-image. The original volume is never touched, and the new one is left detached.
+volume, one of two ways:
+
+- When plakar runs on a Nova server of the target cloud, project and region,
+  and the disk is raw and in the clear (as one read from a block device is), a
+  new volume is created, attached to that server, the disk written to its
+  block device and the volume detached. Nothing goes through Glance.
+- Otherwise, or when the attach fails, it uploads the disk to a temporary
+  Glance image, with the disk format recorded in `.METADATA.json`, creates the
+  volume from it, then deletes the image.
+
+That is `openstack_disk_transfer=auto`, the default. `attach` fails the restore
+instead of going through Glance when the disk cannot be written through an
+attachment, and `glance` goes through Glance without trying to attach.
+
+The original volume is never touched, and the new one is left detached.
 
 The new volume takes the original's size, type, availability zone, description
 and metadata, and its name, or `plakar-restore-<volume-id>` if it had none. The
@@ -181,9 +198,11 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-block://` or `openstack-block://spawn`, both restoring into a new, detached volume. Naming an existing volume or server is not supported yet. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
+| `openstack_disk_transfer` | How the disk reaches the new volume: `auto` (the default) written through an attachment when plakar runs on a Nova server of the cloud and the disk is raw, else through Glance; `attach` through an attachment only, failing otherwise; `glance` through Glance only. |
 
 The credential needs Glance image create, upload and delete rights, and Cinder
-volume create and delete rights, on the target project.
+volume create and delete rights, on the target project. To write through an
+attachment it also needs Nova server read and volume attach and detach rights.
 
 ### Usage
 
@@ -205,11 +224,17 @@ Boot-from-volume servers are refused: their root disk is a Cinder volume, out
 of scope for this connector.
 
 The root disk is snapshotted into a Glance image directly through Nova, then
-deleted once it has been read, or when the importer closes if it never is; it
-exists in no other form, so it always goes through Glance. Each attached
-volume is read as the `openstack-block` importer reads one, from a block
-device when plakar runs on a Nova server of the cloud and through Glance
-otherwise, with its own cleanup.
+deleted once it has been read, or when the importer closes if it never is.
+When plakar runs on a Nova server of the cloud, the image is materialized as
+a temporary volume, attached to that server and read raw from the block
+device; otherwise it is downloaded from Glance. Each attached volume is read
+as the `openstack-block` importer reads one, from a block device when on the
+cloud and through Glance otherwise, with its own cleanup.
+
+That is `openstack_disk_transfer=auto`, the default. `attach` fails the backup
+instead of going through Glance when a block device is not to be had, for the
+root disk or any volume; `glance` goes through Glance without trying to
+attach.
 
 The snapshot holds:
 
@@ -227,6 +252,7 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-instance://<server-id>` |
 | `openstack_region` | The server's region. Exactly one is required. |
+| `openstack_disk_transfer` | How each disk is read: `auto` (the default) from a block device when plakar runs on a Nova server of the cloud, else through Glance; `attach` from a block device only, failing otherwise; `glance` through Glance only. |
 
 The credential needs Nova server read and snapshot rights, Glance image
 download and delete rights, Neutron network read rights, and the Cinder and
@@ -277,6 +303,11 @@ is deleted once the server or the volume is created from it; when the
 exporter closes because a later step failed, the images left, and the
 volumes written but not yet attached, are deleted.
 
+That is `openstack_disk_transfer=auto`, the default. `attach` fails the
+restore instead of going through Glance when a disk that ends up as a volume
+cannot be written through an attachment; `glance` goes through Glance without
+trying to attach. Neither changes the root disk of a server to spawn.
+
 ### Configuration
 
 The authentication keys of the inventory, plus:
@@ -285,6 +316,7 @@ The authentication keys of the inventory, plus:
 |-----|-------------|
 | `location` | `openstack-instance://` or `openstack-instance://spawn` to restore into a new server, or `openstack-instance://<server-id>` to attach every restored disk to that existing server. |
 | `openstack_region` | The region to restore into. Exactly one is required. |
+| `openstack_disk_transfer` | How each disk that ends up as a volume reaches it: `auto` (the default) written through an attachment when plakar runs on a Nova server of the cloud and the disk is raw, else through Glance; `attach` through an attachment only, failing otherwise; `glance` through Glance only. The root disk of a server to spawn always goes through Glance. |
 
 Spawn mode needs Nova server create and volume-attach rights, Glance image
 create, upload and delete rights, Neutron network read rights, and the Cinder

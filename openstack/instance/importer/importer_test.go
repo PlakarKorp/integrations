@@ -47,14 +47,18 @@ func params(authURL, location string) map[string]string {
 
 // newImporter also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
-// server by accident.
-func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
+// server by accident. transfer, when given, sets openstack_disk_transfer.
+func newImporter(t *testing.T, cloud *keystonetest.Cloud, transfer ...string) importer.Importer {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	imp, err := NewImporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
+	p := params(cloud.AuthURL, "openstack-instance://server-1")
+	if len(transfer) > 0 {
+		p["openstack_disk_transfer"] = transfer[0]
+	}
+	imp, err := NewImporter(t.Context(), nil, instance.Protocol, p)
 	require.NoError(t, err)
 	return imp
 }
@@ -194,6 +198,84 @@ func TestImportReadsAttachedVolumes(t *testing.T) {
 	assert.Empty(t, cloud.Attached())
 	require.NoError(t, imp.Close(t.Context()))
 	assert.Empty(t, cloud.Leftovers())
+}
+
+// openstack_disk_transfer=glance goes through Glance even on a Nova server
+// of the cloud; attach reads the block devices, as auto would there.
+func TestImportTransferOnCloud(t *testing.T) {
+	tests := []struct {
+		transfer     string
+		wantFormat   string
+		wantAttached []string // after Import, before the disks are read
+	}{
+		{transfer: "glance", wantFormat: "qcow2"},
+		{transfer: "attach", wantFormat: "raw", wantAttached: []string{"restored-1", "tmp-3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.transfer, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			fakeServer(cloud) // also answers for the host, as any ACTIVE server
+			cloud.HostID = "host-1"
+			imp := newImporter(t, cloud, tt.transfer)
+
+			records, err := importAll(t.Context(), imp)
+			require.NoError(t, err)
+			require.Len(t, records, 8)
+			assert.Equal(t, tt.wantAttached, cloud.Attached())
+			assert.Equal(t, "/block-storage/glance-image-1/"+block.DiskName("disk", tt.wantFormat), records[4].Pathname)
+			assert.Equal(t, "/block-storage/cinder-vol-1/"+block.DiskName("disk", tt.wantFormat), records[7].Pathname)
+
+			for _, r := range records {
+				if r.FileInfo.IsDir() {
+					continue
+				}
+				_, err := io.ReadAll(r.Reader)
+				require.NoError(t, err, r.Pathname)
+				require.NoError(t, r.Close())
+			}
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, imp.Close(t.Context()))
+			assert.Empty(t, cloud.Leftovers())
+		})
+	}
+}
+
+// openstack_disk_transfer=attach fails rather than fall back to Glance, and
+// leaves nothing behind once the importer is closed.
+func TestImportTransferAttachFails(t *testing.T) {
+	tests := []struct {
+		name             string
+		onCloud          bool
+		failVolumeAttach bool // Nova refuses the attach
+		wantErr          string
+		wantLeft         []string // after Close
+	}{
+		{
+			// Fails at the preflight, before the server is even snapshotted:
+			// the image fakeServer seeds was never the importer's to delete.
+			name:     "off the cloud",
+			wantErr:  "direct attachment: cannot attach to this host",
+			wantLeft: []string{"image-1"},
+		},
+		{name: "attach refused", onCloud: true, failVolumeAttach: true, wantErr: `direct attachment of image "image-1": attaching to server`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			fakeServer(cloud)
+			if tt.onCloud {
+				cloud.HostID = "host-1"
+			}
+			cloud.FailVolumeAttach = tt.failVolumeAttach
+			imp := newImporter(t, cloud, "attach")
+
+			_, err := importAll(t.Context(), imp)
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, imp.Close(t.Context()))
+			assert.Equal(t, tt.wantLeft, cloud.Leftovers())
+		})
+	}
 }
 
 func TestImportRefusesBootFromVolume(t *testing.T) {

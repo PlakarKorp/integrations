@@ -58,14 +58,18 @@ func params(authURL, location string) map[string]string {
 
 // newExporter also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
-// server by accident.
-func newExporter(t *testing.T, cloud *keystonetest.Cloud) exporter.Exporter {
+// server by accident. transfer, when given, sets openstack_disk_transfer.
+func newExporter(t *testing.T, cloud *keystonetest.Cloud, transfer ...string) exporter.Exporter {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	exp, err := NewExporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://"))
+	p := params(cloud.AuthURL, "openstack-block://")
+	if len(transfer) > 0 {
+		p["openstack_disk_transfer"] = transfer[0]
+	}
+	exp, err := NewExporter(t.Context(), nil, block.Protocol, p)
 	require.NoError(t, err)
 	return exp
 }
@@ -331,6 +335,71 @@ func TestExportOnCloudFallsBackToGlance(t *testing.T) {
 			assert.Nil(t, cloud.Written(vol))
 			assert.Empty(t, cloud.Attached())
 			require.NoError(t, exp.Close(t.Context()))
+		})
+	}
+}
+
+// openstack_disk_transfer=glance uploads a disk the host could have taken,
+// without attaching anything.
+func TestExportTransferGlanceOnCloud(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	onCloud(cloud)
+	exp := newExporter(t, cloud, "glance")
+
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, deviceMetadata()), diskRecord(t, "vol-1", "raw"))
+	require.NoError(t, err)
+
+	uploads := cloud.Uploads()
+	require.Len(t, uploads, 1)
+	assert.Equal(t, disk, uploads[0].Data)
+	requests := cloud.VolumeRequests()
+	require.Len(t, requests, 1, "no blank volume was tried")
+	assert.Equal(t, uploads[0].ID, requests[0].ImageID)
+	assert.Empty(t, cloud.Attached())
+	restored(t, cloud)
+	require.NoError(t, exp.Close(t.Context()))
+}
+
+// openstack_disk_transfer=attach writes the disk through an attachment, and
+// fails rather than fall back to Glance when it cannot.
+func TestExportTransferAttach(t *testing.T) {
+	encrypted := volumeMetadata("raw")
+	encrypted.ImageProperties = map[string]string{"cinder_encryption_key_id": "key-1"}
+
+	tests := []struct {
+		name             string
+		metadata         common.DiskMetadata
+		onCloud          bool
+		failVolumeAttach bool // Nova refuses the attach
+		wantErr          string
+	}{
+		{name: "raw disk on the cloud", metadata: deviceMetadata(), onCloud: true},
+		{name: "off the cloud", metadata: deviceMetadata(), wantErr: "direct attachment: cannot attach to this host"},
+		{name: "attach refused", metadata: deviceMetadata(), onCloud: true, failVolumeAttach: true, wantErr: `direct attachment of volume "vol-1": attaching to server`},
+		{name: "qcow2 disk", metadata: volumeMetadata("qcow2"), onCloud: true, wantErr: `direct attachment of volume "vol-1": disk cannot be written to a block device: it is qcow2`},
+		{name: "raw ciphertext", metadata: encrypted, onCloud: true, wantErr: `direct attachment of volume "vol-1": disk cannot be written to a block device: it is encrypted`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			if tt.onCloud {
+				onCloud(cloud)
+			}
+			cloud.FailVolumeAttach = tt.failVolumeAttach
+			cloud.DetachingPolls = 1
+			exp := newExporter(t, cloud, "attach")
+
+			_, err := exportAll(t.Context(), exp, metadataRecord(t, tt.metadata), diskRecord(t, "vol-1", "qcow2"))
+			assert.Empty(t, cloud.Uploads(), "nothing goes through Glance")
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, exp.Close(t.Context()))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, cloud.Leftovers())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, disk, cloud.Written(restored(t, cloud)))
 		})
 	}
 }

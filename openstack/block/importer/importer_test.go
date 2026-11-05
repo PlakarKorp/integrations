@@ -52,14 +52,18 @@ func params(authURL, location string) map[string]string {
 
 // newImporter also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
-// server by accident.
-func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
+// server by accident. transfer, when given, sets openstack_disk_transfer.
+func newImporter(t *testing.T, cloud *keystonetest.Cloud, transfer ...string) importer.Importer {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
+	p := params(cloud.AuthURL, "openstack-block://vol-1")
+	if len(transfer) > 0 {
+		p["openstack_disk_transfer"] = transfer[0]
+	}
+	imp, err := NewImporter(t.Context(), nil, block.Protocol, p)
 	require.NoError(t, err)
 	return imp
 }
@@ -169,6 +173,69 @@ func TestImportReadsAttachedVolume(t *testing.T) {
 	assert.Equal(t, "vol-1", metadata.Volume.ID)
 
 	require.NoError(t, imp.Close(t.Context()))
+}
+
+// openstack_disk_transfer=glance goes through Glance even on a Nova server
+// of the cloud; attach reads the block device, as auto would there.
+func TestImportTransferOnCloud(t *testing.T) {
+	tests := []struct {
+		transfer string
+		wantPath string
+		wantLeft []string // after Import, before the disk is read
+	}{
+		{transfer: "glance", wantPath: "/vol-1.qcow2", wantLeft: []string{"image-3", "snapshot-1", "tmp-2"}},
+		{transfer: "attach", wantPath: "/vol-1.raw", wantLeft: []string{"snapshot-1", "tmp-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.transfer, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			onCloud(cloud)
+			imp := newImporter(t, cloud, tt.transfer)
+
+			records, err := importAll(t.Context(), imp)
+			require.NoError(t, err)
+			require.Len(t, records, 2)
+			assert.Equal(t, tt.wantPath, records[0].Pathname)
+			assert.Equal(t, tt.wantLeft, cloud.Leftovers())
+
+			disk, err := io.ReadAll(records[0].Reader)
+			require.NoError(t, err)
+			assert.Equal(t, cloud.Disk, disk)
+			require.NoError(t, records[0].Close())
+			assert.Empty(t, cloud.Leftovers())
+			require.NoError(t, imp.Close(t.Context()))
+		})
+	}
+}
+
+// openstack_disk_transfer=attach fails rather than fall back to Glance, and
+// leaves nothing behind once the importer is closed.
+func TestImportTransferAttachFails(t *testing.T) {
+	tests := []struct {
+		name             string
+		onCloud          bool
+		failVolumeAttach bool // Nova refuses the attach
+		wantErr          string
+	}{
+		{name: "off the cloud", wantErr: "direct attachment: cannot attach to this host"},
+		{name: "attach refused", onCloud: true, failVolumeAttach: true, wantErr: `direct attachment of volume "vol-1": attaching to server`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			if tt.onCloud {
+				onCloud(cloud)
+			}
+			cloud.FailVolumeAttach = tt.failVolumeAttach
+			imp := newImporter(t, cloud, "attach")
+
+			_, err := importAll(t.Context(), imp)
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, imp.Close(t.Context()))
+			assert.Empty(t, cloud.Leftovers())
+		})
+	}
 }
 
 // Close detaches a clone plakar never read.

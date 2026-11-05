@@ -32,6 +32,8 @@ import (
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
 	"github.com/PlakarKorp/kloset/objects"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
+	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 )
 
 //go:embed schema.json
@@ -40,6 +42,9 @@ var ImporterSchema []byte
 type Importer struct {
 	client   *common.Client
 	volumeID string
+	// transfer is how the volume's bytes are read: from a block device of
+	// the host, through Glance, or whichever works.
+	transfer common.DiskTransfer
 	// cleanup holds the snapshot, temporary volume and its attachment or
 	// image a backup creates. Closing the disk reader runs it; Close runs
 	// whatever is left, for when the reader was never opened.
@@ -58,6 +63,10 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if err != nil {
 		return nil, err
 	}
+	transfer, err := common.ParseDiskTransfer(params["openstack_disk_transfer"])
+	if err != nil {
+		return nil, fmt.Errorf("openstack_disk_transfer: %w", err)
+	}
 	clients, err := common.Connect(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -65,7 +74,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
-	return &Importer{client: clients[0], volumeID: volumeID}, nil
+	return &Importer{client: clients[0], volumeID: volumeID, transfer: transfer}, nil
 }
 
 func (imp *Importer) Origin() string { return imp.volumeID }
@@ -90,12 +99,20 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
-	host, err := imp.client.PreflightHost(ctx)
-	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
+	// The Nova server plakar runs on, to attach the clone to; nil to read it
+	// through Glance. Found before anything is created, so a transfer that
+	// asked for an attachment it cannot have leaves nothing behind.
+	var host *servers.Server
+	if imp.transfer != common.TransferGlance {
+		if host, err = imp.client.PreflightHost(ctx); err != nil {
+			if imp.transfer == common.TransferAttach {
+				return fmt.Errorf("direct attachment: %w", err)
+			}
+			if !errors.Is(err, attach.ErrNotAttachable) {
+				log.Printf("openstack-block: direct attachment unavailable: %v", err)
+			}
+			host = nil
 		}
-		host = nil
 	}
 
 	// Snapshot and clone the volume before choosing whether to attach the
@@ -108,7 +125,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	if err != nil {
 		return err
 	}
-	disk, err := imp.client.ReadCinderDisk(ctx, host, vol, snap, tmp, &imp.cleanup)
+	disk, err := imp.readDisk(ctx, host, tmp, common.CinderDiskMetadata(vol, snap))
 	if err != nil {
 		return err
 	}
@@ -140,6 +157,37 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	}, nil, common.JSONReader(disk.Metadata)):
 	}
 	return nil
+}
+
+// readDisk reads the clone tmp one of two ways. Through host, when there is
+// one, it is attached to that server and read raw from the block device it
+// turns up as. Without one, or when the attach fails and the transfer
+// allows it, it is uploaded to a Glance image and read from there.
+func (imp *Importer) readDisk(ctx context.Context, host *servers.Server, tmp *volumes.Volume, metadata *common.DiskMetadata) (*common.Disk, error) {
+	if host == nil {
+		return imp.glanceDisk(ctx, tmp, metadata)
+	}
+	// NewCinderDisk fails before any of the clone's bytes are read, with
+	// the clone detached again.
+	disk, err := imp.client.NewCinderDisk(ctx, host, tmp, metadata, &imp.cleanup)
+	if err != nil {
+		if imp.transfer == common.TransferAttach {
+			return nil, fmt.Errorf("direct attachment of volume %q: %w", metadata.Volume.ID, err)
+		}
+		log.Printf("openstack-block: volume %q: %v; reading it through Glance", metadata.Volume.ID, err)
+		return imp.glanceDisk(ctx, tmp, metadata)
+	}
+	return disk, nil
+}
+
+// glanceDisk uploads the clone tmp to a Glance image and returns the disk
+// read from it.
+func (imp *Importer) glanceDisk(ctx context.Context, tmp *volumes.Volume, metadata *common.DiskMetadata) (*common.Disk, error) {
+	img, err := imp.client.UploadVolumeImage(ctx, tmp, &imp.cleanup)
+	if err != nil {
+		return nil, err
+	}
+	return imp.client.NewGlanceDisk(ctx, img, metadata, &imp.cleanup), nil
 }
 
 func (imp *Importer) Close(ctx context.Context) error {

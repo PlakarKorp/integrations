@@ -63,6 +63,16 @@
       "type": "string",
       "default": "Default",
       "description": "Domain of the user, and of the project when given by name, for password authentication"
+    },
+    "openstack_disk_transfer": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "attach",
+        "glance"
+      ],
+      "default": "auto",
+      "description": "How the volume's bytes are read: attach reads them raw from a clone attached to the Nova server plakar runs on, and fails when that is not possible; glance uploads the clone to a temporary image and streams that; auto attaches when it can and goes through Glance otherwise"
     }
   },
   "allOf": [

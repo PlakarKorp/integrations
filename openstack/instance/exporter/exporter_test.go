@@ -62,14 +62,18 @@ func params(authURL, location string) map[string]string {
 
 // newExporterAt also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
-// server by accident.
-func newExporterAt(t *testing.T, cloud *keystonetest.Cloud, location string) exporter.Exporter {
+// server by accident. transfer, when given, sets openstack_disk_transfer.
+func newExporterAt(t *testing.T, cloud *keystonetest.Cloud, location string, transfer ...string) exporter.Exporter {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, location))
+	p := params(cloud.AuthURL, location)
+	if len(transfer) > 0 {
+		p["openstack_disk_transfer"] = transfer[0]
+	}
+	exp, err := NewExporter(t.Context(), nil, instance.Protocol, p)
 	require.NoError(t, err)
 	return exp
 }
@@ -541,6 +545,130 @@ func TestExportOnCloudFallsBackToGlance(t *testing.T) {
 			require.NoError(t, exp.Close(t.Context()))
 		})
 	}
+}
+
+// openstack_disk_transfer=glance uploads disks the host could have taken,
+// without attaching anything to it.
+func TestExportTransferGlanceOnCloud(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	onCloud(cloud)
+	fakeExistingServer(cloud, "server-1", hostID)
+	exp := newExporterAt(t, cloud, "openstack-instance://server-1", "glance")
+
+	_, err := exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/cinder-vol-1"),
+		diskMetadataRecord(t, "/block-storage/cinder-vol-1", deviceVolumeMetadata()),
+		rawDiskRecord("/block-storage/cinder-vol-1"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", deviceRootMetadata()),
+		rawDiskRecord("/block-storage/glance-orig-image"),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, cloud.Uploads(), 2, "both disks go through Glance")
+	requests := cloud.VolumeRequests()
+	require.Len(t, requests, 2, "no blank volume was tried")
+	for _, r := range requests {
+		assert.NotEmpty(t, r.ImageID, "the volumes are created from the images")
+	}
+	left := restoredVolumes(t, cloud)
+	require.Len(t, left, 2, "the images are gone")
+	for _, id := range left {
+		assert.Nil(t, cloud.Written(id), id)
+	}
+	assert.Equal(t, left, cloud.Attached(), "attached to the existing server")
+	require.NoError(t, exp.Close(t.Context()))
+}
+
+// openstack_disk_transfer=attach writes every disk through an attachment,
+// and fails rather than fall back to Glance when it cannot.
+func TestExportTransferAttach(t *testing.T) {
+	tests := []struct {
+		name             string
+		metadata         common.DiskMetadata // the data disk's
+		onCloud          bool
+		failVolumeAttach bool // Nova refuses the attach
+		wantErr          string
+	}{
+		{name: "raw disks on the cloud", metadata: deviceVolumeMetadata(), onCloud: true},
+		{name: "off the cloud", metadata: deviceVolumeMetadata(), wantErr: "direct attachment: cannot attach to this host"},
+		{name: "attach refused", metadata: deviceVolumeMetadata(), onCloud: true, failVolumeAttach: true, wantErr: `direct attachment of disk "vol-1": attaching to server`},
+		{name: "qcow2 disk", metadata: volumeDiskMetadata(), onCloud: true, wantErr: `direct attachment of disk "vol-1": disk cannot be written to a block device: it is qcow2`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			if tt.onCloud {
+				onCloud(cloud)
+			}
+			cloud.FailVolumeAttach = tt.failVolumeAttach
+			cloud.DetachingPolls = 1
+			fakeExistingServer(cloud, "server-1", hostID)
+			exp := newExporterAt(t, cloud, "openstack-instance://server-1", "attach")
+
+			_, err := exportAll(t.Context(), exp,
+				rootRecord(),
+				serverMetadataRecord(t, serverMetadata()),
+				dirRecord("/block-storage"),
+				dirRecord("/block-storage/cinder-vol-1"),
+				diskMetadataRecord(t, "/block-storage/cinder-vol-1", tt.metadata),
+				rawDiskRecord("/block-storage/cinder-vol-1"),
+				dirRecord("/block-storage/glance-orig-image"),
+				diskMetadataRecord(t, "/block-storage/glance-orig-image", deviceRootMetadata()),
+				rawDiskRecord("/block-storage/glance-orig-image"),
+			)
+			assert.Empty(t, cloud.Uploads(), "nothing goes through Glance")
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, cloud.Attached())
+				require.NoError(t, exp.Close(t.Context()))
+				assert.Empty(t, cloud.Leftovers())
+				return
+			}
+			require.NoError(t, err)
+			left := restoredVolumes(t, cloud)
+			require.Len(t, left, 2)
+			for _, id := range left {
+				assert.Equal(t, disk, cloud.Written(id), id)
+			}
+			assert.Equal(t, left, cloud.Attached(), "attached to the existing server")
+			require.NoError(t, exp.Close(t.Context()))
+		})
+	}
+}
+
+// With openstack_disk_transfer=attach, the root disk of a server to spawn
+// still goes through Glance: Nova boots the server from an image. The data
+// volume is written through the host.
+func TestExportTransferAttachSpawnsFromImage(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	onCloud(cloud)
+	fakeSpawn(cloud)
+	exp := newExporterAt(t, cloud, "openstack-instance://", "attach")
+
+	_, err := exportAll(t.Context(), exp,
+		rootRecord(),
+		serverMetadataRecord(t, serverMetadata()),
+		dirRecord("/block-storage"),
+		dirRecord("/block-storage/cinder-vol-1"),
+		diskMetadataRecord(t, "/block-storage/cinder-vol-1", deviceVolumeMetadata()),
+		rawDiskRecord("/block-storage/cinder-vol-1"),
+		dirRecord("/block-storage/glance-orig-image"),
+		diskMetadataRecord(t, "/block-storage/glance-orig-image", rootDiskMetadata()),
+		diskRecord("/block-storage/glance-orig-image"),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, cloud.Uploads(), 1, "only the root disk goes through Glance")
+	left := restoredVolumes(t, cloud)
+	require.Len(t, left, 1, "the data volume; the root image is gone")
+	assert.Equal(t, disk, cloud.Written(left[0]))
+	assert.Equal(t, 1, cloud.ServersCreated())
+	assert.Equal(t, left, cloud.Attached(), "attached to the spawned server")
+	require.NoError(t, exp.Close(t.Context()))
 }
 
 // Once a disk's bytes are being written there is no falling back: the

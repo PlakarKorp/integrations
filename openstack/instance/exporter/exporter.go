@@ -41,6 +41,11 @@ var ExporterSchema []byte
 
 type Exporter struct {
 	client *common.Client
+	// transfer is how each disk reaches its volume: written to it through
+	// an attachment, through Glance, or whichever works. The root disk of a
+	// server to spawn goes through Glance whatever it says: Nova boots the
+	// server from an image.
+	transfer common.DiskTransfer
 	// disks tracks each disk's restore image or written volume, until the
 	// server (for the root disk) is created from the image, or the volume
 	// (for an attached one) is attached to the server.
@@ -72,6 +77,10 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if err != nil {
 		return nil, err
 	}
+	transfer, err := common.ParseDiskTransfer(params["openstack_disk_transfer"])
+	if err != nil {
+		return nil, fmt.Errorf("openstack_disk_transfer: %w", err)
+	}
 	clients, err := common.Connect(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -83,7 +92,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if attachServerID == common.SpawnLocation {
 		attachServerID = ""
 	}
-	return &Exporter{client: clients[0], disks: map[string]*diskRestore{}, attachServerID: attachServerID}, nil
+	return &Exporter{client: clients[0], transfer: transfer, disks: map[string]*diskRestore{}, attachServerID: attachServerID}, nil
 }
 
 func (exp *Exporter) Origin() string        { return "" }
@@ -115,14 +124,22 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
-	// The Nova server plakar runs on, for writing restored volumes through
-	// an attachment, as the importer reads them; nil when there is none.
-	host, err := exp.client.PreflightHost(ctx)
-	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-instance: direct attachment unavailable: %v", err)
+	// The Nova server plakar runs on, to write restored volumes through;
+	// nil to go through Glance. Found before any record is read, so a
+	// transfer that asked for an attachment it cannot have fails with
+	// nothing uploaded.
+	var host *servers.Server
+	if exp.transfer != common.TransferGlance {
+		var err error
+		if host, err = exp.client.PreflightHost(ctx); err != nil {
+			if exp.transfer == common.TransferAttach {
+				return fmt.Errorf("direct attachment: %w", err)
+			}
+			if !errors.Is(err, attach.ErrNotAttachable) {
+				log.Printf("openstack-instance: direct attachment unavailable: %v", err)
+			}
+			host = nil
 		}
-		host = nil
 	}
 
 	var serverMetadata *common.ServerMetadata
@@ -214,11 +231,12 @@ loop:
 }
 
 // handleDisk records a disk's metadata, or restores the disk, keyed by the
-// volume or root image ID in its path. A raw disk that will end up as a
-// volume, when host is the Nova server plakar runs on, is written to a new
-// volume attached to that server, to attach to the restored server later.
-// Otherwise, a qcow2 disk and the root disk of a server to spawn included,
-// it is uploaded to a temporary Glance image.
+// volume or root image ID in its path. A disk that will end up as a volume
+// (see writeSource) is restored one of two ways. Through host, when there
+// is one, it is written to a new volume attached to that server, to attach
+// to the restored server later. Without one, or when the attach fails and
+// the transfer allows it, it is uploaded to a temporary Glance image. The
+// root disk of a server to spawn always is: Nova boots the server from it.
 func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record, host *servers.Server, server *common.ServerMetadata) error {
 	origin, id, name, ok := diskPath(record.Pathname)
 	if !ok {
@@ -246,24 +264,23 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record, 
 		if restore.imageID != "" || restore.volumeID != "" {
 			return fmt.Errorf("%s: a second disk for %q", record.Pathname, id)
 		}
-		if src := exp.writeSource(restore.metadata, id, server); src != nil && host != nil {
-			if w := exp.attachVolume(ctx, host, restore.metadata, src); w != nil {
-				vol, err := w.Copy(ctx, record.Reader)
-				if err != nil {
-					return fmt.Errorf("write disk %q: %w", id, err)
-				}
-				log.Printf("openstack-instance: restored volume %q for %q by writing it", vol.ID, id)
-				restore.volumeID = vol.ID
-				return nil
-			}
+		src := exp.writeSource(restore.metadata, id, server)
+		if src == nil || host == nil {
+			return exp.uploadDisk(ctx, record, id, restore)
 		}
-		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, common.DiskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
+		// AttachRestoreVolume fails before any of the disk's bytes are
+		// read: when the disk is no block device's content, or the attach
+		// fails.
+		w, err := exp.client.AttachRestoreVolume(ctx, host, restore.metadata, src)
 		if err != nil {
-			return fmt.Errorf("upload disk %q: %w", id, err)
+			if exp.transfer == common.TransferAttach {
+				return fmt.Errorf("direct attachment of disk %q: %w", id, err)
+			}
+			log.Printf("openstack-instance: disk %q: %v; restoring it through Glance", id, err)
+			return exp.uploadDisk(ctx, record, id, restore)
 		}
-		log.Printf("openstack-instance: uploaded restore image %q for %q", image.ID, id)
-		restore.imageID = image.ID
-		return nil
+		log.Printf("openstack-instance: writing disk %q to new volume %q through server %q", id, w.Volume().ID, host.ID)
+		return exp.writeDisk(ctx, w, record, id, restore)
 
 	default:
 		return fmt.Errorf("unsupported path %q", record.Pathname)
@@ -302,22 +319,31 @@ func rootVolume(server *common.ServerMetadata, rootID string) *volumes.Volume {
 	return src
 }
 
-// attachVolume attaches a new volume shaped like src to host, for writing
-// the disk to, when the disk can be written to a block device and the
-// attach works. It returns nil when either fails, logging why when it is
-// worth knowing: none of the disk's bytes are read by then, so the disk can
-// go through Glance instead.
-func (exp *Exporter) attachVolume(ctx context.Context, host *servers.Server, metadata *common.DiskMetadata, src *volumes.Volume) *common.VolumeWrite {
-	if common.ValidateWriteAttachment(metadata) != nil {
-		return nil
-	}
-	w, err := exp.client.AttachRestoreVolume(ctx, host, metadata, src)
+// writeDisk writes the disk's bytes to the attached volume, which is then
+// the disk's restored one, restore.volumeID, to attach to the server later.
+// There is no falling back from here: a failure is the restore's.
+func (exp *Exporter) writeDisk(ctx context.Context, w *common.VolumeWrite, record *connectors.Record, id string, restore *diskRestore) error {
+	vol, err := w.Copy(ctx, record.Reader)
 	if err != nil {
-		log.Printf("openstack-instance: disk %q: %v; restoring it through Glance", src.ID, err)
-		return nil
+		return fmt.Errorf("write disk %q: %w", id, err)
 	}
-	log.Printf("openstack-instance: writing disk %q to new volume %q through server %q", src.ID, w.Volume().ID, host.ID)
-	return w
+	log.Printf("openstack-instance: restored volume %q for %q by writing it", vol.ID, id)
+	restore.volumeID = vol.ID
+	return nil
+}
+
+// uploadDisk uploads the disk to a Glance image, restore.imageID, inline,
+// so the record's answer reports the upload's result. Only the image
+// properties a restore needs, e.g. cinder_encryption_key_id, are carried
+// over; the rest are not.
+func (exp *Exporter) uploadDisk(ctx context.Context, record *connectors.Record, id string, restore *diskRestore) error {
+	image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, common.DiskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
+	if err != nil {
+		return fmt.Errorf("upload disk %q: %w", id, err)
+	}
+	log.Printf("openstack-instance: uploaded restore image %q for %q", image.ID, id)
+	restore.imageID = image.ID
+	return nil
 }
 
 // rootDisk returns the snapshot's one Glance-origin disk: the server's root.

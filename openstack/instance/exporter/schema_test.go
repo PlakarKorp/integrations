@@ -39,6 +39,9 @@ func TestExporterSchemaAccepts(t *testing.T) {
 	}{
 		{name: "new server"},
 		{name: "existing server", edit: map[string]string{"location": "openstack-instance://server-1"}},
+		{name: "transfer auto", edit: map[string]string{"openstack_disk_transfer": "auto"}},
+		{name: "transfer attach", edit: map[string]string{"openstack_disk_transfer": "attach"}},
+		{name: "transfer glance", edit: map[string]string{"openstack_disk_transfer": "glance"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,6 +71,8 @@ func TestExporterSchemaRejects(t *testing.T) {
 		{name: "blank region", edit: map[string]string{"openstack_region": " "}},
 		{name: "two regions", edit: map[string]string{"openstack_region": "RegionOne,RegionTwo"}},
 		{name: "empty credential secret", edit: map[string]string{"openstack_application_credential_secret": ""}},
+		{name: "unknown transfer", edit: map[string]string{"openstack_disk_transfer": "cinder"}},
+		{name: "transfer in capitals", edit: map[string]string{"openstack_disk_transfer": "Glance"}},
 		{
 			name: "password with an empty project id",
 			edit: map[string]string{"openstack_username": "user", "openstack_password": "pass", "openstack_project_id": ""},
