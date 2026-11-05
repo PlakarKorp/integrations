@@ -211,7 +211,7 @@ func attachVolume(ctx context.Context, client *common.Client, metadata *common.D
 		}
 		return nil
 	}
-	w, err := client.AttachRestoreVolume(ctx, host, metadata)
+	w, err := client.AttachRestoreVolume(ctx, host, metadata, metadata.Volume)
 	if err != nil {
 		log.Printf("openstack-block: volume %q: %v; restoring it through Glance", metadata.Volume.ID, err)
 		return nil

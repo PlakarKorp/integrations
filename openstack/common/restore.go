@@ -61,13 +61,14 @@ type VolumeWrite struct {
 	cleanup Cleanup
 }
 
-// AttachRestoreVolume creates a volume shaped like metadata's, attaches it
-// to host and finds the device it turns up as. It fails before any of the
-// disk's bytes are read, with the volume deleted again, so the caller can
-// fall back to Glance: with ErrDiskNotWritable when the disk is no block
+// AttachRestoreVolume creates a volume shaped like src, as
+// CreateVolumeFromImage does, attaches it to host and finds the device it
+// turns up as, for writing the disk metadata describes. It fails before any
+// of the disk's bytes are read, with the volume deleted again, so the caller
+// can fall back to Glance: with ErrDiskNotWritable when the disk is no block
 // device's content, or when Nova refuses the attach, no device turns up or
 // the process may not write it.
-func (c *Client) AttachRestoreVolume(ctx context.Context, host *servers.Server, metadata *DiskMetadata) (*VolumeWrite, error) {
+func (c *Client) AttachRestoreVolume(ctx context.Context, host *servers.Server, metadata *DiskMetadata, src *volumes.Volume) (*VolumeWrite, error) {
 	if err := ValidateWriteAttachment(metadata); err != nil {
 		return nil, err
 	}
@@ -75,7 +76,7 @@ func (c *Client) AttachRestoreVolume(ctx context.Context, host *servers.Server, 
 	if err != nil {
 		return nil, err
 	}
-	vol, err := c.emptyVolume(ctx, metadata.Volume)
+	vol, err := c.emptyVolume(ctx, src)
 	if err != nil {
 		return nil, err
 	}

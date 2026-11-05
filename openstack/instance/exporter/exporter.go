@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -40,8 +41,9 @@ var ExporterSchema []byte
 
 type Exporter struct {
 	client *common.Client
-	// disks tracks each disk's restore image, until the server (for the
-	// root disk) or a new volume (for an attached one) is created from it.
+	// disks tracks each disk's restore image or written volume, until the
+	// server (for the root disk) is created from the image, or the volume
+	// (for an attached one) is attached to the server.
 	disks map[string]*diskRestore
 	// attachServerID is the existing Nova server to attach every restored
 	// disk to, or "" to spawn a new one.
@@ -50,7 +52,13 @@ type Exporter struct {
 
 type diskRestore struct {
 	metadata *common.DiskMetadata
-	imageID  string
+	// imageID is the restore image, until the server or a volume is
+	// created from it.
+	imageID string
+	// volumeID is the restored volume, once the disk was written to it
+	// through an attachment instead of going through an image, until it is
+	// attached to the server.
+	volumeID string
 }
 
 // NewExporter spawns a new server for a bare or proto://spawn location, or
@@ -98,9 +106,24 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 }
 
 // Export expects the importer's layout. Kloset walks the snapshot in path
-// order, so every .METADATA.json arrives before the disk next to it.
+// order, so the server's /.METADATA.json arrives first, and every disk's
+// .METADATA.json before the disk next to it. Each disk is restored as it
+// arrives (see handleDisk), into a volume written through an attachment or a
+// Glance image; once the records are in, the server is spawned from the
+// root image or found, and each volume created from its image, if it still
+// is one, and attached.
 func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
+
+	// The Nova server plakar runs on, for writing restored volumes through
+	// an attachment, as the importer reads them; nil when there is none.
+	host, err := exp.client.PreflightHost(ctx)
+	if err != nil {
+		if !errors.Is(err, attach.ErrNotAttachable) {
+			log.Printf("openstack-instance: direct attachment unavailable: %v", err)
+		}
+		host = nil
+	}
 
 	var serverMetadata *common.ServerMetadata
 
@@ -136,7 +159,7 @@ loop:
 			results <- record.Ok()
 
 		default:
-			if err := exp.handleDisk(ctx, record); err != nil {
+			if err := exp.handleDisk(ctx, record, host, serverMetadata); err != nil {
 				results <- record.Error(err)
 				return err
 			}
@@ -157,11 +180,7 @@ loop:
 		if _, err := exp.client.GetServer(ctx, exp.attachServerID); err != nil {
 			return err
 		}
-		rootSrc := &volumes.Volume{ID: rootID, Size: 0, AvailabilityZone: serverMetadata.Server.AvailabilityZone}
-		if serverMetadata.Flavor != nil {
-			rootSrc.Size = serverMetadata.Flavor.Disk
-		}
-		if err := exp.restoreDisk(ctx, exp.attachServerID, rootID, root, rootSrc); err != nil {
+		if err := exp.restoreDisk(ctx, exp.attachServerID, rootID, root, rootVolume(serverMetadata, rootID)); err != nil {
 			return err
 		}
 		for id, restore := range exp.disks {
@@ -194,9 +213,13 @@ loop:
 	return nil
 }
 
-// handleDisk records a disk's metadata, or uploads its qcow2 to a temporary
-// Glance image, keyed by the volume or root image ID in its path.
-func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) error {
+// handleDisk records a disk's metadata, or restores the disk, keyed by the
+// volume or root image ID in its path. A raw disk that will end up as a
+// volume, when host is the Nova server plakar runs on, is written to a new
+// volume attached to that server, to attach to the restored server later.
+// Otherwise, a qcow2 disk and the root disk of a server to spawn included,
+// it is uploaded to a temporary Glance image.
+func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record, host *servers.Server, server *common.ServerMetadata) error {
 	origin, id, name, ok := diskPath(record.Pathname)
 	if !ok {
 		return fmt.Errorf("unsupported path %q", record.Pathname)
@@ -220,8 +243,19 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 		return nil
 
 	case instance.DiskName.MatchString(name):
-		if restore.imageID != "" {
+		if restore.imageID != "" || restore.volumeID != "" {
 			return fmt.Errorf("%s: a second disk for %q", record.Pathname, id)
+		}
+		if src := exp.writeSource(restore.metadata, id, server); src != nil && host != nil {
+			if w := exp.attachVolume(ctx, host, restore.metadata, src); w != nil {
+				vol, err := w.Copy(ctx, record.Reader)
+				if err != nil {
+					return fmt.Errorf("write disk %q: %w", id, err)
+				}
+				log.Printf("openstack-instance: restored volume %q for %q by writing it", vol.ID, id)
+				restore.volumeID = vol.ID
+				return nil
+			}
 		}
 		image, err := exp.client.UploadTempImage(ctx, common.RestorePrefix+id, record.Reader, common.DiskFormat(restore.metadata), common.RestoreImageProperties(restore.metadata))
 		if err != nil {
@@ -234,6 +268,56 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) 
 	default:
 		return fmt.Errorf("unsupported path %q", record.Pathname)
 	}
+}
+
+// writeSource is the volume the disk's restored volume is shaped like, when
+// the disk ends up as a volume that could be written through an attachment:
+// an attached volume's own, or for the root disk restored onto an existing
+// server one sized from the flavor. nil when the disk must go through
+// Glance: the root disk of a server to spawn, which Nova boots from an
+// image, or a disk whose metadata, or whose server's, has not arrived.
+func (exp *Exporter) writeSource(metadata *common.DiskMetadata, id string, server *common.ServerMetadata) *volumes.Volume {
+	switch {
+	case metadata == nil:
+		return nil
+	case metadata.Origin == common.DiskOriginCinder:
+		return metadata.Volume
+	case metadata.Origin == common.DiskOriginGlance && exp.attachServerID != "":
+		return rootVolume(server, id)
+	}
+	return nil
+}
+
+// rootVolume creates a cinder volume that needs to end up as a glance image.
+// Because cinder carries a Volume struct, it can easily be created back from the snapshot.
+// Glance images do not carry Volume structs, so this creates mimics a cinder block with server metadata.
+func rootVolume(server *common.ServerMetadata, rootID string) *volumes.Volume {
+	if server == nil {
+		return nil
+	}
+	src := &volumes.Volume{ID: rootID, AvailabilityZone: server.Server.AvailabilityZone}
+	if server.Flavor != nil {
+		src.Size = server.Flavor.Disk
+	}
+	return src
+}
+
+// attachVolume attaches a new volume shaped like src to host, for writing
+// the disk to, when the disk can be written to a block device and the
+// attach works. It returns nil when either fails, logging why when it is
+// worth knowing: none of the disk's bytes are read by then, so the disk can
+// go through Glance instead.
+func (exp *Exporter) attachVolume(ctx context.Context, host *servers.Server, metadata *common.DiskMetadata, src *volumes.Volume) *common.VolumeWrite {
+	if common.ValidateWriteAttachment(metadata) != nil {
+		return nil
+	}
+	w, err := exp.client.AttachRestoreVolume(ctx, host, metadata, src)
+	if err != nil {
+		log.Printf("openstack-instance: disk %q: %v; restoring it through Glance", src.ID, err)
+		return nil
+	}
+	log.Printf("openstack-instance: writing disk %q to new volume %q through server %q", src.ID, w.Volume().ID, host.ID)
+	return w
 }
 
 // rootDisk returns the snapshot's one Glance-origin disk: the server's root.
@@ -252,8 +336,8 @@ func (exp *Exporter) rootDisk() (*diskRestore, string, error) {
 		return nil, "", errors.New("the snapshot has no root disk")
 	}
 	root := exp.disks[rootID]
-	if root.imageID == "" {
-		return nil, "", fmt.Errorf("root disk %q: image was not uploaded", rootID)
+	if root.imageID == "" && root.volumeID == "" {
+		return nil, "", fmt.Errorf("root disk %q: the snapshot does not contain a glance image to restore", rootID)
 	}
 	return root, rootID, nil
 }
@@ -295,36 +379,45 @@ func (exp *Exporter) spawnServer(ctx context.Context, metadata *common.ServerMet
 	})
 }
 
-// restoreDisk creates a volume from a disk's restore image and attaches it
-// to serverID. src is the disk's own volume metadata for a Cinder-origin
-// disk, or one synthesized from the server's flavor for the Glance-origin
-// root disk, which never had a real Cinder volume behind it.
+// restoreDisk attaches a disk's restored volume to serverID: the volume the
+// disk was written to, or else one created from its restore image, shaped
+// like src (see writeSource). A volume that fails to attach is deleted.
 func (exp *Exporter) restoreDisk(ctx context.Context, serverID, diskID string, restore *diskRestore, src *volumes.Volume) error {
-	if restore.imageID == "" {
-		return fmt.Errorf("disk %q: image was not uploaded", diskID)
+	volumeID := restore.volumeID
+	if volumeID == "" {
+		if restore.imageID == "" {
+			return fmt.Errorf("disk %q: the snapshot has no disk for it", diskID)
+		}
+		vol, err := exp.client.CreateVolumeFromImage(ctx, restore.imageID, src)
+		if err != nil {
+			return fmt.Errorf("restore volume %q: %w", diskID, err)
+		}
+		exp.client.DeleteTempImage(ctx, restore.imageID)
+		restore.imageID = ""
+		volumeID = vol.ID
 	}
 
-	vol, err := exp.client.CreateVolumeFromImage(ctx, restore.imageID, src)
-	if err != nil {
-		return fmt.Errorf("restore volume %q: %w", diskID, err)
-	}
-	exp.client.DeleteTempImage(ctx, restore.imageID)
-	restore.imageID = ""
-
-	if err := exp.client.AttachVolume(ctx, serverID, vol.ID, volumeDevice(restore.metadata)); err != nil {
-		exp.client.DeleteTempVolume(ctx, vol.ID)
+	// The volume is the server's once attached, or gone: not Close's.
+	restore.volumeID = ""
+	if err := exp.client.AttachVolume(ctx, serverID, volumeID, volumeDevice(restore.metadata)); err != nil {
+		exp.client.DeleteTempVolume(ctx, volumeID)
 		return err
 	}
-	log.Printf("openstack-instance: attached volume %q to server %q", vol.ID, serverID)
+	log.Printf("openstack-instance: attached volume %q to server %q", volumeID, serverID)
 	return nil
 }
 
-// Close deletes the restore images a failed restore left behind.
+// Close deletes what a failed restore left behind: the restore images, and
+// the volumes written but not yet attached to the server.
 func (exp *Exporter) Close(ctx context.Context) error {
 	for _, restore := range exp.disks {
 		if restore.imageID != "" {
 			exp.client.DeleteTempImage(ctx, restore.imageID)
 			restore.imageID = ""
+		}
+		if restore.volumeID != "" {
+			exp.client.DeleteTempVolume(ctx, restore.volumeID)
+			restore.volumeID = ""
 		}
 	}
 	return nil

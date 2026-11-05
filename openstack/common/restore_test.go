@@ -85,7 +85,8 @@ func TestAttachRestoreVolumeWritesDevice(t *testing.T) {
 	host, err := client.PreflightHost(t.Context())
 	require.NoError(t, err)
 
-	w, err := client.AttachRestoreVolume(t.Context(), host, restoreMetadata())
+	m := restoreMetadata()
+	w, err := client.AttachRestoreVolume(t.Context(), host, m, m.Volume)
 	require.NoError(t, err)
 	assert.Equal(t, []string{w.Volume().ID}, cloud.Attached())
 	requests := cloud.VolumeRequests()
@@ -117,7 +118,8 @@ func TestAttachRestoreVolumeRetriesVolumeInError(t *testing.T) {
 	host, err := client.PreflightHost(t.Context())
 	require.NoError(t, err)
 
-	w, err := client.AttachRestoreVolume(t.Context(), host, restoreMetadata())
+	m := restoreMetadata()
+	w, err := client.AttachRestoreVolume(t.Context(), host, m, m.Volume)
 	require.NoError(t, err)
 	assert.Len(t, cloud.VolumeRequests(), 2)
 	_, err = w.Copy(t.Context(), bytes.NewReader([]byte("x")))
@@ -161,7 +163,7 @@ func TestAttachRestoreVolumeRefusals(t *testing.T) {
 			host, err := client.PreflightHost(t.Context())
 			require.NoError(t, err)
 
-			_, err = client.AttachRestoreVolume(t.Context(), host, tt.metadata)
+			_, err = client.AttachRestoreVolume(t.Context(), host, tt.metadata, tt.metadata.Volume)
 			require.Error(t, err)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -198,7 +200,8 @@ func TestCopyFailureDeletesVolume(t *testing.T) {
 	host, err := client.PreflightHost(t.Context())
 	require.NoError(t, err)
 
-	w, err := client.AttachRestoreVolume(t.Context(), host, restoreMetadata())
+	m := restoreMetadata()
+	w, err := client.AttachRestoreVolume(t.Context(), host, m, m.Volume)
 	require.NoError(t, err)
 	_, err = w.Copy(t.Context(), &failingReader{n: 4})
 	require.ErrorContains(t, err, "read failed")
