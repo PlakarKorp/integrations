@@ -337,16 +337,7 @@ func withGeneratedResourceVersion(snapClient *snapfake.Clientset) {
 func singleEventWatchReactor(evt watch.Event) clienttesting.WatchReactionFunc {
 	return func(clienttesting.Action) (bool, watch.Interface, error) {
 		w := watch.NewFakeWithChanSize(1, false)
-		switch evt.Type {
-		case watch.Added:
-			w.Add(evt.Object)
-		case watch.Modified:
-			w.Modify(evt.Object)
-		case watch.Deleted:
-			w.Delete(evt.Object)
-		case watch.Error:
-			w.Error(evt.Object)
-		}
+		w.Action(evt.Type, evt.Object)
 		return true, w, nil
 	}
 }
