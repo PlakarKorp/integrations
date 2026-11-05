@@ -94,6 +94,17 @@ func chmod(t *testing.T, name, mode string) {
 	require.Zero(t, code, "chmod %s %s", mode, name)
 }
 
+// symlink creates a symlink at name, relative to the FTP user's home,
+// pointing at target, from inside the container (FTP has no protocol
+// primitive for the exporter to create one itself).
+func symlink(t *testing.T, target, name string) {
+	t.Helper()
+	path := "/home/ftpusers/" + username + name
+	code, _, err := serverCtr.Exec(context.Background(), []string{"ln", "-s", target, path})
+	require.NoError(t, err)
+	require.Zero(t, code, "ln -s %s %s", target, path)
+}
+
 // mode returns the octal permission bits of name, relative to the FTP user's
 // home, as seen from inside the container.
 func mode(t *testing.T, name string) string {
