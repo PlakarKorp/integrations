@@ -183,6 +183,7 @@ ORDER BY VARIABLE_NAME`
 		if err := rows.Scan(&name, &value); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "datadir":
 			cfg.DataDir = value
@@ -196,11 +197,11 @@ ORDER BY VARIABLE_NAME`
 			cfg.CollationServer = value
 		case "innodb_buffer_pool_size":
 			var v int64
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.InnoDBBufferPoolSize = v
 		case "max_connections":
 			var v int
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.MaxConnections = v
 		case "sql_mode":
 			cfg.SQLMode = value
@@ -233,6 +234,7 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 		if err := rows.Scan(&name, &value); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "datadir":
 			cfg.DataDir = value
@@ -246,11 +248,11 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 			cfg.CollationServer = value
 		case "innodb_buffer_pool_size":
 			var v int64
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.InnoDBBufferPoolSize = v
 		case "max_connections":
 			var v int
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.MaxConnections = v
 		case "sql_mode":
 			cfg.SQLMode = value
