@@ -81,7 +81,7 @@ func TestExporter(t *testing.T) {
 		t.Error("expected a result")
 	}
 
-	require.Nil(t, result.Err)
+	require.NoError(t, result.Err)
 
 	sb, err := fp.Stat()
 	require.NoError(t, err)
