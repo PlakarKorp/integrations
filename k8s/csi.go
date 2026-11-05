@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -655,9 +656,13 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 			return "", nil, err
 		}
 
-		go pf.ForwardPorts()
+		errc := make(chan error, 1)
+		go func() { errc <- pf.ForwardPorts() }()
 
-		<-readyChan
+		if err := waitForward(ctx, readyChan, errc); err != nil {
+			close(stopChan)
+			return "", nil, fmt.Errorf("port forward to pod %s/%s: %w", pod.Namespace, pod.Name, err)
+		}
 		ports, err := pf.GetPorts()
 		if err != nil {
 			close(stopChan)
@@ -671,6 +676,22 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 		return "", nil, fmt.Errorf("pod %s/%s has no IP", pod.Namespace, pod.Name)
 	}
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
+}
+
+// waitForward waits for a port forward to be ready. ForwardPorts never
+// signals ready when it fails to start, so its error and ctx end the wait too.
+func waitForward(ctx context.Context, ready <-chan struct{}, errc <-chan error) error {
+	select {
+	case <-ready:
+		return nil
+	case err := <-errc:
+		if err == nil {
+			err = errors.New("port forward ended before it was ready")
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
