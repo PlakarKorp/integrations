@@ -29,17 +29,15 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 const flags = location.FLAG_LOCALFS | location.FLAG_STREAM | location.FLAG_NEEDACK
 
 func init() {
-	importer.Register("tar", flags, NewTarImporter)
-	importer.Register("tar+gz", flags, NewTarImporter)
-	importer.Register("tar+gzip", flags, NewTarImporter)
-	importer.Register("tgz", flags, NewTarImporter)
+	integration.RegisterImporter("tar", flags, NewTarImporter)
+	integration.RegisterImporter("tar+gz", flags, NewTarImporter)
+	integration.RegisterImporter("tar+gzip", flags, NewTarImporter)
+	integration.RegisterImporter("tgz", flags, NewTarImporter)
 }
 
 type TarImporter struct {
@@ -55,7 +53,7 @@ type TarImporter struct {
 	name     string
 }
 
-func NewTarImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewTarImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	location := strings.TrimPrefix(config["location"], name+"://")
 
 	fp, err := os.Open(location)
@@ -85,16 +83,16 @@ func (t *TarImporter) Root() string          { return "/" }
 func (t *TarImporter) Origin() string        { return t.opts.Hostname }
 func (t *TarImporter) Flags() location.Flags { return flags }
 
-func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
+func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	for {
 		hdr, err := t.tar.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				return err
+				return nil, err
 			}
-			return nil
+			return nil, nil
 		}
 
 		name := path.Join("/", hdr.Name)
@@ -107,7 +105,7 @@ func (t *TarImporter) Import(ctx context.Context, records chan<- *integration.Re
 
 		select {
 		case <-t.ctx.Done():
-			return t.ctx.Err()
+			return nil, t.ctx.Err()
 
 		case <-results:
 			// wait for the ack before continuing
@@ -133,8 +131,8 @@ func linkTarget(hdr *tar.Header) string {
 	return hdr.Linkname
 }
 
-func finfo(hdr *tar.Header) objects.FileInfo {
-	f := objects.FileInfo{
+func finfo(hdr *tar.Header) integration.FileInfo {
+	f := integration.FileInfo{
 		Lname:      path.Base(hdr.Name),
 		Lsize:      hdr.Size,
 		Lmode:      fs.FileMode(hdr.Mode),
