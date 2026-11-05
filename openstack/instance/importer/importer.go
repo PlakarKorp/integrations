@@ -210,7 +210,7 @@ func (imp *Importer) emit(ctx context.Context, records chan<- *connectors.Record
 		Lname:    path.Base(pathname),
 		Lmode:    0600,
 		Lsize:    -1,
-		LmodTime: time.Unix(0, 0),
+		LmodTime: time.Now(),
 	}, nil, readerFunc):
 	}
 	return nil
