@@ -21,8 +21,11 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
+	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +33,7 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
@@ -52,11 +56,27 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
+// newExporter also points the attach preflight at cloud's metadata service
+// and device directory, so the host the tests run on never passes for a Nova
+// server by accident.
 func newExporter(t *testing.T, cloud *keystonetest.Cloud) exporter.Exporter {
 	t.Helper()
+	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
+	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
+	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
+
 	exp, err := NewExporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://"))
 	require.NoError(t, err)
 	return exp
+}
+
+// onCloud makes the test host a Nova server of cloud.
+func onCloud(cloud *keystonetest.Cloud) {
+	cloud.HostID = "host-1"
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"server":{"id":"host-1","status":"ACTIVE"}}`))
+	})
 }
 
 // exportAll feeds recs to Export as plakar does, and collects the results.
@@ -112,8 +132,8 @@ func metadataRecord(t *testing.T, m common.DiskMetadata) *connectors.Record {
 	return record(t, "/"+block.MetadataName, data)
 }
 
-func diskRecord(t *testing.T, volumeID string) *connectors.Record {
-	return record(t, "/"+block.DiskName(volumeID), disk)
+func diskRecord(t *testing.T, volumeID, format string) *connectors.Record {
+	return record(t, "/"+block.DiskName(volumeID, format), disk)
 }
 
 func rootRecord() *connectors.Record {
@@ -153,6 +173,18 @@ func TestExportRestoresVolume(t *testing.T) {
 		{name: "qcow2 disk", metadata: func() common.DiskMetadata { return volumeMetadata("qcow2") }, wantFormat: "qcow2", wantName: "data"},
 		{name: "no recorded format", metadata: func() common.DiskMetadata { return volumeMetadata("") }, wantFormat: "qcow2", wantName: "data"},
 		{
+			// A disk read from a block device: raw, and no image behind it.
+			name: "read from a device",
+			metadata: func() common.DiskMetadata {
+				m := volumeMetadata("")
+				m.DiskFormat = "raw"
+				m.Image = nil
+				return m
+			},
+			wantFormat: "raw",
+			wantName:   "data",
+		},
+		{
 			name:          "image and volume take a while",
 			metadata:      func() common.DiskMetadata { return volumeMetadata("raw") },
 			savingPolls:   2,
@@ -180,7 +212,7 @@ func TestExportRestoresVolume(t *testing.T) {
 			exp := newExporter(t, cloud)
 			m := tt.metadata()
 
-			results, err := exportAll(t.Context(), exp, rootRecord(), metadataRecord(t, m), diskRecord(t, "vol-1"))
+			results, err := exportAll(t.Context(), exp, rootRecord(), metadataRecord(t, m), diskRecord(t, "vol-1", "qcow2"))
 			require.NoError(t, err)
 			require.Len(t, results, 3, "every record is answered once")
 			for _, r := range results {
@@ -206,6 +238,138 @@ func TestExportRestoresVolume(t *testing.T) {
 	}
 }
 
+// deviceMetadata is a disk read from a block device: raw, no image behind it.
+func deviceMetadata() common.DiskMetadata {
+	m := volumeMetadata("")
+	m.DiskFormat = "raw"
+	m.Image = nil
+	return m
+}
+
+// On a Nova server of the cloud, a raw disk is written to a new volume
+// attached to it: no image is made, and the volume is restored by the time
+// the disk record is answered.
+func TestExportWritesAttachedVolume(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	onCloud(cloud)
+	exp := newExporter(t, cloud)
+
+	results, err := exportAll(t.Context(), exp, rootRecord(), metadataRecord(t, deviceMetadata()), diskRecord(t, "vol-1", "raw"))
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	for _, r := range results {
+		require.NoError(t, r.Err, r.Record.Pathname)
+	}
+
+	assert.Empty(t, cloud.Uploads(), "no image")
+	requests := cloud.VolumeRequests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, keystonetest.VolumeRequest{
+		Name: "data", Size: 3, VolumeType: "ssd", AvailabilityZone: "nova",
+		Description: "orders", Metadata: map[string]string{"team": "db"},
+	}, requests[0], "a blank volume shaped like the original")
+
+	vol := restored(t, cloud)
+	assert.Equal(t, disk, cloud.Written(vol))
+	assert.Empty(t, cloud.Attached(), "the restored volume is detached")
+	require.NoError(t, exp.Close(t.Context()))
+}
+
+// On the cloud, a disk that cannot be written to a block device, or one the
+// host cannot take, goes through Glance as it would off it.
+func TestExportOnCloudFallsBackToGlance(t *testing.T) {
+	encrypted := volumeMetadata("raw")
+	encrypted.ImageProperties = map[string]string{"cinder_encryption_key_id": "key-1"}
+
+	tests := []struct {
+		name             string
+		metadata         common.DiskMetadata
+		failVolumeAttach bool // Nova refuses the attach
+		deviceReadOnly   bool // the device turns up unwritable
+		novaDown         bool // the preflight cannot ask Nova
+		wantFormat       string
+		wantRequests     int // volume create requests: the blank one that failed, then the image's
+	}{
+		{name: "qcow2 disk", metadata: volumeMetadata("qcow2"), wantFormat: "qcow2", wantRequests: 1},
+		{name: "no recorded format", metadata: volumeMetadata(""), wantFormat: "qcow2", wantRequests: 1},
+		{name: "raw ciphertext", metadata: encrypted, wantFormat: "raw", wantRequests: 1},
+		{name: "attach refused", metadata: deviceMetadata(), failVolumeAttach: true, wantFormat: "raw", wantRequests: 2},
+		{name: "device unwritable", metadata: deviceMetadata(), deviceReadOnly: true, wantFormat: "raw", wantRequests: 2},
+		{name: "nova down", metadata: deviceMetadata(), novaDown: true, wantFormat: "raw", wantRequests: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.deviceReadOnly && os.Getuid() == 0 {
+				t.Skip("root writes anything")
+			}
+			cloud := keystonetest.NewCloud(t)
+			cloud.FailVolumeAttach = tt.failVolumeAttach
+			cloud.DeviceReadOnly = tt.deviceReadOnly
+			cloud.DetachingPolls = 1
+			if tt.novaDown {
+				cloud.HostID = "host-1"
+				cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				})
+			} else {
+				onCloud(cloud)
+			}
+			exp := newExporter(t, cloud)
+
+			_, err := exportAll(t.Context(), exp, metadataRecord(t, tt.metadata), diskRecord(t, "vol-1", "qcow2"))
+			require.NoError(t, err)
+
+			uploads := cloud.Uploads()
+			require.Len(t, uploads, 1)
+			assert.Equal(t, tt.wantFormat, uploads[0].DiskFormat)
+			assert.Equal(t, disk, uploads[0].Data)
+			requests := cloud.VolumeRequests()
+			require.Len(t, requests, tt.wantRequests)
+			assert.Equal(t, uploads[0].ID, requests[len(requests)-1].ImageID, "the volume is created from the image")
+
+			vol := restored(t, cloud)
+			assert.Nil(t, cloud.Written(vol))
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, exp.Close(t.Context()))
+		})
+	}
+}
+
+// failingReader fails after a few bytes, as a record whose read fails does.
+type failingReader struct{ n int }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.n == 0 {
+		return 0, errors.New("read failed")
+	}
+	n := min(r.n, len(p))
+	r.n -= n
+	return n, nil
+}
+
+// Once the disk's bytes are being written there is no falling back: the
+// restore fails, and the half-written volume is detached and deleted.
+func TestExportWriteFailureLeavesNothing(t *testing.T) {
+	cloud := keystonetest.NewCloud(t)
+	onCloud(cloud)
+	cloud.DetachingPolls = 1
+	exp := newExporter(t, cloud)
+
+	bad := connectors.NewRecord("/vol-1.raw", "", objects.FileInfo{Lname: "vol-1.raw", Lmode: 0600, LmodTime: time.Unix(0, 0)}, nil,
+		func() (io.ReadCloser, error) { return io.NopCloser(&failingReader{n: 4}), nil })
+	results, err := exportAll(t.Context(), exp, metadataRecord(t, deviceMetadata()), bad)
+	require.ErrorContains(t, err, `write disk "vol-1"`)
+	require.ErrorContains(t, err, "read failed")
+	require.Len(t, results, 2)
+	require.ErrorContains(t, results[1].Err, "read failed")
+
+	assert.Empty(t, cloud.Uploads())
+	assert.Len(t, cloud.VolumeRequests(), 1)
+	assert.Empty(t, cloud.Attached())
+	require.NoError(t, exp.Close(t.Context()))
+	assert.Empty(t, cloud.Leftovers())
+}
+
 // Without the key id, Cinder would wrap the already-encrypted data in a new key.
 func TestExportCarriesEncryptionKeyID(t *testing.T) {
 	m := volumeMetadata("raw")
@@ -216,7 +380,7 @@ func TestExportCarriesEncryptionKeyID(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	exp := newExporter(t, cloud)
 
-	_, err := exportAll(t.Context(), exp, metadataRecord(t, m), diskRecord(t, "vol-1"))
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, m), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 
 	uploads := cloud.Uploads()
@@ -233,7 +397,7 @@ func TestExportRetriesVolumeInError(t *testing.T) {
 	cloud.VolumeErrors = 1
 	exp := newExporter(t, cloud)
 
-	_, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1"))
+	_, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 	assert.Len(t, cloud.VolumeRequests(), 2)
 	restored(t, cloud) // the volume in error is gone
@@ -243,7 +407,7 @@ func TestExportSkipsUnsupportedPaths(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	exp := newExporter(t, cloud)
 
-	results, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), record(t, "/notes.txt", nil), diskRecord(t, "vol-1"))
+	results, err := exportAll(t.Context(), exp, metadataRecord(t, volumeMetadata("raw")), record(t, "/notes.txt", nil), diskRecord(t, "vol-1", "qcow2"))
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 	require.ErrorContains(t, results[1].Err, `unsupported path "/notes.txt"`)
@@ -272,14 +436,14 @@ func TestExportFails(t *testing.T) {
 		{
 			name: "disk before metadata",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{diskRecord(t, "vol-1"), metadataRecord(t, volumeMetadata("raw"))}
+				return []*connectors.Record{diskRecord(t, "vol-1", "qcow2"), metadataRecord(t, volumeMetadata("raw"))}
 			},
 			wantErr: "before",
 		},
 		{
 			name: "disk of another volume",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-2")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-2", "qcow2")}
 			},
 			wantErr: "does not match",
 		},
@@ -311,7 +475,7 @@ func TestExportFails(t *testing.T) {
 			// The first disk's restore image is left for Close to delete.
 			name: "two disks",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1"), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2"), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "a second disk",
 		},
@@ -320,7 +484,7 @@ func TestExportFails(t *testing.T) {
 			name:          "upload fails",
 			failImageData: true,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "upload image",
 		},
@@ -329,7 +493,7 @@ func TestExportFails(t *testing.T) {
 			name:         "volume keeps failing",
 			volumeErrors: 3,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr:      "entered error",
 			wantRequests: 3,
@@ -339,7 +503,7 @@ func TestExportFails(t *testing.T) {
 			name:        "image killed after upload",
 			imageStatus: "killed",
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "entered killed",
 		},
@@ -349,7 +513,7 @@ func TestExportFails(t *testing.T) {
 			savingPolls: 3,
 			timeout:     100 * time.Millisecond,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr: "wait for image",
 		},
@@ -360,7 +524,7 @@ func TestExportFails(t *testing.T) {
 			creatingPolls: 3,
 			timeout:       100 * time.Millisecond,
 			records: func(t *testing.T) []*connectors.Record {
-				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1")}
+				return []*connectors.Record{metadataRecord(t, volumeMetadata("raw")), diskRecord(t, "vol-1", "qcow2")}
 			},
 			wantErr:      `restore volume "vol-1": wait for volume`,
 			wantRequests: 1,

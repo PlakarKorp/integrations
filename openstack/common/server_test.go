@@ -182,11 +182,12 @@ func TestCreateServerFailsOnError(t *testing.T) {
 }
 
 func TestAttachVolume(t *testing.T) {
-	cloud := keystonetest.NewCloud(t)
+	cloud := keystonetest.NewCloud(t, "vol-1")
 	client := connectCloud(t, cloud)
 
 	err := client.AttachVolume(t.Context(), "server-1", "vol-1", "/dev/vdb")
 	require.NoError(t, err)
+	assert.Equal(t, []string{"vol-1"}, cloud.Attached())
 }
 
 func TestAttachVolumeFails(t *testing.T) {

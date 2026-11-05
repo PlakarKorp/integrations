@@ -27,14 +27,15 @@ func TestVolumeID(t *testing.T) {
 		path string
 		id   string // empty when path is not a disk file
 	}{
-		{path: "/" + DiskName("384ba87e-a23e-4965-b3be-8f180e8a8625"), id: "384ba87e-a23e-4965-b3be-8f180e8a8625"},
+		{path: "/" + DiskName("384ba87e-a23e-4965-b3be-8f180e8a8625", "qcow2"), id: "384ba87e-a23e-4965-b3be-8f180e8a8625"},
+		{path: "/" + DiskName("vol-1", "raw"), id: "vol-1"},
 		{path: "/vol_1.qcow2", id: "vol_1"},
 		{path: "/" + MetadataName},
 		{path: "/.qcow2"},
 		{path: "vol-1.qcow2"},
 		{path: "/dir/vol-1.qcow2"},
 		{path: "/../vol-1.qcow2"},
-		{path: "/vol-1.raw"},
+		{path: "/vol-1.vmdk"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

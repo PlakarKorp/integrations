@@ -18,10 +18,14 @@ package importer
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
 
+	"github.com/PlakarKorp/integrations/openstack/block"
+	"github.com/PlakarKorp/integrations/openstack/common"
+	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
 	"github.com/PlakarKorp/kloset/connectors"
@@ -41,8 +45,15 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
+// newImporter also points the attach preflight at cloud's metadata service
+// and device directory, so the host the tests run on never passes for a Nova
+// server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
+	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
+	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
+	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
+
 	imp, err := NewImporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
 	require.NoError(t, err)
 	return imp
@@ -63,7 +74,7 @@ func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record
 // attached volume, no interfaces), its flavor, and its snapshot image.
 func fakeServer(cloud *keystonetest.Cloud) {
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `{"server":{"id":"server-1","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},`+
+		writeJSON(w, `{"server":{"id":"server-1","status":"ACTIVE","flavor":{"id":"flavor-1"},"image":{"id":"orig-image"},"OS-EXT-AZ:availability_zone":"az-1",`+
 			`"os-extended-volumes:volumes_attached":[{"id":"vol-1"}]}}`)
 	})
 	cloud.Overrule("GET /compute/flavors/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +139,61 @@ func TestImportBacksUpServer(t *testing.T) {
 	assert.Empty(t, cloud.Leftovers(), "closing every disk deletes the temporary resources")
 
 	require.NoError(t, imp.Close(t.Context()))
+}
+
+// On a Nova server of the backed-up cloud, the root image is converted to a
+// temporary Cinder volume and attached, as are clones of attached volumes.
+// Every disk is then read raw from its block device.
+func TestImportReadsAttachedVolumes(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	fakeServer(cloud) // also answers for the host, as any ACTIVE server
+	cloud.HostID = "host-1"
+	imp := newImporter(t, cloud)
+
+	records, err := importAll(t.Context(), imp)
+	require.NoError(t, err)
+	require.Len(t, records, 8)
+	assert.Equal(t, []string{"restored-1", "tmp-3"}, cloud.Attached())
+	requests := cloud.VolumeRequests()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "image-1", requests[0].ImageID)
+	assert.Equal(t, "plakar-tmp-image-1", requests[0].Name)
+	assert.Equal(t, 20, requests[0].Size)
+	assert.Equal(t, "az-1", requests[0].AvailabilityZone)
+
+	var root, vol common.DiskMetadata
+	require.NoError(t, json.NewDecoder(records[3].Reader).Decode(&root))
+	assert.Equal(t, common.DiskOriginGlance, root.Origin)
+	assert.Equal(t, "raw", root.DiskFormat)
+	require.NoError(t, json.NewDecoder(records[6].Reader).Decode(&vol))
+	assert.Equal(t, common.DiskOriginCinder, vol.Origin)
+	assert.Equal(t, "raw", vol.DiskFormat)
+	assert.Nil(t, vol.Image)
+
+	// The disk records are named after the recorded format, so derive their
+	// paths from the metadata rather than hardcoding an extension.
+	disks := map[string]bool{
+		"/block-storage/glance-image-1/" + block.DiskName("disk", common.DiskFormat(&root)): false,
+		"/block-storage/cinder-vol-1/" + block.DiskName("disk", common.DiskFormat(&vol)):    false,
+	}
+	for _, r := range records {
+		if r.FileInfo.IsDir() {
+			continue
+		}
+		data, err := io.ReadAll(r.Reader)
+		require.NoError(t, err, r.Pathname)
+		if _, isDisk := disks[r.Pathname]; isDisk {
+			assert.Equal(t, cloud.Disk, data, r.Pathname)
+			disks[r.Pathname] = true
+		}
+		require.NoError(t, r.Close())
+	}
+	for path, checked := range disks {
+		assert.True(t, checked, "disk record %s was not emitted", path)
+	}
+	assert.Empty(t, cloud.Attached())
+	require.NoError(t, imp.Close(t.Context()))
+	assert.Empty(t, cloud.Leftovers())
 }
 
 func TestImportRefusesBootFromVolume(t *testing.T) {

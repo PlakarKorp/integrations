@@ -16,7 +16,7 @@ on:
 
 jobs:
   qa:
-    uses: PlakarKorp/QA/.github/workflows/integration.yml@3adeed892a4cdcaef4648fd39303dad1bed2a072
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@26877c5778b3486ddc561396c0ee92a4370621d0 # v1.0.0
     with:
       dir: openstack
       qa-version-file: openstack/.qa-version

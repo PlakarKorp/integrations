@@ -16,18 +16,23 @@
 
 package instance
 
-import "github.com/PlakarKorp/integrations/openstack/block"
+import (
+	"regexp"
+
+	"github.com/PlakarKorp/integrations/openstack/block"
+)
 
 // The instance snapshot layout, like the block layout: /.METADATA.json
 // (common.ServerMetadata), then a /block-storage/<origin>-<id>/ directory
 // per disk (the root image and each attached volume), each with its own
-// disk.qcow2 and common.DiskMetadata. Kloset walks a snapshot in path order,
+// disk.<ext> and common.DiskMetadata. Kloset walks a snapshot in path order,
 // so every .METADATA.json reaches the exporter before its disk.
 
 const Protocol = "openstack-instance"
 
-// DiskName names every disk, whatever its format, as the block layout does.
-const DiskName = "disk.qcow2"
+// DiskName matches a disk's file name, disk.<ext> by its format, as
+// block.DiskName names it: .METADATA.json records the real format.
+var DiskName = regexp.MustCompile(`^disk\.(qcow2|raw)$`)
 
 // MetadataName is shared with the block layout.
 const MetadataName = block.MetadataName
