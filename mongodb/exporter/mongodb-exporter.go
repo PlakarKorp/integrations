@@ -41,23 +41,18 @@ const backupFilename = "mongodb-backup.bson"
 const debug = false
 
 type mongodbExporter struct {
-	url                  *url.URL
-	port                 string
-	username             string
-	password             string
-	options              *connectors.Options
-	use_tls              bool
-	tls_ca_cert          string
-	tls_ca_cert_data     string
-	ca_cert_file         *os.File
-	tls_client_cert      string
-	tls_client_cert_data string
-	tls_client_key_data  string
-	client_cert_file     *os.File
-	auth_mechanism       string
-	stdin                io.WriteCloser
-	stdout               io.ReadCloser
-	stderr               io.ReadCloser
+	url              *url.URL
+	port             string
+	username         string
+	password         string
+	options          *connectors.Options
+	use_tls          bool
+	tls_ca_cert      string
+	ca_cert_file     *os.File
+	tls_client_cert  string
+	client_cert_file *os.File
+	auth_mechanism   string
+	stdin            io.WriteCloser
 }
 
 func init() {
