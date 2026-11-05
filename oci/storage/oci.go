@@ -384,8 +384,11 @@ func (s *ociStore) doRepoRC(ctx context.Context, method, p string, body io.Reade
 }
 
 func (s *ociStore) doRepoBlobRC(ctx context.Context, digest string, headers http.Header) (io.ReadCloser, error) {
-	rc, _, err := s.do(ctx, "GET", s.baseURL(s.repoBase()+"/blobs/"+digest), nil, headers)
-	return rc, err
+	_, resp, err := s.do(ctx, "GET", s.baseURL(s.repoBase()+"/blobs/"+digest), nil, headers)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 func (s *ociStore) headManifestDigest(ctx context.Context, ref string) (string, error) {
