@@ -240,13 +240,14 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		if err := rows.Scan(&name, &setting); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "archive_command":
 			cfg.ArchiveCommandSet = setting != "" && setting != "(disabled)"
 		case "archive_mode":
 			cfg.ArchiveMode = setting
 		case "block_size":
-			fmt.Sscanf(setting, "%d", &cfg.BlockSize)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.BlockSize)
 		case "data_checksums":
 			cfg.DataChecksums = setting == "on"
 		case "data_directory":
@@ -256,7 +257,7 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		case "lc_ctype":
 			cfg.LCCType = setting
 		case "max_connections":
-			fmt.Sscanf(setting, "%d", &cfg.MaxConnections)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.MaxConnections)
 		case "server_encoding":
 			cfg.ServerEncoding = setting
 		case "shared_preload_libraries":
@@ -264,7 +265,7 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		case "timezone":
 			cfg.Timezone = setting
 		case "wal_block_size":
-			fmt.Sscanf(setting, "%d", &cfg.WalBlockSize)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.WalBlockSize)
 		case "wal_level":
 			cfg.WalLevel = setting
 		}
