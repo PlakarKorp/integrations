@@ -39,17 +39,17 @@ import (
 	_ "github.com/rclone/rclone/backend/memory" // register memory backend
 )
 
-// ctxprobe is a fake rclone backend that records the context it is
+// ctxprobe is a fake rclone backend that hands over the context it is
 // constructed with, so tests can assert on its lifetime.
-var probeCtx context.Context
+var probeCtx = make(chan context.Context, 1)
 
 func init() {
 	rclonefs.Register(&rclonefs.RegInfo{
 		Name:        "ctxprobe",
 		Description: "test only: captures the constructor context",
 		NewFs: func(ctx context.Context, name, root string, m configmap.Mapper) (rclonefs.Fs, error) {
-			probeCtx = ctx
-			// The context is captured already; no need for a real Fs.
+			probeCtx <- ctx
+			// The context is handed over already; no need for a real Fs.
 			return nil, rclonefs.ErrorIsFile
 		},
 	})
@@ -432,12 +432,12 @@ func TestNewDetachesConstructorContext(t *testing.T) {
 
 	_, err := New(ctx, opts, "rclone", params)
 	require.ErrorIs(t, err, rclonefs.ErrorIsFile) // proves the probe backend was reached
-	require.NotNil(t, probeCtx)                   // fail loudly rather than pass vacuously
+	got := <-probeCtx
 
 	cancel()
 	// The fs must be built with a context that outlives the
 	// constructor: canceling the caller's context must not cancel it…
-	require.NoError(t, probeCtx.Err())
+	require.NoError(t, got.Err())
 	// …while still propagating its values.
-	require.Equal(t, "v", probeCtx.Value(key{}))
+	require.Equal(t, "v", got.Value(key{}))
 }
