@@ -86,7 +86,7 @@ func writeTempFile(label, content string) (string, error) {
 	return f.Name(), nil
 }
 
-func (cc ConnConfig) clientBin() string {
+func (cc *ConnConfig) clientBin() string {
 	if cc.ClientBin != "" {
 		return cc.ClientBin
 	}
@@ -279,7 +279,7 @@ func DatabaseFromConfig(config map[string]string) string {
 
 // Args returns the connection flags common to all CLI tools (host, port, user, SSL).
 // The password is excluded; use PasswordFileArg instead.
-func (cc ConnConfig) Args() []string {
+func (cc *ConnConfig) Args() []string {
 	args := []string{"-h", cc.Host, "-P", cc.Port}
 	if cc.Username != "" {
 		args = append(args, "-u", cc.Username)
@@ -299,7 +299,7 @@ func (cc ConnConfig) Args() []string {
 	return args
 }
 
-func (cc ConnConfig) Env() []string {
+func (cc *ConnConfig) Env() []string {
 	return os.Environ()
 }
 
@@ -309,7 +309,7 @@ func (cc ConnConfig) Env() []string {
 //
 // --defaults-extra-file MUST be the first argument on the command line.
 // The caller must invoke cleanup (typically via defer) once the command exits.
-func (cc ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
+func (cc *ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
 	if cc.Password == "" {
 		return "", func() {}, nil
 	}
@@ -332,7 +332,7 @@ func (cc ConnConfig) PasswordFileArg() (arg string, cleanup func(), err error) {
 }
 
 // BinPath resolves a binary name against BinDir, or returns it as-is for $PATH lookup.
-func (cc ConnConfig) BinPath(binary string) string {
+func (cc *ConnConfig) BinPath(binary string) string {
 	if cc.BinDir != "" {
 		return filepath.Join(cc.BinDir, binary)
 	}
@@ -341,7 +341,7 @@ func (cc ConnConfig) BinPath(binary string) string {
 
 // DSN returns a go-sql-driver/mysql DSN. An empty database connects without
 // selecting one, which is useful for server-wide queries.
-func (cc ConnConfig) DSN(database string) string {
+func (cc *ConnConfig) DSN(database string) string {
 	// Format: user:pass@tcp(host:port)/database?params
 	var dsn strings.Builder
 	if cc.Username != "" {
@@ -370,7 +370,7 @@ func (cc ConnConfig) DSN(database string) string {
 	return dsn.String()
 }
 
-func (cc ConnConfig) DSNForCloudSQL(database string) string {
+func (cc *ConnConfig) DSNForCloudSQL(database string) string {
 	// Format: user:pass@cloudsql-mysql(host:port)/database?params
 	var dsn strings.Builder
 	if cc.Username != "" {
@@ -416,7 +416,7 @@ func sslModeToTLS(mode string) string {
 // ("mysql" or "mariadb"). MariaDB always includes "-MariaDB" in its VERSION()
 // string; MySQL never does. Returns a clear, actionable error on mismatch so
 // the user knows which protocol to use instead of getting a cryptic dump error.
-func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) error {
+func (cc *ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) error {
 	pwArg, cleanup, err := cc.PasswordFileArg()
 	if err != nil {
 		return err
@@ -445,7 +445,7 @@ func (cc ConnConfig) CheckFlavor(ctx context.Context, expectedFlavor string) err
 }
 
 // Ping checks connectivity and, when ExpectedFlavor is set, rejects a server of the wrong type.
-func (cc ConnConfig) Ping(ctx context.Context) error {
+func (cc *ConnConfig) Ping(ctx context.Context) error {
 	pwArg, cleanup, err := cc.PasswordFileArg()
 	if err != nil {
 		return err
@@ -466,7 +466,7 @@ func (cc ConnConfig) Ping(ctx context.Context) error {
 
 // ArgsWithPassword prepends the --defaults-extra-file arg (if any) before the
 // connection args. --defaults-extra-file must be the first CLI argument.
-func (cc ConnConfig) ArgsWithPassword(pwArg string, extra ...string) []string {
+func (cc *ConnConfig) ArgsWithPassword(pwArg string, extra ...string) []string {
 	var args []string
 	if pwArg != "" {
 		args = append(args, pwArg)
