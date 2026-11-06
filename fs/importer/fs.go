@@ -56,7 +56,7 @@ type file struct {
 }
 
 func init() {
-	importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
+	_ = importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
 }
 
 func NewFSImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -174,7 +174,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 	defer p.mu.RUnlock()
 
 	if name, ok := p.uidToName[uid]; !ok {
-		if u, err := user.LookupId(fmt.Sprint(uid)); err == nil {
+		if u, err := user.LookupId(strconv.FormatUint(uid, 10)); err == nil {
 			uname = u.Username
 
 			p.mu.RUnlock()
@@ -188,7 +188,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 	}
 
 	if name, ok := p.gidToName[gid]; !ok {
-		if g, err := user.LookupGroupId(fmt.Sprint(gid)); err == nil {
+		if g, err := user.LookupGroupId(strconv.FormatUint(gid, 10)); err == nil {
 			gname = g.Name
 
 			p.mu.RUnlock()

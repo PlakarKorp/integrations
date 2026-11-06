@@ -42,7 +42,7 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("fs", location.FLAG_LOCALFS, NewStore)
+	_ = storage.Register("fs", location.FLAG_LOCALFS, NewStore)
 }
 
 func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
@@ -79,7 +79,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 			return err
 		}
 	} else {
-		defer dirfp.Close()
+		defer func() { _ = dirfp.Close() }()
 		entries, err := dirfp.Readdir(1)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return err
@@ -116,7 +116,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Close() // do we care about err?
+	defer func() { _ = rd.Close() }() // do we care about err?
 
 	data, err := io.ReadAll(rd)
 	if err != nil {
@@ -188,9 +188,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integ
 		return s.states.Put(mac, rd)
 	case storage.StorageResourceLock:
 		return s.putLock(ctx, mac, rd)
+	default:
+		return -1, errors.ErrUnsupported
 	}
-
-	return -1, errors.ErrUnsupported
 }
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
@@ -216,9 +216,9 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integ
 		return s.states.Get(mac)
 	case storage.StorageResourceLock:
 		return s.getLock(ctx, mac)
+	default:
+		return nil, errors.ErrUnsupported
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
@@ -229,9 +229,9 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag in
 		return s.states.Remove(mac)
 	case storage.StorageResourceLock:
 		return s.deleteLock(ctx, mac)
+	default:
+		return errors.ErrUnsupported
 	}
-
-	return errors.ErrUnsupported
 }
 
 func (s *Store) Close(ctx context.Context) error {

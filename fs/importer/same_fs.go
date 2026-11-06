@@ -17,12 +17,12 @@ func open(p string) (*os.File, error) {
 
 	fi, err := fp.Stat()
 	if err != nil {
-		fp.Close()
+		_ = fp.Close()
 		return nil, err
 	}
 
 	if !fi.Mode().IsRegular() {
-		fp.Close()
+		_ = fp.Close()
 		return nil, fmt.Errorf("not a regular file (%s)", fi.Mode())
 	}
 

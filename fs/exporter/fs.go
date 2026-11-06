@@ -54,7 +54,7 @@ type FSExporter struct {
 }
 
 func init() {
-	exporter.Register("fs", location.FLAG_LOCALFS, NewFSExporter)
+	_ = exporter.Register("fs", location.FLAG_LOCALFS, NewFSExporter)
 }
 
 func NewFSExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (exporter.Exporter, error) {
@@ -357,12 +357,12 @@ func (p *FSExporter) writeAtomic(record *integration.Record, pathname string) er
 	ok := false
 	defer func() {
 		if !ok {
-			p.root.Remove(tmpName)
+			_ = p.root.Remove(tmpName)
 		}
 	}()
 
 	if _, err := io.Copy(tmp, record.Reader); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 

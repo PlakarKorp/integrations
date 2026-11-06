@@ -18,6 +18,7 @@ package storage
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,7 +105,7 @@ func (buckets *Buckets) Path(mac objects.MAC) (string, error) {
 	 * used in path expression.
 	 */
 	if !strings.HasPrefix(dest, buckets.path) {
-		return "", fmt.Errorf("invalid path")
+		return "", errors.New("invalid path")
 	}
 	return dest, nil
 }
