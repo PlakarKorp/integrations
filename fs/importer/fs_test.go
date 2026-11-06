@@ -265,7 +265,7 @@ func TestImporter_RootSymlinkRecordsTarget(t *testing.T) {
 		}
 	}()
 	go func() {
-		if err := imp.Import(context.Background(), records, results); err != nil {
+		if _, err := imp.Import(context.Background(), records, results); err != nil {
 			t.Errorf("Import returned error: %v", err)
 		}
 	}()
