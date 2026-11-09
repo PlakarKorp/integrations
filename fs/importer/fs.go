@@ -28,14 +28,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/exclude"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 type FSImporter struct {
-	opts     *connectors.Options
+	opts     *integration.Options
 	rootDir  string
 	realpath string
 
@@ -56,10 +56,10 @@ type file struct {
 }
 
 func init() {
-	importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
+	_ = importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
 }
 
-func NewFSImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewFSImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
@@ -106,12 +106,12 @@ func (p *FSImporter) Flags() location.Flags {
 	return location.FLAG_LOCALFS
 }
 
-func (p *FSImporter) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
+func (p *FSImporter) Import(ctx context.Context, records chan<- *integration.Record, _ <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
-	return p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
+	return nil, p.walkDir_walker(ctx, records, p.opts.MaxConcurrency)
 }
 
-func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connectors.Record, numWorkers int) error {
+func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *integration.Record, numWorkers int) error {
 	jobs := make(chan file, numWorkers*4) // Buffered channel to feed paths to workers
 	var wg sync.WaitGroup
 	for range numWorkers {
@@ -131,7 +131,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connect
 		}
 
 		if err != nil {
-			records <- connectors.NewError(toslash(path), err)
+			records <- integration.NewError(toslash(path), err)
 			return nil
 		}
 
@@ -149,7 +149,7 @@ func (f *FSImporter) walkDir_walker(ctx context.Context, records chan<- *connect
 
 		info, err := d.Info()
 		if err != nil {
-			records <- connectors.NewError(toslash(path), err)
+			records <- integration.NewError(toslash(path), err)
 			return nil
 		}
 
@@ -174,7 +174,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 	defer p.mu.RUnlock()
 
 	if name, ok := p.uidToName[uid]; !ok {
-		if u, err := user.LookupId(fmt.Sprint(uid)); err == nil {
+		if u, err := user.LookupId(strconv.FormatUint(uid, 10)); err == nil {
 			uname = u.Username
 
 			p.mu.RUnlock()
@@ -188,7 +188,7 @@ func (p *FSImporter) lookupIDs(uid, gid uint64) (uname, gname string) {
 	}
 
 	if name, ok := p.gidToName[gid]; !ok {
-		if g, err := user.LookupGroupId(fmt.Sprint(gid)); err == nil {
+		if g, err := user.LookupGroupId(strconv.FormatUint(gid, 10)); err == nil {
 			gname = g.Name
 
 			p.mu.RUnlock()
@@ -243,8 +243,11 @@ func (p *FSImporter) Root() string {
 
 // convert paths to the internal format.  For unix nothing changes,
 // for windows we apply some edits:
-// C:\User\Omar\Plakar -> C:/User/Omar/Plakar -> /C:/User/Omar/Plakar
+// C:\User\Omar\Plakar -> C/User/Omar/Plakar -> /C/User/Omar/Plakar
 func toslash(p string) string {
+	if vol := filepath.VolumeName(p); strings.HasSuffix(vol, ":") {
+		p = vol[:len(vol)-1] + p[len(vol):]
+	}
 	p = filepath.ToSlash(p)
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p

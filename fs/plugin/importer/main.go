@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	fs "github.com/PlakarKorp/integrations/fs/importer"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
@@ -15,8 +15,8 @@ type failingImporter struct {
 	importer.Importer
 }
 
-func (failingImporter) Import(context.Context, chan<- *connectors.Record, <-chan *connectors.Result) error {
-	return errors.New("fs integration cannot be used in this context")
+func (failingImporter) Import(context.Context, chan<- *connectors.Record, <-chan *connectors.Result) (map[string]string, error) {
+	return nil, errors.New("fs integration cannot be used in this context")
 }
 
 func failer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
@@ -28,5 +28,5 @@ func failer(ctx context.Context, opts *connectors.Options, name string, config m
 }
 
 func main() {
-	sdk.EntrypointImporter(os.Args, failer)
+	server.EntrypointImporter(failer, os.Args)
 }
