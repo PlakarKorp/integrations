@@ -1,6 +1,6 @@
 name: smb
 display_name: SMB
-description: Integration providing import and export capabilities to and from SMB/CIFS shares.
+description: Integration providing storage, import and export capabilities to and from SMB/CIFS shares.
 api_version: v1.1.0
 tier: official
 contact: mailto:help@plakar.io
@@ -15,3 +15,9 @@ connectors:
   executable: smbExporter
   protocols: [smb]
   validator: ./exporter/schema.json
+- type: storage
+  executable: smbStorage
+  homepage: https://github.com/PlakarKorp/integrations/tree/main/smb
+  license: ISC
+  protocols: [smb]
+  validator: ./storage/schema.json

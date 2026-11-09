@@ -10,6 +10,7 @@ all: build
 build:
 	${GO} build -v -o smbImporter${EXT} ./plugin/importer
 	${GO} build -v -o smbExporter${EXT} ./plugin/exporter
+	${GO} build -v -o smbStorage${EXT} ./plugin/storage
 
 lint: $(QA_DIR)/golangci.yml $(QA_DIR)/versions
 	${GO} run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@`sed -n 's/^golangci-lint=//p' $(QA_DIR)/versions` \
@@ -24,5 +25,5 @@ $(QA_DIR)/golangci.yml $(QA_DIR)/versions:
 	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
 
 clean:
-	rm -f smbImporter smbExporter smb-*.ptar
+	rm -f smbImporter smbExporter smbStorage smb-*.ptar
 	rm -rf .qa

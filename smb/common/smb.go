@@ -256,6 +256,17 @@ func (c *Conn) Create(p string) (io.WriteCloser, error) {
 	return c.Share.OpenFile(SharePath(p), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 }
 
+// Remove deletes the file or empty directory at p.
+func (c *Conn) Remove(p string) error {
+	return c.Share.Remove(SharePath(p))
+}
+
+// Rename renames oldpath to newpath. Unlike POSIX rename, it fails if newpath
+// already exists.
+func (c *Conn) Rename(oldpath, newpath string) error {
+	return c.Share.Rename(SharePath(oldpath), SharePath(newpath))
+}
+
 // Symlink creates a symlink at linkpath pointing at target.
 func (c *Conn) Symlink(target, linkpath string) error {
 	return c.Share.Symlink(target, SharePath(linkpath))

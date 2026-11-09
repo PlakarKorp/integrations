@@ -21,6 +21,10 @@ This integration allows:
   Restore previously backed-up snapshots directly onto an SMB share, recreating
   the directory hierarchy, file contents and symlinks.
 
+* **Hosting a Kloset repository on an SMB share:**
+  Use a share (or a directory within it) as the storage backend for a Plakar
+  repository.
+
 ---
 
 ## Configuration
@@ -31,7 +35,8 @@ The supported configuration options are:
   `smb://[<user>[:<password>]@]<host>[:<port>]/<share>[/<subpath>]`. The first
   path segment is the share to mount; an optional deeper subpath (or the `root`
   option) narrows the walk within that share.
-* `root`: path to walk/restore, relative to the share (default: the whole share).
+* `root`: path to walk/restore, or to the repository when used as storage,
+  relative to the share (default: the whole share).
 * `port`: SMB TCP port (default `445`).
 * `username` / `password`: NTLM credentials, if not given in the URL userinfo.
   Anonymous access uses `Guest`.
@@ -51,6 +56,10 @@ $ plakar backup -o username=alice -o password=secret \
 
 # restore the snapshot "abc" onto a share
 $ plakar restore -to smb://alice:secret@nas.example.com/restore abc
+
+# create a repository on a share and back up into it
+$ plakar at smb://alice:secret@nas.example.com/backups/plakar create
+$ plakar at smb://alice:secret@nas.example.com/backups/plakar backup /home/alice
 ```
 
 ---
