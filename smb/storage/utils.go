@@ -30,12 +30,13 @@ import (
 // writeFileAtomic writes r to a temporary file next to finalPath, then renames
 // it into place, so a reader never observes a partially written file.
 //
-// SMB2 rename does not replace an existing target. Everything this store
-// writes is either content-addressed (packfiles, states), uniquely named
-// (locks) or written once into an empty root (CONFIG), so a target that
-// already exists holds the same bytes: drop the temporary file and report
-// success.
-func writeFileAtomic(conn *plakarsmb.Conn, finalPath string, r io.Reader) (int64, error) {
+// SMB2 rename does not replace an existing target. For content-addressed
+// objects (packfiles, states) and uniquely named locks, an existing target
+// holds the same bytes, so callers pass existsOK to drop the temporary file
+// and report success. CONFIG passes false: an existing one means another
+// client created a repository there concurrently, and claiming success would
+// leave us writing data under a configuration that isn't ours.
+func writeFileAtomic(conn *plakarsmb.Conn, finalPath string, r io.Reader, existsOK bool) (int64, error) {
 	tmp, err := tempName(path.Dir(finalPath))
 	if err != nil {
 		return 0, err
@@ -59,7 +60,7 @@ func writeFileAtomic(conn *plakarsmb.Conn, finalPath string, r io.Reader) (int64
 
 	if err := conn.Rename(tmp, finalPath); err != nil {
 		_ = conn.Remove(tmp)
-		if _, serr := conn.Lstat(finalPath); serr == nil {
+		if _, serr := conn.Lstat(finalPath); existsOK && serr == nil {
 			return n, nil
 		}
 		return 0, err

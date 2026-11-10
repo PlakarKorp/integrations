@@ -57,9 +57,11 @@ $ plakar backup -o username=alice -o password=secret \
 # restore the snapshot "abc" onto a share
 $ plakar restore -to smb://alice:secret@nas.example.com/restore abc
 
-# create a repository on a share and back up into it
-$ plakar at smb://alice:secret@nas.example.com/backups/plakar create
-$ plakar at smb://alice:secret@nas.example.com/backups/plakar backup /home/alice
+# create a repository on a share and back up into it; registering the store
+# keeps the password out of the command line and shell history
+$ plakar store add nas smb://nas.example.com/backups/plakar username=alice password=secret
+$ plakar at @nas create
+$ plakar at @nas backup /home/alice
 ```
 
 ---

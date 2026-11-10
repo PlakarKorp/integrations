@@ -97,7 +97,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 
-	_, err := writeFileAtomic(s.conn, s.Path("CONFIG"), bytes.NewReader(config))
+	_, err := writeFileAtomic(s.conn, s.Path("CONFIG"), bytes.NewReader(config), false)
 	return err
 }
 
@@ -165,7 +165,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	case storage.StorageResourceState:
 		return s.states.Put(mac, rd)
 	case storage.StorageResourceLock:
-		return writeFileAtomic(s.conn, s.lockPath(mac), rd)
+		return writeFileAtomic(s.conn, s.lockPath(mac), rd, true)
 	}
 	return -1, errors.ErrUnsupported
 }

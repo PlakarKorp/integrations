@@ -51,7 +51,7 @@ func startSamba(t *testing.T) string {
 		ctx := context.Background()
 		c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Image:        "dockurr/samba:latest",
+				Image:        "dockurr/samba@sha256:2a0452a12b7a244a22f18d0f233101bb8d4952b5500ae263905e3b9dad3bf2ae",
 				ExposedPorts: []string{"445/tcp"},
 				Env: map[string]string{
 					"NAME": "data",

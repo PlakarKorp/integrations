@@ -83,7 +83,7 @@ func (b *Buckets) Remove(mac objects.MAC) error {
 }
 
 func (b *Buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
-	return writeFileAtomic(b.conn, b.objectPath(mac), rd)
+	return writeFileAtomic(b.conn, b.objectPath(mac), rd, true)
 }
 
 type rangeReader struct {
