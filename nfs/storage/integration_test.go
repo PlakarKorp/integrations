@@ -62,7 +62,7 @@ func startNFSServer(t *testing.T) map[string]string {
 	}
 
 	req := tc.ContainerRequest{
-		Image:        "erichough/nfs-server:latest",
+		Image:        "erichough/nfs-server@sha256:784ef30907aa318b8324c4c49bd258b11a740ab0eea9f09b5ccf9df378fa77ca",
 		ExposedPorts: exposed,
 		Env: map[string]string{
 			"NFS_VERSION":  "3",
