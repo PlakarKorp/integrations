@@ -7,6 +7,7 @@ VERSION ?= v1.1.10
 GOOS   := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
 PTAR   := s3_$(VERSION)_$(GOOS)_$(GOARCH).ptar
+PTAR_C := s3_$(VERSION)_linux_$(GOARCH)_container.ptar
 
 # Lint rules and tool versions come from PlakarKorp/QA at this version, as in CI.
 QA_VERSION != cat .qa-version
@@ -23,11 +24,18 @@ package: build
 	rm -f $(PTAR)
 	$(PLAKAR) pkg create ./manifest.yaml $(VERSION)
 
+package_container: build
+	rm -f $(PTAR_C)
+	$(PLAKAR) pkg create -container ./manifest.yaml $(VERSION)
+
 uninstall:
 	-$(PLAKAR) pkg rm s3
 
 install: package
 	$(PLAKAR) pkg add -allow-unsigned ./$(PTAR)
+
+install_container: package_container
+	$(PLAKAR) pkg add ./$(PTAR_C)
 
 reinstall: uninstall install
 
