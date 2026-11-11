@@ -1,10 +1,14 @@
 name: docker
 display_name: Docker
-description: Integration providing import capabilities from Docker images.
+description: Integration providing backup and restore of docker images, networks, volumes and containers.
 homepage: https://github.com/PlakarKorp/integrations/tree/main/docker
 license: ISC
 connectors:
 - type: importer
   executable: dockerImporter
-  protocols: [docker+container, docker+image]
+  protocols: [docker, docker+container, docker+image]
   validator: ./plugin/importer/schema.json
+- type: exporter
+  executable: dockerExporter
+  protocols: [docker]
+  validator: ./plugin/exporter/schema.json

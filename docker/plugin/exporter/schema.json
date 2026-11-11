@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Docker Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "pattern": "^docker:",
+      "description": "docker: restores to the daemon DOCKER_HOST points at"
+    },
+    "start": {
+      "type": "string",
+      "enum": ["true", "false"],
+      "description": "start the containers once created (default false)"
+    },
+    "kubelet_image": {
+      "type": "string",
+      "description": "image run with the volume mounted to write its data; defaults to the k8s integration's kubelet image"
+    }
+  }
+}

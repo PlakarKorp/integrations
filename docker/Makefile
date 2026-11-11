@@ -8,6 +8,7 @@ all: build
 
 build:
 	${GO} build -v -o dockerImporter ./plugin/importer
+	${GO} build -v -o dockerExporter ./plugin/exporter
 
 lint: $(QA_DIR)/golangci.yml $(QA_DIR)/versions
 	${GO} run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@`sed -n 's/^golangci-lint=//p' $(QA_DIR)/versions` \
@@ -22,5 +23,5 @@ $(QA_DIR)/golangci.yml $(QA_DIR)/versions:
 	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
 
 clean:
-	rm -f dockerImporter docker-*.ptar
+	rm -f dockerImporter dockerExporter docker-*.ptar docker_*.ptar
 	rm -rf .qa
