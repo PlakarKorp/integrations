@@ -68,8 +68,8 @@ func startNFSServer(t *testing.T) map[string]string {
 			"NFS_VERSION":  "3",
 			"NFS_EXPORT_0": "/export *(rw,insecure,no_subtree_check,no_root_squash,sync)",
 		},
-		// The export directory needs to exist before the entrypoint runs
-		// exportfs; copying a placeholder file in creates it.
+		// The export directory needs to exist before the entrypoint exports
+		// it; copying a placeholder file in creates it.
 		Files: []tc.ContainerFile{{
 			Reader:            strings.NewReader(""),
 			ContainerFilePath: "/export/.keep",

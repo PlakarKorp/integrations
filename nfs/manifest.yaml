@@ -17,7 +17,5 @@ connectors:
   validator: ./exporter/schema.json
 - type: storage
   executable: nfsStorage
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/nfs
-  license: ISC
   protocols: [nfs]
   validator: ./storage/schema.json
