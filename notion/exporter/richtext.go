@@ -17,6 +17,8 @@
 package exporter
 
 import (
+	"context"
+
 	"github.com/PlakarKorp/integrations/notion/api"
 )
 
@@ -90,43 +92,39 @@ func (p *Exporter) richTextItem(m map[string]any) map[string]any {
 func (p *Exporter) mention(m map[string]any) map[string]any {
 	typ, _ := m["type"].(string)
 	switch typ {
+	// mentions only point at members of the target workspace and at
+	// copies made in this restore; anything else becomes plain text
 	case "user":
 		u, _ := m["user"].(map[string]any)
 		id, _ := u["id"].(string)
-		if id == "" {
+		if id == "" || !p.knownUser(context.Background(), id) {
 			return nil
 		}
 		return map[string]any{"type": "user", "user": map[string]any{"object": "user", "id": id}}
 	case "page":
 		pg, _ := m["page"].(map[string]any)
 		id, _ := pg["id"].(string)
-		if n, ok := p.pages[id]; ok {
-			id = n
-		}
-		if id == "" {
+		n, ok := p.pages[id]
+		if !ok {
 			return nil
 		}
-		return map[string]any{"type": "page", "page": map[string]any{"id": id}}
+		return map[string]any{"type": "page", "page": map[string]any{"id": n}}
 	case "database":
 		db, _ := m["database"].(map[string]any)
 		id, _ := db["id"].(string)
-		if n, ok := p.databases[id]; ok {
-			id = n
-		}
-		if id == "" {
+		n, ok := p.databases[id]
+		if !ok {
 			return nil
 		}
-		return map[string]any{"type": "database", "database": map[string]any{"id": id}}
+		return map[string]any{"type": "database", "database": map[string]any{"id": n}}
 	case "data_source":
 		ds, _ := m["data_source"].(map[string]any)
 		id, _ := ds["id"].(string)
-		if n, ok := p.dataSources[id]; ok {
-			id = n
-		}
-		if id == "" {
+		n, ok := p.dataSources[id]
+		if !ok {
 			return nil
 		}
-		return map[string]any{"type": "data_source", "data_source": map[string]any{"id": id}}
+		return map[string]any{"type": "data_source", "data_source": map[string]any{"id": n}}
 	case "date", "template_mention", "custom_emoji":
 		return map[string]any{"type": typ, typ: m[typ]}
 	}

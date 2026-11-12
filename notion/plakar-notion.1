@@ -33,7 +33,7 @@ The connection token, starting with
 .Li ntn_ .
 Defaults to the
 .Ev NOTION_TOKEN
-environment variable.
+environment variable, which keeps it out of the command line.
 .It Ar comments
 For a source, which comments to back up:
 .Li blocks
@@ -61,7 +61,8 @@ The following example shows how to configure a source called
 .Li mynotion
 for a workspace to back up:
 .Bd -literal -offset indent
-$ plakar source add mynotion notion:// token=ntn_...
+$ export NOTION_TOKEN=ntn_...
+$ plakar source add mynotion notion://
 .Ed
 .Pp
 Supposing that a Kloset store named
@@ -74,7 +75,7 @@ $ plakar at @mystore backup @mynotion
 .Pp
 To restore a snapshot under an existing page:
 .Bd -literal -offset indent
-$ plakar destination add mynotion-restore notion://<page id> token=ntn_...
+$ plakar destination add mynotion-restore notion://<page id>
 $ plakar at @mystore restore -to @mynotion-restore <snapshot>
 .Ed
 .Sh LIMITATIONS

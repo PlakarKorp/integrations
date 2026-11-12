@@ -29,6 +29,9 @@ var (
 	attrURLRe     = regexp.MustCompile(`\burl="([^"]*)"`)
 	attrDSURLRe   = regexp.MustCompile(`\bdata-source-url="([^"]*)"`)
 	urlRe         = regexp.MustCompile(`https?://[^\s<>"'()\]]+`)
+	// files are only taken from media syntax, never from a url a
+	// member typed into the text
+	mediaRe = regexp.MustCompile(`!\[[^\]]*\]\((https?://[^\s)]+)\)|<(?:image|file|pdf|video|audio)\s+[^>]*?source="([^"]*)"`)
 )
 
 // DatabaseLink is a child database as markdown references it.
@@ -67,8 +70,8 @@ func Scan(md string) (pages []string, databases []DatabaseLink, files []string) 
 		seen[key] = struct{}{}
 		databases = append(databases, link)
 	}
-	for _, u := range urlRe.FindAllString(md, -1) {
-		u = html(u)
+	for _, m := range mediaRe.FindAllStringSubmatch(md, -1) {
+		u := html(m[1] + m[2])
 		if !api.IsNotionFileURL(u) {
 			continue
 		}

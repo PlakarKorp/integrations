@@ -290,3 +290,25 @@ func TestObjects(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "aaaaaaaabbbbccccddddeeeeeeeeeeee/file", k)
 }
+
+// TestDownloadStaysOnNotionHosts: a snapshot or an API answer naming
+// another host must not make plakar fetch it, directly or through a
+// redirect.
+func TestDownloadStaysOnNotionHosts(t *testing.T) {
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "secret")
+	}))
+	defer other.Close()
+	notion := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/x", http.StatusFound)
+	}))
+	defer notion.Close()
+	c, err := New(Config{Token: "tok", BaseURL: notion.URL})
+	require.NoError(t, err)
+
+	_, _, err = c.Download(context.Background(), other.URL+"/f/x.png")
+	require.ErrorContains(t, err, "not a Notion file host")
+
+	_, _, err = c.Download(context.Background(), notion.URL+"/files/x.png")
+	require.ErrorContains(t, err, "refused")
+}

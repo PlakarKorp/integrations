@@ -433,12 +433,11 @@ func (p *Exporter) addRelations(ctx context.Context, dir string, sc *schema) err
 		target, _ := rel["data_source_id"].(string)
 		newTarget, ok := p.dataSources[target]
 		if !ok {
-			if _, err := p.client.DataSource(ctx, target); err != nil {
-				p.warnf("%s: relation %q: target data source %s not restored", dir, name, target)
-				continue
-			}
-			// the target exists in this workspace as it is
-			newTarget = target
+			// a relation to a data source outside the restore would
+			// let a snapshot add a property to it (dual relations
+			// write to both sides): not ours to touch
+			p.warnf("%s: relation %q: target data source %s not part of the restore", dir, name, target)
+			continue
 		}
 		cfg := map[string]any{"data_source_id": newTarget}
 		switch rel["type"] {

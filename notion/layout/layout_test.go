@@ -40,7 +40,8 @@ func TestDirName(t *testing.T) {
 		{"a/b\\c:d", "a-b-c-d 11111111222233334444555555555555"},
 		{".hidden", "_hidden 11111111222233334444555555555555"},
 		{"tab\there", "tab here 11111111222233334444555555555555"},
-		{strings.Repeat("x", 200), strings.Repeat("x", 80) + " 11111111222233334444555555555555"},
+		{strings.Repeat("x", 200), strings.Repeat("x", 120) + " 11111111222233334444555555555555"},
+		{strings.Repeat("é", 100), strings.Repeat("é", 60) + " 11111111222233334444555555555555"},
 	} {
 		got := DirName(tc.title, idA)
 		require.Equal(t, tc.want, got, tc.title)
@@ -134,11 +135,12 @@ Some text with an image:
 <database url="https://www.notion.so/aaaaaaaabbbbccccddddeeeeeeeeeeee" data-source-url="https://www.notion.so/99999999888877776666555555555555" inline="true">Tasks</database>
 
 [external](https://example.com/not-notion.png)
+[typed](https://prod-files-secure.s3.us-west-2.amazonaws.com/ws-1/99999999888877776666555555555555/typed.png?x=1)
 `
 	pages, dbs, files := Scan(md)
 	require.Equal(t, []string{idC, idA}, pages)
 	require.Equal(t, []DatabaseLink{{ID: idB, DataSourceID: idC}}, dbs)
-	require.Len(t, files, 2)
+	require.Len(t, files, 2, "a plain link to a Notion file host is not a file of the page")
 	require.Contains(t, files[0], "photo%20one.png?X-Amz-Signature=abc&X-Amz-Expires=3600")
 	require.Contains(t, files[1], "report.pdf")
 

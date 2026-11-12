@@ -47,7 +47,7 @@ import (
 
 const (
 	maxConcurrency = 4
-	maxJSON        = 256 << 20
+	maxJSON        = 64 << 20
 )
 
 // Config is where to restore and what to recreate.

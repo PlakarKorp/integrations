@@ -46,6 +46,10 @@ const (
 	// API caps its own payloads well below this.
 	MaxBody = 64 << 20
 
+	// MaxListPages bounds a paginated listing: a server handing out
+	// endless cursors must not keep us going.
+	MaxListPages = 10000
+
 	defaultRate        = 3.0
 	defaultConcurrency = 4
 	maxAttempts        = 8
@@ -155,13 +159,25 @@ func New(cfg Config) (*Client, error) {
 		plainTransport = t.Clone()
 	}
 	plainTransport.ResponseHeaderTimeout = 2 * time.Minute
+	plain := &http.Client{
+		Transport: plainTransport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			if !IsNotionFileURL(req.URL.String()) {
+				return fmt.Errorf("redirect to %s refused", req.URL.Host)
+			}
+			return nil
+		},
+	}
 	ua := cfg.UserAgent
 	if ua == "" {
 		ua = defaultUserAgent
 	}
 	return &Client{
 		http:      hc,
-		plain:     &http.Client{Transport: plainTransport},
+		plain:     plain,
 		base:      base,
 		token:     cfg.Token,
 		userAgent: ua,
@@ -436,7 +452,10 @@ type listPage struct {
 // query, POST ones in the body.
 func (c *Client) list(ctx context.Context, method, path string, query url.Values, body map[string]any, each func(json.RawMessage) error) (*RequestStatus, error) {
 	cursor := ""
-	for {
+	for n := 0; ; n++ {
+		if n >= MaxListPages {
+			return nil, fmt.Errorf("notion: %s %s: more than %d pages of results", method, path, MaxListPages)
+		}
 		var page listPage
 		var err error
 		if method == http.MethodGet {
@@ -705,6 +724,9 @@ func (c *Client) CreateView(ctx context.Context, body any) (json.RawMessage, err
 // carries its own credentials, so neither the token nor the API rate
 // limit apply.  An expired url yields ErrExpiredURL.
 func (c *Client) Download(ctx context.Context, signedURL string) (io.ReadCloser, int64, error) {
+	if !IsNotionFileURL(signedURL) {
+		return nil, 0, fmt.Errorf("download: %s is not a Notion file host", signedURL)
+	}
 	var last error
 	for attempt := 0; attempt < 4; attempt++ {
 		if attempt > 0 {
@@ -719,7 +741,12 @@ func (c *Client) Download(ctx context.Context, signedURL string) (io.ReadCloser,
 		hr.Header.Set("User-Agent", c.userAgent)
 		resp, err := c.plain.Do(hr)
 		if err != nil {
-			last = err
+			// the url carries its signature: keep it out of errors
+			var uerr *url.Error
+			if errors.As(err, &uerr) {
+				err = uerr.Err
+			}
+			last = fmt.Errorf("download: %w", err)
 			continue
 		}
 		switch {

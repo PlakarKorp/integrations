@@ -57,6 +57,10 @@ const (
 	recentEdit = 2 * time.Minute
 
 	maxConcurrency = 8
+
+	// maxMarkdown bounds what the markdown of one page may grow to
+	// while the subtrees left out of it are spliced in.
+	maxMarkdown = 64 << 20
 )
 
 var epoch = time.Unix(0, 0).UTC()
@@ -373,6 +377,9 @@ func (p *Importer) markdown(ctx context.Context, id string, resolve func(string)
 	pending := append([]string(nil), md.UnknownBlockIDs...)
 	seen := map[string]struct{}{id: {}}
 	for budget := 200; len(pending) > 0 && budget > 0; budget-- {
+		if len(text) > maxMarkdown {
+			return "", fmt.Errorf("page %s: markdown larger than %d bytes", id, maxMarkdown)
+		}
 		bid := pending[0]
 		pending = pending[1:]
 		if _, dup := seen[bid]; dup {

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Parent is the parent object every page, database, data source, block
@@ -243,7 +244,7 @@ func IsNotionFileURL(s string) bool {
 		return true
 	case strings.HasPrefix(h, "prod-files-secure.") && strings.HasSuffix(h, ".amazonaws.com"):
 		return true
-	case strings.HasSuffix(h, ".amazonaws.com") && strings.Contains(u.Path, "secure.notion-static.com"):
+	case h == "s3.us-west-2.amazonaws.com" && strings.HasPrefix(u.Path, "/secure.notion-static.com/"):
 		return true
 	}
 	return false
@@ -271,6 +272,19 @@ func AssetKey(s string) (string, bool) {
 	return CompactID(id) + "/" + safeName(name), true
 }
 
+// maxNameBytes keeps an asset name well under the 255 bytes most
+// filesystems allow, whatever the script.
+const maxNameBytes = 120
+
+// tailBytes keeps the last n bytes of s, on a rune boundary.
+func tailBytes(s string, n int) string {
+	for len(s) > n {
+		_, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+	}
+	return s
+}
+
 func safeName(name string) string {
 	name = strings.Map(func(r rune) rune {
 		if r == '/' || r == '\\' || r < 0x20 || r == 0x7f {
@@ -282,9 +296,7 @@ func safeName(name string) string {
 	if name == "" || name == "." || name == ".." {
 		return "file"
 	}
-	if r := []rune(name); len(r) > 200 {
-		name = string(r[len(r)-200:])
-	}
+	name = tailBytes(name, maxNameBytes)
 	return name
 }
 
@@ -313,7 +325,9 @@ func walkFiles(v any, emit func(FileRef)) {
 	case map[string]any:
 		if f, ok := t["file"].(map[string]any); ok {
 			if u, ok := f["url"].(string); ok && u != "" {
-				if _, ok := f["expiry_time"]; ok || IsNotionFileURL(u) {
+				// only files Notion hosts are downloaded, whatever an
+				// object claims
+				if IsNotionFileURL(u) {
 					if key, ok := AssetKey(u); ok {
 						name, _ := t["name"].(string)
 						if name == "" {

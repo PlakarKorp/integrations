@@ -284,27 +284,41 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 		}
 
 	case typ == "synced_block":
-		if sf, ok := payload["synced_from"].(map[string]any); ok && sf != nil {
+		payload["synced_from"] = nil
+		src, _ := n.raw[typ].(map[string]any)
+		if sf, ok := src["synced_from"].(map[string]any); ok && sf != nil {
 			orig, _ := sf["block_id"].(string)
-			if n, ok := p.blocks[orig]; ok {
-				orig = n
+			if restored, ok := p.blocks[orig]; ok {
+				payload["synced_from"] = map[string]any{"block_id": restored}
+			} else {
+				// the original is not part of this restore: a copy
+				// pointing at an arbitrary block would pull content
+				// from wherever a crafted snapshot says
+				p.notef("%s: synced block %s: original %s not restored, kept as a plain copy", e.dir, n.id, orig)
 			}
-			payload["synced_from"] = map[string]any{"block_id": orig}
-		} else {
-			payload["synced_from"] = nil
 		}
 
 	case typ == "link_to_page":
+		// only links to copies made in this restore: a crafted
+		// snapshot must not plant links to arbitrary objects
+		linked := false
 		for _, k := range []string{"page_id", "database_id", "data_source_id"} {
 			if id, ok := payload[k].(string); ok {
 				if n, ok := p.pages[id]; ok {
 					payload[k] = n
+					linked = true
 				} else if n, ok := p.databases[id]; ok {
 					payload[k] = n
+					linked = true
 				} else if n, ok := p.dataSources[id]; ok {
 					payload[k] = n
+					linked = true
 				}
 			}
+		}
+		if !linked {
+			p.notef("%s: block %s: link to a page not part of the restore, dropped", e.dir, n.id)
+			return pr, false
 		}
 
 	case typ == "table_row":
@@ -323,6 +337,12 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 			rows = append(rows, map[string]any{"object": "block", "type": "table_row", "table_row": rp})
 		}
 		width, _ := payload["table_width"].(float64)
+		if width < 1 || width > 100 {
+			// the API caps tables at 100 columns; a crafted width
+			// must not size an allocation
+			width = 1
+			payload["table_width"] = width
+		}
 		if len(rows) == 0 {
 			cells := make([]any, int(width))
 			for i := range cells {

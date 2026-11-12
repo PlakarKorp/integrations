@@ -23,13 +23,16 @@ a workspace, so a restore needs a page to restore under.
 ## Backup
 
 ```
-$ plakar source add mynotion notion:// token=ntn_...
+$ export NOTION_TOKEN=ntn_...
+$ plakar source add mynotion notion://
 $ plakar at @mystore backup @mynotion
 ```
 
 `notion://` backs up everything the connection can reach,
 `notion://<page or database id>` a single subtree. The token can also
-come from the `NOTION_TOKEN` environment variable.
+be given as the `token` option of the source, which keeps it in
+plakar's configuration; the environment variable keeps it out of the
+command line and the shell history.
 
 Options:
 
@@ -43,7 +46,7 @@ Options:
 ## Restore
 
 ```
-$ plakar destination add mynotion-restore notion://<page id> token=ntn_...
+$ plakar destination add mynotion-restore notion://<page id>
 $ plakar at @mystore restore -to @mynotion-restore <snapshot>
 $ plakar at @mystore restore -to @mynotion-restore <snapshot>:/pages/Engineering\ <id>
 ```

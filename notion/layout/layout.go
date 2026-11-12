@@ -45,6 +45,7 @@ import (
 	"path"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/PlakarKorp/integrations/notion/api"
 )
@@ -65,7 +66,9 @@ const (
 	WorkspaceFile = "workspace.json"
 	UsersFile     = "users.json"
 
-	maxTitleRunes = 80
+	// maxTitleBytes keeps a directory name under the 255 bytes most
+	// filesystems allow, id included, whatever the script of the title.
+	maxTitleBytes = 120
 )
 
 // Kind says what a snapshot path is.
@@ -112,11 +115,12 @@ type Path struct {
 // path and cut short, followed by its id without dashes, which keeps
 // names unique and lets the restore find the id back.
 func DirName(title, id string) string {
-	t := []rune(strings.TrimSpace(sanitize(title)))
-	if len(t) > maxTitleRunes {
-		t = t[:maxTitleRunes]
+	t := strings.TrimSpace(sanitize(title))
+	for len(t) > maxTitleBytes {
+		_, size := utf8.DecodeLastRuneInString(t)
+		t = t[:len(t)-size]
 	}
-	s := strings.TrimSpace(string(t))
+	s := strings.TrimSpace(t)
 	if s == "" {
 		s = "Untitled"
 	}
