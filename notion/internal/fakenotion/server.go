@@ -1227,7 +1227,7 @@ func (s *Server) validateBlock(v any, depth int) error {
 	}
 	for k, v := range payload {
 		// an original synced block is the one null the API takes
-		if v == nil && !(typ == "synced_block" && k == "synced_from") {
+		if v == nil && (typ != "synced_block" || k != "synced_from") {
 			return bad("body.children[0].%s.%s should be an object or `undefined`, instead was `null`", typ, k)
 		}
 	}
