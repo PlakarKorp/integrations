@@ -154,8 +154,9 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
 		return s.states.List()
 	case storage.StorageResourceLock:
 		return s.getLocks()
+	default:
+		return nil, errors.ErrUnsupported
 	}
-	return nil, errors.ErrUnsupported
 }
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
@@ -166,8 +167,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		return s.states.Put(mac, rd)
 	case storage.StorageResourceLock:
 		return writeFileAtomic(s.conn, s.lockPath(mac), rd, true)
+	default:
+		return -1, errors.ErrUnsupported
 	}
-	return -1, errors.ErrUnsupported
 }
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
@@ -197,8 +199,9 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 			return nil, errors.ErrUnsupported
 		}
 		return s.conn.Open(s.lockPath(mac))
+	default:
+		return nil, errors.ErrUnsupported
 	}
-	return nil, errors.ErrUnsupported
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
@@ -209,8 +212,9 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 		return s.states.Remove(mac)
 	case storage.StorageResourceLock:
 		return s.conn.Remove(s.lockPath(mac))
+	default:
+		return errors.ErrUnsupported
 	}
-	return errors.ErrUnsupported
 }
 
 func (s *Store) lockPath(mac objects.MAC) string {

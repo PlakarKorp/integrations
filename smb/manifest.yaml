@@ -17,7 +17,5 @@ connectors:
   validator: ./exporter/schema.json
 - type: storage
   executable: smbStorage
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/smb
-  license: ISC
   protocols: [smb]
   validator: ./storage/schema.json

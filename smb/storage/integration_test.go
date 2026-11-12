@@ -38,7 +38,7 @@ import (
 var (
 	sambaOnce     sync.Once
 	sambaLocation string
-	sambaErr      error
+	errSamba      error
 )
 
 // startSamba starts one Samba server for the whole package and returns the
@@ -63,22 +63,22 @@ func startSamba(t *testing.T) string {
 			Started: true,
 		})
 		if err != nil {
-			sambaErr = err
+			errSamba = err
 			return
 		}
 		host, err := c.Host(ctx)
 		if err != nil {
-			sambaErr = err
+			errSamba = err
 			return
 		}
 		port, err := c.MappedPort(ctx, "445/tcp")
 		if err != nil {
-			sambaErr = err
+			errSamba = err
 			return
 		}
 		sambaLocation = "smb://alice:secret@" + host + ":" + port.Port() + "/data"
 	})
-	require.NoError(t, sambaErr)
+	require.NoError(t, errSamba)
 	return sambaLocation
 }
 
