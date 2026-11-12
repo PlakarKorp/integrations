@@ -1,5 +1,6 @@
 /smbImporter
 /smbExporter
 /smbStorage
-/smb-*.ptar
+*.ptar
+coverage.*
 /.qa
