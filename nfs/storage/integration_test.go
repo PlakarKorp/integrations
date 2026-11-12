@@ -21,8 +21,10 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +32,6 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/repository"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/go-connections/nat"
 	tc "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -76,7 +77,9 @@ func startNFSServer(t *testing.T) map[string]string {
 			FileMode:          0o644,
 		}},
 		HostConfigModifier: func(hc *container.HostConfig) {
-			hc.CapAdd = strslice.StrSlice{"SYS_ADMIN"}
+			// rpc.nfsd needs to mount the nfsd filesystem and drive the
+			// kernel server, which CAP_SYS_ADMIN alone does not allow.
+			hc.Privileged = true
 			hc.PortBindings = bindings
 		},
 		WaitingFor: wait.ForAll(
@@ -299,5 +302,130 @@ func TestStoreGetMissingPackfileReturnsErrPackfileNotFound(t *testing.T) {
 	_, err := s.Get(context.Background(), storage.StorageResourcePackfile, randomMAC(t), nil)
 	if !errors.Is(err, repository.ErrPackfileNotFound) {
 		t.Errorf("Get() on a missing packfile = %v, want repository.ErrPackfileNotFound", err)
+	}
+}
+
+// TestStoreNestedOperations keeps a reader open while the same goroutine reads
+// another object and writes a third. A connection lock held for the lifetime
+// of a reader would never let this return.
+func TestStoreNestedOperations(t *testing.T) {
+	s := newTestStore(t)
+	defer func() { _ = s.Close(context.Background()) }()
+	ctx := context.Background()
+	if err := s.Create(ctx, []byte("config")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	a, b, c := randomMAC(t), randomMAC(t), randomMAC(t)
+	for mac, data := range map[objects.MAC]string{a: "aaaa", b: "bbbb"} {
+		if _, err := s.Put(ctx, storage.StorageResourcePackfile, mac, strings.NewReader(data)); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		ra, err := s.Get(ctx, storage.StorageResourcePackfile, a, nil)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = ra.Close() }()
+		rb, err := s.Get(ctx, storage.StorageResourcePackfile, b, nil)
+		if err != nil {
+			done <- err
+			return
+		}
+		gotB, err := io.ReadAll(rb)
+		_ = rb.Close()
+		if err != nil {
+			done <- err
+			return
+		}
+		if _, err := s.Put(ctx, storage.StorageResourcePackfile, c, strings.NewReader("cccc")); err != nil {
+			done <- err
+			return
+		}
+		gotA, err := io.ReadAll(ra)
+		if err != nil {
+			done <- err
+			return
+		}
+		if string(gotA) != "aaaa" || string(gotB) != "bbbb" {
+			done <- fmt.Errorf("read %q and %q", gotA, gotB)
+			return
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("nested operations did not complete: connection deadlock")
+	}
+}
+
+// TestStoreConcurrentPutGet runs puts and gets from several goroutines, as
+// the repository does, and checks every object round-trips intact.
+func TestStoreConcurrentPutGet(t *testing.T) {
+	s := newTestStore(t)
+	defer func() { _ = s.Close(context.Background()) }()
+	ctx := context.Background()
+	if err := s.Create(ctx, []byte("config")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	const workers, perWorker = 8, 4
+	data := make([]byte, 1<<20)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range perWorker {
+				var mac objects.MAC
+				_, _ = rand.Read(mac[:])
+				if _, err := s.Put(ctx, storage.StorageResourcePackfile, mac, bytes.NewReader(data)); err != nil {
+					errs <- err
+					return
+				}
+				rd, err := s.Get(ctx, storage.StorageResourcePackfile, mac, nil)
+				if err != nil {
+					errs <- err
+					return
+				}
+				got, err := io.ReadAll(rd)
+				_ = rd.Close()
+				if err != nil {
+					errs <- err
+					return
+				}
+				if !bytes.Equal(got, data) {
+					errs <- fmt.Errorf("packfile %x: content mismatch", mac[:4])
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+
+	macs, err := s.List(ctx, storage.StorageResourcePackfile)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(macs) != workers*perWorker {
+		t.Errorf("List returned %d packfiles, want %d", len(macs), workers*perWorker)
 	}
 }
