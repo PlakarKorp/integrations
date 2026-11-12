@@ -18,9 +18,10 @@
 //
 // Everything the token can see is listed through search, then walked
 // from the top: a page costs one request for its markdown, which tells
-// its children and the files it embeds, plus one for its comments.
-// The block tree, the files and the markdown itself are only read when
-// kloset asks for them, which it does not for a page whose
+// its children and the files it embeds, plus one per block for the
+// comments, since discussions live on blocks.  With comments set to
+// pages or none, the block tree, the files and the markdown are only
+// read when kloset asks for them, which it does not for a page whose
 // last_edited_time has not moved since the previous snapshot.
 package importer
 
@@ -127,7 +128,7 @@ func NewImporter(ctx context.Context, opts *integration.Options, name string, co
 	if err != nil {
 		return nil, err
 	}
-	cfg := Config{Root: root, Comments: CommentsPages}
+	cfg := Config{Root: root, Comments: CommentsBlocks}
 	if v := config["comments"]; v != "" {
 		switch v {
 		case CommentsNone, CommentsPages, CommentsBlocks:
@@ -169,6 +170,9 @@ func NewImporter(ctx context.Context, opts *integration.Options, name string, co
 func New(ctx context.Context, opts *integration.Options, client *api.Client, cfg Config, excludes *exclude.RuleSet) (*Importer, error) {
 	if excludes == nil {
 		excludes = exclude.NewRuleSet()
+	}
+	if cfg.Comments == "" {
+		cfg.Comments = CommentsBlocks
 	}
 	me, err := client.Me(ctx)
 	if err != nil {

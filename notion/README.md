@@ -35,7 +35,7 @@ Options:
 
 | option     | default | meaning                                                               |
 |------------|---------|-----------------------------------------------------------------------|
-| `comments` | `pages` | `none`, `pages` (open discussions of each page) or `blocks` (every block too, one request per block) |
+| `comments` | `blocks` | `blocks` (every discussion, one request per block), `pages` (page-level discussions only) or `none` |
 | `users`    | `true`  | back up the member list                                               |
 | `views`    | `true`  | back up the views of each database                                    |
 | `rate`     | `3`     | requests per second; Business and Enterprise plans allow `10`         |
@@ -86,11 +86,12 @@ page moves in the snapshot but is never confused with another.
 
 The Notion API allows about three requests per second. A page costs one
 request for its markdown, which tells its children and the files it
-embeds, and one for its comments. The block tree, the files and the
-markdown are only fetched when plakar reads them, which it does not
-for a page whose `last_edited_time` has not moved since the previous
-snapshot: a second backup of an unchanged workspace is two requests per
-page.
+embeds, and, since discussions live on blocks, one per block for the
+comments. With `comments=pages` or `none`, the block tree, the files
+and the markdown are only fetched when plakar reads them, which it does
+not for a page whose `last_edited_time` has not moved since the
+previous snapshot: a second backup of an unchanged workspace is then
+two requests per page.
 
 ## Limits
 

@@ -21,8 +21,8 @@
     "comments": {
       "type": "string",
       "enum": ["none", "pages", "blocks"],
-      "default": "pages",
-      "description": "Which comments to back up: none, the open discussions of each page (one request per page), or those of every block as well (one request per block)."
+      "default": "blocks",
+      "description": "Which comments to back up: blocks (every discussion, at one request per block), pages (the page-level discussions only, one request per page) or none. With pages or none, unchanged pages cost two requests on later backups."
     },
     "users": {
       "type": "boolean",
