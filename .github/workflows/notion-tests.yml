@@ -1,0 +1,22 @@
+name: notion tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/notion
+    paths:
+      - .github/workflows/notion-tests.yml
+      - 'notion/**'
+  pull_request:
+    paths:
+      - .github/workflows/notion-tests.yml
+      - 'notion/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: notion
+      qa-version-file: notion/.qa-version

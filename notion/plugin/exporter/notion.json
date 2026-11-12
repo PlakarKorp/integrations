@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar Notion Exporter Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "notion://<page id>: the page the backup is restored under. Everything is recreated as a copy beneath it.",
+      "pattern": "^notion://.+$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Internal integration token (ntn_...). Falls back to the NOTION_TOKEN environment variable."
+    },
+    "comments": {
+      "type": "boolean",
+      "default": true,
+      "description": "Recreate the comments (needs the insert comments capability)."
+    },
+    "views": {
+      "type": "boolean",
+      "default": true,
+      "description": "Recreate the views of each database."
+    },
+    "rate": {
+      "type": "string",
+      "description": "Requests per second to Notion. The default of 3 fits every plan; Business and Enterprise workspaces may use up to 10."
+    },
+    "api_url": {
+      "type": "string",
+      "description": "Base URL of the Notion API, for tests."
+    }
+  }
+}
