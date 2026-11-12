@@ -73,7 +73,8 @@ func Seed(s *Server) *Seeded {
 	s.SetCover(d.Engineering, d.Cover)
 
 	s.AddBlock(d.Engineering, "heading_1", map[string]any{"rich_text": Text("Welcome"), "color": "default", "is_toggleable": false})
-	d.Paragraph = s.AddBlock(d.Engineering, "paragraph", map[string]any{"rich_text": Text("Hello world"), "color": "default"})
+	// the API returns null for a paragraph's unset icon
+	d.Paragraph = s.AddBlock(d.Engineering, "paragraph", map[string]any{"rich_text": Text("Hello world"), "color": "default", "icon": nil})
 	d.Image = s.AddBlock(d.Engineering, "image", map[string]any{"type": "file", "file": d.Diagram["file"], "caption": Text("the diagram")})
 	d.ChildA = s.AddPage("page_id", d.Engineering, "Child A", nil)
 	s.AddBlock(d.ChildA, "paragraph", map[string]any{"rich_text": Text("inside child a"), "color": "default"})

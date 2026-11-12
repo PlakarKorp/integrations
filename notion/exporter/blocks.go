@@ -238,6 +238,13 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 		}
 	}
 	delete(payload, "children")
+	// the API answers with null for what is unset (a paragraph's icon,
+	// say) and refuses null back
+	for k, v := range payload {
+		if v == nil {
+			delete(payload, k)
+		}
+	}
 	for _, k := range []string{"rich_text", "caption"} {
 		if v, ok := payload[k]; ok {
 			payload[k] = p.richText(anyList(v))

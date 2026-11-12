@@ -1225,6 +1225,12 @@ func (s *Server) validateBlock(v any, depth int) error {
 	if !ok {
 		return bad("missing %s payload", typ)
 	}
+	for k, v := range payload {
+		// an original synced block is the one null the API takes
+		if v == nil && !(typ == "synced_block" && k == "synced_from") {
+			return bad("body.children[0].%s.%s should be an object or `undefined`, instead was `null`", typ, k)
+		}
+	}
 	for _, k := range []string{"rich_text", "caption"} {
 		if rt, ok := payload[k]; ok {
 			if err := validateRichText(rt); err != nil {
