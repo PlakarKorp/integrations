@@ -1,35 +1,91 @@
-.Dd July 4, 2025
+.Dd November 11, 2026
 .Dt PLAKAR-NOTION 1
 .Os
 .Sh NAME
 .Nm plakar-notion
-.Nd Plakar plugin to back up Notion pages or workspace
 .Sh DESCRIPTION
 The
 .Nm
-plugin allows backing up content from a Notion workspace or individual pages using the Notion API.
-
-Data is retrieved in structured JSON format including page content and metadata.
-.Sh REQUIREMENTS
-A valid Notion API integration token is required. Tokens can be created at:
-.Lk https://www.notion.com/my-integrations
-
-The integration must be shared with each Notion page to be backed up. For more information, see:
-.Lk https://developers.notion.com/docs/getting-started#step-1-create-an-integration
+integration package provides source and destination connectors that
+back up and restore Notion workspaces through the public API: pages,
+databases and their data sources, rows, blocks, files hosted by
+Notion, comments and views.
+.Pp
+It needs an internal connection token with the read content
+capability for backups, the insert and update content capabilities
+for restores, the comment capabilities for the comments and the user
+information capability for the member list.
+The pages and databases to back up must be shared with the connection.
 .Sh CONFIGURATION
-The required parameters are:
+The configuration parameters are as follow:
 .Bl -tag -width Ds
+.It Ar location
+For a source,
+.Li notion://
+backs up everything shared with the connection and
+.Li notion://<id>
+a single page or database and what is below it.
+For a destination,
+.Li notion://<page id>
+is the page the backup is recreated under.
 .It Ar token
-Your Notion integration token (starting with
-.Li ntn_
-).
+The connection token, starting with
+.Li ntn_ .
+Defaults to the
+.Ev NOTION_TOKEN
+environment variable.
+.It Ar comments
+For a source, which comments to back up:
+.Li none ,
+.Li pages
+(the open discussions of each page, the default) or
+.Li blocks
+(those of every block too, at the cost of a request per block).
+For a destination, whether to recreate the comments
+(the default).
+.It Ar users
+Whether to back up the member list.
+Defaults to
+.Li true .
+.It Ar views
+Whether to back up or recreate the views of databases.
+Defaults to
+.Li true .
+.It Ar rate
+Requests per second sent to Notion.
+Defaults to 3, which every plan allows; Business and Enterprise
+workspaces allow 10.
 .El
-.Sh USAGE
-The following command backs up a Notion workspace or shared pages to a Plakar repository:
+.Sh EXAMPLES
+The following example shows how to configure a source called
+.Li mynotion
+for a workspace to back up:
 .Bd -literal -offset indent
-$ plakar at /path/to/repo backup notion:// token=ntn_xxxxxxxxxxxxxxxxxxxxxxxxx
+$ plakar source add mynotion notion:// token=ntn_...
 .Ed
-.Sh SEE ALSO
-.Xr plakar 1 ,
-.Lk https://www.notion.com/my-integrations ,
-.Lk https://developers.notion.com/docs
+.Pp
+Supposing that a Kloset store named
+.Li mystore
+is already configured,
+the following command will back up the workspace to this store:
+.Bd -literal -offset indent
+$ plakar at @mystore backup @mynotion
+.Ed
+.Pp
+To restore a snapshot under an existing page:
+.Bd -literal -offset indent
+$ plakar destination add mynotion-restore notion://<page id> token=ntn_...
+$ plakar at @mystore restore -to @mynotion-restore <snapshot>
+.Ed
+.Sh LIMITATIONS
+Notion assigns new ids to what it creates: a restore builds a copy
+under the target page and never touches the originals, so restoring
+twice gives two copies.
+A child database and a page that lived inside a toggle or a column are
+restored at the end of their page.
+Blocks the API cannot create are left out with a warning, link
+previews become bookmarks.
+Resolved comments are not exposed by the API; restored comments are
+written by the connection with the original author as display name.
+Views are recreated best effort.
+Pages in the trash are not backed up.
