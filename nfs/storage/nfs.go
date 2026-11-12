@@ -36,9 +36,14 @@ func init() {
 	_ = storage.Register("nfs", 0, NewStore)
 }
 
+// poolSize is how many mounts of the export a store keeps open. Each one
+// carries a single RPC at a time, so this bounds how many storage operations
+// run in parallel.
+const poolSize = 8
+
 type Store struct {
 	cfg  *plakarnfs.Config
-	conn *plakarnfs.Conn
+	conn *plakarnfs.Pool
 
 	packfiles Buckets
 	states    Buckets
@@ -50,7 +55,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 		return nil, err
 	}
 
-	conn, err := plakarnfs.Connect(cfg)
+	conn, err := plakarnfs.NewPool(cfg, poolSize)
 	if err != nil {
 		return nil, err
 	}

@@ -31,11 +31,11 @@ import (
 // subdirectories keyed by the first byte of the MAC, matching the layout used
 // by the fs and sftp storage backends.
 type Buckets struct {
-	conn *plakarnfs.Conn
+	conn *plakarnfs.Pool
 	path string
 }
 
-func NewBuckets(conn *plakarnfs.Conn, path string) Buckets {
+func NewBuckets(conn *plakarnfs.Pool, path string) Buckets {
 	return Buckets{conn: conn, path: path}
 }
 

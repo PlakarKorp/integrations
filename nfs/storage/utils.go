@@ -31,7 +31,7 @@ import (
 // finalPath, so a reader never observes a partially written file. NFSv3
 // RENAME is atomic (RFC 1813 §3.3.14) regardless of which directories the
 // temp and final names live in, as long as they're on the same export.
-func writeFileAtomic(conn *plakarnfs.Conn, finalPath, tmpDir string, perm os.FileMode, r io.Reader) (int64, error) {
+func writeFileAtomic(conn *plakarnfs.Pool, finalPath, tmpDir string, perm os.FileMode, r io.Reader) (int64, error) {
 	tmp, err := tempName(tmpDir)
 	if err != nil {
 		return 0, err
@@ -74,7 +74,7 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 
 // mkdirAll creates pathname and any missing parents, tolerating a directory
 // that already exists (NFS MKDIR errors if the target is already there).
-func mkdirAll(conn *plakarnfs.Conn, pathname string, perm os.FileMode) error {
+func mkdirAll(conn *plakarnfs.Pool, pathname string, perm os.FileMode) error {
 	if pathname == "" || pathname == "/" {
 		return nil
 	}
@@ -95,7 +95,7 @@ func mkdirAll(conn *plakarnfs.Conn, pathname string, perm os.FileMode) error {
 	return nil
 }
 
-func isDir(conn *plakarnfs.Conn, pathname string) bool {
+func isDir(conn *plakarnfs.Pool, pathname string) bool {
 	attr, _, err := conn.Lookup(pathname)
 	if err != nil {
 		return false
