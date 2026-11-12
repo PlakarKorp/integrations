@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -189,8 +190,8 @@ func (p *Exporter) parents(pathname string, created map[string]struct{}) error {
 		}
 		missing = append(missing, dir)
 	}
-	for i := len(missing) - 1; i >= 0; i-- {
-		if err := p.mkdir(missing[i], autoDirPerm, created); err != nil {
+	for _, m := range slices.Backward(missing) {
+		if err := p.mkdir(m, autoDirPerm, created); err != nil {
 			return err
 		}
 	}

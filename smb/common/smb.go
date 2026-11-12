@@ -87,8 +87,7 @@ func ParseConfig(config map[string]string) (*Config, error) {
 
 	parsed, err := url.Parse(target)
 	if err != nil {
-		var uerr *url.Error
-		if errors.As(err, &uerr) {
+		if uerr, ok := errors.AsType[*url.Error](err); ok {
 			err = uerr.Err
 		}
 		return nil, fmt.Errorf("invalid location: %w", err)
