@@ -21,6 +21,10 @@ This integration allows:
   Restore previously backed-up snapshots directly onto an NFS export,
   recreating the directory hierarchy and file contents.
 
+* **Hosting a Kloset repository on an NFS export:**
+  Use an export (or a directory within it) as the storage backend for a Plakar
+  repository.
+
 ---
 
 ## Configuration
@@ -30,8 +34,8 @@ The supported configuration options are:
 * `location` (**required**): the NFS target as `nfs://<host>/<export>[/<subpath>]`.
   Everything in the path is the server-side export to mount; an optional deeper
   subpath (or the `root` option) narrows the walk within that export.
-* `root`: path to walk/restore, relative to the mounted export (default: the
-  whole export).
+* `root`: path to walk/restore, or to the repository when used as storage,
+  relative to the mounted export (default: the whole export).
 * `uid` / `gid`: numeric credentials presented to the server as the `AUTH_UNIX`
   identity used for authorization (default: `0`).
 
@@ -48,6 +52,10 @@ $ plakar backup -o uid=1000 -o gid=1000 nfs://nas.example.com/exports/home/alice
 
 # restore the snapshot "abc" onto an NFS export
 $ plakar restore -to nfs://nas.example.com/exports/restore abc
+
+# create a repository on an export and back up into it
+$ plakar at nfs://nas.example.com/exports/backups create
+$ plakar at nfs://nas.example.com/exports/backups backup /home/alice
 ```
 
 ---
