@@ -242,36 +242,37 @@ func (p *Exporter) adoptDataSource(ctx context.Context, e, db *entity) error {
 	sc := &schema{oldID: e.oldID, old: oldSchema(e.obj), newIDs: map[string]string{}, oldIDs: map[string]string{}, synced: map[string]bool{}}
 	initial := phaseOne(sc.old)
 
-	// the bare data source has a title property named Name
+	// the bare data source's title property is named Name: it is
+	// renamed on its own first, or a backed-up property called Name
+	// would take its key
 	props := map[string]any{}
+	rename := map[string]any{}
 	for name, cfg := range initial {
 		if cfg.(map[string]any)["type"] == "title" {
 			if name != "Name" {
-				props["Name"] = map[string]any{"name": name}
+				rename["Name"] = map[string]any{"name": name}
 			}
 			continue
 		}
 		props[name] = cfg
 	}
-	body := map[string]any{
-		"title":      p.richText(anyList(raw["title"])),
-		"properties": props,
-	}
 	id := db.placeholderDS
-	_, err := p.client.UpdateDataSource(ctx, id, body)
-	if err != nil && api.IsValidation(err) {
-		p.warnf("%s: schema not accepted, restoring it property by property: %v", e.dir, err)
-		rename := map[string]any{}
-		if r, ok := props["Name"]; ok {
-			rename["Name"] = r
+	body := map[string]any{"title": p.richText(anyList(raw["title"]))}
+	if len(rename) > 0 {
+		body["properties"] = rename
+	}
+	if _, err := p.client.UpdateDataSource(ctx, id, body); err != nil {
+		return fmt.Errorf("%s: %w", e.dir, err)
+	}
+	if len(props) > 0 {
+		_, err := p.client.UpdateDataSource(ctx, id, map[string]any{"properties": props})
+		if err != nil && !api.IsValidation(err) {
+			return fmt.Errorf("%s: %w", e.dir, err)
 		}
-		_, err = p.client.UpdateDataSource(ctx, id, map[string]any{"title": body["title"], "properties": rename})
-		if err == nil {
+		if err != nil {
+			p.warnf("%s: schema not accepted, restoring it property by property: %v", e.dir, err)
 			defer func() { p.addProperties(ctx, e, sc, initial) }()
 		}
-	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", e.dir, err)
 	}
 	db.placeholderDS = ""
 	e.newID = id

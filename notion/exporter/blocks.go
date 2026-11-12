@@ -79,6 +79,15 @@ type prepared struct {
 	// API takes two levels of nesting at most; they went with an empty
 	// paragraph instead and get their content once their ids are known
 	deferred map[int][]*node
+	// the kids that went along inside each column, in order
+	columns map[int][]prepared
+	// a synced copy takes no children of its own
+	noChildren bool
+	// the block refers to objects not restored yet: patched at the end
+	pendingRefs bool
+	// a link_to_page whose target is not restored yet went in as an
+	// empty paragraph to hold its place
+	placeholder *node
 }
 
 // inlineTypes are the blocks whose children go in the same request.
@@ -186,10 +195,14 @@ func (p *Exporter) appendBatch(ctx context.Context, e *entity, parentNew string,
 		}
 		p.blocks[c.pr.node.id] = c.newID
 		e.blockMap[c.pr.node.id] = c.newID
+		p.deferRefs(e, c.pr, parentNew, c.newID)
 		if c.pr.inline {
 			if err := p.inlineChildren(ctx, e, c.pr, c.newID); err != nil {
 				return err
 			}
+			continue
+		}
+		if c.pr.noChildren {
 			continue
 		}
 		if len(c.pr.node.children) > 0 {
@@ -201,6 +214,92 @@ func (p *Exporter) appendBatch(ctx context.Context, e *entity, parentNew string,
 	return nil
 }
 
+// deferRefs queues what a created block still owes to objects restored
+// later: its texts, or the link it holds the place of.
+func (p *Exporter) deferRefs(e *entity, pr prepared, parentNew, newID string) {
+	if pr.placeholder != nil {
+		n := pr.placeholder
+		p.links = append(p.links, func(ctx context.Context) error {
+			return p.placeLink(ctx, e, n, parentNew, newID)
+		})
+		return
+	}
+	if !pr.pendingRefs {
+		return
+	}
+	n := pr.node
+	p.links = append(p.links, func(ctx context.Context) error {
+		return p.patchBlockTexts(ctx, e, n, newID)
+	})
+}
+
+// placeLink puts a link_to_page block where its placeholder stands,
+// now that its target may exist, and drops the placeholder.
+func (p *Exporter) placeLink(ctx context.Context, e *entity, n *node, parentNew, placeholder string) error {
+	defer func() {
+		if err := p.client.DeleteBlock(ctx, placeholder); err != nil {
+			p.warnf("%s: block %s: placeholder paragraph left in place: %v", e.dir, n.id, err)
+		}
+	}()
+	payload, ok := p.linkPayload(n)
+	if !ok {
+		p.notef("%s: block %s: link to a page not part of the restore, dropped", e.dir, n.id)
+		return nil
+	}
+	body := map[string]any{"object": "block", "type": "link_to_page", "link_to_page": payload}
+	position := map[string]any{"type": "after_block", "after_block": map[string]any{"id": placeholder}}
+	results, err := p.client.AppendChildren(ctx, parentNew, []any{body}, position)
+	if err != nil {
+		return fmt.Errorf("%s: block %s: link not restored: %w", e.dir, n.id, err)
+	}
+	if len(results) == 1 {
+		p.blocks[n.id] = idOf(results[0])
+		e.blockMap[n.id] = idOf(results[0])
+	}
+	return nil
+}
+
+// linkPayload rewrites a link_to_page at a copy made in this restore.
+func (p *Exporter) linkPayload(n *node) (map[string]any, bool) {
+	src, _ := n.raw["link_to_page"].(map[string]any)
+	for _, k := range []string{"page_id", "database_id", "data_source_id"} {
+		id, ok := src[k].(string)
+		if !ok {
+			continue
+		}
+		if n, ok := p.pages[id]; ok {
+			return map[string]any{"type": k, k: n}, true
+		} else if n, ok := p.databases[id]; ok {
+			return map[string]any{"type": k, k: n}, true
+		} else if n, ok := p.dataSources[id]; ok {
+			return map[string]any{"type": k, k: n}, true
+		}
+	}
+	return nil, false
+}
+
+// patchBlockTexts writes a block's texts again at the end, when the
+// objects they mention have been restored.
+func (p *Exporter) patchBlockTexts(ctx context.Context, e *entity, n *node, newID string) error {
+	src, _ := n.raw[n.typ].(map[string]any)
+	payload := map[string]any{}
+	for _, k := range []string{"rich_text", "caption"} {
+		if v, ok := src[k]; ok {
+			payload[k] = p.richText(anyList(v))
+		}
+	}
+	if n.typ == "table_row" {
+		payload["cells"] = p.cells(src["cells"])
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	if err := p.client.UpdateBlock(ctx, newID, map[string]any{n.typ: payload}); err != nil {
+		return fmt.Errorf("%s: block %s: texts not updated with the restored references: %w", e.dir, n.id, err)
+	}
+	return nil
+}
+
 // appendOne creates a single block; a synced block whose original is
 // out of reach becomes an original of its own.
 func (p *Exporter) appendOne(ctx context.Context, e *entity, parentNew string, pr prepared) (string, error) {
@@ -208,6 +307,7 @@ func (p *Exporter) appendOne(ctx context.Context, e *entity, parentNew string, p
 	if err != nil && pr.node.typ == "synced_block" {
 		if sb, ok := pr.body["synced_block"].(map[string]any); ok && sb["synced_from"] != nil {
 			pr.body["synced_block"] = map[string]any{"synced_from": nil}
+			pr.noChildren = false
 			results, err = p.client.AppendChildren(ctx, parentNew, []any{pr.body}, nil)
 		}
 	}
@@ -228,8 +328,12 @@ func idOf(raw json.RawMessage) string {
 	return v.ID
 }
 
-// prepare rewrites a backed up block into a request.
-func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
+// prepare rewrites a backed up block into a request.  ok is false for
+// a block that cannot be restored at all.
+func (p *Exporter) prepare(e *entity, n *node) (pr prepared, ok bool) {
+	pr = prepared{node: n}
+	before := p.pendingRefs
+	defer func() { pr.pendingRefs = p.pendingRefs > before }()
 	typ := n.typ
 	payload := map[string]any{}
 	if src, ok := n.raw[typ].(map[string]any); ok {
@@ -251,7 +355,6 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 		}
 	}
 
-	pr := prepared{node: n}
 	switch {
 	case mediaTypes[typ]:
 		ref, ok := p.fileRef(e, payload)
@@ -289,7 +392,9 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 		if sf, ok := src["synced_from"].(map[string]any); ok && sf != nil {
 			orig, _ := sf["block_id"].(string)
 			if restored, ok := p.blocks[orig]; ok {
+				// a copy shows the original's children, it takes none
 				payload["synced_from"] = map[string]any{"block_id": restored}
+				pr.noChildren = true
 			} else {
 				// the original is not part of this restore: a copy
 				// pointing at an arbitrary block would pull content
@@ -299,26 +404,16 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 		}
 
 	case typ == "link_to_page":
-		// only links to copies made in this restore: a crafted
-		// snapshot must not plant links to arbitrary objects
-		linked := false
-		for _, k := range []string{"page_id", "database_id", "data_source_id"} {
-			if id, ok := payload[k].(string); ok {
-				if n, ok := p.pages[id]; ok {
-					payload[k] = n
-					linked = true
-				} else if n, ok := p.databases[id]; ok {
-					payload[k] = n
-					linked = true
-				} else if n, ok := p.dataSources[id]; ok {
-					payload[k] = n
-					linked = true
-				}
-			}
-		}
-		if !linked {
-			p.notef("%s: block %s: link to a page not part of the restore, dropped", e.dir, n.id)
-			return pr, false
+		// only links to copies made in this restore, which a crafted
+		// snapshot cannot point elsewhere; the target may come later
+		// in the walk, so an empty paragraph holds the place until the
+		// end
+		if linked, ok := p.linkPayload(n); ok {
+			payload = linked
+		} else {
+			pr.placeholder = n
+			pr.body = emptyParagraph()
+			return pr, true
 		}
 
 	case typ == "table_row":
@@ -389,6 +484,10 @@ func (p *Exporter) prepare(e *entity, n *node) (prepared, bool) {
 					}
 					// one level only: deeper children follow once ids are known
 					kids = append(kids, kp.body)
+					if pr.columns == nil {
+						pr.columns = map[int][]prepared{}
+					}
+					pr.columns[len(cols)] = append(pr.columns[len(cols)], kp)
 				}
 			}
 			if len(kids) == 0 {
@@ -437,9 +536,9 @@ func (p *Exporter) inlineChildren(ctx context.Context, e *entity, pr prepared, n
 
 	case "column_list":
 		deeper := len(pr.deferred) > 0
-		for _, c := range n.children {
-			for _, k := range c.children {
-				if len(k.children) > 0 {
+		for _, kids := range pr.columns {
+			for _, kp := range kids {
+				if len(kp.node.children) > 0 || kp.pendingRefs || kp.placeholder != nil {
 					deeper = true
 				}
 			}
@@ -481,9 +580,11 @@ func (p *Exporter) inlineChildren(ctx context.Context, e *entity, pr prepared, n
 				}
 				continue
 			}
+			// the kids went along, prepared once: their ids are needed
+			// for the children below them and for what they refer to
 			needs := false
-			for _, k := range c.children {
-				if len(k.children) > 0 {
+			for _, kp := range pr.columns[ci-1] {
+				if len(kp.node.children) > 0 || kp.pendingRefs || kp.placeholder != nil {
 					needs = true
 				}
 			}
@@ -494,23 +595,16 @@ func (p *Exporter) inlineChildren(ctx context.Context, e *entity, pr prepared, n
 			if err != nil {
 				return err
 			}
-			ki := 0
-			for _, k := range c.children {
-				if k.typ == "child_page" || k.typ == "child_database" || skipTypes[k.typ] {
-					continue
-				}
-				if _, ok := p.prepare(e, k); !ok {
-					continue
-				}
+			for ki, kp := range pr.columns[ci-1] {
 				if ki >= len(kidIDs) {
 					break
 				}
 				kidNew := kidIDs[ki]
-				ki++
-				p.blocks[k.id] = kidNew
-				e.blockMap[k.id] = kidNew
-				if len(k.children) > 0 {
-					if err := p.appendNodes(ctx, e, kidNew, k.children); err != nil {
+				p.blocks[kp.node.id] = kidNew
+				e.blockMap[kp.node.id] = kidNew
+				p.deferRefs(e, kp, colNew, kidNew)
+				if len(kp.node.children) > 0 && !kp.noChildren && kp.placeholder == nil {
+					if err := p.appendNodes(ctx, e, kidNew, kp.node.children); err != nil {
 						return err
 					}
 				}

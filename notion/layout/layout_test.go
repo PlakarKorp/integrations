@@ -150,7 +150,7 @@ Some text with an image:
 		}
 		return "", false
 	})
-	require.Contains(t, out, "![a photo](assets/11111111222233334444555555555555/photo one.png)")
+	require.Contains(t, out, "![a photo](assets/11111111222233334444555555555555/photo%20one.png)")
 	require.Contains(t, out, "file.notion.so/f/f/ws/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/report.pdf")
 	require.Contains(t, out, "https://example.com/not-notion.png")
 }

@@ -14,9 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// Package e2e backs a fake workspace up with the importer and restores
-// it into another with the exporter, the way plakar would in between.
-package e2e
+// Package roundtrip backs a fake workspace up with the importer and
+// restores it into another with the exporter, the way plakar would in
+// between.  Notion offers no sandbox, so a fake stands in for it.
+package roundtrip
 
 import (
 	"bytes"
@@ -25,6 +26,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/notion/api"
@@ -195,6 +197,22 @@ func TestRoundTrip(t *testing.T) {
 	require.Equal(t, "diagram.png", name)
 	require.Equal(t, d.DiagramData, data)
 	require.Equal(t, "the diagram", text(map[string]any{"type": "x", "x": map[string]any{"rich_text": img["image"].(map[string]any)["caption"]}}))
+
+	// what Child A says about Child B was written before Child B
+	// existed and patched at the end
+	childA := kids[3]
+	require.Equal(t, []string{"paragraph", "paragraph", "link_to_page", "paragraph", "paragraph"}, dst.Titles(childA))
+	ak := dst.Children(childA)
+	childBNew := kids[11]
+	mention := dst.Get(ak[1])["paragraph"].(map[string]any)["rich_text"].([]any)[1].(map[string]any)
+	require.Equal(t, "mention", mention["type"])
+	require.Equal(t, childBNew, mention["mention"].(map[string]any)["page"].(map[string]any)["id"])
+	require.Equal(t, childBNew, dst.Get(ak[2])["link_to_page"].(map[string]any)["page_id"])
+	link := dst.Get(ak[3])["paragraph"].(map[string]any)["rich_text"].([]any)[0].(map[string]any)["text"].(map[string]any)["link"].(map[string]any)
+	require.Equal(t, "https://www.notion.so/"+strings.ReplaceAll(childBNew, "-", ""), link["url"])
+	long := dst.Get(ak[4])["paragraph"].(map[string]any)["rich_text"].([]any)
+	require.Len(t, long, 2, "a run longer than 2000 characters is split, not cut")
+	require.Len(t, text(dst.Get(ak[4])), 2500)
 
 	toggle := kids[4]
 	tk := dst.Children(toggle)
@@ -382,7 +400,7 @@ func TestRestoreRefusesStrangePaths(t *testing.T) {
 	defer dst.Close()
 	target := dst.AddPage("workspace", "", "Restore", nil)
 	snap := &snapshot{content: map[string][]byte{"/etc/passwd": []byte("x")}}
-	snap.records = []*integration.Record{{Pathname: "/etc/passwd", FileInfo: integration.NewFileInfo("passwd", 1, 0o644, nowish(), 0, 0, 0, 0, 1)}}
+	snap.records = []*integration.Record{{Pathname: "/etc/passwd", FileInfo: integration.NewFileInfo("passwd", 1, 0o644, time.Now(), 0, 0, 0, 0, 1)}}
 	results := restore(t, snap, dst, exporter.Config{Parent: target}, nil)
 	require.Error(t, results["/etc/passwd"].Err)
 	require.Empty(t, dst.Children(target))

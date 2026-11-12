@@ -634,6 +634,15 @@ func (s *Server) SetCover(id string, cover map[string]any) {
 	s.objects[id].raw["cover"] = cover
 }
 
+// Hide takes a page or database out of the token's reach: it stays
+// referenced by what pointed at it but every request for it is a 404.
+func (s *Server) Hide(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.objects, id)
+	delete(s.objects, "block:"+id)
+}
+
 // Touch moves an object's last_edited_time forward.
 func (s *Server) Touch(id string, at time.Time) {
 	s.mu.Lock()

@@ -17,6 +17,7 @@
 package layout
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -86,14 +87,19 @@ func Scan(md string) (pages []string, databases []DatabaseLink, files []string) 
 
 // Rewrite replaces the signed urls of Notion-hosted files with the
 // relative path of the asset in the snapshot, so that the markdown
-// stays readable long after the urls expired.
+// stays readable long after the urls expired.  The path is
+// percent-encoded, as a url in markdown must be.
 func Rewrite(md string, resolve func(url string) (string, bool)) string {
 	return urlRe.ReplaceAllStringFunc(md, func(u string) string {
 		if !api.IsNotionFileURL(html(u)) {
 			return u
 		}
 		if rel, ok := resolve(html(u)); ok {
-			return rel
+			segs := strings.Split(rel, "/")
+			for i, s := range segs {
+				segs[i] = url.PathEscape(s)
+			}
+			return strings.Join(segs, "/")
 		}
 		return u
 	})

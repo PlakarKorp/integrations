@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/PlakarKorp/integration-sdk"
@@ -252,6 +253,10 @@ func (p *Importer) Import(ctx context.Context, records chan<- *integration.Recor
 	if err := w.run(ctx); err != nil {
 		return err
 	}
+	if em.objects.Load() == 0 {
+		// a backup of nothing must not look like a backup
+		em.err("/", errors.New("nothing to back up: no page or database is shared with the integration"))
+	}
 	return nil
 }
 
@@ -295,6 +300,9 @@ type emitter struct {
 
 	mu   sync.Mutex
 	dirs map[string]struct{}
+
+	// objects counts the pages, databases and data sources emitted
+	objects atomic.Int64
 }
 
 func (em *emitter) excluded(p string, isDir bool) bool {

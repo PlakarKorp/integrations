@@ -288,6 +288,17 @@ func (w *walker) run(ctx context.Context) error {
 		if e == nil {
 			return fmt.Errorf("notion: object %s not found or not shared with the integration", w.imp.cfg.Root)
 		}
+		if e.kind == layout.EntityDataSource {
+			// a data source only lives in its database: back that up
+			db, found, err := w.imp.fetch(gctx, w.idx, layout.EntityDatabase, e.obj.Parent.DatabaseID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return fmt.Errorf("notion: data source %s: its database %s is not shared with the integration", e.obj.ID, e.obj.Parent.DatabaseID)
+			}
+			e = db
+		}
 		w.spawn(gctx, e, "", layout.EntityNone)
 		return g.Wait()
 	}
@@ -354,7 +365,10 @@ func (w *walker) spawn(ctx context.Context, e *entry, parentDir string, parentKi
 		return
 	}
 	if parentKind == layout.EntityNone && e.kind == layout.EntityDataSource {
-		// a data source only ever lives in its database
+		// a data source only ever lives in its database: one whose
+		// database the token cannot see is lost, and must be said so
+		w.em.err(path.Join("/", layout.DatabasesDir, api.CompactID(e.obj.Parent.DatabaseID)),
+			fmt.Errorf("data source %s (%s): its database is not shared with the integration", e.obj.ID, e.obj.TitleText()))
 		return
 	}
 	if ctx.Err() != nil {
@@ -379,6 +393,7 @@ func (w *walker) walk(ctx context.Context, e *entry, parentDir string, parentKin
 	e.mu.Lock()
 	e.dir = dir
 	e.mu.Unlock()
+	w.em.objects.Add(1)
 
 	switch e.kind {
 	case layout.EntityPage:

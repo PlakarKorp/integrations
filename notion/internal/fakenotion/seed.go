@@ -19,6 +19,7 @@ package fakenotion
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 // Seeded names the objects Seed created.
@@ -100,6 +101,18 @@ func Seed(s *Server) *Seeded {
 	s.AddBlock(d.Synced, "paragraph", map[string]any{"rich_text": Text("synced content"), "color": "default"})
 	d.ChildB = s.AddPage("page_id", d.Engineering, "Child B", nil)
 	s.AddBlock(d.ChildB, "synced_block", map[string]any{"synced_from": map[string]any{"type": "block_id", "block_id": d.Synced}})
+	// Child A refers to Child B, which the restore only reaches later:
+	// a mention, a link block, an internal link as the API hands it
+	// out, and a text run longer than one item may hold
+	mention := map[string]any{"type": "mention", "mention": map[string]any{"type": "page", "page": map[string]any{"id": d.ChildB}},
+		"annotations": Text("")[0].(map[string]any)["annotations"], "plain_text": "Child B", "href": "https://www.notion.so/" + strings.ReplaceAll(d.ChildB, "-", "")}
+	s.AddBlock(d.ChildA, "paragraph", map[string]any{"rich_text": []any{Text("see ")[0], mention}, "color": "default"})
+	s.AddBlock(d.ChildA, "link_to_page", map[string]any{"type": "page_id", "page_id": d.ChildB})
+	rel := Text("relative")[0].(map[string]any)
+	rel["text"].(map[string]any)["link"] = map[string]any{"url": "/" + strings.ReplaceAll(d.ChildB, "-", "")}
+	rel["href"] = "/" + strings.ReplaceAll(d.ChildB, "-", "")
+	s.AddBlock(d.ChildA, "paragraph", map[string]any{"rich_text": []any{rel}, "color": "default"})
+	s.AddBlock(d.ChildA, "paragraph", map[string]any{"rich_text": Text(strings.Repeat("x", 2500)), "color": "default"})
 	s.AddBlock(d.Engineering, "pdf", map[string]any{"type": "file", "file": d.Spec["file"], "caption": []any{}})
 	s.AddBlock(d.Engineering, "code", map[string]any{"rich_text": Text("fmt.Println()"), "language": "go", "caption": []any{}})
 

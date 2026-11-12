@@ -84,6 +84,7 @@ var routes = []route{
 	{"GET", regexp.MustCompile(`^/v1/blocks/([^/]+)$`), (*Server).getBlock},
 	{"GET", regexp.MustCompile(`^/v1/blocks/([^/]+)/children$`), (*Server).getChildren},
 	{"PATCH", regexp.MustCompile(`^/v1/blocks/([^/]+)/children$`), (*Server).appendChildren},
+	{"PATCH", regexp.MustCompile(`^/v1/blocks/([^/]+)$`), (*Server).updateBlock},
 	{"DELETE", regexp.MustCompile(`^/v1/blocks/([^/]+)$`), (*Server).deleteBlock},
 	{"GET", regexp.MustCompile(`^/v1/comments$`), (*Server).listComments},
 	{"POST", regexp.MustCompile(`^/v1/comments$`), (*Server).createComment},
@@ -1404,6 +1405,10 @@ func (s *Server) appendChildren(r *http.Request, m []string, body map[string]any
 	}
 	if o.kind == "block" {
 		switch o.raw["type"] {
+		case "synced_block":
+			if sf, _ := o.raw["synced_block"].(map[string]any)["synced_from"].(map[string]any); sf != nil {
+				return nil, bad("a synced block copy cannot have children of its own")
+			}
 		case "table":
 			for _, c := range children {
 				if c.(map[string]any)["type"] != "table_row" {
@@ -1468,6 +1473,46 @@ func (s *Server) deleteBlock(r *http.Request, m []string, body map[string]any) (
 		}
 	}
 	return s.render(b.raw), nil
+}
+
+func (s *Server) updateBlock(r *http.Request, m []string, body map[string]any) (any, error) {
+	b := s.block(m[1])
+	if b == nil {
+		return nil, notFound(m[1])
+	}
+	typ := b.raw["type"].(string)
+	payload, _ := body[typ].(map[string]any)
+	if payload == nil {
+		return nil, bad("missing %s payload", typ)
+	}
+	cur := b.raw[typ].(map[string]any)
+	for k, v := range payload {
+		switch k {
+		case "rich_text", "caption":
+			if err := validateRichText(v); err != nil {
+				return nil, err
+			}
+			cur[k] = s.storeRichText(v)
+		case "cells":
+			var out []any
+			for _, c := range anyList(v) {
+				if err := validateRichText(c); err != nil {
+					return nil, err
+				}
+				out = append(out, s.storeRichText(c))
+			}
+			cur[k] = out
+		default:
+			cur[k] = v
+		}
+	}
+	b.raw["last_edited_time"] = s.stamp()
+	return s.render(b.raw), nil
+}
+
+func anyList(v any) []any {
+	l, _ := v.([]any)
+	return l
 }
 
 // --- markdown ---

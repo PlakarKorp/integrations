@@ -82,6 +82,12 @@ type Exporter struct {
 	formulas  []func(context.Context) error
 	values    []func(context.Context) error
 	views     []func(context.Context) error
+	// references to objects restored later in the walk, patched last
+	links []func(context.Context) error
+
+	// pendingRefs counts, while a block or a page is being prepared,
+	// the references to objects not restored yet
+	pendingRefs int
 
 	// users of the target workspace, nil until needed, empty when
 	// the token cannot list them
@@ -239,7 +245,7 @@ func (p *Exporter) finish(ctx context.Context) error {
 			p.warnf("%v", err)
 		}
 	}
-	for _, phase := range [][]func(context.Context) error{p.relations, p.rollups, p.formulas, p.values, p.views} {
+	for _, phase := range [][]func(context.Context) error{p.relations, p.rollups, p.formulas, p.values, p.views, p.links} {
 		for _, fn := range phase {
 			if err := fn(ctx); err != nil {
 				if ctx.Err() != nil {
@@ -688,6 +694,7 @@ func (p *Exporter) createPage(ctx context.Context, e *entity) error {
 
 	props := map[string]any{}
 	var dropped []string
+	before := p.pendingRefs
 	if pe != nil && pe.kind == layout.EntityDataSource {
 		props, dropped = p.rowProperties(ctx, e, pe)
 	} else {
@@ -701,6 +708,11 @@ func (p *Exporter) createPage(ctx context.Context, e *entity) error {
 		}
 	}
 	body["properties"] = props
+	if p.pendingRefs > before {
+		p.links = append(p.links, func(ctx context.Context) error {
+			return p.patchTexts(ctx, e, pe)
+		})
+	}
 
 	if icon, ok := raw["icon"].(map[string]any); ok {
 		if icon["type"] == "file" {
@@ -753,6 +765,45 @@ func (p *Exporter) createPage(ctx context.Context, e *entity) error {
 	}
 	for _, d := range dropped {
 		p.warnf("%s: property %q not restored", e.dir, d)
+	}
+	return nil
+}
+
+// patchTexts writes the title and text properties of a page again at
+// the end, when the objects they mention have been restored.
+func (p *Exporter) patchTexts(ctx context.Context, e, pe *entity) error {
+	if e.newID == "" {
+		return nil
+	}
+	props := map[string]any{}
+	for name, raw := range e.obj.Properties {
+		var v struct {
+			Type string `json:"type"`
+			Text []any  `json:"rich_text"`
+			Head []any  `json:"title"`
+		}
+		if json.Unmarshal(raw, &v) != nil {
+			continue
+		}
+		key := name
+		if pe == nil || pe.kind != layout.EntityDataSource {
+			if v.Type != "title" {
+				continue
+			}
+			key = "title"
+		}
+		switch v.Type {
+		case "title":
+			props[key] = map[string]any{"title": p.richText(v.Head)}
+		case "rich_text":
+			props[key] = map[string]any{"rich_text": p.richText(v.Text)}
+		}
+	}
+	if len(props) == 0 {
+		return nil
+	}
+	if _, err := p.client.UpdatePage(ctx, e.newID, map[string]any{"properties": props}); err != nil {
+		return fmt.Errorf("%s: texts not updated with the restored references: %w", e.dir, err)
 	}
 	return nil
 }

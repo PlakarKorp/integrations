@@ -186,6 +186,7 @@ func TestImport(t *testing.T) {
 	md := string(b.read(t, eng+"/content.md"))
 	require.Contains(t, md, "![the diagram](assets/")
 	require.Contains(t, md, "/diagram.png)")
+	require.NotContains(t, md, "/image%20", "the fake's names have no spaces")
 	require.NotContains(t, md, "exp=")
 	require.Contains(t, md, "Child A</page>")
 
@@ -376,4 +377,42 @@ func TestSpliceUnknown(t *testing.T) {
 	require.Equal(t, "a\n\nSUB\n\nb", out)
 	out = spliceUnknown("plain", "11111111-2222-3333-4444-555555555555", "SUB")
 	require.Equal(t, "plain\n\nSUB\n", out)
+}
+
+// TestImportDataSourceRoot: a data source as the root backs its
+// database up, the only place a data source can live.
+func TestImportDataSourceRoot(t *testing.T) {
+	s := fakenotion.New()
+	defer s.Close()
+	d := fakenotion.Seed(s)
+
+	b := run(t, newImporter(t, s, Config{Root: d.TasksDS, Comments: CommentsNone}, nil))
+	require.Empty(t, b.errors)
+	require.True(t, b.has("/databases/"+dir("Tasks", d.Tasks)+"/sources/"+dir("Tasks", d.TasksDS)+"/rows/"+dir("Ship", d.TaskRows[2])+"/about.json"))
+}
+
+// TestImportHiddenDatabase: a data source whose database the token
+// cannot see is reported, not silently dropped.
+func TestImportHiddenDatabase(t *testing.T) {
+	s := fakenotion.New()
+	defer s.Close()
+	d := fakenotion.Seed(s)
+	s.Hide(d.Projects)
+
+	b := run(t, newImporter(t, s, Config{Comments: CommentsNone}, nil))
+	require.True(t, b.has("/pages/"+dir("Engineering", d.Engineering)+"/about.json"))
+	require.False(t, b.has("/databases/"+dir("Projects", d.Projects)+"/about.json"))
+	err, ok := b.errors["/databases/"+strings.ReplaceAll(d.Projects, "-", "")]
+	require.True(t, ok, "errors: %v", b.errors)
+	require.ErrorContains(t, err, "not shared with the integration")
+}
+
+// TestImportNothingShared: a token that sees nothing yields an error,
+// not an empty backup that looks fine.
+func TestImportNothingShared(t *testing.T) {
+	s := fakenotion.New()
+	defer s.Close()
+
+	b := run(t, newImporter(t, s, Config{Comments: CommentsNone}, nil))
+	require.ErrorContains(t, b.errors["/"], "nothing to back up")
 }

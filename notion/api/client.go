@@ -652,6 +652,12 @@ func (c *Client) BlockChildren(ctx context.Context, id string, each func(json.Ra
 	return err
 }
 
+// UpdateBlock changes the content of a block.
+func (c *Client) UpdateBlock(ctx context.Context, id string, body any) error {
+	var raw json.RawMessage
+	return c.send(ctx, http.MethodPatch, "/v1/blocks/"+url.PathEscape(id), body, &raw)
+}
+
 // DeleteBlock moves a block to the trash.
 func (c *Client) DeleteBlock(ctx context.Context, id string) error {
 	var raw json.RawMessage

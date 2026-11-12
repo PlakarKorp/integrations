@@ -1,4 +1,4 @@
 /.qa
 /notion-importer
 /notion-exporter
-/notion-*.ptar
+*.ptar
