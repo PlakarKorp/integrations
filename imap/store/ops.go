@@ -135,6 +135,10 @@ func (s *Store) Get(ctx context.Context, res integration.StorageResource, _ inte
 		if uid == 0 {
 			return fmt.Errorf("blob %s not found", macToHex(mac))
 		}
+		// A cached UID does not select the mailbox; make sure we fetch from it.
+		if err := s.selectMailbox(sess, mbox); err != nil {
+			return err
+		}
 		blob, err := s.fetchBlob(sess, uid, rg)
 		if err != nil {
 			return err
