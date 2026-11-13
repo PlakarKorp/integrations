@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 func main() {
-	sdk.EntrypointImporter(os.Args, NewCaldavImporter)
+	server.EntrypointImporter(NewCaldavImporter, os.Args)
 }

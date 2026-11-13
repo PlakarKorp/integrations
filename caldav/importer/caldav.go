@@ -8,23 +8,22 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/caldav/oauth2utils"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/importer"
 	"github.com/studio-b12/gowebdav"
 	"golang.org/x/oauth2"
 )
 
 type CaldavImporter struct {
-	opts *importer.Options
+	opts *integration.Options
 
 	client *gowebdav.Client
 	url    string // The URL of the CalDAV server
 }
 
-func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewCaldavImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
@@ -92,70 +91,57 @@ func NewCaldavImporter(ctx context.Context, opts *importer.Options, name string,
 	}, nil
 }
 
-func (c *CaldavImporter) Origin(ctx context.Context) (string, error) {
-	return c.url, nil
+func (c *CaldavImporter) Origin() string        { return c.url }
+func (c *CaldavImporter) Type() string          { return "caldav" }
+func (c *CaldavImporter) Root() string          { return "/" }
+func (c *CaldavImporter) Flags() location.Flags { return 0 }
+
+func (c *CaldavImporter) Ping(ctx context.Context) error {
+	_, err := c.client.ReadDir("/")
+	return err
 }
 
-func (c *CaldavImporter) Type(ctx context.Context) (string, error) {
-	return "caldav", nil
-}
+func (c *CaldavImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
+	defer close(records)
 
-func (c *CaldavImporter) Root(ctx context.Context) (string, error) {
-	return "/", nil
-}
+	entries, err := c.client.ReadDir("/")
+	if err != nil {
+		records <- integration.NewError("/", fmt.Errorf("error reading directory: %w", err))
+		return nil, nil //nolint:nilnil // no import metadata
+	}
+	records <- integration.NewRecord("/", "", integration.FileInfo{
+		Lname:    "/",
+		Lsize:    0,
+		Lmode:    os.ModeDir | 0755,
+		LmodTime: entries[0].ModTime(),
+	}, nil, nil)
+	if len(entries) == 0 {
+		records <- integration.NewError("/", errors.New("no entries found in the root directory"))
+		return nil, nil //nolint:nilnil // no import metadata
+	}
 
-func (c *CaldavImporter) Scan(ctx context.Context) (<-chan *importer.ScanResult, error) {
-
-	results := make(chan *importer.ScanResult, 1000)
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		entries, err := c.client.ReadDir("/")
-		if err != nil {
-			results <- importer.NewScanError("/", fmt.Errorf("error reading directory: %w", err))
-			return
-		}
-		results <- importer.NewScanRecord("/", "", objects.FileInfo{
-			Lname:    "/",
-			Lsize:    0,
-			Lmode:    os.ModeDir | 0755,
-			LmodTime: entries[0].ModTime(),
-		}, nil, nil)
-		if len(entries) == 0 {
-			results <- importer.NewScanError("/", errors.New("no entries found in the root directory"))
-			return
-		}
-
-		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".ics") {
-				data, err := c.client.Read(entry.Name())
-				if err != nil {
-					results <- importer.NewScanError("/"+entry.Name(), fmt.Errorf("error reading file %s: %w", entry.Name(), err))
-					continue
-				}
-
-				rd := bytes.NewReader(data)
-
-				results <- importer.NewScanRecord("/"+entry.Name(), "", objects.FileInfo{
-					Lname:    entry.Name(),
-					Lsize:    entry.Size(),
-					Lmode:    entry.Mode(),
-					LmodTime: entry.ModTime(),
-				}, nil, func() (io.ReadCloser, error) {
-					return io.NopCloser(rd), nil
-				})
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".ics") {
+			data, err := c.client.Read(entry.Name())
+			if err != nil {
+				records <- integration.NewError("/"+entry.Name(), fmt.Errorf("error reading file %s: %w", entry.Name(), err))
+				continue
 			}
+
+			rd := bytes.NewReader(data)
+
+			records <- integration.NewRecord("/"+entry.Name(), "", integration.FileInfo{
+				Lname:    entry.Name(),
+				Lsize:    entry.Size(),
+				Lmode:    entry.Mode(),
+				LmodTime: entry.ModTime(),
+			}, nil, func() (io.ReadCloser, error) {
+				return io.NopCloser(rd), nil
+			})
 		}
-	}()
+	}
 
-	go func() {
-		wg.Wait()
-		defer close(results)
-	}()
-
-	return results, nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (c *CaldavImporter) Close(ctx context.Context) error {

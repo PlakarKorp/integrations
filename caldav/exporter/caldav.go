@@ -5,25 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 
 	"golang.org/x/oauth2"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/caldav/oauth2utils"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot/exporter"
 	"github.com/studio-b12/gowebdav"
 )
 
 type CaldavExporter struct {
-	opts *exporter.Options
+	opts *integration.Options
 
 	client *gowebdav.Client
 	url    string // The URL of the CalDAV server
 }
 
-func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewCaldavExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 
 	// Example google calendar CalDAV URL:
 	//url := "https://apidata.googleusercontent.com/caldav/v2/EMAIL@gmail.com/events/"
@@ -91,11 +92,32 @@ func NewCaldavExporter(ctx context.Context, opts *exporter.Options, name string,
 	}, nil
 }
 
-func (c *CaldavExporter) Root(ctx context.Context) (string, error) {
-	return "/", nil
+func (c *CaldavExporter) Origin() string        { return c.url }
+func (c *CaldavExporter) Type() string          { return "caldav" }
+func (c *CaldavExporter) Root() string          { return "/" }
+func (c *CaldavExporter) Flags() location.Flags { return 0 }
+
+func (c *CaldavExporter) Ping(ctx context.Context) error {
+	_, err := c.client.ReadDir("/")
+	return err
 }
 
-func (c *CaldavExporter) CreateDirectory(ctx context.Context, pathname string) error {
+func (c *CaldavExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
+	defer close(results)
+
+	for record := range records {
+		switch {
+		case record.Err != nil || record.IsXattr || record.FileInfo.IsDir():
+			results <- record.Ok()
+		case record.FileInfo.Mode()&os.ModeSymlink != 0:
+			results <- record.Error(errors.ErrUnsupported)
+		case record.FileInfo.Mode().IsRegular():
+			results <- record.Error(c.StoreFile(ctx, record.Pathname, record.Reader, record.FileInfo.Size()))
+		default:
+			results <- record.Ok()
+		}
+	}
+
 	return nil
 }
 
@@ -116,14 +138,6 @@ func (c *CaldavExporter) StoreFile(ctx context.Context, pathname string, fp io.R
 		return fmt.Errorf("error writing %s: %w", pathname, err)
 	}
 	return nil
-}
-
-func (c *CaldavExporter) SetPermissions(ctx context.Context, pathname string, fileinfo *objects.FileInfo) error {
-	return nil
-}
-
-func (c *CaldavExporter) CreateLink(ctx context.Context, oldname string, newname string, ltype exporter.LinkType) error {
-	return errors.ErrUnsupported
 }
 
 func (c *CaldavExporter) Close(ctx context.Context) error {
