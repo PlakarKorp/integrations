@@ -7,13 +7,12 @@ import (
 	"path"
 
 	"cloud.google.com/go/storage"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	_ = exporter.Register("gs", 0, NewExporter)
+	_ = integration.RegisterExporter("gs", 0, NewExporter)
 }
 
 type gcsExporter struct {
@@ -25,7 +24,7 @@ type gcsExporter struct {
 	bucket *storage.BucketHandle
 }
 
-func NewExporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, _ *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -62,7 +61,7 @@ func (g *gcsExporter) Ping(ctx context.Context) error {
 	return err
 }
 
-func (g *gcsExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (g *gcsExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {

@@ -6,20 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"path"
 	"strconv"
 	"strings"
 
 	gstorage "cloud.google.com/go/storage"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
 func init() {
-	_ = storage.Register("gs", 0, NewStore)
+	_ = integration.RegisterStore("gs", 0, NewStore)
 }
 
 type gcsStore struct {
@@ -77,7 +77,7 @@ func parse(params map[string]string, proto string) (string, string, string, []op
 	return bucket, path, endp, opts, nil
 }
 
-func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, params map[string]string) (integration.Store, error) {
 	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -167,26 +167,41 @@ func (g *gcsStore) Type() string          { return "gs" }
 func (g *gcsStore) Root() string          { return g.path }
 func (g *gcsStore) Flags() location.Flags { return 0 }
 
-func (g *gcsStore) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (g *gcsStore) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (g *gcsStore) Size(ctx context.Context) (int64, error) { return -1, nil }
 
-func res2prefix(res storage.StorageResource) (string, error) {
+func res2prefix(res integration.StorageResource) (string, error) {
 	switch res {
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "states", nil
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfiles", nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "locks", nil
 	default:
 		return "", fmt.Errorf("%w on %s", errors.ErrUnsupported, res)
 	}
 }
 
-func (g *gcsStore) List(ctx context.Context, res storage.StorageResource) (ret []objects.MAC, err error) {
+func (g *gcsStore) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		macs, err := g.list(ctx, res)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for _, mac := range macs {
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (g *gcsStore) list(ctx context.Context, res integration.StorageResource) (ret []integration.MAC, err error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return nil, err
@@ -215,13 +230,13 @@ func (g *gcsStore) List(ctx context.Context, res storage.StorageResource) (ret [
 				return nil, fmt.Errorf("invalid %s name: %s",
 					prefix, obj.Name)
 			}
-			ret = append(ret, objects.MAC(t))
+			ret = append(ret, integration.MAC(t))
 		}
 	}
 	return
 }
 
-func (g *gcsStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (g *gcsStore) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return -1, err
@@ -243,7 +258,7 @@ func (g *gcsStore) Put(ctx context.Context, res storage.StorageResource, mac obj
 	return n, nil
 }
 
-func (g *gcsStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, r *storage.Range) (io.ReadCloser, error) {
+func (g *gcsStore) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, r *integration.Range) (io.ReadCloser, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return nil, err
@@ -260,7 +275,7 @@ func (g *gcsStore) Get(ctx context.Context, res storage.StorageResource, mac obj
 	return obj.NewReader(ctx)
 }
 
-func (g *gcsStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (g *gcsStore) Delete(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return err

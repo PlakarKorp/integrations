@@ -9,15 +9,13 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"google.golang.org/api/iterator"
 )
 
 func init() {
-	_ = importer.Register("gs", 0, NewImporter)
+	_ = integration.RegisterImporter("gs", 0, NewImporter)
 }
 
 type gcsImporter struct {
@@ -30,7 +28,7 @@ type gcsImporter struct {
 	bucket *storage.BucketHandle
 }
 
-func NewImporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, _ *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	bucket, path, endp, opts, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -67,7 +65,7 @@ func (g *gcsImporter) Ping(ctx context.Context) error {
 	return err
 }
 
-func (g *gcsImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (g *gcsImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	query := storage.Query{Prefix: g.path}
@@ -75,10 +73,10 @@ func (g *gcsImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 	for {
 		obj, err := it.Next()
 		if errors.Is(err, iterator.Done) {
-			return nil
+			return nil, nil
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// DO NOT REMOVE THIS.
@@ -91,7 +89,7 @@ func (g *gcsImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 
 		fullpath := "/" + obj.Name
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:     path.Base(obj.Name),
 			Lsize:     obj.Size,
 			Lmode:     0644,
@@ -99,7 +97,7 @@ func (g *gcsImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 			Lusername: obj.Owner,
 		}
 
-		records <- connectors.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
+		records <- integration.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
 			return g.bucket.Object(obj.Name).NewReader(ctx)
 		})
 	}
