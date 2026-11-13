@@ -7,27 +7,27 @@
 - **Pool master**: the host in a pool that is the owner the API (XAPI) for the whole pool. 
   - We connect to this pool master; one connection covers all hosts and VMs in the pool.
 - **XAPI**: the native management API on every XCP-ng host (XML-RPC / JSON-RPC over HTTPS). We use it to connect directly to each *pool master*.
-  - inventory, snapshot, metadata, cleanup, restore config are done through XAPI calls on the pool master.
+  - snapshot, metadata, cleanup, restore config are done through XAPI calls on the pool master. Inventory goes through XOA.
 - **SR (Storage Repository)**: where disks live. Equivalent to a VMware datastore, vSAN.
 - **VDI (Virtual Disk Image)**: a virtual disk (.vmdk in vmware), cow chain snapshotting where on each snapshot a delta file is created, formats can be vdh, raw (see docs notes on snapshotting) and qcow on newer versions.
 - **VBD (Virtual Block Device)**: the link attaching a VDI to a VM, determines device position, bootable (os-disk) flag.
 - **Xen Orchestra (XO / XOA)**: the management and orchestration layer for XCP-ng (web UI, multi-pool view, users, backups). XOA is the packaged appliance; XO can also be built from sources.
   - *Purely a client of XAPI*; it doesn't change XCP-ng, and its users are not XCP-ng users.
-  - Less interesting for integration (optional, not always deployed), but useful for testing and as a reference.
+  - Used for inventory only: its REST API (`/rest/v0`) gives a multi-pool view of VMs with a single token. Everything else stays on XAPI.
   - Has its own backup engine: full and incremental (delta/CBT) backups, replication. Overlaps with what we're building.
 
 ## Features MVP
 
 ### Inventory
-- `xcp://`
-  - **List VMs active on XCP**: 
-    - List all VMs: Call `VM.get_all_records` 
-      - filter out templates, snapshots and dom0 (`is_a_template`, `is_a_snapshot`, `is_control_domain` all false).
-    - Include VM tags via `VM.tags(vmid)` in order to receive tags to add to an inventory resource
-    - Capture network IPv4: XAPI exposes a `guest_metrics` per VM that will expose reachable IPs
+- `xoa://`, through the Xen Orchestra REST API, authenticated with an XO token (`authenticationToken` cookie)
+  - **List VMs across all pools XO manages**: 
+    - `GET /rest/v0/vms?fields=uuid,name_label,power_state,tags,addresses,$pool`
+      - XO keeps templates, snapshots and dom0 in separate collections (`VM-template`, `VM-snapshot`, `VM-controller`), so no filtering is needed.
+    - Tags come from the `tags` field
+    - Capture network IPv4: from `addresses` (keys like `0/ipv4/0`), filled from the guest tools
+    - `$pool` gives the pool each VM belongs to, so the resource can point at the right pool master for backup
   - **Implement Ping**:
-    - Call `session.login_with_password(username, password, ...)` on the pool master. If valid, we follow up with `pool.get_all_records` to confirm the session has sufficient privileges and the pool is responsive. 
-    - Call `session.logout` when done
+    - `GET /rest/v0/pools`: a 200 confirms XO is reachable and the token is valid
 
 
 ### Importer
@@ -134,8 +134,9 @@
 
 ## Documentation
 
+- Inventory needs a reachable XO/XOA and an XO token for a user that can see the pools to inventory. Backup and restore don't need XO.
 - XAPI likely needs direct `root` account access on XAPI
-  - If some would like least privilege, they need AD on the pool and a dedicated account with a role that’s allowed to snapshot, export and destroy snapshots (need to figure out roles). For example a `vm-admin` for inventory and a `backup-operator`, but exact permissions against the XAPI RBAC docs should be checked. (snapshot, export_raw_vdi, VDI.destroy, VM.destroy, import_raw_vdi)
+  - If some would like least privilege, they need AD on the pool and a dedicated account with a role that’s allowed to snapshot, export and destroy snapshots (need to figure out roles). For example a `backup-operator`, but exact permissions against the XAPI RBAC docs should be checked. (snapshot, export_raw_vdi, VDI.destroy, VM.destroy, import_raw_vdi)
 - Disks (VDIs) with a raw format cannot be snapshotted
 
 ## Risk / Edge cases
