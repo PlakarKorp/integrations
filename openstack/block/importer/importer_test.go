@@ -325,7 +325,7 @@ func TestCloseLeavesNothingBehind(t *testing.T) {
 			require.NoError(t, imp.Close(closeCtx))
 			if tt.wantLeft == "" {
 				assert.Empty(t, cloud.Leftovers())
-				assert.Empty(t, logs.String())
+				assert.NotContains(t, logs.String(), "delete ")
 			} else {
 				assert.Equal(t, []string{tt.wantLeft}, cloud.Leftovers())
 				assert.Contains(t, logs.String(), fmt.Sprintf("delete image %q", tt.wantLeft))

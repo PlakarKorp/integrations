@@ -27,7 +27,6 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -197,18 +196,16 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 
 // attachVolume attaches a new volume for the disk to the host, when the disk
 // can be written to a block device, the host is a Nova server of the cloud
-// and the attach works. It returns nil when any of that fails, logging why
-// when it is worth knowing: none of the disk's bytes are read by then, so
-// the disk can go through Glance instead.
+// and the attach works. It returns nil when any of that fails, logging why:
+// none of the disk's bytes are read by then, so the disk can go through
+// Glance instead.
 func attachVolume(ctx context.Context, client *common.Client, metadata *common.DiskMetadata) *common.VolumeWrite {
 	if common.ValidateWriteAttachment(metadata) != nil {
 		return nil
 	}
 	host, err := client.PreflightHost(ctx)
 	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
-		}
+		log.Printf("openstack-block: direct attachment unavailable: %v", err)
 		return nil
 	}
 	w, err := client.AttachRestoreVolume(ctx, host, metadata)

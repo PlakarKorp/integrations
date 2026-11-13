@@ -18,6 +18,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -58,13 +59,15 @@ func TempVolumeOpts(server *servers.Server, metadata *ServerMetadata) volumes.Cr
 // one was found, falling back to uploading the clone to Glance.
 func (c *Client) ReadCinderDisk(ctx context.Context, host *servers.Server, vol *volumes.Volume, snap *snapshots.Snapshot, tmp *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
 	metadata := CinderDiskMetadata(vol, snap)
+	readingErr := errors.New("no host to attach to")
 	if host != nil {
 		disk, err := c.NewCinderDisk(ctx, host, tmp, metadata, cleanup)
 		if err == nil {
 			return disk, nil
 		}
-		log.Printf("openstack: volume %q: %v; reading it through Glance", vol.ID, err)
+		readingErr = err
 	}
+	log.Printf("openstack: volume %q: %v; reading it through Glance", vol.ID, readingErr)
 	img, err := c.UploadVolumeImage(ctx, tmp, cleanup)
 	if err != nil {
 		return nil, err
