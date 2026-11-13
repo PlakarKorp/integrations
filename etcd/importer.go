@@ -8,17 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 func init() {
-	_ = importer.Register("etcd", 0, NewImporter)
-	_ = importer.Register("etcd+http", 0, NewImporter)
-	_ = importer.Register("etcd+https", 0, NewImporter)
+	_ = integration.RegisterImporter("etcd", 0, NewImporter)
+	_ = integration.RegisterImporter("etcd+http", 0, NewImporter)
+	_ = integration.RegisterImporter("etcd+https", 0, NewImporter)
 }
 
 type etcd struct {
@@ -27,7 +25,7 @@ type etcd struct {
 	origin string
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	plaintext := false
 	if v := config["plaintext"]; v != "" {
 		b, err := strconv.ParseBool(v)
@@ -87,23 +85,23 @@ func (e *etcd) Ping(ctx context.Context) error {
 	return err
 }
 
-func (e *etcd) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (e *etcd) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	dump := func() (io.ReadCloser, error) {
 		return e.maint.Snapshot(ctx)
 	}
 
-	finfo := objects.FileInfo{
+	finfo := integration.FileInfo{
 		Lname:    "dump",
 		Lsize:    -1,
 		Lmode:    0o644,
 		LmodTime: time.Now(), // XXX
 	}
 
-	records <- connectors.NewRecord("/dump", "", finfo, nil, dump)
+	records <- integration.NewRecord("/dump", "", finfo, nil, dump)
 	res := <-results // wait for the ack
-	return res.Err
+	return nil, res.Err
 }
 
 func (e *etcd) Close(ctx context.Context) error {
