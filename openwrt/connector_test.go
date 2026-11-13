@@ -15,8 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
 var testModTime = time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
@@ -199,30 +198,30 @@ func TestLinkTarget(t *testing.T) {
 
 // runExport feeds records through handleExportChan and returns the archive
 // along with the results it emitted.
-func runExport(t *testing.T, records []*connectors.Record) (*bytes.Buffer, []*connectors.Result, error) {
+func runExport(t *testing.T, records []*integration.Record) (*bytes.Buffer, []*integration.Result, error) {
 	t.Helper()
 
-	in := make(chan *connectors.Record, len(records)+1)
+	in := make(chan *integration.Record, len(records)+1)
 	for _, r := range records {
 		in <- r
 	}
 	close(in)
 
-	out := make(chan *connectors.Result, len(records)+1)
+	out := make(chan *integration.Result, len(records)+1)
 
 	o := &openwrt{}
 	archive, err := o.handleExportChan(context.Background(), in, out)
 	close(out)
 
-	var results []*connectors.Result
+	var results []*integration.Result
 	for res := range out {
 		results = append(results, res)
 	}
 	return archive, results, err
 }
 
-func recordFor(pathname, target string, fi objects.FileInfo, body string) *connectors.Record {
-	return connectors.NewRecord(pathname, target, fi, nil, func() (io.ReadCloser, error) {
+func recordFor(pathname, target string, fi integration.FileInfo, body string) *integration.Record {
+	return integration.NewRecord(pathname, target, fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(body)), nil
 	})
 }
@@ -242,7 +241,7 @@ func TestExportRoundTrip(t *testing.T) {
 	}
 
 	// Import side: turn the device archive into records.
-	var records []*connectors.Record
+	var records []*integration.Record
 	tr := tar.NewReader(bytes.NewReader(buildTar(t, source)))
 	for {
 		hdr, err := tr.Next()
@@ -334,11 +333,11 @@ func TestExportRoundTrip(t *testing.T) {
 func TestExportSkipsDirectories(t *testing.T) {
 	// OpenWRT does not put directory entries in its own archive, we rebuild
 	// one that looks the same.
-	dir := objects.FileInfo{Lname: "config", Lmode: 0755 | fs.ModeDir, LmodTime: testModTime}
-	reg := objects.FileInfo{Lname: "network", Lsize: 3, Lmode: 0644, LmodTime: testModTime}
+	dir := integration.FileInfo{Lname: "config", Lmode: 0755 | fs.ModeDir, LmodTime: testModTime}
+	reg := integration.FileInfo{Lname: "network", Lsize: 3, Lmode: 0644, LmodTime: testModTime}
 
-	archive, results, err := runExport(t, []*connectors.Record{
-		recordFor("/", "", objects.FileInfo{Lname: "/", Lmode: 0700 | fs.ModeDir, LmodTime: testModTime}, ""),
+	archive, results, err := runExport(t, []*integration.Record{
+		recordFor("/", "", integration.FileInfo{Lname: "/", Lmode: 0700 | fs.ModeDir, LmodTime: testModTime}, ""),
 		recordFor("/etc/config", "", dir, ""),
 		recordFor("/etc/config/network", "", reg, "abc"),
 	})
@@ -386,9 +385,9 @@ func archiveNames(t *testing.T, archive *bytes.Buffer) []string {
 // TestExportRejectsUnrepresentable checks we abort rather than upload an
 // archive that does not describe what the snapshot contained.
 func TestExportRejectsUnrepresentable(t *testing.T) {
-	sock := objects.FileInfo{Lname: "sock", Lmode: 0600 | fs.ModeSocket, LmodTime: testModTime}
+	sock := integration.FileInfo{Lname: "sock", Lmode: 0600 | fs.ModeSocket, LmodTime: testModTime}
 
-	_, results, err := runExport(t, []*connectors.Record{
+	_, results, err := runExport(t, []*integration.Record{
 		recordFor("/etc/sock", "", sock, ""),
 	})
 	if err == nil {
@@ -403,10 +402,10 @@ func TestExportRejectsUnrepresentable(t *testing.T) {
 // truncation: a header announcing bytes we cannot provide used to poison the
 // tar writer and drop every following entry.
 func TestExportRejectsMissingContent(t *testing.T) {
-	fi := objects.FileInfo{Lname: "big", Lsize: 4096, Lmode: 0644, LmodTime: testModTime}
-	orphan := &connectors.Record{Pathname: "/etc/big", FileInfo: fi} // no Reader
+	fi := integration.FileInfo{Lname: "big", Lsize: 4096, Lmode: 0644, LmodTime: testModTime}
+	orphan := &integration.Record{Pathname: "/etc/big", FileInfo: fi} // no Reader
 
-	_, _, err := runExport(t, []*connectors.Record{orphan})
+	_, _, err := runExport(t, []*integration.Record{orphan})
 	if err == nil {
 		t.Fatal("expected an error when no content is available, got nil")
 	}
@@ -448,13 +447,13 @@ func importerFor(t *testing.T, srv *httptest.Server) *openwrt {
 
 // drainImport plays the role of the engine: it acknowledges every record and
 // reads the content, like the backup loop does.
-func drainImport(t *testing.T, o *openwrt) ([]*connectors.Record, map[string]string, error) {
+func drainImport(t *testing.T, o *openwrt) ([]*integration.Record, map[string]string, error) {
 	t.Helper()
 
-	records := make(chan *connectors.Record, 32)
-	results := make(chan *connectors.Result, 32)
+	records := make(chan *integration.Record, 32)
+	results := make(chan *integration.Result, 32)
 
-	var seen []*connectors.Record
+	var seen []*integration.Record
 	bodies := map[string]string{}
 	done := make(chan struct{})
 
@@ -473,7 +472,7 @@ func drainImport(t *testing.T, o *openwrt) ([]*connectors.Record, map[string]str
 		}
 	}()
 
-	err := o.Import(context.Background(), records, results)
+	_, err := o.Import(context.Background(), records, results)
 	<-done
 	return seen, bodies, err
 }
