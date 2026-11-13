@@ -1,0 +1,106 @@
+
+name: Merge Integration Tags
+
+on:
+  push:
+    tags:
+      - '*/*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: integration-tag-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge milestone
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Tag format: <name>/<version>
+          if [[ "$TAG" != */* ||
+                "$TAG" == */*/* ||
+                "$TAG" == /* ||
+                "$TAG" == */ ]]; then
+            echo "Invalid tag: $TAG"
+            exit 1
+          fi
+
+          NAME="${TAG%%/*}"
+          VERSION="${TAG#*/}"
+          SOURCE="integration/$NAME"
+
+          git check-ref-format --branch "$SOURCE"
+
+          # Resolve the exact tagged commit
+          SHA="$(git rev-parse HEAD^{commit})"
+          PROMOTION="auto-merge/$SHA"
+
+          echo "Tag: $TAG"
+          echo "Source: $SOURCE"
+          echo "Version: $VERSION"
+          echo "Commit: $SHA"
+
+          # Fetch branches
+          git fetch origin \
+            "refs/heads/$SOURCE:refs/remotes/origin/$SOURCE" \
+            "refs/heads/main:refs/remotes/origin/main"
+
+          # Verify tag belongs to the integration branch
+          if ! git merge-base --is-ancestor \
+            "$SHA" "refs/remotes/origin/$SOURCE"; then
+            echo "Tag is not part of $SOURCE"
+            exit 1
+          fi
+
+          # Skip already merged milestones
+          if git merge-base --is-ancestor \
+            "$SHA" "refs/remotes/origin/main"; then
+            echo "Already merged into main"
+            exit 0
+          fi
+
+          # Create promotion branch at tagged commit
+          git push origin \
+            "$SHA:refs/heads/$PROMOTION"
+
+          # Check for existing open PR
+          PR="$(gh pr list \
+            --base main \
+            --head "$PROMOTION" \
+            --state open \
+            --json number \
+            --jq '.[0].number')"
+
+          # Create PR if necessary
+          if [[ -z "$PR" ]]; then
+            PR_URL="$(gh pr create \
+              --base main \
+              --head "$PROMOTION" \
+              --title "Merge $TAG into main" \
+              --body "Integration: $SOURCE
+          Version: $VERSION
+          Commit: $SHA")"
+
+            PR="${PR_URL##*/}"
+          fi
+
+          # Merge automatically when permitted
+          gh pr merge "$PR" --auto --merge
+
+          echo "Promotion requested for PR #$PR"
