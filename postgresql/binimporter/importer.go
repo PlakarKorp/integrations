@@ -116,7 +116,7 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *integration.Re
 			if waitErr != nil {
 				return nil, fmt.Errorf("pg_basebackup: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
 			}
-			return nil, nil
+			return nil, nil //nolint:nilnil // no import metadata
 		}
 
 		name := path.Join("/data/" + hdr.Name)
