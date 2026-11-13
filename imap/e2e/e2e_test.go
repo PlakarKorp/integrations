@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/imap/common"
 	"github.com/PlakarKorp/integrations/imap/exporter"
 	"github.com/PlakarKorp/integrations/imap/importer"
-	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
@@ -234,7 +234,7 @@ func TestRoundTrip(t *testing.T) {
 
 	// 1) IMPORT from the source account.
 	ctx := context.Background()
-	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "imap", map[string]string{
+	imp, err := importer.NewImporter(ctx, &integration.Options{}, "imap", map[string]string{
 		"location": "imap://" + addr,
 		"username": srcUser,
 		"password": pass,
@@ -246,11 +246,11 @@ func TestRoundTrip(t *testing.T) {
 	defer func() { _ = imp.Close(ctx) }()
 
 	type captured struct {
-		rec  *connectors.Record
+		rec  *integration.Record
 		body []byte
 	}
-	records := make(chan *connectors.Record, 64)
-	results := make(chan *connectors.Result, 64)
+	records := make(chan *integration.Record, 64)
+	results := make(chan *integration.Result, 64)
 	go func() {
 		for range results {
 		}
@@ -258,7 +258,10 @@ func TestRoundTrip(t *testing.T) {
 
 	var imported []captured
 	done := make(chan error, 1)
-	go func() { done <- imp.Import(ctx, records, results) }()
+	go func() {
+		_, err := imp.Import(ctx, records, results)
+		done <- err
+	}()
 
 	for rec := range records {
 		if rec.Err != nil {
@@ -299,7 +302,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	// 2) EXPORT into the destination account.
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{}, "imap", map[string]string{
+	exp, err := exporter.NewExporter(ctx, &integration.Options{}, "imap", map[string]string{
 		"location": "imap://" + addr,
 		"username": dstUser,
 		"password": pass,
@@ -310,11 +313,11 @@ func TestRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = exp.Close(ctx) }()
 
-	expRecords := make(chan *connectors.Record, 64)
-	expResults := make(chan *connectors.Result, 64)
+	expRecords := make(chan *integration.Record, 64)
+	expResults := make(chan *integration.Result, 64)
 
 	expDone := make(chan error, 1)
-	go func() { expDone <- exp.Export(ctx, expRecords, expResults) }()
+	go func() { expDone <- exp.Export(ctx, nil, expRecords, expResults) }()
 
 	go func() {
 		// Feed directories first (sorted by depth) then files, mirroring how a
@@ -332,7 +335,7 @@ func TestRoundTrip(t *testing.T) {
 			return strings.Count(dirs[i].rec.Pathname, "/") < strings.Count(dirs[j].rec.Pathname, "/")
 		})
 		emit := func(c captured) {
-			r := &connectors.Record{
+			r := &integration.Record{
 				Pathname: c.rec.Pathname,
 				FileInfo: c.rec.FileInfo,
 			}
