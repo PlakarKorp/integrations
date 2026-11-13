@@ -24,14 +24,13 @@ import (
 	"path"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	plakarnfs "github.com/PlakarKorp/integrations/nfs/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	_ = exporter.Register("nfs", 0, NewExporter)
+	_ = integration.RegisterExporter("nfs", 0, NewExporter)
 }
 
 // errUnsupportedType is reported for entries NFSv3-over-RPC cannot reconstruct
@@ -45,7 +44,7 @@ var errUnsupportedType = errors.New("nfs: unsupported file type for export (only
 const autoDirPerm = 0700
 
 type Exporter struct {
-	opts *connectors.Options
+	opts *integration.Options
 
 	cfg  *plakarnfs.Config
 	conn *plakarnfs.Conn
@@ -53,7 +52,7 @@ type Exporter struct {
 	rootDir string
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	cfg, err := plakarnfs.ParseConfig(config)
 	if err != nil {
 		return nil, err
@@ -86,7 +85,7 @@ func (p *Exporter) Close(ctx context.Context) error {
 	return p.conn.Close()
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 
 	for {
@@ -113,7 +112,7 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 	}
 }
 
-func (p *Exporter) exportOne(record *connectors.Record) error {
+func (p *Exporter) exportOne(record *integration.Record) error {
 	pathname := path.Join(p.rootDir, record.Pathname)
 	if !p.safe(pathname) {
 		return fmt.Errorf("refusing to write outside export: %q", pathname)
@@ -156,7 +155,7 @@ func (p *Exporter) mkdirAll(pathname string, perm os.FileMode) error {
 	return nil
 }
 
-func (p *Exporter) writeFile(record *connectors.Record, pathname string, perm os.FileMode) error {
+func (p *Exporter) writeFile(record *integration.Record, pathname string, perm os.FileMode) error {
 	if err := p.mkdirAll(path.Dir(pathname), autoDirPerm); err != nil {
 		return err
 	}

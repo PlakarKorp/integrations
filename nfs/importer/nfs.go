@@ -21,19 +21,18 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
+	"github.com/PlakarKorp/integration-sdk/location"
 	plakarnfs "github.com/PlakarKorp/integrations/nfs/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/exclude"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	_ = importer.Register("nfs", 0, NewImporter)
+	_ = integration.RegisterImporter("nfs", 0, NewImporter)
 }
 
 type Importer struct {
-	opts *connectors.Options
+	opts *integration.Options
 
 	cfg  *plakarnfs.Config
 	conn *plakarnfs.Conn
@@ -42,7 +41,7 @@ type Importer struct {
 	excludes *exclude.RuleSet
 }
 
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	cfg, err := plakarnfs.ParseConfig(config)
 	if err != nil {
 		return nil, err
@@ -83,9 +82,9 @@ func (imp *Importer) Flags() location.Flags {
 	return 0
 }
 
-func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
-	return imp.walk(ctx, records)
+	return nil, imp.walk(ctx, records)
 }
 
 func (imp *Importer) Ping(ctx context.Context) error {

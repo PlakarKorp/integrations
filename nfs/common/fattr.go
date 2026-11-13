@@ -20,7 +20,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/vmware/go-nfs-client/nfs"
 )
 
@@ -82,14 +82,14 @@ func fattrMode(attr *nfs.Fattr) os.FileMode {
 	return mode
 }
 
-// FileInfoFromAttr maps an NFSv3 Fattr into a kloset objects.FileInfo.
+// FileInfoFromAttr maps an NFSv3 Fattr into an integration.FileInfo.
 //
 // dev is the export-wide device id (Fattr.FSID); ino, uid, gid and nlink come
 // straight off the wire so Plakar can dedup, attribute ownership and detect
 // hardlinks.
-func FileInfoFromAttr(name string, attr *nfs.Fattr) objects.FileInfo {
+func FileInfoFromAttr(name string, attr *nfs.Fattr) integration.FileInfo {
 	modTime := time.Unix(int64(attr.Mtime.Seconds), int64(attr.Mtime.Nseconds))
-	return objects.NewFileInfo(
+	return integration.NewFileInfo(
 		name,
 		int64(attr.Filesize),
 		fattrMode(attr),
