@@ -23,8 +23,7 @@ import (
 	"path"
 	"sync"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/kloset/reading"
 	"github.com/pkg/sftp"
 	"golang.org/x/sync/errgroup"
@@ -61,8 +60,8 @@ func (buckets *buckets) Create() error {
 	return g.Wait()
 }
 
-func (buckets *buckets) List() ([]objects.MAC, error) {
-	ret := make([]objects.MAC, 0)
+func (buckets *buckets) List() ([]integration.MAC, error) {
+	ret := make([]integration.MAC, 0)
 	var mu sync.Mutex
 
 	wg := sync.WaitGroup{}
@@ -89,7 +88,7 @@ func (buckets *buckets) List() ([]objects.MAC, error) {
 				if len(t) != 32 {
 					continue
 				}
-				var t32 objects.MAC
+				var t32 integration.MAC
 				copy(t32[:], t)
 
 				mu.Lock()
@@ -102,13 +101,13 @@ func (buckets *buckets) List() ([]objects.MAC, error) {
 	return ret, nil
 }
 
-func (buckets *buckets) Path(mac objects.MAC) string {
+func (buckets *buckets) Path(mac integration.MAC) string {
 	return path.Join(buckets.path,
 		fmt.Sprintf("%02x", mac[0]),
 		fmt.Sprintf("%064x", mac))
 }
 
-func (buckets *buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (buckets *buckets) Get(mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	fp, err := buckets.client.Open(buckets.Path(mac))
 	if err != nil {
 		return nil, err
@@ -121,10 +120,10 @@ func (buckets *buckets) Get(mac objects.MAC, rg *storage.Range) (io.ReadCloser, 
 	return reading.NewSectionReadCloser(fp, int64(rg.Offset), int64(rg.Length)), nil
 }
 
-func (buckets *buckets) Remove(mac objects.MAC) error {
+func (buckets *buckets) Remove(mac integration.MAC) error {
 	return buckets.client.Remove(buckets.Path(mac))
 }
 
-func (buckets *buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
+func (buckets *buckets) Put(mac integration.MAC, rd io.Reader) (int64, error) {
 	return writeFileAtomic(buckets.client, buckets.Path(mac), rd, nil)
 }
