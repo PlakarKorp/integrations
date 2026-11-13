@@ -3,8 +3,8 @@ package integration
 import (
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/ftp/importer"
-	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,13 +26,13 @@ func TestImportReadsTree(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "ftp", ftpConfig(addr, dir))
+	imp, err := importer.NewImporter(ctx, &integration.Options{}, "ftp", ftpConfig(addr, dir))
 	require.NoError(t, err)
 	defer func() { _ = imp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(ctx, records, nil) }()
+	go func() { _, err := imp.Import(ctx, records, nil); errc <- err }()
 
 	got := map[string]string{}
 	for rec := range records {
@@ -54,13 +54,13 @@ func TestImportFailsWhenRootUnreadable(t *testing.T) {
 	delete(cfg, "tls_insecure_no_verify") // the self-signed certificate is refused
 
 	ctx := t.Context()
-	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "ftp", cfg)
+	imp, err := importer.NewImporter(ctx, &integration.Options{}, "ftp", cfg)
 	require.NoError(t, err)
 	defer func() { _ = imp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(ctx, records, nil) }()
+	go func() { _, err := imp.Import(ctx, records, nil); errc <- err }()
 	for rec := range records {
 		assert.Failf(t, "unexpected record", "%s", rec.Pathname)
 	}
@@ -81,13 +81,13 @@ func TestImportReportsUnreadableDirectory(t *testing.T) {
 	t.Cleanup(func() { chmod(t, dir+"/locked", "755") })
 
 	ctx := t.Context()
-	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "ftp", ftpConfig(addr, dir))
+	imp, err := importer.NewImporter(ctx, &integration.Options{}, "ftp", ftpConfig(addr, dir))
 	require.NoError(t, err)
 	defer func() { _ = imp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(ctx, records, nil) }()
+	go func() { _, err := imp.Import(ctx, records, nil); errc <- err }()
 
 	got := map[string]error{}
 	for rec := range records {
