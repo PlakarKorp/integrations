@@ -5,18 +5,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPutDuplicateFailsForContentAddressedResources(t *testing.T) {
 	tests := []struct {
 		name string
-		res  storage.StorageResource
+		res  integration.StorageResource
 	}{
-		{"packfile", storage.StorageResourcePackfile},
-		{"state", storage.StorageResourceState},
+		{"packfile", integration.StorageResourcePackfile},
+		{"state", integration.StorageResourceState},
 	}
 
 	for _, tt := range tests {
@@ -29,11 +28,11 @@ func TestPutDuplicateFailsForContentAddressedResources(t *testing.T) {
 			require.NoError(t, st.Create(ctx, []byte("config")))
 			defer func() { _ = st.Close(ctx) }()
 
-			id := objects.MAC{1}
-			_, err = st.Put(ctx, tt.res, id, bytes.NewReader([]byte("v1")))
+			id := integration.MAC{1}
+			_, err = st.Put(ctx, tt.res, 0, id, bytes.NewReader([]byte("v1")))
 			require.NoError(t, err)
 
-			_, err = st.Put(ctx, tt.res, id, bytes.NewReader([]byte("v2")))
+			_, err = st.Put(ctx, tt.res, 0, id, bytes.NewReader([]byte("v2")))
 			require.Error(t, err)
 		})
 	}

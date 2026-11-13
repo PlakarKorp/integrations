@@ -3,14 +3,13 @@ module github.com/PlakarKorp/integrations/sqlite
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/go-kloset-sdk v1.1.0
+	github.com/PlakarKorp/integration-sdk v1.1.4
 	github.com/PlakarKorp/kloset v1.1.9
 	github.com/stretchr/testify v1.11.1
 )
 
 require (
 	github.com/PlakarKorp/go-cdc-chunkers v1.1.0 // indirect
-	github.com/PlakarKorp/integration-grpc v1.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
