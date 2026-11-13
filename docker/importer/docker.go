@@ -27,18 +27,16 @@ import (
 	"path"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/moby/moby/client"
 )
 
 const flags = location.FLAG_STREAM | location.FLAG_NEEDACK
 
 func init() {
-	_ = importer.Register("docker+container", flags, NewImporter)
-	_ = importer.Register("docker+image", flags, NewImporter)
+	_ = integration.RegisterImporter("docker+container", flags, NewImporter)
+	_ = integration.RegisterImporter("docker+image", flags, NewImporter)
 }
 
 type Importer struct {
@@ -53,7 +51,7 @@ type Importer struct {
 	name     string
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	imageName := strings.TrimPrefix(config["location"], name+"://")
 
 	var fp io.ReadCloser
@@ -110,8 +108,8 @@ func linkTarget(hdr *tar.Header) string {
 	return hdr.Linkname
 }
 
-func finfo(hdr *tar.Header) objects.FileInfo {
-	f := objects.FileInfo{
+func finfo(hdr *tar.Header) integration.FileInfo {
+	f := integration.FileInfo{
 		Lname:      path.Base(hdr.Name),
 		Lsize:      hdr.Size,
 		Lmode:      fs.FileMode(hdr.Mode),
@@ -142,20 +140,20 @@ func finfo(hdr *tar.Header) objects.FileInfo {
 	return f
 }
 
-func (t *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (t *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	for {
 		hdr, err := t.tar.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				return err
+				return nil, err
 			}
-			return nil
+			return nil, nil
 		}
 
 		name := path.Join("/", hdr.Name)
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: name,
 			Target:   linkTarget(hdr),
 			FileInfo: finfo(hdr),
@@ -164,7 +162,7 @@ func (t *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 
 		select {
 		case <-t.ctx.Done():
-			return t.ctx.Err()
+			return nil, t.ctx.Err()
 
 		case <-results:
 			// wait for the ack before continuing
