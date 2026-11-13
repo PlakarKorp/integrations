@@ -69,10 +69,13 @@ func (p *stallProxy) handle(client net.Conn) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	// client -> server, verbatim
+	// client -> server, verbatim. Once the client hangs up, drop the backend
+	// connection too, so a stalled relay does not keep a server session open
+	// (and count against the server's per-user connection limit) after the test.
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(server, client)
+		_ = server.Close()
 	}()
 	// server -> client, until stallAfter bytes then (maybe) go silent. The
 	// stall budget is consumed only when a connection actually reaches the
