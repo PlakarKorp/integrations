@@ -10,10 +10,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/PlakarKorp/go-inventory-sdk/inventory"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
-	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/v2/openstack/db/v1/datastores"
@@ -74,13 +73,13 @@ func (s *stubAPI) Scope() common.Scope {
 	return common.Scope{AuthURL: "https://keystone.example/v3", ProjectID: "p1", Region: cmp.Or(s.region, "RegionOne")}
 }
 
-func listAll(t *testing.T, apis ...openstackAPI) ([]*inventory.InventoryEntry, error) {
+func listAll(t *testing.T, apis ...openstackAPI) ([]*integration.InventoryEntry, error) {
 	t.Helper()
 	inv := &osInventory{apis: apis}
-	ch := make(chan *inventory.InventoryEntry)
+	ch := make(chan *integration.InventoryEntry)
 	errc := make(chan error, 1)
 	go func() { errc <- inv.List(t.Context(), ch) }()
-	var out []*inventory.InventoryEntry
+	var out []*integration.InventoryEntry
 	for e := range ch {
 		out = append(out, e)
 	}
@@ -102,45 +101,45 @@ func TestListMapsEveryResource(t *testing.T) {
 	got, err := listAll(t, api)
 	require.NoError(t, err)
 
-	want := []*inventory.InventoryEntry{
+	want := []*integration.InventoryEntry{
 		{
-			Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+			Class: integration.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
 			Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
 			Tags: []string{},
-			Endpoints: []inventory.HostEndpoint{
-				{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
+			Endpoints: []integration.HostEndpoint{
+				{Type: integration.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
 			},
 		},
 		{
-			Class: pkg.ResourceClassCompute, URN: "urn:openstack:p1:nova:RegionOne:server:s1",
+			Class: integration.ResourceClassCompute, URN: "urn:openstack:p1:nova:RegionOne:server:s1",
 			Name: "web", Region: "RegionOne", Service: "nova", Resource: "nova:server",
 			Tags: []string{"env=prod", "team=web", "frontend"}, // metadata sorted by key, then Nova tags
-			Endpoints: []inventory.HostEndpoint{
-				{Type: inventory.EndpointIdentifier, Endpoint: "s1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
-				{Type: inventory.EndpointInet4, Endpoint: "10.0.0.5"},
-				{Type: inventory.EndpointInet6, Endpoint: "2001:db8::5"},
+			Endpoints: []integration.HostEndpoint{
+				{Type: integration.EndpointIdentifier, Endpoint: "s1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
+				{Type: integration.EndpointInet4, Endpoint: "10.0.0.5"},
+				{Type: integration.EndpointInet6, Endpoint: "2001:db8::5"},
 			},
 		},
 		{
-			Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:volume:v1",
+			Class: integration.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:volume:v1",
 			Name: "v1", Region: "RegionOne", Service: "cinder", Resource: "cinder:volume",
 			Tags:      []string{"backup=daily"},
-			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointIdentifier, Endpoint: "v1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "v1", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}}},
 		},
 		{
-			Class: pkg.ResourceClassObjectStorage, URN: "urn:openstack:p1:swift:RegionOne:container:media",
+			Class: integration.ResourceClassObjectStorage, URN: "urn:openstack:p1:swift:RegionOne:container:media",
 			Name: "media", Region: "RegionOne", Service: "swift", Resource: "swift:container",
 			Tags:      []string{},
-			Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointHost, Endpoint: "http://swift:8080/v1/AUTH_p1/media"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointHost, Endpoint: "http://swift:8080/v1/AUTH_p1/media"}},
 		},
 		{
-			Class: pkg.ResourceClassDatabase, SubClass: pkg.ResourceSubClassPostgreSQL,
+			Class: integration.ResourceClassDatabase, SubClass: integration.ResourceSubClassPostgreSQL,
 			URN:  "urn:openstack:p1:trove:RegionOne:instance:d1",
 			Name: "orders", Region: "RegionOne", Service: "trove", Resource: "trove:instance",
 			Tags: []string{},
-			Endpoints: []inventory.HostEndpoint{
-				{Type: inventory.EndpointHost, Endpoint: "db.example"},
-				{Type: inventory.EndpointInet4, Endpoint: "10.0.0.9"},
+			Endpoints: []integration.HostEndpoint{
+				{Type: integration.EndpointHost, Endpoint: "db.example"},
+				{Type: integration.EndpointInet4, Endpoint: "10.0.0.9"},
 			},
 		},
 	}
@@ -217,12 +216,12 @@ func TestListNamesTheFailingRegion(t *testing.T) {
 
 func TestVolumeSpawnerEntry(t *testing.T) {
 	e := volumeSpawnerEntry(common.Scope{AuthURL: "https://keystone.example/v3", ProjectID: "p1", Region: "RegionOne"})
-	assert.Equal(t, &inventory.InventoryEntry{
-		Class: pkg.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
+	assert.Equal(t, &integration.InventoryEntry{
+		Class: integration.ResourceClassBlockStorage, URN: "urn:openstack:p1:cinder:RegionOne:spawner:spawn",
 		Name: "Create volume in RegionOne", Region: "RegionOne", Service: "cinder", Resource: "cinder:spawner",
 		Tags: []string{},
-		Endpoints: []inventory.HostEndpoint{
-			{Type: inventory.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
+		Endpoints: []integration.HostEndpoint{
+			{Type: integration.EndpointIdentifier, Endpoint: "spawn", Attributes: map[string]string{"openstack_auth_url": "https://keystone.example/v3", "openstack_region": "RegionOne"}},
 		},
 	}, e)
 }
@@ -249,20 +248,20 @@ func TestGlanceTags(t *testing.T) {
 // Older Trove releases report addresses only in the deprecated ip field.
 func TestDatabaseEntryFallsBackToIP(t *testing.T) {
 	e := databaseEntry(common.Scope{}, instances.Instance{ID: "d1", IP: []string{"10.0.0.7"}})
-	assert.Equal(t, []inventory.HostEndpoint{{Type: inventory.EndpointInet4, Endpoint: "10.0.0.7"}}, e.Endpoints)
+	assert.Equal(t, []integration.HostEndpoint{{Type: integration.EndpointInet4, Endpoint: "10.0.0.7"}}, e.Endpoints)
 }
 
 func TestDatastoreSubClass(t *testing.T) {
-	for datastore, want := range map[string]pkg.ResourceSubClass{
-		"mysql": pkg.ResourceSubClassMySQL, "MariaDB": pkg.ResourceSubClassMySQL,
-		"postgresql": pkg.ResourceSubClassPostgreSQL, "mongodb": pkg.ResourceSubClassMongoDB,
-		"redis": pkg.ResourceSubClassRedis, "cassandra": pkg.ResourceSubClassUndefined,
+	for datastore, want := range map[string]integration.ResourceSubClass{
+		"mysql": integration.ResourceSubClassMySQL, "MariaDB": integration.ResourceSubClassMySQL,
+		"postgresql": integration.ResourceSubClassPostgreSQL, "mongodb": integration.ResourceSubClassMongoDB,
+		"redis": integration.ResourceSubClassRedis, "cassandra": integration.ResourceSubClassUndefined,
 	} {
 		assert.Equal(t, want, datastoreSubClass(datastore), datastore)
 	}
 }
 
-func serviceNames(entries []*inventory.InventoryEntry) []string {
+func serviceNames(entries []*integration.InventoryEntry) []string {
 	var out []string
 	for _, e := range entries {
 		out = append(out, e.Service)
@@ -414,11 +413,11 @@ func TestListClosesChannel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	entries := make(chan *inventory.InventoryEntry)
+	entries := make(chan *integration.InventoryEntry)
 	errc := make(chan error, 1)
 	go func() { errc <- inv.List(t.Context(), entries) }()
 
-	var listed []*inventory.InventoryEntry
+	var listed []*integration.InventoryEntry
 	for e := range entries {
 		listed = append(listed, e)
 	}

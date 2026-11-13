@@ -25,11 +25,10 @@ import (
 	"log"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/instance"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/v2/openstack/networking/v2/networks"
@@ -55,7 +54,7 @@ type diskRestore struct {
 
 // NewExporter spawns a new server for a bare or proto://spawn location, or
 // restores onto an existing one for proto://<server-id>.
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	suffix, ok := strings.CutPrefix(params["location"], proto+"://")
 	if !ok || (suffix != "" && suffix != common.SpawnLocation && !common.IDFormat.MatchString(suffix)) {
 		return nil, fmt.Errorf("location: bad value: %q is not %s://, %s://spawn, or %s://<id>", params["location"], proto, proto, proto)
@@ -99,14 +98,14 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 
 // Export expects the importer's layout. Kloset walks the snapshot in path
 // order, so every .METADATA.json arrives before the disk next to it.
-func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (exp *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	var serverMetadata *common.ServerMetadata
 
 loop:
 	for {
-		var record *connectors.Record
+		var record *integration.Record
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -196,7 +195,7 @@ loop:
 
 // handleDisk records a disk's metadata, or uploads its qcow2 to a temporary
 // Glance image, keyed by the volume or root image ID in its path.
-func (exp *Exporter) handleDisk(ctx context.Context, record *connectors.Record) error {
+func (exp *Exporter) handleDisk(ctx context.Context, record *integration.Record) error {
 	origin, id, name, ok := diskPath(record.Pathname)
 	if !ok {
 		return fmt.Errorf("unsupported path %q", record.Pathname)
@@ -350,7 +349,7 @@ func diskPath(pathname string) (origin common.DiskOrigin, id, name string, ok bo
 	return "", "", "", false
 }
 
-func decodeServerMetadata(record *connectors.Record) (*common.ServerMetadata, error) {
+func decodeServerMetadata(record *integration.Record) (*common.ServerMetadata, error) {
 	m := new(common.ServerMetadata)
 	if err := json.NewDecoder(record.Reader).Decode(m); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", instance.MetadataName, err)
@@ -363,7 +362,7 @@ func decodeServerMetadata(record *connectors.Record) (*common.ServerMetadata, er
 
 // decodeDiskMetadata requires a Cinder-origin disk's volume ID and size: the
 // volume is recreated from them. A Glance-origin disk (the root) has none.
-func decodeDiskMetadata(record *connectors.Record, pathOrigin common.DiskOrigin, id string) (*common.DiskMetadata, error) {
+func decodeDiskMetadata(record *integration.Record, pathOrigin common.DiskOrigin, id string) (*common.DiskMetadata, error) {
 	m := new(common.DiskMetadata)
 	if err := json.NewDecoder(record.Reader).Decode(m); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", instance.MetadataName, err)

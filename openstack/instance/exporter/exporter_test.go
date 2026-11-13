@@ -28,13 +28,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/flavors"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
@@ -56,7 +54,7 @@ func params(authURL, location string) map[string]string {
 	}
 }
 
-func newExporter(t *testing.T, cloud *keystonetest.Cloud) exporter.Exporter {
+func newExporter(t *testing.T, cloud *keystonetest.Cloud) integration.Exporter {
 	t.Helper()
 	exp, err := NewExporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://"))
 	require.NoError(t, err)
@@ -64,9 +62,9 @@ func newExporter(t *testing.T, cloud *keystonetest.Cloud) exporter.Exporter {
 }
 
 // exportAll feeds recs to Export as plakar does, and collects the results.
-func exportAll(ctx context.Context, exp exporter.Exporter, recs ...*connectors.Record) ([]*connectors.Result, error) {
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+func exportAll(ctx context.Context, exp integration.Exporter, recs ...*integration.Record) ([]*integration.Result, error) {
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	go func() {
 		defer close(records)
 		for _, r := range recs {
@@ -77,15 +75,15 @@ func exportAll(ctx context.Context, exp exporter.Exporter, recs ...*connectors.R
 			}
 		}
 	}()
-	collected := make(chan []*connectors.Result)
+	collected := make(chan []*integration.Result)
 	go func() {
-		var out []*connectors.Result
+		var out []*integration.Result
 		for r := range results {
 			out = append(out, r)
 		}
 		collected <- out
 	}()
-	err := exp.Export(ctx, records, results)
+	err := exp.Export(ctx, nil, records, results)
 	return <-collected, err
 }
 
@@ -103,36 +101,36 @@ func (r *closeOnce) Close() error {
 	return nil
 }
 
-func record(t *testing.T, path string, data []byte) *connectors.Record {
+func record(t *testing.T, path string, data []byte) *integration.Record {
 	name := strings.TrimPrefix(path, "/")
-	return connectors.NewRecord(path, "", objects.FileInfo{Lname: name, Lmode: 0600, LmodTime: time.Unix(0, 0)}, nil,
+	return integration.NewRecord(path, "", integration.FileInfo{Lname: name, Lmode: 0600, LmodTime: time.Unix(0, 0)}, nil,
 		func() (io.ReadCloser, error) { return &closeOnce{Reader: bytes.NewReader(data), t: t}, nil })
 }
 
-func dirRecord(path string) *connectors.Record {
+func dirRecord(path string) *integration.Record {
 	name := path[strings.LastIndex(path, "/")+1:]
-	return connectors.NewRecord(path, "", objects.FileInfo{Lname: name, Lmode: fs.ModeDir | 0700}, nil, nil)
+	return integration.NewRecord(path, "", integration.FileInfo{Lname: name, Lmode: fs.ModeDir | 0700}, nil, nil)
 }
 
-func rootRecord() *connectors.Record {
-	return connectors.NewRecord("/", "", objects.FileInfo{Lname: "/", Lmode: fs.ModeDir | 0700}, nil, nil)
+func rootRecord() *integration.Record {
+	return integration.NewRecord("/", "", integration.FileInfo{Lname: "/", Lmode: fs.ModeDir | 0700}, nil, nil)
 }
 
-func serverMetadataRecord(t *testing.T, m common.ServerMetadata) *connectors.Record {
+func serverMetadataRecord(t *testing.T, m common.ServerMetadata) *integration.Record {
 	t.Helper()
 	data, err := json.Marshal(m)
 	require.NoError(t, err)
 	return record(t, "/"+instance.MetadataName, data)
 }
 
-func diskMetadataRecord(t *testing.T, dir string, m common.DiskMetadata) *connectors.Record {
+func diskMetadataRecord(t *testing.T, dir string, m common.DiskMetadata) *integration.Record {
 	t.Helper()
 	data, err := json.Marshal(m)
 	require.NoError(t, err)
 	return record(t, dir+"/"+instance.MetadataName, data)
 }
 
-func diskRecord(dir string) *connectors.Record {
+func diskRecord(dir string) *integration.Record {
 	return record(nil, dir+"/"+block.DiskName("disk", "qcow2"), disk)
 }
 
