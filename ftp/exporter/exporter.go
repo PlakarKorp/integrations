@@ -29,19 +29,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/ftp/conn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"golang.org/x/sync/errgroup"
 )
 
 func init() {
-	_ = exporter.Register("ftp", 0, NewExporter)
+	_ = integration.RegisterExporter("ftp", 0, NewExporter)
 }
 
 type Exporter struct {
-	opts *connectors.Options
+	opts *integration.Options
 
 	host    string
 	rootDir string
@@ -51,7 +50,7 @@ type Exporter struct {
 	skipPermissions bool
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	target := config["location"]
 
 	parsed, err := url.Parse(target)
@@ -154,11 +153,11 @@ func (p *Exporter) Close(ctx context.Context) error {
 }
 
 type dirPerm struct {
-	record   *connectors.Record
+	record   *integration.Record
 	pathname string
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
@@ -242,15 +241,15 @@ loop:
 	return ret
 }
 
-func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
+func (p *Exporter) symlink(record *integration.Record, pathname string) error {
 	return errors.ErrUnsupported
 }
 
-func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
+func (p *Exporter) hardlink(record *integration.Record, pathname string) error {
 	return errors.ErrUnsupported
 }
 
-func (p *Exporter) file(record *connectors.Record, pathname string) error {
+func (p *Exporter) file(record *integration.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return p.hardlink(record, pathname)
 	}
@@ -270,7 +269,7 @@ func tempName(pathname string) (string, error) {
 	return pathname + ".tmp." + suffix, nil
 }
 
-func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+func (p *Exporter) writeAtomic(record *integration.Record, pathname string) error {
 	tmpName, err := tempName(pathname)
 	if err != nil {
 		return err
@@ -285,7 +284,7 @@ func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error
 	return p.chmod(pathname, record)
 }
 
-func (p *Exporter) chmod(pathname string, record *connectors.Record) error {
+func (p *Exporter) chmod(pathname string, record *integration.Record) error {
 	if p.skipPermissions {
 		return nil
 	}

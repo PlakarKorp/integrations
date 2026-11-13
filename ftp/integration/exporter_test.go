@@ -8,51 +8,50 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/ftp/exporter"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func dirRecord(pathname string) *connectors.Record {
+func dirRecord(pathname string) *integration.Record {
 	return dirRecordMode(pathname, 0o755)
 }
 
-func dirRecordMode(pathname string, perm fs.FileMode) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: fs.ModeDir | perm, Lnlink: 1}, nil, nil)
+func dirRecordMode(pathname string, perm fs.FileMode) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: fs.ModeDir | perm, Lnlink: 1}, nil, nil)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
+func fileRecord(pathname, content string) *integration.Record {
 	return fileRecordMode(pathname, content, 0o644)
 }
 
-func fileRecordMode(pathname, content string, perm fs.FileMode) *connectors.Record {
-	fi := objects.FileInfo{Lsize: int64(len(content)), Lmode: perm, Lnlink: 1}
-	return connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
+func fileRecordMode(pathname, content string, perm fs.FileMode) *integration.Record {
+	fi := integration.FileInfo{Lsize: int64(len(content)), Lmode: perm, Lnlink: 1}
+	return integration.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(content)), nil
 	})
 }
 
 // export feeds records to a fresh exporter rooted at root and returns the
 // per-record errors, keyed by pathname.
-func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[string]error {
+func export(t *testing.T, addr, root string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	return exportConfig(t, ftpConfig(addr, root), recs...)
 }
 
-func exportConfig(t *testing.T, config map[string]string, recs ...*connectors.Record) map[string]error {
+func exportConfig(t *testing.T, config map[string]string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	ctx := t.Context()
 
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 4}, "ftp", config)
+	exp, err := exporter.NewExporter(ctx, &integration.Options{MaxConcurrency: 4}, "ftp", config)
 	require.NoError(t, err)
 	defer func() { _ = exp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	errc := make(chan error, 1)
-	go func() { errc <- exp.Export(ctx, records, results) }()
+	go func() { errc <- exp.Export(ctx, nil, records, results) }()
 	go func() {
 		defer close(records)
 		for _, r := range recs {
@@ -185,13 +184,13 @@ func TestExporterCloseReleasesConnections(t *testing.T) {
 	before := sessions(t)
 
 	ctx := t.Context()
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 4}, "ftp", ftpConfig(addr, dir))
+	exp, err := exporter.NewExporter(ctx, &integration.Options{MaxConcurrency: 4}, "ftp", ftpConfig(addr, dir))
 	require.NoError(t, err)
-	records := make(chan *connectors.Record, 1)
-	results := make(chan *connectors.Result, 1)
+	records := make(chan *integration.Record, 1)
+	results := make(chan *integration.Result, 1)
 	records <- fileRecord("/a.txt", "alpha")
 	close(records)
-	require.NoError(t, exp.Export(ctx, records, results))
+	require.NoError(t, exp.Export(ctx, nil, records, results))
 	require.NoError(t, (<-results).Err)
 	require.Greater(t, sessions(t), before, "export opened no session; the test cannot observe Close")
 
