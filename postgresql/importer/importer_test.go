@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/dumpfs"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func TestDumpDatabasesRejectsUnsafeNames(t *testing.T) {
 			bin := fakePgDump(t, "")
 
 			p := &Importer{pgBinDir: bin}
-			records := make(chan *connectors.Record, 1)
+			records := make(chan *integration.Record, 1)
 			err := p.dumpDatabases(context.Background(), records, []string{tt.dbname})
 
 			require.Error(t, err)
@@ -79,9 +79,9 @@ func TestFormatOptions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts *connectors.Options
+			var opts *integration.Options
 			if tt.concurrency > 0 {
-				opts = &connectors.Options{MaxConcurrency: tt.concurrency}
+				opts = &integration.Options{MaxConcurrency: tt.concurrency}
 			}
 			p, err := NewImporterFromConfigMap(pgconn.ConnConfig{}, "", "", opts, tt.config)
 			if tt.wantErr {
@@ -107,7 +107,7 @@ func fakePgDump(t *testing.T, script string) string {
 
 // readAll consumes records the way plakar does and returns their contents,
 // or the read error in place of a file's content.
-func readAll(records <-chan *connectors.Record) <-chan map[string]string {
+func readAll(records <-chan *integration.Record) <-chan map[string]string {
 	out := make(chan map[string]string, 1)
 	go func() {
 		files := map[string]string{}
@@ -161,7 +161,7 @@ func TestExcludeTablesOptions(t *testing.T) {
 			p, err := NewImporterFromConfigMap(pgconn.ConnConfig{}, "appdb", "", nil, tt.config)
 			require.NoError(t, err)
 
-			records := make(chan *connectors.Record)
+			records := make(chan *integration.Record)
 			files := readAll(records)
 			err = p.dumpDatabases(context.Background(), records, []string{"appdb"})
 			close(records)
@@ -195,7 +195,7 @@ printf rows > "$dir/3001.dat"
 printf '16384 blob_16384.dat\n' >> "$dir/blobs_3.toc"
 `)
 	p := &Importer{database: "appdb", directory: true, parallelDumps: 4, pgBinDir: bin}
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	files := readAll(records)
 
 	err := p.dumpDatabases(context.Background(), records, []string{"appdb"})
@@ -233,7 +233,7 @@ echo 'connection lost' >&2
 exit 1
 `)
 			p := &Importer{database: tt.database, directory: true, parallelDumps: 4, pgBinDir: bin}
-			records := make(chan *connectors.Record)
+			records := make(chan *integration.Record)
 			files := readAll(records)
 
 			err := p.dumpDatabases(context.Background(), records, tt.databases)
@@ -255,7 +255,7 @@ wait
 `)
 	p := &Importer{database: "appdb", directory: true, parallelDumps: 4, pgBinDir: bin}
 	ctx, cancel := context.WithCancel(context.Background())
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	go func() {
 		<-records // take the record, never read it
 		cancel()
@@ -275,7 +275,7 @@ func TestParallelDumpRecordsAreNeverCached(t *testing.T) {
 	bin := fakePgDump(t, `: > "$dir/3002.dat"
 `)
 	p := &Importer{database: "appdb", directory: true, parallelDumps: 4, pgBinDir: bin}
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

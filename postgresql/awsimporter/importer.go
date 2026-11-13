@@ -4,19 +4,18 @@ import (
 	"context"
 	"errors"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/awsauth"
 	pqimporter "github.com/PlakarKorp/integrations/postgresql/importer"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	_ = importer.Register("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
+	_ = integration.RegisterImporter("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
+func NewAWSImporter(appCtx context.Context, opts *integration.Options, name string, cfg map[string]string) (integration.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err

@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 type ManifestOptions struct {
@@ -59,7 +58,7 @@ type LogicalConfig struct {
 // on records.  It connects to the target database (or "postgres" for a
 // full-cluster backup), queries cluster and per-database metadata, and emits
 // /manifest.json.
-func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- *connectors.Record) error {
+func EmitLogicalManifest(ctx context.Context, cfg LogicalConfig, records chan<- *integration.Record) error {
 	connectDB := cfg.Database
 	if connectDB == "" {
 		connectDB = "postgres"
@@ -122,7 +121,7 @@ type PhysicalConfig struct {
 // on records.  It queries full cluster and per-database metadata (the physical
 // backup captures all databases at the file level, so relation detail is still
 // useful for inventory purposes).
-func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<- *connectors.Record) error {
+func EmitPhysicalManifest(ctx context.Context, cfg PhysicalConfig, records chan<- *integration.Record) error {
 	db, err := cfg.Conn.Open("postgres")
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
@@ -170,7 +169,7 @@ func serverVersion(ctx context.Context, db *sql.DB) (string, int, error) {
 }
 
 // emitManifest serialises m as /manifest.json and sends it on records.
-func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Manifest) error {
+func emitManifest(ctx context.Context, records chan<- *integration.Record, m *Manifest) error {
 	m.Version = 2
 	now := time.Now().UTC()
 	m.CreatedAt = now
@@ -179,7 +178,7 @@ func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Man
 	if err != nil {
 		return fmt.Errorf("manifest: %w", err)
 	}
-	fileinfo := objects.FileInfo{
+	fileinfo := integration.FileInfo{
 		Lname:    "manifest.json",
 		Lsize:    int64(len(data)),
 		Lmode:    0444,
@@ -191,7 +190,7 @@ func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Man
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case records <- connectors.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
+	case records <- integration.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
 	}
 	return nil
 }
