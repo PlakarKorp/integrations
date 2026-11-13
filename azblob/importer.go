@@ -227,7 +227,7 @@ func (g *azblobImporter) Import(ctx context.Context, records chan<- *integration
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (g *azblobImporter) Close(ctx context.Context) error {
