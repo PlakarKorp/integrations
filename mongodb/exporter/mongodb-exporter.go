@@ -29,11 +29,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
-
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 const defaultMongoDBPort = 27017
@@ -45,7 +43,7 @@ type mongodbExporter struct {
 	port             string
 	username         string
 	password         string
-	options          *connectors.Options
+	options          *integration.Options
 	use_tls          bool
 	tls_ca_cert      string
 	ca_cert_file     *os.File
@@ -56,7 +54,7 @@ type mongodbExporter struct {
 }
 
 func init() {
-	_ = exporter.Register("mongodb", 0, NewExporter)
+	_ = integration.RegisterExporter("mongodb", 0, NewExporter)
 }
 
 func (e *mongodbExporter) Root() string          { return "/" }
@@ -64,7 +62,7 @@ func (e *mongodbExporter) Origin() string        { return e.url.Host }
 func (e *mongodbExporter) Type() string          { return "mongodb" }
 func (e *mongodbExporter) Flags() location.Flags { return location.FLAG_STREAM }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	location := params["location"]
 
 	parsed, err := url.Parse(location)
@@ -256,7 +254,7 @@ type commandResult struct {
 	exit   bool
 }
 
-func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	var f *os.File
@@ -451,5 +449,5 @@ func (e *mongodbExporter) Close(ctx context.Context) error {
 }
 
 func main() {
-	sdk.EntrypointExporter(os.Args, NewExporter)
+	server.EntrypointExporter(NewExporter, os.Args)
 }
