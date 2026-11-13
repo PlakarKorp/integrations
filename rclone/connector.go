@@ -24,17 +24,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"path"
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	rclonefs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
 	"github.com/rclone/rclone/fs/walk"
@@ -51,12 +48,12 @@ type Rclone struct {
 }
 
 func init() {
-	_ = importer.Register("rclone", 0, NewImporter)
-	_ = exporter.Register("rclone", 0, NewExporter)
-	_ = storage.Register("rclone", 0, NewStorage)
+	_ = integration.RegisterImporter("rclone", 0, NewImporter)
+	_ = integration.RegisterExporter("rclone", 0, NewExporter)
+	_ = integration.RegisterStore("rclone", 0, NewStorage)
 }
 
-func New(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (*Rclone, error) {
+func New(ctx context.Context, opts *integration.Options, name string, params map[string]string) (*Rclone, error) {
 	location := params["location"]
 	base := path.Clean("/" + strings.TrimPrefix(location, name+"://"))
 
@@ -101,16 +98,16 @@ func New(ctx context.Context, opts *connectors.Options, name string, params map[
 	}, nil
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Importer, error) {
 	return New(ctx, opts, name, params)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Exporter, error) {
 	return New(ctx, opts, name, params)
 }
 
-func NewStorage(ctx context.Context, name string, params map[string]string) (storage.Store, error) {
-	return New(ctx, &connectors.Options{MaxConcurrency: 1}, name, params)
+func NewStorage(ctx context.Context, name string, params map[string]string) (integration.Store, error) {
+	return New(ctx, &integration.Options{MaxConcurrency: 1}, name, params)
 }
 
 func (r *Rclone) Type() string          { return r.typ }
@@ -123,24 +120,24 @@ func (r *Rclone) Ping(ctx context.Context) error {
 	return err
 }
 
-func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (r *Rclone) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
-	return walk.Walk(ctx, r.fs, "", true, -1, func(p string, des rclonefs.DirEntries, err error) error {
+	return nil, walk.Walk(ctx, r.fs, "", true, -1, func(p string, des rclonefs.DirEntries, err error) error {
 		if err != nil {
 			realpath := path.Join(r.base, p)
 			err = fmt.Errorf("failed to walk %s: %w", realpath, err)
 			if p == "" {
 				return err
 			}
-			records <- connectors.NewError(realpath, err)
+			records <- integration.NewError(realpath, err)
 			return nil
 		}
 
 		for _, de := range des {
 			realpath := path.Join(r.base, de.Remote())
 
-			finfo := objects.FileInfo{
+			finfo := integration.FileInfo{
 				Lname:    path.Base(realpath),
 				LmodTime: de.ModTime(ctx),
 			}
@@ -158,14 +155,14 @@ func (r *Rclone) Import(ctx context.Context, records chan<- *connectors.Record, 
 				finfo.Lmode = 0700 | fs.ModeDir
 			}
 
-			records <- connectors.NewRecord(realpath, "", finfo, nil, open)
+			records <- integration.NewRecord(realpath, "", finfo, nil, open)
 		}
 
 		return nil
 	})
 }
 
-func (r *Rclone) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (r *Rclone) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {
@@ -211,9 +208,9 @@ func (r *Rclone) Create(ctx context.Context, conf []byte) error {
 		return fmt.Errorf("failed to check whether CONFIG exists: %w", err)
 	}
 
-	obj, err := r.fs.Put(ctx, bytes.NewReader(conf), &objectinfo{&connectors.Record{
+	obj, err := r.fs.Put(ctx, bytes.NewReader(conf), &objectinfo{&integration.Record{
 		Pathname: "CONFIG",
-		FileInfo: objects.FileInfo{
+		FileInfo: integration.FileInfo{
 			Lname:    "CONFIG",
 			Lsize:    int64(len(conf)),
 			Lmode:    0600,
@@ -255,28 +252,28 @@ func (r *Rclone) Open(ctx context.Context) ([]byte, error) {
 	return buf, nil
 }
 
-func (r *Rclone) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (r *Rclone) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (r *Rclone) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func resdir(res storage.StorageResource) (string, error) {
+func resdir(res integration.StorageResource) (string, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfiles", nil
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "states", nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "locks", nil
 	default:
 		return "", errors.ErrUnsupported
 	}
 }
 
-func respath(res storage.StorageResource, mac objects.MAC) (string, error) {
+func respath(res integration.StorageResource, mac integration.MAC) (string, error) {
 	dir, err := resdir(res)
 	if err != nil {
 		return "", err
@@ -284,32 +281,35 @@ func respath(res storage.StorageResource, mac objects.MAC) (string, error) {
 	return fmt.Sprintf("%s/%064x", dir, mac), nil
 }
 
-func (r *Rclone) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	dir, err := resdir(res)
-	if err != nil {
-		return nil, err
-	}
-
-	dirents, err := r.fs.List(ctx, dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list %s: %w", dir, err)
-	}
-
-	var macs []objects.MAC
-	for _, dirent := range dirents {
-		mac, err := hex.DecodeString(path.Base(dirent.Remote()))
+func (r *Rclone) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		dir, err := resdir(res)
 		if err != nil {
-			// rclone might create ".partial" files
-			continue
+			yield(nil, err)
+			return
 		}
 
-		macs = append(macs, objects.MAC(mac))
-	}
+		dirents, err := r.fs.List(ctx, dir)
+		if err != nil {
+			yield(nil, fmt.Errorf("failed to list %s: %w", dir, err))
+			return
+		}
 
-	return macs, nil
+		for _, dirent := range dirents {
+			mac, err := hex.DecodeString(path.Base(dirent.Remote()))
+			if err != nil {
+				// rclone might create ".partial" files
+				continue
+			}
+
+			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(mac)}, nil) {
+				return
+			}
+		}
+	}
 }
 
-func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (r *Rclone) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	target, err := respath(res, mac)
 	if err != nil {
 		return -1, err
@@ -317,7 +317,7 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 
 	var size int64 = -1
 	if r.spool {
-		if res == storage.StorageResourceLock {
+		if res == integration.StorageResourceLock {
 			// locks are small enough that can fit in
 			// memory.
 			body, err := io.ReadAll(rd)
@@ -348,9 +348,9 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 		}
 	}
 
-	obj, err := r.fs.Put(ctx, rd, &objectinfo{&connectors.Record{
+	obj, err := r.fs.Put(ctx, rd, &objectinfo{&integration.Record{
 		Pathname: target,
-		FileInfo: objects.FileInfo{
+		FileInfo: integration.FileInfo{
 			Lname:    path.Base(target),
 			Lsize:    size,
 			Lmode:    0600,
@@ -366,7 +366,7 @@ func (r *Rclone) Put(ctx context.Context, res storage.StorageResource, mac objec
 	return obj.Size(), nil
 }
 
-func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (r *Rclone) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	target, err := respath(res, mac)
 	if err != nil {
 		return nil, err
@@ -393,7 +393,7 @@ func (r *Rclone) Get(ctx context.Context, res storage.StorageResource, mac objec
 	return rd, nil
 }
 
-func (r *Rclone) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (r *Rclone) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	target, err := respath(res, mac)
 	if err != nil {
 		return err

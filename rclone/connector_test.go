@@ -28,9 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	rclonefs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
 	"github.com/stretchr/testify/assert"
@@ -62,7 +60,7 @@ func newRclone(t *testing.T) *Rclone {
 		"location":    "rclone://" + name,
 		"rclone_type": "memory",
 	}
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "localhost",
 		OperatingSystem: "test",
 		Architecture:    "amd64",
@@ -76,9 +74,9 @@ func newRclone(t *testing.T) *Rclone {
 func putFile(t *testing.T, r *Rclone, relpath, content string) {
 	t.Helper()
 	body := []byte(content)
-	_, err := r.fs.Put(t.Context(), bytes.NewReader(body), &objectinfo{&connectors.Record{
+	_, err := r.fs.Put(t.Context(), bytes.NewReader(body), &objectinfo{&integration.Record{
 		Pathname: relpath,
-		FileInfo: objects.FileInfo{
+		FileInfo: integration.FileInfo{
 			Lname:    path.Base(relpath),
 			Lsize:    int64(len(body)),
 			Lmode:    0600,
@@ -91,12 +89,13 @@ func putFile(t *testing.T, r *Rclone, relpath, content string) {
 // runImporter runs r.Import in a goroutine and returns the records channel.
 // The caller must drain records; call the returned wait function afterward to
 // obtain the Import error once the channel is closed.
-func runImporter(t *testing.T, r *Rclone) (<-chan *connectors.Record, func() error) {
+func runImporter(t *testing.T, r *Rclone) (<-chan *integration.Record, func() error) {
 	t.Helper()
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- r.Import(t.Context(), records, nil)
+		_, err := r.Import(t.Context(), records, nil)
+		done <- err
 	}()
 	return records, func() error { return <-done }
 }
@@ -104,14 +103,25 @@ func runImporter(t *testing.T, r *Rclone) (<-chan *connectors.Record, func() err
 // runExporter runs r.Export in a goroutine and returns the results channel.
 // The caller must send all records then close records; drain results and call
 // the returned wait function afterward to obtain the Export error.
-func runExporter(t *testing.T, r *Rclone, records <-chan *connectors.Record) (<-chan *connectors.Result, func() error) {
+func runExporter(t *testing.T, r *Rclone, records <-chan *integration.Record) (<-chan *integration.Result, func() error) {
 	t.Helper()
-	results := make(chan *connectors.Result)
+	results := make(chan *integration.Result)
 	done := make(chan error, 1)
 	go func() {
-		done <- r.Export(t.Context(), records, results)
+		done <- r.Export(t.Context(), nil, records, results)
 	}()
 	return results, func() error { return <-done }
+}
+
+func listMACs(ctx context.Context, r *Rclone, res integration.StorageResource) ([]integration.MAC, error) {
+	var macs []integration.MAC
+	for entry, err := range r.List(ctx, res, 0) {
+		if err != nil {
+			return nil, err
+		}
+		macs = append(macs, entry.MAC)
+	}
+	return macs, nil
 }
 
 func TestMetadata(t *testing.T) {
@@ -180,20 +190,20 @@ func TestImportFileContent(t *testing.T) {
 func TestExport(t *testing.T) {
 	r := newRclone(t)
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	results, wait := runExporter(t, r, records)
 
 	go func() {
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: "outdir",
-			FileInfo: objects.FileInfo{
+			FileInfo: integration.FileInfo{
 				Lname: "outdir",
 				Lmode: 0700 | fs.ModeDir,
 			},
 		}
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: "outdir/file.txt",
-			FileInfo: objects.FileInfo{
+			FileInfo: integration.FileInfo{
 				Lname: "file.txt",
 				Lsize: 5,
 				Lmode: 0600,
@@ -222,14 +232,14 @@ func TestExport(t *testing.T) {
 func TestExportSkipsXattr(t *testing.T) {
 	r := newRclone(t)
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	results, wait := runExporter(t, r, records)
 
 	go func() {
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: "file.txt",
 			IsXattr:  true,
-			FileInfo: objects.FileInfo{Lname: "file.txt", Lmode: 0600},
+			FileInfo: integration.FileInfo{Lname: "file.txt", Lmode: 0600},
 		}
 		close(records)
 	}()
@@ -246,14 +256,14 @@ func TestExportSkipsXattr(t *testing.T) {
 func TestExportUnsupportedTypeIsAnError(t *testing.T) {
 	r := newRclone(t)
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	results, wait := runExporter(t, r, records)
 
 	go func() {
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: "link",
 			Target:   "target",
-			FileInfo: objects.FileInfo{Lname: "link", Lmode: fs.ModeSymlink | 0777},
+			FileInfo: integration.FileInfo{Lname: "link", Lmode: fs.ModeSymlink | 0777},
 		}
 		close(records)
 	}()
@@ -269,13 +279,13 @@ func TestExportUnsupportedTypeIsAnError(t *testing.T) {
 func TestExportSkipsRoot(t *testing.T) {
 	r := newRclone(t)
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	results, wait := runExporter(t, r, records)
 
 	go func() {
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: "/",
-			FileInfo: objects.FileInfo{Lname: "/", Lmode: 0700 | fs.ModeDir},
+			FileInfo: integration.FileInfo{Lname: "/", Lmode: 0700 | fs.ModeDir},
 		}
 		close(records)
 	}()
@@ -307,23 +317,23 @@ func TestStorageCreateAlreadyExists(t *testing.T) {
 }
 
 func TestStoragePutGetRoundtrip(t *testing.T) {
-	resources := []storage.StorageResource{
-		storage.StorageResourcePackfile,
-		storage.StorageResourceState,
-		storage.StorageResourceLock,
+	resources := []integration.StorageResource{
+		integration.StorageResourcePackfile,
+		integration.StorageResourceState,
+		integration.StorageResourceLock,
 	}
 
 	for _, res := range resources {
 		t.Run(res.String(), func(t *testing.T) {
 			r := newRclone(t)
-			mac := objects.RandomMAC()
+			mac := integration.RandomMAC()
 
 			data := []byte("payload data")
-			n, err := r.Put(t.Context(), res, mac, bytes.NewReader(data))
+			n, err := r.Put(t.Context(), res, 0, mac, bytes.NewReader(data))
 			require.NoError(t, err)
 			assert.Equal(t, int64(len(data)), n)
 
-			rd, err := r.Get(t.Context(), res, mac, nil)
+			rd, err := r.Get(t.Context(), res, 0, mac, nil)
 			require.NoError(t, err)
 			defer func() { _ = rd.Close() }()
 			got, err := io.ReadAll(rd)
@@ -335,14 +345,14 @@ func TestStoragePutGetRoundtrip(t *testing.T) {
 
 func TestStoragePutGetRange(t *testing.T) {
 	r := newRclone(t)
-	mac := objects.RandomMAC()
+	mac := integration.RandomMAC()
 
 	data := []byte("0123456789")
-	_, err := r.Put(t.Context(), storage.StorageResourcePackfile, mac, bytes.NewReader(data))
+	_, err := r.Put(t.Context(), integration.StorageResourcePackfile, 0, mac, bytes.NewReader(data))
 	require.NoError(t, err)
 
-	rg := &storage.Range{Offset: 2, Length: 5}
-	rd, err := r.Get(t.Context(), storage.StorageResourcePackfile, mac, rg)
+	rg := &integration.Range{Offset: 2, Length: 5}
+	rd, err := r.Get(t.Context(), integration.StorageResourcePackfile, 0, mac, rg)
 	require.NoError(t, err)
 	defer func() { _ = rd.Close() }()
 	got, err := io.ReadAll(rd)
@@ -353,15 +363,15 @@ func TestStoragePutGetRange(t *testing.T) {
 func TestStorageList(t *testing.T) {
 	r := newRclone(t)
 
-	mac1 := objects.RandomMAC()
-	mac2 := objects.RandomMAC()
+	mac1 := integration.RandomMAC()
+	mac2 := integration.RandomMAC()
 
-	_, err := r.Put(t.Context(), storage.StorageResourceState, mac1, strings.NewReader("a"))
+	_, err := r.Put(t.Context(), integration.StorageResourceState, 0, mac1, strings.NewReader("a"))
 	require.NoError(t, err)
-	_, err = r.Put(t.Context(), storage.StorageResourceState, mac2, strings.NewReader("b"))
+	_, err = r.Put(t.Context(), integration.StorageResourceState, 0, mac2, strings.NewReader("b"))
 	require.NoError(t, err)
 
-	macs, err := r.List(t.Context(), storage.StorageResourceState)
+	macs, err := listMACs(t.Context(), r, integration.StorageResourceState)
 	require.NoError(t, err)
 	assert.Len(t, macs, 2)
 	assert.Contains(t, macs, mac1)
@@ -370,34 +380,34 @@ func TestStorageList(t *testing.T) {
 
 func TestStorageDelete(t *testing.T) {
 	r := newRclone(t)
-	mac := objects.RandomMAC()
+	mac := integration.RandomMAC()
 
-	_, err := r.Put(t.Context(), storage.StorageResourcePackfile, mac, strings.NewReader("data"))
+	_, err := r.Put(t.Context(), integration.StorageResourcePackfile, 0, mac, strings.NewReader("data"))
 	require.NoError(t, err)
 
-	require.NoError(t, r.Delete(t.Context(), storage.StorageResourcePackfile, mac))
+	require.NoError(t, r.Delete(t.Context(), integration.StorageResourcePackfile, 0, mac))
 
-	macs, err := r.List(t.Context(), storage.StorageResourcePackfile)
+	macs, err := listMACs(t.Context(), r, integration.StorageResourcePackfile)
 	require.NoError(t, err)
 	assert.Empty(t, macs)
 }
 
 func TestStorageUnsupportedResource(t *testing.T) {
 	r := newRclone(t)
-	mac := objects.RandomMAC()
+	mac := integration.RandomMAC()
 
-	const badRes storage.StorageResource = 99
+	const badRes integration.StorageResource = 99
 
-	_, err := r.List(t.Context(), badRes)
+	_, err := listMACs(t.Context(), r, badRes)
 	require.Error(t, err)
 
-	_, err = r.Put(t.Context(), badRes, mac, strings.NewReader("x"))
+	_, err = r.Put(t.Context(), badRes, 0, mac, strings.NewReader("x"))
 	require.Error(t, err)
 
-	_, err = r.Get(t.Context(), badRes, mac, nil)
+	_, err = r.Get(t.Context(), badRes, 0, mac, nil)
 	require.Error(t, err)
 
-	err = r.Delete(t.Context(), badRes, mac)
+	err = r.Delete(t.Context(), badRes, 0, mac)
 	require.Error(t, err)
 }
 
@@ -405,7 +415,7 @@ func TestStorageMode(t *testing.T) {
 	r := newRclone(t)
 	mode, err := r.Mode(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, storage.ModeRead|storage.ModeWrite, mode)
+	assert.Equal(t, integration.ModeRead|integration.ModeWrite, mode)
 }
 
 func TestStorageSize(t *testing.T) {
@@ -423,7 +433,7 @@ func TestNewDetachesConstructorContext(t *testing.T) {
 		"location":    "rclone://x",
 		"rclone_type": "ctxprobe",
 	}
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "localhost",
 		OperatingSystem: "test",
 		Architecture:    "amd64",
