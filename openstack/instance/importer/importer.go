@@ -151,7 +151,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Rec
 			return nil, err
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 // readRootDisk reads image as a temporary Cinder volume attached to the
