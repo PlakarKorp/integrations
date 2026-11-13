@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/mysql/importer"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 type Exporter struct {
@@ -63,7 +63,7 @@ func (e *Exporter) Close(_ context.Context) error {
 	return nil
 }
 
-func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (e *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 	if err := e.conn.CheckFlavor(ctx, e.expectedFlavor); err != nil {
 		return err
@@ -81,7 +81,7 @@ func (e *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 	}
 }
 
-func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *connectors.Result {
+func (e *Exporter) restore(ctx context.Context, record *integration.Record) *integration.Result {
 	if record.FileInfo.Lmode.IsDir() {
 		return record.Ok()
 	}
@@ -100,7 +100,7 @@ func (e *Exporter) restore(ctx context.Context, record *connectors.Record) *conn
 	return record.Ok()
 }
 
-func (e *Exporter) restoreSQL(ctx context.Context, record *connectors.Record) error {
+func (e *Exporter) restoreSQL(ctx context.Context, record *integration.Record) error {
 	targetDB := e.database
 	if targetDB == "" && path.Base(record.Pathname) != path.Base(importer.AllDatabasesDumpFile) {
 		// Infer from filename: "mydb.sql" → "mydb".

@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func runEmit(t *testing.T, database string) (Manifest, *queryRecorder) {
 		Database: database,
 	}
 
-	records := make(chan *connectors.Record, 1)
+	records := make(chan *integration.Record, 1)
 	err := Emit(t.Context(), cfg, records)
 	require.NoError(t, err)
 
