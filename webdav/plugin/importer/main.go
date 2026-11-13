@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	"github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/webdav"
 )
 
 func main() {
-	sdk.EntrypointImporter(os.Args, webdav.NewImporter)
+	server.EntrypointImporter(webdav.NewImporter, os.Args)
 }
