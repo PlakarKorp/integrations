@@ -30,12 +30,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 const defaultMongoDBPort = 27017
@@ -46,7 +43,7 @@ type mongodbImporter struct {
 	port             string
 	username         string
 	password         string
-	options          *connectors.Options
+	options          *integration.Options
 	use_tls          bool
 	tls_ca_cert      string
 	ca_cert_file     *os.File
@@ -56,7 +53,7 @@ type mongodbImporter struct {
 }
 
 func init() {
-	_ = importer.Register("mongodb", 0, NewImporter)
+	_ = integration.RegisterImporter("mongodb", 0, NewImporter)
 }
 
 func (i *mongodbImporter) Root() string {
@@ -67,7 +64,7 @@ func (i *mongodbImporter) Origin() string        { return i.url.Host }
 func (i *mongodbImporter) Type() string          { return "mongodb" }
 func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	location := params["location"]
 
 	parsed, err := url.Parse(location)
@@ -259,7 +256,7 @@ type commandResult struct {
 	exit   bool
 }
 
-func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	var args []string
@@ -288,22 +285,22 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	if len(i.password) > 0 {
 		f, err = os.CreateTemp("", "plakar-mongodb")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer cleanupTempFile(f)
 
 		/* Prevent current umask value from leaking secrets. */
 		err = f.Chmod(0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		escaped, err := json.Marshal(i.password)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, err = fmt.Fprintf(f, "password: %s\n", escaped); err != nil {
-			return err
+			return nil, err
 		}
 		args = append(args, "--config")
 		args = append(args, f.Name())
@@ -321,12 +318,12 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	read_stderr := func(c chan (commandResult)) {
@@ -349,7 +346,7 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	}
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 
 	c := make(chan commandResult, 1)
@@ -357,7 +354,7 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	// reap process
 	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
-	fi := objects.FileInfo{
+	fi := integration.FileInfo{
 		Lname:      backupFilename,
 		Lmode:      0644,
 		Lsize:      -1,
@@ -370,7 +367,7 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		Lusername:  "",
 		Lgroupname: "",
 	}
-	records <- connectors.NewRecord("/", "", fi, nil,
+	records <- integration.NewRecord("/", "", fi, nil,
 		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
 
 	go func() {
@@ -395,7 +392,7 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		err = fmt.Errorf("%w: %s", err, res.stderr)
 	}
 
-	return err
+	return nil, err
 }
 
 func (i *mongodbImporter) Close(ctx context.Context) error {
@@ -406,5 +403,5 @@ func (i *mongodbImporter) Close(ctx context.Context) error {
 }
 
 func main() {
-	sdk.EntrypointImporter(os.Args, NewImporter)
+	server.EntrypointImporter(NewImporter, os.Args)
 }
