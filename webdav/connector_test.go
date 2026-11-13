@@ -16,9 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/emersion/go-webdav"
 	"github.com/stretchr/testify/require"
 )
@@ -73,7 +72,7 @@ func newwebdav(ctx context.Context, client webdav.HTTPClient, proto, insecure, l
 		params["insecure"] = insecure
 	}
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "localhost",
 		OperatingSystem: runtime.GOOS,
 		Architecture:    runtime.GOARCH,
@@ -181,9 +180,9 @@ func TestImport(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	var (
-		records = make(chan *connectors.Record)
+		records = make(chan *integration.Record)
 		ok      = make(chan struct{})
-		seen    = make(map[string]*connectors.Record)
+		seen    = make(map[string]*integration.Record)
 	)
 
 	go func() {
@@ -199,7 +198,7 @@ func TestImport(t *testing.T) {
 		close(ok)
 	}()
 
-	err = webdav.Import(t.Context(), records, nil)
+	_, err = webdav.Import(t.Context(), records, nil)
 	<-ok
 	require.NoError(t, err)
 
@@ -260,8 +259,8 @@ func TestImportFailingServer(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	// on purpose, because it shall fail immediately
-	records := make(chan *connectors.Record)
-	err = webdav.Import(t.Context(), records, nil)
+	records := make(chan *integration.Record)
+	_, err = webdav.Import(t.Context(), records, nil)
 	require.Error(t, err, "importer shall fail")
 }
 
@@ -277,8 +276,8 @@ func TestExport(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	var (
-		records = make(chan *connectors.Record)
-		results = make(chan *connectors.Result)
+		records = make(chan *integration.Record)
+		results = make(chan *integration.Result)
 		ok      = make(chan struct{})
 		seen    = make(map[string]struct{})
 	)
@@ -299,10 +298,10 @@ func TestExport(t *testing.T) {
 				mode = fs.ModeDir
 			}
 
-			records <- &connectors.Record{
+			records <- &integration.Record{
 				Reader:   rd,
 				Pathname: item.name,
-				FileInfo: objects.FileInfo{
+				FileInfo: integration.FileInfo{
 					Lname:    path.Base(item.name),
 					Lsize:    size,
 					Lmode:    mode,
@@ -325,7 +324,7 @@ func TestExport(t *testing.T) {
 		close(ok)
 	}()
 
-	err = webdav.Export(t.Context(), records, results)
+	err = webdav.Export(t.Context(), nil, records, results)
 	<-ok
 	require.NoError(t, err)
 
