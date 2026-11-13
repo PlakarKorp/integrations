@@ -27,6 +27,47 @@ func TestParseConfigKeepsSecretsAsGiven(t *testing.T) {
 	assert.Equal(t, " s3cret ", cfg.auth.ApplicationCredentialSecret)
 }
 
+// openstack_transfer is one of three values, exactly as the schemas' enum
+// spells them; unset is auto.
+func TestParseConfigTransfer(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		unset bool
+		want  Transfer
+	}{
+		{name: "unset", unset: true, want: TransferAuto},
+		{name: "empty", want: TransferAuto},
+		{name: "auto", value: "auto", want: TransferAuto},
+		{name: "attach", value: "attach", want: TransferAttach},
+		{name: "glance", value: "glance", want: TransferGlance},
+		{name: "upper case", value: "Attach"},
+		{name: "padded", value: " attach "},
+		{name: "unknown", value: "swift"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]string{
+				"openstack_auth_url":                      "http://keystone/v3/",
+				"openstack_application_credential_id":     "id",
+				"openstack_application_credential_secret": "secret",
+				"openstack_region":                        "RegionOne",
+			}
+			if !tt.unset {
+				params["openstack_transfer"] = tt.value
+			}
+			cfg, err := ParseConnectorConfig(params)
+			if tt.want == "" {
+				require.ErrorIs(t, err, ErrBadTransfer)
+				assert.ErrorContains(t, err, tt.value)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Transfer)
+		})
+	}
+}
+
 func TestParseConnectorConfigNeedsOneRegion(t *testing.T) {
 	tests := []struct {
 		name   string

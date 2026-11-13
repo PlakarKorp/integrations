@@ -41,6 +41,36 @@ func (c *Client) PreflightHost(ctx context.Context) (*servers.Server, error) {
 	return attach.Preflight(ctx, c, c.Scope().ProjectID)
 }
 
+// ResolvedTransfer is the openstack_transfer option resolved against the
+// host: Host is the Nova server to attach disks to, set under attach, and
+// under auto when the preflight passed; nil means Glance. Transfer decides
+// what an attach the cloud then refuses means: Glance under auto, the job's
+// failure under attach.
+type ResolvedTransfer struct {
+	Transfer Transfer
+	Host     *servers.Server
+}
+
+// ResolveTransfer resolves the option once, before any snapshot is taken:
+// glance skips the preflight, attach fails on it, auto logs and goes through
+// Glance.
+func (c *Client) ResolveTransfer(ctx context.Context, transfer Transfer) (ResolvedTransfer, error) {
+	resolved := ResolvedTransfer{Transfer: transfer}
+	if transfer == TransferGlance {
+		return resolved, nil
+	}
+	host, err := c.PreflightHost(ctx)
+	switch {
+	case err == nil:
+		resolved.Host = host
+	case transfer == TransferAttach:
+		return resolved, fmt.Errorf("openstack_transfer=attach: %w", err)
+	default:
+		log.Printf("openstack: %v; going through Glance", err)
+	}
+	return resolved, nil
+}
+
 // TempVolumeOpts describes a temporary root volume in the server's
 // availability zone, sized from the saved flavor.
 func TempVolumeOpts(server *servers.Server, metadata *ServerMetadata) volumes.CreateOpts {
@@ -54,16 +84,24 @@ func TempVolumeOpts(server *servers.Server, metadata *ServerMetadata) volumes.Cr
 	return opts
 }
 
-// ReadCinderDisk reads an already prepared snapshot clone through host when
-// one was found, falling back to uploading the clone to Glance.
-func (c *Client) ReadCinderDisk(ctx context.Context, host *servers.Server, vol *volumes.Volume, snap *snapshots.Snapshot, tmp *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
+// ReadCinderDisk reads an already prepared snapshot clone through the
+// resolved host when there is one, else by uploading the clone to Glance. An
+// attach the cloud refuses goes through Glance under auto, and fails under
+// attach: the clone is in cleanup either way.
+func (c *Client) ReadCinderDisk(ctx context.Context, resolved ResolvedTransfer, vol *volumes.Volume, snap *snapshots.Snapshot, tmp *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
 	metadata := CinderDiskMetadata(vol, snap)
-	if host != nil {
-		disk, err := c.NewCinderDisk(ctx, host, tmp, metadata, cleanup)
-		if err == nil {
+
+	// if there is a Host, we can read the disk over block device
+	if resolved.Host != nil {
+		disk, err := c.NewCinderDisk(ctx, resolved.Host, tmp, metadata, cleanup)
+		switch {
+		case err == nil:
 			return disk, nil
+		case resolved.Transfer == TransferAttach:
+			return nil, fmt.Errorf("openstack_transfer=attach: volume %q: %w", vol.ID, err)
+		default:
+			log.Printf("openstack: volume %q: %v; reading it through Glance", vol.ID, err)
 		}
-		log.Printf("openstack: volume %q: %v; reading it through Glance", vol.ID, err)
 	}
 	img, err := c.UploadVolumeImage(ctx, tmp, cleanup)
 	if err != nil {

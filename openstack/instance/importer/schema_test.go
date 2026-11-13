@@ -38,6 +38,9 @@ func TestImporterSchemaAccepts(t *testing.T) {
 		drop []string
 	}{
 		{name: "server"},
+		{name: "transfer auto", edit: map[string]string{"openstack_transfer": "auto"}},
+		{name: "transfer attach", edit: map[string]string{"openstack_transfer": "attach"}},
+		{name: "transfer glance", edit: map[string]string{"openstack_transfer": "glance"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -66,6 +69,8 @@ func TestImporterSchemaRejects(t *testing.T) {
 		{name: "no region", drop: []string{"openstack_region"}},
 		{name: "blank region", edit: map[string]string{"openstack_region": " "}},
 		{name: "two regions", edit: map[string]string{"openstack_region": "RegionOne,RegionTwo"}},
+		{name: "unknown transfer", edit: map[string]string{"openstack_transfer": "swift"}},
+		{name: "upper-case transfer", edit: map[string]string{"openstack_transfer": "Attach"}},
 		{name: "empty credential secret", edit: map[string]string{"openstack_application_credential_secret": ""}},
 		{
 			name: "password with an empty project id",

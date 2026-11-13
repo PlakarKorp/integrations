@@ -19,15 +19,12 @@ package importer
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -40,6 +37,9 @@ var ImporterSchema []byte
 type Importer struct {
 	client   *common.Client
 	volumeID string
+	// transfer is the openstack_transfer option: how the volume's bytes
+	// reach plakar.
+	transfer common.Transfer
 	// cleanup holds the snapshot, temporary volume and its attachment or
 	// image a backup creates. Closing the disk reader runs it; Close runs
 	// whatever is left, for when the reader was never opened.
@@ -65,7 +65,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
-	return &Importer{client: clients[0], volumeID: volumeID}, nil
+	return &Importer{client: clients[0], volumeID: volumeID, transfer: cfg.Transfer}, nil
 }
 
 func (imp *Importer) Origin() string { return imp.volumeID }
@@ -90,16 +90,15 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		return err
 	}
 
-	host, err := imp.client.PreflightHost(ctx)
+	// Resolve the transfer before the snapshot: one that cannot be taken
+	// fails the backup with nothing to clean up.
+	resolved, err := imp.client.ResolveTransfer(ctx, imp.transfer)
 	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
-		}
-		host = nil
+		return err
 	}
 
-	// Snapshot and clone the volume before choosing whether to attach the
-	// clone or send it through Glance. The resources go into imp.cleanup.
+	// Snapshot and clone the volume, then attach the clone or send it
+	// through Glance as resolved. The resources go into imp.cleanup.
 	snap, err := imp.client.SnapshotVolume(ctx, vol.ID, &imp.cleanup)
 	if err != nil {
 		return err
@@ -108,7 +107,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	if err != nil {
 		return err
 	}
-	disk, err := imp.client.ReadCinderDisk(ctx, host, vol, snap, tmp, &imp.cleanup)
+	disk, err := imp.client.ReadCinderDisk(ctx, resolved, vol, snap, tmp, &imp.cleanup)
 	if err != nil {
 		return err
 	}
