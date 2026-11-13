@@ -9,13 +9,12 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	_ = exporter.Register("azblob", 0, NewExporter)
+	_ = integration.RegisterExporter("azblob", 0, NewExporter)
 }
 
 type azblobExporter struct {
@@ -33,7 +32,7 @@ type azblobExporter struct {
 	client *azblob.Client
 }
 
-func NewExporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, _ *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -157,7 +156,7 @@ func (g *azblobExporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (g *azblobExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (g *azblobExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {

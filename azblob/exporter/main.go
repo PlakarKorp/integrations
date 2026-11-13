@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	azblob "github.com/PlakarKorp/integrations/azblob"
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, azblob.NewExporter)
+	server.EntrypointExporter(azblob.NewExporter, os.Args)
 }
