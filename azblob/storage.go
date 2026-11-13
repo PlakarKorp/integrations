@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"path"
 	"strconv"
 	"strings"
@@ -14,13 +15,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	_ = storage.Register("azblob", 0, NewStore)
+	_ = integration.RegisterStore("azblob", 0, NewStore)
 }
 
 type azblobStore struct {
@@ -88,7 +88,7 @@ func parse(params map[string]string, proto string) (container, prefix, endpoint,
 	return
 }
 
-func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, params map[string]string) (integration.Store, error) {
 	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -261,26 +261,41 @@ func (g *azblobStore) Type() string          { return "azblob" }
 func (g *azblobStore) Root() string          { return g.path }
 func (g *azblobStore) Flags() location.Flags { return 0 }
 
-func (g *azblobStore) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (g *azblobStore) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (g *azblobStore) Size(ctx context.Context) (int64, error) { return -1, nil }
 
-func res2prefix(res storage.StorageResource) (string, error) {
+func res2prefix(res integration.StorageResource) (string, error) {
 	switch res {
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "states", nil
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfiles", nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "locks", nil
 	default:
 		return "", fmt.Errorf("%w on %s", errors.ErrUnsupported, res)
 	}
 }
 
-func (g *azblobStore) List(ctx context.Context, res storage.StorageResource) (ret []objects.MAC, err error) {
+func (g *azblobStore) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		macs, err := g.list(ctx, res)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for _, mac := range macs {
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (g *azblobStore) list(ctx context.Context, res integration.StorageResource) (ret []integration.MAC, err error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return nil, err
@@ -315,14 +330,14 @@ func (g *azblobStore) List(ctx context.Context, res storage.StorageResource) (re
 			if len(t) != 32 {
 				return nil, fmt.Errorf("invalid %s name: %s", prefix, name)
 			}
-			ret = append(ret, objects.MAC(t))
+			ret = append(ret, integration.MAC(t))
 		}
 	}
 
 	return ret, nil
 }
 
-func (g *azblobStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (g *azblobStore) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return -1, err
@@ -341,7 +356,7 @@ func (g *azblobStore) Put(ctx context.Context, res storage.StorageResource, mac 
 	return cr.n, nil
 }
 
-func (g *azblobStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, r *storage.Range) (io.ReadCloser, error) {
+func (g *azblobStore) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, r *integration.Range) (io.ReadCloser, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return nil, err
@@ -366,7 +381,7 @@ func (g *azblobStore) Get(ctx context.Context, res storage.StorageResource, mac 
 	return resp.Body, nil
 }
 
-func (g *azblobStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (g *azblobStore) Delete(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return err
