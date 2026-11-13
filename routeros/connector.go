@@ -14,11 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -49,20 +46,20 @@ type Routeros struct {
 }
 
 func init() {
-	_ = importer.Register("routeros+export", 0, NewImporter)
-	_ = importer.Register("routeros+backup", 0, NewImporter)
-	_ = exporter.Register("routeros", 0, NewExporter)
+	_ = integration.RegisterImporter("routeros+export", 0, NewImporter)
+	_ = integration.RegisterImporter("routeros+backup", 0, NewImporter)
+	_ = integration.RegisterExporter("routeros", 0, NewExporter)
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	return New(ctx, opts, proto, config, true)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	return New(ctx, opts, proto, config, false)
 }
 
-func New(ctx context.Context, opts *connectors.Options, proto string, config map[string]string, importerp bool) (*Routeros, error) {
+func New(ctx context.Context, opts *integration.Options, proto string, config map[string]string, importerp bool) (*Routeros, error) {
 	loc, err := url.Parse(config["location"])
 	if err != nil {
 		var uerr *url.Error
@@ -236,7 +233,7 @@ func (m *Routeros) waitStable(sftpClient *sftp.Client, filename string, timeout 
 	return fmt.Errorf("timed out waiting for %q to stabilize", filename)
 }
 
-func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (m *Routeros) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	now := time.Now()
@@ -251,16 +248,16 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 		filename += ".backup"
 		cmd = "/system backup save name=" + filename
 	default:
-		return fmt.Errorf("unknown mode %q", m.mode)
+		return nil, fmt.Errorf("unknown mode %q", m.mode)
 	}
 
 	if err := m.exec(cmd); err != nil {
-		return fmt.Errorf("exec %q: %w", cmd, err)
+		return nil, fmt.Errorf("exec %q: %w", cmd, err)
 	}
 
 	sftpClient, err := sftp.NewClient(m.client)
 	if err != nil {
-		return fmt.Errorf("sftp client: %w", err)
+		return nil, fmt.Errorf("sftp client: %w", err)
 	}
 	defer func() { _ = sftpClient.Close() }()
 
@@ -268,24 +265,24 @@ func (m *Routeros) Import(ctx context.Context, records chan<- *connectors.Record
 
 	if m.mode == ModeBackup {
 		if err := m.waitStable(sftpClient, filename, 10*time.Second); err != nil {
-			return fmt.Errorf("wait for backup file: %w", err)
+			return nil, fmt.Errorf("wait for backup file: %w", err)
 		}
 	}
 
 	f, err := sftpClient.Open(filename)
 	if err != nil {
-		return fmt.Errorf("failed to open %s file %s: %w", m.mode, filename, err)
+		return nil, fmt.Errorf("failed to open %s file %s: %w", m.mode, filename, err)
 	}
 	defer func() { _ = f.Close() }() // safe to double-close
 
-	records <- connectors.NewRecord("/"+filename, "", objects.FileInfo{
+	records <- integration.NewRecord("/"+filename, "", integration.FileInfo{
 		Lname:    filename,
 		Lsize:    -1,
 		Lmode:    0644,
 		LmodTime: now,
 	}, nil, func() (io.ReadCloser, error) { return f, nil })
 
-	return (<-results).Err
+	return nil, (<-results).Err
 }
 
 func (m *Routeros) restoreRsc(src io.Reader) error {
@@ -324,7 +321,7 @@ func (m *Routeros) restoreRsc(src io.Reader) error {
 	return nil
 }
 
-func (m *Routeros) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (m *Routeros) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	if err := m.connect(); err != nil {
