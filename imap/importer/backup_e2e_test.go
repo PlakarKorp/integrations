@@ -1,5 +1,6 @@
-// Reproduces a real plakar backup driven by the IMAP importer against a live
-// server (Dovecot in Docker). Skipped unless IMAP_E2E_ADDR is set:
+// Drives the IMAP importer the way a backup engine does — run Import, consume
+// the records concurrently and read every message body — against a live server
+// (Dovecot in Docker). Skipped unless IMAP_E2E_ADDR is set:
 //
 //	IMAP_E2E_ADDR=localhost:11143 go test ./importer/ -run TestBackup -v
 package importer_test
@@ -10,29 +11,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	imapimporter "github.com/PlakarKorp/integrations/imap/importer"
-
-	"github.com/PlakarKorp/kloset/caching"
-	"github.com/PlakarKorp/kloset/caching/pebble"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/hashing"
-	"github.com/PlakarKorp/kloset/kcontext"
-	"github.com/PlakarKorp/kloset/logging"
-	"github.com/PlakarKorp/kloset/repository"
-	"github.com/PlakarKorp/kloset/resources"
-	"github.com/PlakarKorp/kloset/snapshot"
-	"github.com/PlakarKorp/kloset/versioning"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/stretchr/testify/require"
-
-	_ "github.com/PlakarKorp/kloset/testing" // registers the mock:// fs store
 )
 
 func addr(t *testing.T) string {
@@ -131,115 +121,133 @@ func seedLarge(t *testing.T, a, user string, n, bodyBytes int) {
 	}
 }
 
-func newFsRepo(t *testing.T) *repository.Repository {
+// importRun is what a backup engine would have seen from one Import run.
+type importRun struct {
+	err      error                 // Import's own return value
+	recErrs  []*integration.Record // error records emitted by Import
+	files    []string              // pathnames of the regular-file records, in arrival order
+	bodies   map[string][]byte     // pathname -> body, for bodies read successfully
+	readErrs map[string]error      // pathname -> error returned while reading the body
+}
+
+// runImport runs imp.Import and consumes its records with `readers` concurrent
+// workers, reading every message body in full as a backup engine would. It
+// fails the test with a goroutine dump if the run (Import plus all body reads)
+// does not finish within timeout.
+func runImport(t *testing.T, imp integration.Importer, readers int, timeout time.Duration) *importRun {
 	t.Helper()
-	ctx := kcontext.NewKContext()
-	ctx.Client = "imap-backup-test/1.0.0"
-	ctx.MaxConcurrency = 8
-	ctx.SetLogger(logging.NewLogger(os.Stdout, os.Stderr))
+	ctx := context.Background()
+	records := make(chan *integration.Record, 64)
+	results := make(chan *integration.Result) // never fed: the importer ignores results
+	run := &importRun{bodies: map[string][]byte{}, readErrs: map[string]error{}}
 
-	cacheDir, err := os.MkdirTemp("", "imapbk_cache")
-	require.NoError(t, err)
-	repoDir, err := os.MkdirTemp("", "imapbk_repo")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(cacheDir); _ = os.RemoveAll(repoDir) })
-	ctx.SetCache(caching.NewManager(pebble.Constructor(cacheDir)))
-	ctx.CacheDir = cacheDir
+	importErr := make(chan error, 1)
+	go func() {
+		_, err := imp.Import(ctx, records, results)
+		importErr <- err
+	}()
 
-	st, err := storage.New(ctx, map[string]string{"location": "mock://" + repoDir})
-	require.NoError(t, err)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for rec := range records {
+				if rec.Err != nil {
+					mu.Lock()
+					run.recErrs = append(run.recErrs, rec)
+					mu.Unlock()
+					continue
+				}
+				if rec.FileInfo.Lmode.IsDir() {
+					continue
+				}
+				body, err := io.ReadAll(rec.Reader)
+				_ = rec.Reader.Close()
+				mu.Lock()
+				run.files = append(run.files, rec.Pathname)
+				if err != nil {
+					run.readErrs[rec.Pathname] = err
+				} else {
+					run.bodies[rec.Pathname] = body
+				}
+				mu.Unlock()
+			}
+		}()
+	}
 
-	config := storage.NewConfiguration()
-	config.Compression = nil
-	config.Encryption = nil
-	hasher := hashing.GetHasher(hashing.DEFAULT_HASHING_ALGORITHM)
-	serialized, _ := config.ToBytes()
-	wrappedRd, err := storage.Serialize(hasher, resources.RT_CONFIG, versioning.GetCurrentVersion(resources.RT_CONFIG), bytes.NewReader(serialized))
-	require.NoError(t, err)
-	wrapped, _ := io.ReadAll(wrappedRd)
-	require.NoError(t, st.Create(ctx, wrapped))
-	serializedConfig, err := st.Open(ctx)
-	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		run.err = <-importErr
+		close(done)
+	}()
 
-	repo, err := repository.NewRepository(ctx, nil, st, serializedConfig, &repository.RepositoryOpts{DoRebuild: true, RWStateCache: true})
+	select {
+	case <-done:
+		close(results)
+		return run
+	case <-time.After(timeout):
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		t.Fatalf("import hung (did not finish in %s)\n--- goroutines ---\n%s", timeout, buf[:n])
+		return nil
+	}
+}
+
+// requireCleanRun asserts that Import succeeded, emitted no error record and
+// that every message body could be read.
+func requireCleanRun(t *testing.T, run *importRun) {
+	t.Helper()
+	require.NoError(t, run.err)
+	for _, r := range run.recErrs {
+		t.Errorf("import error record at %q: %v", r.Pathname, r.Err)
+	}
+	require.Empty(t, run.recErrs)
+	require.Empty(t, run.readErrs, "message bodies failed to read")
+}
+
+// requireDistinctPaths asserts that no two file records land on the same
+// (cleaned) snapshot path, which would collapse messages into one file.
+func requireDistinctPaths(t *testing.T, files []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, f := range files {
+		require.Equal(t, path.Clean(f), f, "record path %q is not clean", f)
+		require.False(t, seen[f], "two messages map to the same path %q", f)
+		seen[f] = true
+	}
+}
+
+func newImporter(t *testing.T, config map[string]string) integration.Importer {
+	t.Helper()
+	imp, err := imapimporter.NewImporter(context.Background(), &integration.Options{}, "imap", config)
 	require.NoError(t, err)
-	return repo
+	t.Cleanup(func() { _ = imp.Close(context.Background()) })
+	return imp
 }
 
 func TestBackupTrickyMailbox(t *testing.T) {
 	a := addr(t)
 	want := seedTricky(t, a, "srcuser")
 
-	repo := newFsRepo(t)
-
-	imp, err := imapimporter.NewImporter(repo.AppContext(), &connectors.Options{}, "imap", map[string]string{
+	imp := newImporter(t, map[string]string{
 		"location": "imap://" + a,
 		"username": "srcuser",
 		"password": "secret",
 		"tls":      "no-tls",
 	})
-	require.NoError(t, err)
-	defer func() { _ = imp.Close(context.Background()) }()
 
-	src, err := snapshot.NewSource(repo.AppContext(), imp)
-	require.NoError(t, err)
+	run := runImport(t, imp, 8, 30*time.Second)
+	requireCleanRun(t, run)
 
-	builder, err := snapshot.Create(repo, repository.DefaultType, "", [32]byte{}, &snapshot.BuilderOptions{})
-	require.NoError(t, err)
-
-	// Run the backup in a goroutine so the test can detect a hang instead of
-	// blocking until the test timeout.
-	done := make(chan error, 1)
-	go func() {
-		if err := builder.Backup(src); err != nil {
-			done <- err
-			return
-		}
-		done <- builder.Commit()
-	}()
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(30 * time.Second):
-		buf := make([]byte, 1<<20)
-		n := runtime.Stack(buf, true)
-		t.Fatalf("backup hung (did not finish in 30s)\n--- goroutines ---\n%s", buf[:n])
+	t.Logf("seeded %d messages, import produced %d files", want, len(run.files))
+	require.Len(t, run.files, want, "file record count does not match seeded message count")
+	requireDistinctPaths(t, run.files)
+	for p, body := range run.bodies {
+		require.Contains(t, string(body), "Subject:", "body of %q is not the RFC822 message", p)
 	}
-	require.NoError(t, builder.Close())
-	require.NoError(t, builder.Repository().RebuildState())
-
-	snap, err := snapshot.Load(repo, builder.Header.Identifier)
-	require.NoError(t, err)
-	defer func() { _ = snap.Close() }()
-
-	// Count regular files in the snapshot filesystem.
-	fs, err := snap.Filesystem()
-	require.NoError(t, err)
-	got := 0
-	for pathname, err := range fs.Pathnames() {
-		require.NoError(t, err)
-		if e, err := fs.GetEntry(pathname); err == nil && !e.Stat().Mode().IsDir() {
-			got++
-		}
-	}
-	t.Logf("seeded %d messages, snapshot has %d files", want, got)
-	require.Equal(t, want, got, "snapshot file count does not match seeded message count")
-}
-
-// snapshotFiles returns the non-directory pathnames in a snapshot.
-func snapshotFiles(t *testing.T, snap *snapshot.Snapshot) []string {
-	t.Helper()
-	fs, err := snap.Filesystem()
-	require.NoError(t, err)
-	var files []string
-	for pathname, err := range fs.Pathnames() {
-		require.NoError(t, err)
-		if e, err := fs.GetEntry(pathname); err == nil && !e.Stat().Mode().IsDir() {
-			files = append(files, pathname)
-		}
-	}
-	return files
 }
 
 func TestBackupSubfolderScope(t *testing.T) {
@@ -277,31 +285,17 @@ func TestBackupSubfolderScope(t *testing.T) {
 	put("Archive.2024", "archive-nested")
 	_ = c.Logout().Wait()
 
-	repo := newFsRepo(t)
-	imp, err := imapimporter.NewImporter(repo.AppContext(), &connectors.Options{}, "imap", map[string]string{
+	imp := newImporter(t, map[string]string{
 		"location": "imap://" + a + "/Archive", // scope to the Archive subtree
 		"username": "srcuser",
 		"password": "secret",
 		"tls":      "no-tls",
 	})
-	require.NoError(t, err)
-	defer func() { _ = imp.Close(context.Background()) }()
 
-	src, err := snapshot.NewSource(repo.AppContext(), imp)
-	require.NoError(t, err)
-	builder, err := snapshot.Create(repo, repository.DefaultType, "", [32]byte{}, &snapshot.BuilderOptions{})
-	require.NoError(t, err)
-	require.NoError(t, builder.Backup(src))
-	require.NoError(t, builder.Commit())
-	require.NoError(t, builder.Close())
-	require.NoError(t, builder.Repository().RebuildState())
-
-	snap, err := snapshot.Load(repo, builder.Header.Identifier)
-	require.NoError(t, err)
-	defer func() { _ = snap.Close() }()
-
-	files := snapshotFiles(t, snap)
-	t.Logf("subfolder-scoped snapshot files: %v", files)
+	run := runImport(t, imp, 8, 30*time.Second)
+	requireCleanRun(t, run)
+	files := run.files
+	t.Logf("subfolder-scoped import files: %v", files)
 
 	require.Len(t, files, 2, "expected exactly the two Archive-subtree messages")
 	for _, f := range files {

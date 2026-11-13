@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/imap/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/emersion/go-imap/v2"
 	"golang.org/x/sync/errgroup"
 )
@@ -21,7 +20,7 @@ import (
 const defaultPoolSize = 5
 
 func init() {
-	_ = exporter.Register("imap", 0, NewExporter)
+	_ = integration.RegisterExporter("imap", 0, NewExporter)
 }
 
 type Exporter struct {
@@ -36,7 +35,7 @@ type Exporter struct {
 	created map[string]struct{} // mailboxes we have already ensured exist
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	exp := &Exporter{
 		poolSize: defaultPoolSize,
 		created:  make(map[string]struct{}),
@@ -91,7 +90,7 @@ func (exp *Exporter) delimiter(ctx context.Context) rune {
 	return exp.delim
 }
 
-func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (exp *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 
 	if err := exp.Ping(ctx); err != nil {
@@ -168,7 +167,7 @@ loop:
 	return ret
 }
 
-func (exp *Exporter) exportFile(ctx context.Context, record *connectors.Record) error {
+func (exp *Exporter) exportFile(ctx context.Context, record *integration.Record) error {
 	if record.FileInfo.Lmode&0o120000 != 0 { // os.ModeSymlink
 		return errors.ErrUnsupported
 	}

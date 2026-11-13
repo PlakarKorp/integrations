@@ -10,16 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/imap/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/emersion/go-imap/v2"
 )
 
 func init() {
-	_ = importer.Register("imap", 0, NewImporter)
+	_ = integration.RegisterImporter("imap", 0, NewImporter)
 }
 
 type Importer struct {
@@ -27,7 +25,7 @@ type Importer struct {
 	pool      *common.ConnectionPool
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	imp := &Importer{}
 	if err := imp.connector.InitFromConfig(config); err != nil {
 		return nil, err
@@ -51,12 +49,12 @@ func (imp *Importer) Ping(ctx context.Context) error {
 	return err
 }
 
-func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	session, err := imp.connector.Connect()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = session.Logout() }()
 
@@ -65,13 +63,13 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	// torn down in Close().
 	pool, err := common.NewPool(imp.connector, 5)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	imp.pool = pool
 
 	all, err := session.Client.List("", "*", nil).Collect()
 	if err != nil {
-		return fmt.Errorf("LIST failed: %w", err)
+		return nil, fmt.Errorf("LIST failed: %w", err)
 	}
 
 	// If the location URL carried a path, scope the backup to that mailbox and
@@ -79,11 +77,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	// the LIST results report); a message-less holder mailbox is fine.
 	mboxes, err := imp.scopeMailboxes(all)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// root dir
-	records <- connectors.NewRecord("/", "", objects.FileInfo{
+	records <- integration.NewRecord("/", "", integration.FileInfo{
 		Lname:    "/",
 		Lmode:    os.ModeDir | 0o700,
 		Lsize:    0,
@@ -100,7 +98,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			return
 		}
 		emitted[p] = struct{}{}
-		records <- connectors.NewRecord(p, "", objects.FileInfo{
+		records <- integration.NewRecord(p, "", integration.FileInfo{
 			Lname:    path.Base(p),
 			Lmode:    os.ModeDir | 0o700,
 			Lsize:    0,
@@ -130,11 +128,11 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		}
 		mboxPath := common.MailboxToPath(m.Mailbox, m.Delim)
 		if err := imp.importMailbox(ctx, session, pool, m.Mailbox, mboxPath, records); err != nil {
-			records <- connectors.NewError(mboxPath, err)
+			records <- integration.NewError(mboxPath, err)
 		}
 	}
 
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func hasAttr(attrs []imap.MailboxAttr, want imap.MailboxAttr) bool {
@@ -183,7 +181,7 @@ func (imp *Importer) scopeMailboxes(all []*imap.ListData) ([]*imap.ListData, err
 	return out, nil
 }
 
-func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSession, pool *common.ConnectionPool, mailbox, mboxPath string, records chan<- *connectors.Record) error {
+func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSession, pool *common.ConnectionPool, mailbox, mboxPath string, records chan<- *integration.Record) error {
 	sel, err := session.Client.Select(mailbox, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
 		return fmt.Errorf("SELECT %q failed: %w", mailbox, err)
@@ -238,7 +236,7 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 		lname := common.MessageFileName(uid, msg.Flags, subject)
 		p := path.Join(mboxPath, lname)
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:    lname,
 			Lmode:    0o600,
 			Lsize:    size,
@@ -256,7 +254,7 @@ func (imp *Importer) importMailbox(ctx context.Context, session *common.ImapSess
 			return io.NopCloser(bytes.NewReader(out)), nil
 		}
 
-		records <- connectors.NewRecord(p, "", fi, nil, reader)
+		records <- integration.NewRecord(p, "", fi, nil, reader)
 	}
 
 	return nil
