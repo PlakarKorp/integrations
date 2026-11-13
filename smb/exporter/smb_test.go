@@ -20,8 +20,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
 func TestSafe(t *testing.T) {
@@ -91,7 +90,7 @@ func TestSafe(t *testing.T) {
 func TestExportOne_RejectsPathEscapingRoot(t *testing.T) {
 	p := &Exporter{rootDir: "/repo"}
 
-	err := p.exportOne(&connectors.Record{Pathname: "/../../outside.txt"}, map[string]struct{}{})
+	err := p.exportOne(&integration.Record{Pathname: "/../../outside.txt"}, map[string]struct{}{})
 	if err == nil {
 		t.Fatal("expected exportOne to reject a pathname escaping the restore root")
 	}
@@ -104,21 +103,21 @@ func TestExportOne_RejectsBackslashEscape(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		record *connectors.Record
+		record *integration.Record
 	}{
 		{
 			"backslash dot-dot in pathname",
-			&connectors.Record{
+			&integration.Record{
 				Pathname: `/..\outside\marker`,
-				FileInfo: objects.FileInfo{Lmode: 0o644},
+				FileInfo: integration.FileInfo{Lmode: 0o644},
 			},
 		},
 		{
 			"backslash dot-dot in symlink target",
-			&connectors.Record{
+			&integration.Record{
 				Pathname: "/link",
 				Target:   `..\outside`,
-				FileInfo: objects.FileInfo{Lmode: os.ModeSymlink | 0o777},
+				FileInfo: integration.FileInfo{Lmode: os.ModeSymlink | 0o777},
 			},
 		},
 	}
@@ -139,21 +138,21 @@ func TestExportOne_RejectsNonDirectoryAtRoot(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		record *connectors.Record
+		record *integration.Record
 	}{
 		{
 			"file at root",
-			&connectors.Record{
+			&integration.Record{
 				Pathname: "/",
-				FileInfo: objects.FileInfo{Lmode: 0o644},
+				FileInfo: integration.FileInfo{Lmode: 0o644},
 			},
 		},
 		{
 			"symlink at root",
-			&connectors.Record{
+			&integration.Record{
 				Pathname: "/",
 				Target:   "/elsewhere",
-				FileInfo: objects.FileInfo{Lmode: os.ModeSymlink | 0o777},
+				FileInfo: integration.FileInfo{Lmode: os.ModeSymlink | 0o777},
 			},
 		},
 	}
