@@ -10,18 +10,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	_ = storage.Register("oci", 0, New)
+	_ = integration.RegisterStore("oci", 0, New)
 }
 
 type ociStore struct {
@@ -31,7 +31,7 @@ type ociStore struct {
 	allowCrossHostUploads bool
 }
 
-func New(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
+func New(ctx context.Context, name string, config map[string]string) (integration.Store, error) {
 	loc := strings.TrimPrefix(config["location"], "oci://")
 
 	insecure := false
@@ -123,8 +123,8 @@ func (s *ociStore) Location(ctx context.Context) (string, error) {
 	return strings.Replace(s.base, "http://", "oci://", 1), nil
 }
 
-func (s *ociStore) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *ociStore) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *ociStore) Flags() location.Flags {
@@ -151,31 +151,44 @@ func (s *ociStore) Close(ctx context.Context) error { return nil }
 
 func (s *ociStore) Ping(ctx context.Context) error { return nil }
 
-func (s *ociStore) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	var prefix string
+func (s *ociStore) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var prefix string
 
-	switch res {
-	case storage.StorageResourcePackfile:
-		prefix = "packfiles-"
-	case storage.StorageResourceState:
-		prefix = "state-"
-	case storage.StorageResourceLock:
-		prefix = "locks-"
-	default:
-		return nil, errors.ErrUnsupported
+		switch res {
+		case integration.StorageResourcePackfile:
+			prefix = "packfiles-"
+		case integration.StorageResourceState:
+			prefix = "state-"
+		case integration.StorageResourceLock:
+			prefix = "locks-"
+		default:
+			yield(nil, errors.ErrUnsupported)
+			return
+		}
+
+		macs, err := s.listByPrefix(ctx, prefix)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for _, mac := range macs {
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+				return
+			}
+		}
 	}
-	return s.listByPrefix(ctx, prefix)
 }
 
-func (s *ociStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *ociStore) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	var prefix string
 
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		prefix = "packfiles-"
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		prefix = "state-"
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		prefix = "locks-"
 	default:
 		return -1, errors.ErrUnsupported
@@ -183,15 +196,15 @@ func (s *ociStore) Put(ctx context.Context, res storage.StorageResource, mac obj
 	return s.putByTag(ctx, fmt.Sprintf("%s%x", prefix, mac), rd)
 }
 
-func (s *ociStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *ociStore) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	var prefix string
 
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		prefix = "packfiles-"
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		prefix = "state-"
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		prefix = "locks-"
 	default:
 		return nil, errors.ErrUnsupported
@@ -206,15 +219,15 @@ func (s *ociStore) Get(ctx context.Context, res storage.StorageResource, mac obj
 	return s.getByTag(ctx, fmt.Sprintf("%s%x", prefix, mac), h)
 }
 
-func (s *ociStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *ociStore) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	var prefix string
 
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		prefix = "packfiles-"
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		prefix = "state-"
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		prefix = "locks-"
 	default:
 		return errors.ErrUnsupported
@@ -321,7 +334,7 @@ type tagsList struct {
 	Tags []string `json:"tags"`
 }
 
-func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.MAC, error) {
+func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]integration.MAC, error) {
 	// /v2/<name>/tags/list is spec'd but pagination is registry-dependent.
 	// good enough to start but will need pagination support.
 	rc, resp, err := s.doRepoRC(ctx, "GET", "/tags/list", nil, nil)
@@ -335,7 +348,7 @@ func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.M
 		return nil, err
 	}
 
-	var out []objects.MAC
+	var out []integration.MAC
 	for _, t := range tl.Tags {
 		if after, ok := strings.CutPrefix(t, prefix); ok {
 			b, err := hex.DecodeString(after)
@@ -344,7 +357,7 @@ func (s *ociStore) listByPrefix(ctx context.Context, prefix string) ([]objects.M
 			}
 			var cksum [32]byte
 			copy(cksum[:], b[0:32])
-			out = append(out, objects.MAC(cksum))
+			out = append(out, integration.MAC(cksum))
 		}
 	}
 	return out, nil
