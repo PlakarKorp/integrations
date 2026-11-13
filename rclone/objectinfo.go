@@ -20,14 +20,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 	rclonefs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/hash"
 )
 
 // objectinfo implements rclonefs.ObjectInfo
 type objectinfo struct {
-	record *connectors.Record
+	record *integration.Record
 }
 
 type fakeinfo struct{}

@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/rclone"
 )
 
 func main() {
-	sdk.EntrypointStorage(os.Args, rclone.NewStorage)
+	server.EntrypointStorage(rclone.NewStorage, os.Args)
 }
