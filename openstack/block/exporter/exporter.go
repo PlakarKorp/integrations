@@ -25,12 +25,11 @@ import (
 	"log"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 )
 
@@ -48,7 +47,7 @@ type Exporter struct {
 
 // NewExporter restores into a new, detached volume: location is bare
 // (proto://) or proto://spawn, both selecting the same, only supported mode.
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	suffix, ok := strings.CutPrefix(params["location"], proto+"://")
 	switch {
 	case ok && (suffix == "" || suffix == common.SpawnLocation):
@@ -90,14 +89,14 @@ func (exp *Exporter) Ping(ctx context.Context) error {
 // order, so /.METADATA.json arrives before /<volume-id>.qcow2. The disk is
 // restored as it arrives (see restoreDisk); through Glance, the volume is
 // created from the image once the records are in.
-func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (exp *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	var metadata *common.DiskMetadata
 
 loop:
 	for {
-		var record *connectors.Record
+		var record *integration.Record
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -170,7 +169,7 @@ loop:
 // restored volume, done. Otherwise, a qcow2 disk included, it is uploaded to
 // a Glance image, exp.imageID, for the volume to be created from once the
 // records are in.
-func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) error {
+func (exp *Exporter) restoreDisk(ctx context.Context, record *integration.Record, volumeID string, metadata *common.DiskMetadata) error {
 	if metadata == nil {
 		return fmt.Errorf("%s before %s", record.Pathname, block.MetadataName)
 	}
@@ -222,7 +221,7 @@ func attachVolume(ctx context.Context, client *common.Client, metadata *common.D
 
 // writeDisk writes the disk's bytes to the attached volume and returns it,
 // restored. There is no falling back from here: a failure is the restore's.
-func writeDisk(ctx context.Context, w *common.VolumeWrite, record *connectors.Record, metadata *common.DiskMetadata) (*volumes.Volume, error) {
+func writeDisk(ctx context.Context, w *common.VolumeWrite, record *integration.Record, metadata *common.DiskMetadata) (*volumes.Volume, error) {
 	vol, err := w.Copy(ctx, record.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("write disk %q: %w", metadata.Volume.ID, err)
@@ -242,7 +241,7 @@ func (exp *Exporter) Close(ctx context.Context) error {
 
 // decodeMetadata requires the volume's ID and size: the volume is recreated
 // from them.
-func decodeMetadata(record *connectors.Record) (*common.DiskMetadata, error) {
+func decodeMetadata(record *integration.Record) (*common.DiskMetadata, error) {
 	m := new(common.DiskMetadata)
 	if err := json.NewDecoder(record.Reader).Decode(m); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", block.MetadataName, err)
@@ -261,7 +260,7 @@ func decodeMetadata(record *connectors.Record) (*common.DiskMetadata, error) {
 // uploadDisk uploads inline, so the record's answer reports the upload's
 // result. Only the image properties a restore needs, e.g.
 // cinder_encryption_key_id, are carried over; the rest are not.
-func uploadDisk(ctx context.Context, client *common.Client, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) (string, error) {
+func uploadDisk(ctx context.Context, client *common.Client, record *integration.Record, volumeID string, metadata *common.DiskMetadata) (string, error) {
 	image, err := client.UploadTempImage(ctx, common.RestorePrefix+volumeID, record.Reader, common.DiskFormat(metadata), common.RestoreImageProperties(metadata))
 	if err != nil {
 		return "", fmt.Errorf("upload disk %q: %w", volumeID, err)

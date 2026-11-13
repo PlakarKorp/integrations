@@ -12,9 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/PlakarKorp/go-inventory-sdk/inventory"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/pkg"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"github.com/gophercloud/gophercloud/v2/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/v2/openstack/db/v1/instances"
@@ -26,13 +25,13 @@ var Schema []byte
 
 // datastoreSubClasses maps lowercase Trove datastore types to subclasses;
 // any other datastore is ResourceSubClassUndefined, the map's zero value.
-var datastoreSubClasses = map[string]pkg.ResourceSubClass{
-	"mysql":      pkg.ResourceSubClassMySQL,
-	"mariadb":    pkg.ResourceSubClassMySQL,
-	"percona":    pkg.ResourceSubClassMySQL,
-	"postgresql": pkg.ResourceSubClassPostgreSQL,
-	"mongodb":    pkg.ResourceSubClassMongoDB,
-	"redis":      pkg.ResourceSubClassRedis,
+var datastoreSubClasses = map[string]integration.ResourceSubClass{
+	"mysql":      integration.ResourceSubClassMySQL,
+	"mariadb":    integration.ResourceSubClassMySQL,
+	"percona":    integration.ResourceSubClassMySQL,
+	"postgresql": integration.ResourceSubClassPostgreSQL,
+	"mongodb":    integration.ResourceSubClassMongoDB,
+	"redis":      integration.ResourceSubClassRedis,
 }
 
 // openstackAPI is what the inventory needs from an OpenStack cloud, scoped to
@@ -57,7 +56,7 @@ type osInventory struct {
 // NewInventory authenticates against Keystone and returns an inventory of the
 // token's project across every region in its catalog, or only the regions
 // listed in openstack_region.
-func NewInventory(ctx context.Context, params map[string]string) (inventory.Inventory, error) {
+func NewInventory(ctx context.Context, params map[string]string) (integration.Inventory, error) {
 	cfg, err := common.ParseConfig(params)
 	if err != nil {
 		return nil, err
@@ -79,7 +78,7 @@ func NewInventory(ctx context.Context, params map[string]string) (inventory.Inve
 // and Trove instance in the project, region by region. A service missing from a
 // region's catalog, or refusing the credential, is skipped; any other error
 // stops the listing.
-func (inv *osInventory) List(ctx context.Context, resources chan<- *inventory.InventoryEntry) error {
+func (inv *osInventory) List(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	defer close(resources)
 
 	for entry, err := range inv.entries(ctx) {
@@ -101,8 +100,8 @@ func (inv *osInventory) Close(ctx context.Context) error {
 
 // staticEntries returns the inventory's synthetic, no-backing-resource
 // entries: one "create a new volume" per region today.
-func (inv *osInventory) staticEntries() []*inventory.InventoryEntry {
-	var out []*inventory.InventoryEntry
+func (inv *osInventory) staticEntries() []*integration.InventoryEntry {
+	var out []*integration.InventoryEntry
 	for _, api := range inv.apis {
 		sc := api.Scope()
 		// An empty region is gophercloud's "match any region" fallback for a
@@ -119,8 +118,8 @@ func (inv *osInventory) staticEntries() []*inventory.InventoryEntry {
 
 // entries chains every region's listings into one lazy stream, the static
 // entries first.
-func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.InventoryEntry, error] {
-	return func(yield func(*inventory.InventoryEntry, error) bool) {
+func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*integration.InventoryEntry, error] {
+	return func(yield func(*integration.InventoryEntry, error) bool) {
 		for _, e := range inv.staticEntries() {
 			if !yield(e, nil) {
 				return
@@ -129,7 +128,7 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 
 		for _, api := range inv.apis {
 			sc := api.Scope()
-			sources := []iter.Seq2[*inventory.InventoryEntry, error]{
+			sources := []iter.Seq2[*integration.InventoryEntry, error]{
 				entriesOf(sc, api.ListServers(ctx), serverEntry),
 				entriesOf(sc, api.ListVolumes(ctx), volumeEntry),
 				entriesOf(sc, api.ListContainers(ctx), containerEntry),
@@ -155,8 +154,8 @@ func (inv *osInventory) entries(ctx context.Context) iter.Seq2[*inventory.Invent
 }
 
 // entriesOf drops the items toEntry returns nil for.
-func entriesOf[T any](sc common.Scope, seq iter.Seq2[T, error], toEntry func(common.Scope, T) *inventory.InventoryEntry) iter.Seq2[*inventory.InventoryEntry, error] {
-	return func(yield func(*inventory.InventoryEntry, error) bool) {
+func entriesOf[T any](sc common.Scope, seq iter.Seq2[T, error], toEntry func(common.Scope, T) *integration.InventoryEntry) iter.Seq2[*integration.InventoryEntry, error] {
+	return func(yield func(*integration.InventoryEntry, error) bool) {
 		for item, err := range seq {
 			if err != nil {
 				yield(nil, err)
@@ -183,9 +182,9 @@ func urn(sc common.Scope, service, resourceType, id string) string {
 
 // identifierEndpoint carries the connector options a new connector for this
 // resource is prefilled with.
-func identifierEndpoint(sc common.Scope, id string) inventory.HostEndpoint {
-	return inventory.HostEndpoint{
-		Type:     inventory.EndpointIdentifier,
+func identifierEndpoint(sc common.Scope, id string) integration.HostEndpoint {
+	return integration.HostEndpoint{
+		Type:     integration.EndpointIdentifier,
 		Endpoint: id,
 		Attributes: map[string]string{
 			"openstack_auth_url": sc.AuthURL,
@@ -194,17 +193,17 @@ func identifierEndpoint(sc common.Scope, id string) inventory.HostEndpoint {
 	}
 }
 
-func serverEntry(sc common.Scope, s servers.Server) *inventory.InventoryEntry {
-	e := &inventory.InventoryEntry{
-		Class:     pkg.ResourceClassCompute,
-		SubClass:  pkg.ResourceSubClassUndefined,
+func serverEntry(sc common.Scope, s servers.Server) *integration.InventoryEntry {
+	e := &integration.InventoryEntry{
+		Class:     integration.ResourceClassCompute,
+		SubClass:  integration.ResourceSubClassUndefined,
 		URN:       urn(sc, "nova", "server", s.ID),
 		Name:      s.Name,
 		Region:    sc.Region,
 		Service:   "nova",
 		Resource:  "nova:server",
 		Tags:      append(metadataTags(s.Metadata), serverTags(s)...),
-		Endpoints: []inventory.HostEndpoint{identifierEndpoint(sc, s.ID)},
+		Endpoints: []integration.HostEndpoint{identifierEndpoint(sc, s.ID)},
 	}
 	for _, addr := range serverAddresses(s) {
 		e.Endpoints = append(e.Endpoints, addressEndpoint(addr))
@@ -228,17 +227,17 @@ func serverAddresses(s servers.Server) []string {
 	return out
 }
 
-func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
-	e := &inventory.InventoryEntry{
-		Class:     pkg.ResourceClassBlockStorage,
-		SubClass:  pkg.ResourceSubClassUndefined,
+func volumeEntry(sc common.Scope, v volumes.Volume) *integration.InventoryEntry {
+	e := &integration.InventoryEntry{
+		Class:     integration.ResourceClassBlockStorage,
+		SubClass:  integration.ResourceSubClassUndefined,
 		URN:       urn(sc, "cinder", "volume", v.ID),
 		Name:      v.Name,
 		Region:    sc.Region,
 		Service:   "cinder",
 		Resource:  "cinder:volume",
 		Tags:      metadataTags(v.Metadata),
-		Endpoints: []inventory.HostEndpoint{identifierEndpoint(sc, v.ID)},
+		Endpoints: []integration.HostEndpoint{identifierEndpoint(sc, v.ID)},
 	}
 	if e.Name == "" {
 		e.Name = v.ID // Cinder volumes are often unnamed
@@ -254,39 +253,39 @@ func volumeEntry(sc common.Scope, v volumes.Volume) *inventory.InventoryEntry {
 // block importer shares that same class, so this also reaches the backup
 // *source* picker; block/importer rejects the spawn location itself, since
 // class alone can't tell source from destination apart.
-func volumeSpawnerEntry(sc common.Scope) *inventory.InventoryEntry {
-	return &inventory.InventoryEntry{
-		Class:    pkg.ResourceClassBlockStorage,
-		SubClass: pkg.ResourceSubClassUndefined,
+func volumeSpawnerEntry(sc common.Scope) *integration.InventoryEntry {
+	return &integration.InventoryEntry{
+		Class:    integration.ResourceClassBlockStorage,
+		SubClass: integration.ResourceSubClassUndefined,
 		URN:      urn(sc, "cinder", "spawner", common.SpawnLocation),
 		Name:     "Create volume in " + sc.Region,
 		Region:   sc.Region,
 		Service:  "cinder",
 		Resource: "cinder:spawner",
 		Tags:     []string{},
-		Endpoints: []inventory.HostEndpoint{
+		Endpoints: []integration.HostEndpoint{
 			identifierEndpoint(sc, common.SpawnLocation),
 		},
 	}
 }
 
-func containerEntry(sc common.Scope, c common.Container) *inventory.InventoryEntry {
-	return &inventory.InventoryEntry{
-		Class:     pkg.ResourceClassObjectStorage,
-		SubClass:  pkg.ResourceSubClassUndefined,
+func containerEntry(sc common.Scope, c common.Container) *integration.InventoryEntry {
+	return &integration.InventoryEntry{
+		Class:     integration.ResourceClassObjectStorage,
+		SubClass:  integration.ResourceSubClassUndefined,
 		URN:       urn(sc, "swift", "container", c.Name),
 		Name:      c.Name,
 		Region:    sc.Region,
 		Service:   "swift",
 		Resource:  "swift:container",
-		Endpoints: []inventory.HostEndpoint{{Type: inventory.EndpointHost, Endpoint: c.URL}},
+		Endpoints: []integration.HostEndpoint{{Type: integration.EndpointHost, Endpoint: c.URL}},
 	}
 }
 
 // The trove API is yet to be tested against a real cloud, so the entry is best-effort.
-func databaseEntry(sc common.Scope, d instances.Instance) *inventory.InventoryEntry {
-	e := &inventory.InventoryEntry{
-		Class:    pkg.ResourceClassDatabase,
+func databaseEntry(sc common.Scope, d instances.Instance) *integration.InventoryEntry {
+	e := &integration.InventoryEntry{
+		Class:    integration.ResourceClassDatabase,
 		SubClass: datastoreSubClass(d.Datastore.Type),
 		URN:      urn(sc, "trove", "instance", d.ID),
 		Name:     d.Name,
@@ -295,7 +294,7 @@ func databaseEntry(sc common.Scope, d instances.Instance) *inventory.InventoryEn
 		Resource: "trove:instance",
 	}
 	if d.Hostname != "" {
-		e.Endpoints = append(e.Endpoints, inventory.HostEndpoint{Type: inventory.EndpointHost, Endpoint: d.Hostname})
+		e.Endpoints = append(e.Endpoints, integration.HostEndpoint{Type: integration.EndpointHost, Endpoint: d.Hostname})
 	}
 	addrs := d.IP // older Trove releases only report the deprecated ip field
 	if len(d.Addresses) > 0 {
@@ -310,19 +309,19 @@ func databaseEntry(sc common.Scope, d instances.Instance) *inventory.InventoryEn
 	return e
 }
 
-func datastoreSubClass(datastore string) pkg.ResourceSubClass {
+func datastoreSubClass(datastore string) integration.ResourceSubClass {
 	return datastoreSubClasses[strings.ToLower(datastore)]
 }
 
-func addressEndpoint(addr string) inventory.HostEndpoint {
-	t := inventory.EndpointHost
+func addressEndpoint(addr string) integration.HostEndpoint {
+	t := integration.EndpointHost
 	if ip := net.ParseIP(addr); ip != nil {
-		t = inventory.EndpointInet6
+		t = integration.EndpointInet6
 		if ip.To4() != nil {
-			t = inventory.EndpointInet4
+			t = integration.EndpointInet4
 		}
 	}
-	return inventory.HostEndpoint{Type: t, Endpoint: addr}
+	return integration.HostEndpoint{Type: t, Endpoint: addr}
 }
 
 // metadataTags turns user metadata into key=value tags, sorted by key.
