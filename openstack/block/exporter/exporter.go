@@ -180,7 +180,7 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 		return fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
 	}
 
-	resolved, err := exp.restoreTransfer(ctx, metadata)
+	resolved, err := exp.resolveTransfer(ctx, metadata)
 	if err != nil {
 		return err
 	}
@@ -213,8 +213,10 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 	return nil
 }
 
-// restoreTransfer
-func (exp *Exporter) restoreTransfer(ctx context.Context, metadata *common.DiskMetadata) (common.ResolvedTransfer, error) {
+// resolveTransfer returns what transfer should be used, on glance it simpl returns a ResolvedTransfer
+// When attach or auto is selected, it does a validation if its possible to write this disk over attach:
+// "auto" will continue with glance, "attach" will fail with an error.
+func (exp *Exporter) resolveTransfer(ctx context.Context, metadata *common.DiskMetadata) (common.ResolvedTransfer, error) {
 	resolved := common.ResolvedTransfer{Transfer: exp.transfer}
 	if exp.transfer == common.TransferGlance {
 		return resolved, nil
@@ -222,6 +224,7 @@ func (exp *Exporter) restoreTransfer(ctx context.Context, metadata *common.DiskM
 	err := common.ValidateWriteAttachment(metadata)
 	switch {
 	case err == nil:
+		// If there are no writing issues, lets preflight the host
 		return exp.client.ResolveTransfer(ctx, exp.transfer)
 	case exp.transfer == common.TransferAttach:
 		return resolved, fmt.Errorf("openstack_transfer=attach: volume %q: %w; glance or auto restores it through Glance", metadata.Volume.ID, err)
