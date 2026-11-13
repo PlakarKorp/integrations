@@ -73,7 +73,7 @@ func (g *gcsImporter) Import(ctx context.Context, records chan<- *integration.Re
 	for {
 		obj, err := it.Next()
 		if errors.Is(err, iterator.Done) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // no import metadata
 		}
 		if err != nil {
 			return nil, err
