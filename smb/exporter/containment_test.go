@@ -26,8 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,31 +191,31 @@ func (f *fakeShare) Symlink(target, linkpath string) error {
 func (f *fakeShare) Chtimes(p string, mtime time.Time) error { return nil }
 func (f *fakeShare) Close() error                            { return nil }
 
-func dirRecord(pathname string) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
+func dirRecord(pathname string) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
-	fi := objects.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
-	return connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
+func fileRecord(pathname, content string) *integration.Record {
+	fi := integration.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
+	return integration.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(content)), nil
 	})
 }
 
-func symlinkRecord(pathname, target string) *connectors.Record {
-	return connectors.NewRecord(pathname, target, objects.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
+func symlinkRecord(pathname, target string) *integration.Record {
+	return integration.NewRecord(pathname, target, integration.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
 }
 
 // export restores recs into root on fs and returns the per-record errors,
 // keyed by pathname.
-func export(t *testing.T, fs *fakeShare, root string, recs ...*connectors.Record) map[string]error {
+func export(t *testing.T, fs *fakeShare, root string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	p := &Exporter{conn: fs, rootDir: root}
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	errc := make(chan error, 1)
-	go func() { errc <- p.Export(t.Context(), records, results) }()
+	go func() { errc <- p.Export(t.Context(), nil, records, results) }()
 	go func() {
 		defer close(records)
 		for _, r := range recs {

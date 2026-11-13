@@ -21,17 +21,16 @@ import (
 	"os"
 	"path"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
 // walk traverses the share starting at the walk root, emitting one record per
 // entry. Directory listings use Lstat semantics (symlinks are not followed), so
 // reparse-point symlinks are captured as links rather than traversed.
-func (imp *Importer) walk(ctx context.Context, records chan<- *connectors.Record) error {
+func (imp *Importer) walk(ctx context.Context, records chan<- *integration.Record) error {
 	info, err := imp.conn.Lstat(imp.rootDir)
 	if err != nil {
-		records <- connectors.NewError(imp.rootDir, err)
+		records <- integration.NewError(imp.rootDir, err)
 		return nil
 	}
 
@@ -42,14 +41,14 @@ func (imp *Importer) walk(ctx context.Context, records chan<- *connectors.Record
 	return nil
 }
 
-func (imp *Importer) walkDir(ctx context.Context, records chan<- *connectors.Record, dir string) {
+func (imp *Importer) walkDir(ctx context.Context, records chan<- *integration.Record, dir string) {
 	if ctx.Err() != nil {
 		return
 	}
 
 	entries, err := imp.conn.ReadDir(dir)
 	if err != nil {
-		records <- connectors.NewError(dir, err)
+		records <- integration.NewError(dir, err)
 		return
 	}
 
@@ -76,20 +75,20 @@ func (imp *Importer) walkDir(ctx context.Context, records chan<- *connectors.Rec
 	}
 }
 
-// emit converts an os.FileInfo into a connectors.Record and pushes it onto the
+// emit converts an os.FileInfo into a integration.Record and pushes it onto the
 // channel, resolving symlink targets as needed.
-func (imp *Importer) emit(records chan<- *connectors.Record, full string, info os.FileInfo) {
-	fileinfo := objects.FileInfoFromStat(info)
+func (imp *Importer) emit(records chan<- *integration.Record, full string, info os.FileInfo) {
+	fileinfo := integration.FileInfoFromStat(info)
 
 	var target string
 	if info.Mode()&os.ModeSymlink != 0 {
 		if t, err := imp.conn.Readlink(full); err != nil {
-			records <- connectors.NewError(full, err)
+			records <- integration.NewError(full, err)
 			return
 		} else {
 			target = t
 		}
 	}
 
-	records <- connectors.NewRecord(full, target, fileinfo, []string{}, imp.open(full))
+	records <- integration.NewRecord(full, target, fileinfo, []string{}, imp.open(full))
 }

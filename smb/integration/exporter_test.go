@@ -24,9 +24,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/smb/exporter"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,24 +41,24 @@ func testDir(t *testing.T) string {
 	return dir
 }
 
-func dirRecord(pathname string) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
+func dirRecord(pathname string) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
-	fi := objects.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
-	return connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
+func fileRecord(pathname, content string) *integration.Record {
+	fi := integration.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
+	return integration.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(content)), nil
 	})
 }
 
 // export restores recs below root on the server and returns the per-record
 // errors, keyed by pathname.
-func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[string]error {
+func export(t *testing.T, addr, root string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	ctx := t.Context()
 
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 1}, "smb", map[string]string{
+	exp, err := exporter.NewExporter(ctx, &integration.Options{MaxConcurrency: 1}, "smb", map[string]string{
 		"location": "smb://" + addr + "/" + share + root,
 		"username": username,
 		"password": password,
@@ -67,10 +66,10 @@ func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[str
 	require.NoError(t, err)
 	defer func() { _ = exp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	errc := make(chan error, 1)
-	go func() { errc <- exp.Export(ctx, records, results) }()
+	go func() { errc <- exp.Export(ctx, nil, records, results) }()
 	go func() {
 		defer close(records)
 		for _, r := range recs {

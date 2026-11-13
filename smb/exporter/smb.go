@@ -26,14 +26,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	plakarsmb "github.com/PlakarKorp/integrations/smb/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	_ = exporter.Register("smb", 0, NewExporter)
+	_ = integration.RegisterExporter("smb", 0, NewExporter)
 }
 
 // share is the part of *plakarsmb.Conn the exporter uses; tests stand in an
@@ -53,7 +52,7 @@ type share interface {
 const autoDirPerm = 0o755
 
 type Exporter struct {
-	opts *connectors.Options
+	opts *integration.Options
 
 	cfg  *plakarsmb.Config
 	conn share
@@ -61,7 +60,7 @@ type Exporter struct {
 	rootDir string
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	cfg, err := plakarsmb.ParseConfig(config)
 	if err != nil {
 		return nil, err
@@ -94,7 +93,7 @@ func (p *Exporter) Close(ctx context.Context) error {
 	return p.conn.Close()
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 
 	// The server resolves symlinks on our behalf and, without reparse point
@@ -128,7 +127,7 @@ func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record
 	}
 }
 
-func (p *Exporter) exportOne(record *connectors.Record, created map[string]struct{}) error {
+func (p *Exporter) exportOne(record *integration.Record, created map[string]struct{}) error {
 	// '\' is a path separator on the SMB server but an ordinary character to
 	// path.Clean, so it would slip ".." past safe(). SMB can't represent such
 	// names faithfully anyway.
@@ -217,7 +216,7 @@ func (p *Exporter) mkdir(pathname string, perm os.FileMode, created map[string]s
 	return nil
 }
 
-func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
+func (p *Exporter) symlink(record *integration.Record, pathname string) error {
 	if err := p.conn.Symlink(record.Target, pathname); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return existsErr(pathname)
@@ -227,7 +226,7 @@ func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
 	return nil
 }
 
-func (p *Exporter) writeFile(record *connectors.Record, pathname string) error {
+func (p *Exporter) writeFile(record *integration.Record, pathname string) error {
 	if err := p.fresh(pathname); err != nil {
 		return err
 	}
