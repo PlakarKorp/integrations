@@ -8,6 +8,9 @@
     exporter.go
   /inventory/
     inventory.go
+  /xoa/
+    client.go
+    errors.go
   /xapi/
     client.go
     errors.go
