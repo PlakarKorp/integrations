@@ -43,10 +43,10 @@ func parse(params map[string]string, proto string) (string, string, string, []op
 	for k, v := range params {
 		switch k {
 		case "credentials_file":
-			opts = append(opts, option.WithCredentialsFile(v))
+			opts = append(opts, option.WithCredentialsFile(v)) //nolint:staticcheck // user-supplied credentials of any type are accepted
 
 		case "credentials_json":
-			opts = append(opts, option.WithCredentialsJSON([]byte(v)))
+			opts = append(opts, option.WithCredentialsJSON([]byte(v))) //nolint:staticcheck // user-supplied credentials of any type are accepted
 
 		case "endpoint":
 			opts = append(opts, option.WithEndpoint(v))
