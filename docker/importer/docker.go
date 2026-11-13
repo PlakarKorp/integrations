@@ -149,7 +149,7 @@ func (t *Importer) Import(ctx context.Context, records chan<- *integration.Recor
 			if !errors.Is(err, io.EOF) {
 				return nil, err
 			}
-			return nil, nil
+			return nil, nil //nolint:nilnil // no import metadata
 		}
 
 		name := path.Join("/", hdr.Name)
