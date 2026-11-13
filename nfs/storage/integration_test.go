@@ -32,6 +32,7 @@ import (
 	"github.com/PlakarKorp/kloset/objects"
 	"github.com/PlakarKorp/kloset/repository"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	tc "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -69,18 +70,17 @@ func startNFSServer(t *testing.T) map[string]string {
 			"NFS_VERSION":  "3",
 			"NFS_EXPORT_0": "/export *(rw,insecure,no_subtree_check,no_root_squash,sync)",
 		},
-		// The export directory needs to exist before the entrypoint exports
-		// it; copying a placeholder file in creates it.
-		Files: []tc.ContainerFile{{
-			Reader:            strings.NewReader(""),
-			ContainerFilePath: "/export/.keep",
-			FileMode:          0o644,
-		}},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			// rpc.nfsd needs to mount the nfsd filesystem and drive the
 			// kernel server, which CAP_SYS_ADMIN alone does not allow.
 			hc.Privileged = true
 			hc.PortBindings = bindings
+			// The kernel refuses to export the container's own overlay
+			// filesystem ("does not support NFS export"), and Docker
+			// Desktop's bind mounts likewise; a tmpfs can be exported
+			// anywhere. Mounting it also creates /export, which the
+			// entrypoint needs to exist before it exports it.
+			hc.Tmpfs = map[string]string{"/export": ""}
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("111/tcp"),
@@ -89,6 +89,9 @@ func startNFSServer(t *testing.T) map[string]string {
 	}
 
 	c, err := tc.GenericContainer(ctx, tc.GenericContainerRequest{ContainerRequest: req, Started: true})
+	if c != nil {
+		t.Cleanup(func() { _ = c.Terminate(ctx) })
+	}
 	if err != nil {
 		// NFSv3 needs its ancillary RPC ports (mountd, statd) published on
 		// the exact same number the portmapper advertises them under, so
@@ -99,13 +102,31 @@ func startNFSServer(t *testing.T) map[string]string {
 		if strings.Contains(err.Error(), "address already in use") {
 			t.Skipf("nfs-server container port already in use on this host (Docker Desktop's own NFS volume sharing is a common culprit): %v", err)
 		}
-		t.Fatalf("start nfs-server container: %v", err)
+		t.Fatalf("start nfs-server container: %v%s", err, containerOutput(ctx, c))
 	}
-	t.Cleanup(func() { _ = c.Terminate(ctx) })
 
 	return map[string]string{
 		"location": "nfs://127.0.0.1/export",
 	}
+}
+
+// containerOutput returns what the container printed, formatted for appending
+// to a startup failure: testcontainers reports only the exit code, while the
+// entrypoint says why it gave up.
+func containerOutput(ctx context.Context, c tc.Container) string {
+	if c == nil {
+		return ""
+	}
+	rd, err := c.Logs(ctx)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = rd.Close() }()
+	var out bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &out, rd); err != nil || out.Len() == 0 {
+		return ""
+	}
+	return "\ncontainer output:\n" + out.String()
 }
 
 // newTestStore opens a Store against a freshly started NFS server, retrying
