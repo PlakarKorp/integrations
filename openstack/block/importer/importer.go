@@ -19,7 +19,6 @@ package importer
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -27,7 +26,6 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/importer"
 	"github.com/PlakarKorp/kloset/location"
@@ -92,9 +90,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 
 	host, err := imp.client.PreflightHost(ctx)
 	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
-		}
+		log.Printf("openstack-block: direct attachment unavailable: %v", err)
 		host = nil
 	}
 
