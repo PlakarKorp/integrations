@@ -24,14 +24,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
 	"github.com/PlakarKorp/integrations/openstack/instance"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,14 +48,14 @@ func params(authURL, location string) map[string]string {
 // newImporter also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
 // server by accident.
-func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
+func newImporter(t *testing.T, cloud *keystonetest.Cloud) integration.Importer {
 	t.Helper()
 	return newImporterTransfer(t, cloud, "")
 }
 
 // newImporterTransfer is newImporter with openstack_transfer set; "" leaves
 // it unset, for the default.
-func newImporterTransfer(t *testing.T, cloud *keystonetest.Cloud, transfer string) importer.Importer {
+func newImporterTransfer(t *testing.T, cloud *keystonetest.Cloud, transfer string) integration.Importer {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
@@ -85,11 +84,11 @@ func neverProbed(t *testing.T) {
 	t.Cleanup(func() { attach.MetadataURL = saved })
 }
 
-func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record, error) {
-	records := make(chan *connectors.Record)
+func importAll(ctx context.Context, imp integration.Importer) ([]*integration.Record, error) {
+	records := make(chan *integration.Record)
 	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(ctx, records, nil) }()
-	var out []*connectors.Record
+	go func() { _, err := imp.Import(ctx, records, nil); errc <- err }()
+	var out []*integration.Record
 	for r := range records {
 		out = append(out, r)
 	}
