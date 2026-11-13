@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar XCP-ng Inventory Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["xo_url", "xo_token"],
+  "properties": {
+    "xo_url": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^https?://[^/]+",
+      "description": "Xen Orchestra base URL, e.g. https://xo.example.com"
+    },
+    "xo_token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Xen Orchestra authentication token"
+    },
+    "xo_tls_skip_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    }
+  }
+}

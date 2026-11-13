@@ -1,0 +1,21 @@
+name: xcp-ng tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/xcp-ng-tests.yml
+      - 'xcp-ng/**'
+  pull_request:
+    paths:
+      - .github/workflows/xcp-ng-tests.yml
+      - 'xcp-ng/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@38a2b0245fd29b92f7ccbfae9aea0024dbea1540 # v1.0.2
+    with:
+      dir: xcp-ng
+      qa-version-file: xcp-ng/.qa-version

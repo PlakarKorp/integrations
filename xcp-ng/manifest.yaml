@@ -1,0 +1,11 @@
+name: xcp-ng
+display_name: XCP-ng
+description: XCP-ng inventory through the Xen Orchestra REST API.
+homepage: https://github.com/PlakarKorp/integration-xcp-ng/tree/main/xcp-ng
+license: ISC
+api_version: v1.1.0
+connectors:
+  - type: inventory
+    executable: xcp-ng-inventory
+    validator: ./inventory/schema.json
+    protocols: [xcp-ng-inventory]
