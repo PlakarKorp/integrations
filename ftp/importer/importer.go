@@ -9,15 +9,13 @@ import (
 	"path"
 	"sync"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/ftp/conn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 func init() {
-	_ = importer.Register("ftp", 0, NewImporter)
+	_ = integration.RegisterImporter("ftp", 0, NewImporter)
 }
 
 type Importer struct {
@@ -29,7 +27,7 @@ type Importer struct {
 	client *conn.Client
 }
 
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	target := config["location"]
 	parsed, err := url.Parse(target)
 	if err != nil {
@@ -80,20 +78,20 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	}, nil
 }
 
-func (p *Importer) walkAndCollectFiles(ctx context.Context, client *conn.Client, dir string, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *Importer) walkAndCollectFiles(ctx context.Context, client *conn.Client, dir string, filePaths chan<- string, records chan<- *integration.Record, wg *sync.WaitGroup) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
 
 	entries, err := client.ReadDir(dir)
 	if err != nil {
-		records <- connectors.NewError(dir, err)
+		records <- integration.NewError(dir, err)
 		return
 	}
 	p.collectEntries(ctx, client, dir, entries, filePaths, records, wg)
 }
 
-func (p *Importer) collectEntries(ctx context.Context, client *conn.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (p *Importer) collectEntries(ctx context.Context, client *conn.Client, dir string, entries []os.FileInfo, filePaths chan<- string, records chan<- *integration.Record, wg *sync.WaitGroup) {
 	for _, entry := range entries {
 		entryPath := path.Join(dir, entry.Name())
 
@@ -105,15 +103,15 @@ func (p *Importer) collectEntries(ctx context.Context, client *conn.Client, dir 
 	}
 }
 
-func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, results chan<- *connectors.Record) {
+func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, results chan<- *integration.Record) {
 	for filePath := range filePaths {
 		info, err := client.Stat(filePath)
 		if err != nil {
-			results <- connectors.NewError(filePath, err)
+			results <- integration.NewError(filePath, err)
 			continue
 		}
 
-		fileinfo := objects.FileInfoFromStat(info)
+		fileinfo := integration.FileInfoFromStat(info)
 
 		readerFunc := func() (io.ReadCloser, error) {
 			pr, pw := io.Pipe()
@@ -130,22 +128,22 @@ func (p *Importer) processFiles(client *conn.Client, filePaths <-chan string, re
 			return pr, nil
 		}
 
-		results <- connectors.NewRecord(filePath, "", fileinfo, nil, readerFunc)
+		results <- integration.NewRecord(filePath, "", fileinfo, nil, readerFunc)
 	}
 }
 
-func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 	client, err := conn.ConnectToFTP(p.host, p.connOpts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	p.client = client
 
 	// List root first to return an error, not an empty backup
 	entries, err := client.ReadDir(p.rootDir)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", p.rootDir, err)
+		return nil, fmt.Errorf("reading %s: %w", p.rootDir, err)
 	}
 
 	filePaths := make(chan string, 1000)
@@ -173,7 +171,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record
 	// Close results channel after all workers complete
 	workerWG.Wait()
 
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (p *Importer) Ping(ctx context.Context) error {

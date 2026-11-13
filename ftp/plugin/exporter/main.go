@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/ftp/exporter"
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, exporter.NewExporter)
+	server.EntrypointExporter(exporter.NewExporter, os.Args)
 }
