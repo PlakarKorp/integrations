@@ -25,12 +25,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/exclude"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/pkg/sftp"
 	"golang.org/x/sync/singleflight"
 )
@@ -54,7 +51,7 @@ type Sftp struct {
 	states    buckets
 }
 
-func New(ctx context.Context, opts *connectors.Options, name string, config map[string]string, kind string) (*Sftp, error) {
+func New(ctx context.Context, opts *integration.Options, name string, config map[string]string, kind string) (*Sftp, error) {
 	sftp := Sftp{
 		maxConcurrency: 1,
 	}
@@ -138,15 +135,15 @@ func New(ctx context.Context, opts *connectors.Options, name string, config map[
 	return &sftp, nil
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	return New(ctx, opts, name, config, "importer")
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	return New(ctx, opts, name, config, "exporter")
 }
 
-func NewStore(ctx context.Context, name string, config map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, name string, config map[string]string) (integration.Store, error) {
 	return New(ctx, nil, name, config, "storage")
 }
 

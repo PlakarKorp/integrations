@@ -24,17 +24,17 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"path"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
 func (s *Sftp) path(args ...string) string {
 	return path.Join(s.rootDir, path.Join(args...))
 }
 
-func (s *Sftp) getLocks() (ret []objects.MAC, err error) {
+func (s *Sftp) getLocks() (ret []integration.MAC, err error) {
 	entries, err := s.client.ReadDir(s.path("locks"))
 	if err != nil {
 		return
@@ -49,12 +49,12 @@ func (s *Sftp) getLocks() (ret []objects.MAC, err error) {
 		if len(t) != 32 {
 			continue
 		}
-		ret = append(ret, objects.MAC(t))
+		ret = append(ret, integration.MAC(t))
 	}
 	return
 }
 
-func (s *Sftp) getLock(lockID objects.MAC) (io.ReadCloser, error) {
+func (s *Sftp) getLock(lockID integration.MAC) (io.ReadCloser, error) {
 	fp, err := s.client.Open(path.Join(s.path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
@@ -120,37 +120,52 @@ func (s *Sftp) Open(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Sftp) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *Sftp) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *Sftp) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Sftp) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	switch res {
-	case storage.StorageResourcePackfile:
-		return s.packfiles.List()
-	case storage.StorageResourceState:
-		return s.states.List()
-	case storage.StorageResourceLock:
-		return s.getLocks()
-	default:
-		return nil, errors.ErrUnsupported
+func (s *Sftp) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var macs []integration.MAC
+		var err error
+
+		switch res {
+		case integration.StorageResourcePackfile:
+			macs, err = s.packfiles.List()
+		case integration.StorageResourceState:
+			macs, err = s.states.List()
+		case integration.StorageResourceLock:
+			macs, err = s.getLocks()
+		default:
+			err = errors.ErrUnsupported
+		}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+
+		for _, mac := range macs {
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+				return
+			}
+		}
 	}
 }
 
-func (s *Sftp) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Sftp) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Get(mac, rg)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		if rg != nil {
 			return nil, errors.ErrUnsupported
 		}
 		return s.states.Get(mac, nil)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		if rg != nil {
 			return nil, errors.ErrUnsupported
 		}
@@ -160,7 +175,7 @@ func (s *Sftp) Get(ctx context.Context, res storage.StorageResource, mac objects
 	}
 }
 
-func (s *Sftp) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Sftp) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	// OpenSSH in readonly mode doesn't expose this extension, yet it's okay to
 	// use it as a storage, so we can't check at init time, we have to check on the
 	// first Put call.
@@ -169,24 +184,24 @@ func (s *Sftp) Put(ctx context.Context, res storage.StorageResource, mac objects
 	}
 
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Put(mac, rd)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return writeFileAtomic(s.client, path.Join(s.path("locks"), hex.EncodeToString(mac[:])), rd, nil)
 	default:
 		return -1, errors.ErrUnsupported
 	}
 }
 
-func (s *Sftp) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *Sftp) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Remove(mac)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Remove(mac)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.client.Remove(path.Join(s.path("locks"), hex.EncodeToString(mac[:])))
 	default:
 		return errors.ErrUnsupported

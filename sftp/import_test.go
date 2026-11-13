@@ -35,8 +35,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/exclude"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,12 +61,13 @@ func (ts *testServer) newTestImportSftp(t *testing.T, rootDir string) *Sftp {
 // Reversing the order deadlocks: workers block trying to send on a full
 // records channel, Import blocks waiting for workers to finish, and the
 // test blocks waiting for Import.
-func runImporter(t *testing.T, s *Sftp) (<-chan *connectors.Record, func() error) {
+func runImporter(t *testing.T, s *Sftp) (<-chan *integration.Record, func() error) {
 	t.Helper()
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.Import(t.Context(), records, nil)
+		_, err := s.Import(t.Context(), records, nil)
+		done <- err
 	}()
 
 	return records, func() error { return <-done }
@@ -74,8 +75,8 @@ func runImporter(t *testing.T, s *Sftp) (<-chan *connectors.Record, func() error
 
 // drainRecords consumes every record off the channel until it is closed,
 // returning them in receipt order for assertions.
-func drainRecords(records <-chan *connectors.Record) []*connectors.Record {
-	got := make([]*connectors.Record, 0, 16)
+func drainRecords(records <-chan *integration.Record) []*integration.Record {
+	got := make([]*integration.Record, 0, 16)
 	for r := range records {
 		got = append(got, r)
 	}
@@ -85,8 +86,8 @@ func drainRecords(records <-chan *connectors.Record) []*connectors.Record {
 // byPathname indexes a drained record slice by its SFTP-visible pathname,
 // for convenient lookups/assertions regardless of the (non-deterministic,
 // worker-pool-driven) order records arrive in.
-func byPathname(records []*connectors.Record) map[string]*connectors.Record {
-	m := make(map[string]*connectors.Record, len(records))
+func byPathname(records []*integration.Record) map[string]*integration.Record {
+	m := make(map[string]*integration.Record, len(records))
 	for _, r := range records {
 		m[r.Pathname] = r
 	}
@@ -94,7 +95,7 @@ func byPathname(records []*connectors.Record) map[string]*connectors.Record {
 }
 
 // keysOf returns the map's keys, for use in failure messages.
-func keysOf(m map[string]*connectors.Record) []string {
+func keysOf(m map[string]*integration.Record) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -402,10 +403,11 @@ func TestImport_ContextCancellation(t *testing.T) {
 	// runImporter always uses t.Context(), so we wire channels manually here
 	// to pass the pre-cancelled context while preserving the mandatory
 	// drain-before-wait order.
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.Import(ctx, records, nil)
+		_, err := s.Import(ctx, records, nil)
+		done <- err
 	}()
 
 	got := drainRecords(records)
