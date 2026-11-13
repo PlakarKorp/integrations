@@ -1,12 +1,12 @@
-// End-to-end test for the IMAP-backed kloset storage.Store. It is skipped
+// End-to-end tests for the IMAP-backed integration.Store. They are skipped
 // unless IMAP_E2E_ADDR is set, e.g.:
 //
 //	IMAP_E2E_ADDR=localhost:11143 go test ./store/ -run TestStore -v
 //
-// The test drives the full kloset stack (configuration, chunking, packfiles,
-// states) on top of the IMAP store: it creates a repository backed by IMAP,
-// backs up a set of files into it, then reads them back and verifies the bytes
-// — i.e. a real backup-and-restore through an IMAP server.
+// They drive the Store interface directly: one store instance creates a
+// repository and writes config, packfile, state and lock blobs into it, then a
+// fresh instance reopens it and reads every blob back — i.e. a backup and a
+// restore through an IMAP server, as seen by the storage layer.
 package store
 
 import (
@@ -17,17 +17,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/caching"
-	"github.com/PlakarKorp/kloset/caching/pebble"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/hashing"
-	"github.com/PlakarKorp/kloset/kcontext"
-	"github.com/PlakarKorp/kloset/logging"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
-	"github.com/PlakarKorp/kloset/resources"
-	ptesting "github.com/PlakarKorp/kloset/testing"
-	"github.com/PlakarKorp/kloset/versioning"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/stretchr/testify/require"
 )
@@ -73,90 +63,90 @@ func wipeRoot(t *testing.T, cfg map[string]string) {
 	}
 }
 
-// newIMAPRepository mirrors kloset's testing.GenerateRepository but uses the
-// IMAP store as the backend instead of the in-memory mock.
-func newIMAPRepository(t *testing.T, cfg map[string]string) *repository.Repository {
+// listMACs drains Store.List for a resource.
+func listMACs(t *testing.T, st integration.Store, res integration.StorageResource) []integration.MAC {
 	t.Helper()
+	var macs []integration.MAC
+	for e, err := range st.List(context.Background(), res, 0) {
+		require.NoError(t, err)
+		macs = append(macs, e.MAC)
+	}
+	return macs
+}
 
-	ctx := kcontext.NewKContext()
-	ctx.Client = "plakar-imap-store-test/1.0.0"
-	ctx.MaxConcurrency = 1
-	ctx.SetLogger(logging.NewLogger(os.Stdout, os.Stderr))
-
-	tmpCacheDir, err := os.MkdirTemp("", "imap_store_cache")
+// getBlob reads a blob (or a range of it) back from the store.
+func getBlob(t *testing.T, st integration.Store, res integration.StorageResource, mac integration.MAC, rg *integration.Range) []byte {
+	t.Helper()
+	rc, err := st.Get(context.Background(), res, 0, mac, rg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(tmpCacheDir) })
-	ctx.SetCache(caching.NewManager(pebble.Constructor(tmpCacheDir)))
-	ctx.CacheDir = tmpCacheDir
-
-	st, err := storage.New(ctx, cfg)
+	defer func() { _ = rc.Close() }()
+	b, err := io.ReadAll(rc)
 	require.NoError(t, err)
-	require.NotNil(t, st)
-
-	config := storage.NewConfiguration()
-	config.Compression = nil
-	config.Encryption = nil
-	hasher := hashing.GetHasher(hashing.DEFAULT_HASHING_ALGORITHM)
-
-	serialized, err := config.ToBytes()
-	require.NoError(t, err)
-	wrappedRd, err := storage.Serialize(hasher, resources.RT_CONFIG, versioning.GetCurrentVersion(resources.RT_CONFIG), bytes.NewReader(serialized))
-	require.NoError(t, err)
-	wrapped, err := io.ReadAll(wrappedRd)
-	require.NoError(t, err)
-
-	require.NoError(t, st.Create(ctx, wrapped), "store Create")
-
-	serializedConfig, err := st.Open(ctx)
-	require.NoError(t, err, "store Open")
-
-	repo, err := repository.NewRepository(ctx, nil, st, serializedConfig, &repository.RepositoryOpts{DoRebuild: true, RWStateCache: true})
-	require.NoError(t, err, "repository.New")
-	return repo
+	return b
 }
 
 func TestStoreBackupRestore(t *testing.T) {
 	cfg := storeConfig(t)
 	wipeRoot(t, cfg)
+	ctx := context.Background()
 
-	repo := newIMAPRepository(t, cfg)
-
-	// A blob large enough to span multiple chunks/packfiles exercises ranged
-	// reads on Get.
+	// A packfile large enough to be fetched back in several ranged reads, as
+	// a restore reads chunks out of a packfile.
 	big := make([]byte, 3*1024*1024)
 	_, err := rand.Read(big)
 	require.NoError(t, err)
 
-	files := []ptesting.MockFile{
-		ptesting.NewMockFile("hello.txt", 0o644, "hello world!\n"),
-		ptesting.NewMockFile("nested/data.bin", 0o644, string(big)),
-		ptesting.NewMockDir("emptydir"),
+	type blob struct {
+		res  integration.StorageResource
+		mac  integration.MAC
+		data []byte
+	}
+	blobs := []blob{
+		{integration.StorageResourcePackfile, integration.MAC{0x01}, []byte("hello world!\n")},
+		{integration.StorageResourcePackfile, integration.MAC{0x02}, big},
+		{integration.StorageResourceState, integration.MAC{0x03}, []byte("state")},
+		{integration.StorageResourceLock, integration.MAC{0x04}, []byte("lock")},
+	}
+	configBlob := []byte("repository-configuration-blob")
+
+	// Backup: create the repository and write every blob.
+	writer, err := NewStore(ctx, "imap", cfg)
+	require.NoError(t, err)
+	require.NoError(t, writer.Create(ctx, configBlob), "store Create")
+	for _, b := range blobs {
+		n, err := writer.Put(ctx, b.res, 0, b.mac, bytes.NewReader(b.data))
+		require.NoError(t, err)
+		require.Equal(t, int64(len(b.data)), n)
+	}
+	require.NoError(t, writer.Close(ctx))
+
+	// Restore: a fresh store instance (no cached index) reopens the repository.
+	reader, err := NewStore(ctx, "imap", cfg)
+	require.NoError(t, err)
+	defer func() { _ = reader.Close(ctx) }()
+
+	gotConfig, err := reader.Open(ctx)
+	require.NoError(t, err, "store Open")
+	require.Equal(t, configBlob, gotConfig)
+
+	byRes := map[integration.StorageResource][]integration.MAC{}
+	for _, b := range blobs {
+		byRes[b.res] = append(byRes[b.res], b.mac)
+		require.Equal(t, b.data, getBlob(t, reader, b.res, b.mac, nil))
+	}
+	for res, macs := range byRes {
+		require.ElementsMatch(t, macs, listMACs(t, reader, res), "List(%v)", res)
 	}
 
-	snap := ptesting.GenerateSnapshot(t, repo, files)
-	defer func() { _ = snap.Close() }()
-
-	fs, err := snap.Filesystem()
-	require.NoError(t, err)
-
-	// hello.txt
-	fp, err := fs.Open("hello.txt")
-	require.NoError(t, err)
-	got, err := io.ReadAll(fp)
-	require.NoError(t, err)
-	_ = fp.Close()
-	require.Equal(t, "hello world!\n", string(got))
-
-	// the large binary file, verifying multi-chunk reassembly through IMAP
-	fp, err = fs.Open("nested/data.bin")
-	require.NoError(t, err)
-	gotBig, err := io.ReadAll(fp)
-	require.NoError(t, err)
-	_ = fp.Close()
-	require.Len(t, gotBig, len(big))
-	require.True(t, bytes.Equal(big, gotBig), "large file content mismatch after IMAP round-trip")
-
-	t.Logf("backed up and restored %d files through the IMAP store", len(files))
+	// Reassemble the large packfile from 1 MiB ranged reads.
+	var reassembled []byte
+	const step = 1024 * 1024
+	for off := 0; off < len(big); off += step {
+		rg := &integration.Range{Offset: uint64(off), Length: step}
+		reassembled = append(reassembled, getBlob(t, reader, integration.StorageResourcePackfile, integration.MAC{0x02}, rg)...)
+	}
+	require.Len(t, reassembled, len(big))
+	require.True(t, bytes.Equal(big, reassembled), "large blob mismatch after ranged IMAP round-trip")
 }
 
 // TestStoreContract exercises the raw Store interface (Put/Get/List/Delete with
@@ -186,41 +176,30 @@ func TestStoreContract(t *testing.T) {
 	// Put a couple of packfile blobs.
 	blobA := bytes.Repeat([]byte("A"), 1000)
 	blobB := bytes.Repeat([]byte("B"), 50)
-	macA := objects.MAC{0x01, 0x02, 0x03}
-	macB := objects.MAC{0xaa, 0xbb, 0xcc}
+	macA := integration.MAC{0x01, 0x02, 0x03}
+	macB := integration.MAC{0xaa, 0xbb, 0xcc}
 
-	n, err := st.Put(ctx, storage.StorageResourcePackfile, macA, bytes.NewReader(blobA))
+	n, err := st.Put(ctx, integration.StorageResourcePackfile, 0, macA, bytes.NewReader(blobA))
 	require.NoError(t, err)
 	require.Equal(t, int64(len(blobA)), n)
-	_, err = st.Put(ctx, storage.StorageResourcePackfile, macB, bytes.NewReader(blobB))
+	_, err = st.Put(ctx, integration.StorageResourcePackfile, 0, macB, bytes.NewReader(blobB))
 	require.NoError(t, err)
 
 	// List returns both MACs.
-	macs, err := st.List(ctx, storage.StorageResourcePackfile)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []objects.MAC{macA, macB}, macs)
+	require.ElementsMatch(t, []integration.MAC{macA, macB}, listMACs(t, st, integration.StorageResourcePackfile))
 
 	// Get (full) round-trips bytes.
-	rc, err := st.Get(ctx, storage.StorageResourcePackfile, macA, nil)
-	require.NoError(t, err)
-	gotA, _ := io.ReadAll(rc)
-	_ = rc.Close()
-	require.True(t, bytes.Equal(blobA, gotA))
+	require.True(t, bytes.Equal(blobA, getBlob(t, st, integration.StorageResourcePackfile, macA, nil)))
 
 	// Get (ranged) returns the requested slice.
-	rc, err = st.Get(ctx, storage.StorageResourcePackfile, macA, &storage.Range{Offset: 10, Length: 5})
-	require.NoError(t, err)
-	gotRange, _ := io.ReadAll(rc)
-	_ = rc.Close()
+	gotRange := getBlob(t, st, integration.StorageResourcePackfile, macA, &integration.Range{Offset: 10, Length: 5})
 	require.Equal(t, blobA[10:15], gotRange)
 
 	// Delete removes a blob.
-	require.NoError(t, st.Delete(ctx, storage.StorageResourcePackfile, macB))
-	macs, err = st.List(ctx, storage.StorageResourcePackfile)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []objects.MAC{macA}, macs)
+	require.NoError(t, st.Delete(ctx, integration.StorageResourcePackfile, 0, macB))
+	require.ElementsMatch(t, []integration.MAC{macA}, listMACs(t, st, integration.StorageResourcePackfile))
 
 	// Getting the deleted blob now fails.
-	_, err = st.Get(ctx, storage.StorageResourcePackfile, macB, nil)
+	_, err = st.Get(ctx, integration.StorageResourcePackfile, 0, macB, nil)
 	require.Error(t, err)
 }

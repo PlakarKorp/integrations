@@ -1,4 +1,4 @@
-// Package store implements a kloset storage.Store backed by an IMAP server.
+// Package store implements an integration.Store backed by an IMAP server.
 //
 // A kloset repository is a content-addressed blob store: it Puts/Gets/Lists/
 // Deletes immutable blobs keyed by a 32-byte MAC, grouped by resource type
@@ -27,10 +27,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/imap/common"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/emersion/go-imap/v2"
 )
 
@@ -43,21 +42,21 @@ const (
 )
 
 func init() {
-	_ = storage.Register("imap", 0, NewStore)
+	_ = integration.RegisterStore("imap", 0, NewStore)
 }
 
 // resourceMailbox maps a storage resource to its leaf mailbox name.
-func resourceMailbox(res storage.StorageResource) (string, bool) {
+func resourceMailbox(res integration.StorageResource) (string, bool) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfile", true
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "state", true
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "lock", true
-	case storage.StorageResourceECCPackfile:
+	case integration.StorageResourceECCPackfile:
 		return "eccpackfile", true
-	case storage.StorageResourceECCState:
+	case integration.StorageResourceECCState:
 		return "eccstate", true
 	default:
 		return "", false
@@ -75,15 +74,15 @@ type Store struct {
 	selected string
 	// index caches MAC -> UID per fully-qualified mailbox so Get/Delete avoid a
 	// SEARCH round-trip. It is rebuilt lazily and on List.
-	index map[string]map[objects.MAC]imap.UID
+	index map[string]map[integration.MAC]imap.UID
 }
 
-func NewStore(ctx context.Context, proto string, config map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, config map[string]string) (integration.Store, error) {
 	s := &Store{
 		location: config["location"],
 		root:     defaultRoot,
 		delim:    '/',
-		index:    make(map[string]map[objects.MAC]imap.UID),
+		index:    make(map[string]map[integration.MAC]imap.UID),
 	}
 	if err := s.connector.InitFromConfig(config); err != nil {
 		return nil, err
@@ -99,8 +98,8 @@ func (s *Store) Type() string          { return "imap" }
 func (s *Store) Root() string          { return s.location }
 func (s *Store) Flags() location.Flags { return 0 }
 
-func (s *Store) Mode(context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *Store) Mode(context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -184,10 +183,10 @@ func (s *Store) selectMailbox(sess *common.ImapSession, mbox string) error {
 
 // ---- helpers ----------------------------------------------------------------
 
-func macToHex(mac objects.MAC) string { return hex.EncodeToString(mac[:]) }
+func macToHex(mac integration.MAC) string { return hex.EncodeToString(mac[:]) }
 
-func hexToMAC(s string) (objects.MAC, bool) {
-	var mac objects.MAC
+func hexToMAC(s string) (integration.MAC, bool) {
+	var mac integration.MAC
 	b, err := hex.DecodeString(strings.TrimSpace(s))
 	if err != nil || len(b) != len(mac) {
 		return mac, false
