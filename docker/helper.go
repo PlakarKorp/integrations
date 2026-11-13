@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"path"
 	"runtime"
@@ -182,7 +183,34 @@ func (d *Docker) startHelper(ctx context.Context, vol string, readOnly bool) (*h
 		return nil, fmt.Errorf("helper for %s: no port published", vol)
 	}
 	h.addr = "127.0.0.1:" + bindings[0].HostPort
+
+	// the daemon publishes the port after the helper listens on it, and
+	// on Docker Desktop that takes a moment; the gRPC dial is lazy, so
+	// probe before the first call.
+	if err := waitPort(ctx, h.addr, deadline.Add(15*time.Second)); err != nil {
+		h.stop(ctx)
+		return nil, fmt.Errorf("helper for %s: %w", vol, err)
+	}
 	return h, nil
+}
+
+func waitPort(ctx context.Context, addr string, deadline time.Time) error {
+	var dialer net.Dialer
+	for {
+		c, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			c.Close()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("port %s not reachable: %w", addr, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // helperLogs returns what the helper wrote so far.  Without a TTY the

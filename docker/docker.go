@@ -24,6 +24,13 @@
 //	/volumes/<name>/config.json
 //	/volumes/<name>/data/...
 //	/containers/<name>/config.json
+//	/compose/<project>/compose.yaml
+//	/compose/<project>/project.json
+//	/compose/<project>/files/<path>
+//
+// docker+compose:/<project> walks the objects carrying the project's
+// compose labels and adds the rendered configuration under /compose; the
+// restore to docker+compose:/<dir> writes it there and runs compose up.
 //
 // Volume data goes through a helper container running the same image the
 // k8s integration uses for PVCs: plakar's fs importer or exporter behind an
@@ -35,7 +42,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +73,9 @@ const unknownSize = -1
 
 func init() {
 	_ = importer.Register("docker", location.FLAG_STREAM|location.FLAG_NEEDACK, NewImporter)
+	_ = importer.Register("docker+compose", location.FLAG_STREAM|location.FLAG_NEEDACK, NewImporter)
 	_ = exporter.Register("docker", location.FLAG_WALKDIRORDER, NewExporter)
+	_ = exporter.Register("docker+compose", location.FLAG_WALKDIRORDER, NewExporter)
 }
 
 type Manifest struct {
@@ -76,6 +87,8 @@ type Manifest struct {
 	Platform      string    `json:"platform"`
 	OS            string    `json:"os"`
 	Architecture  string    `json:"architecture"`
+
+	ComposeVersion string `json:"compose_version,omitempty"`
 }
 
 type Docker struct {
@@ -99,6 +112,18 @@ type Docker struct {
 	kubeletImage string
 
 	export bool
+
+	// docker+compose: the project walked, what the labels say about it,
+	// the configuration compose rendered and the images it names.
+	project  string
+	proj     Project
+	rendered []byte
+	images   map[string]bool
+
+	// docker+compose restore: the directory the configuration lands in,
+	// and the compose.yaml once written.
+	dir         string
+	composeFile string
 
 	// backup side: the helpers serving volume data, stopped at the end.
 	helpers []*helper
@@ -133,7 +158,24 @@ func newDocker(ctx context.Context, opts *connectors.Options, proto string, conf
 	rest = strings.TrimPrefix(rest, "//")
 	p := path.Clean("/" + rest)
 	d.base = p
-	if p != "/" {
+	switch {
+	case proto == "docker+compose" && export:
+		d.base = "/"
+		if rest == "" {
+			cli.Close()
+			return nil, fmt.Errorf("%s: a directory to restore the project into is needed", config["location"])
+		}
+		if d.dir, err = filepath.Abs(rest); err != nil {
+			cli.Close()
+			return nil, err
+		}
+	case proto == "docker+compose":
+		d.project = strings.Trim(p, "/")
+		if d.project == "" || strings.Contains(d.project, "/") {
+			cli.Close()
+			return nil, fmt.Errorf("%s: want docker+compose:/<project>", config["location"])
+		}
+	case p != "/":
 		segs := strings.SplitN(strings.Trim(p, "/"), "/", 2)
 		switch segs[0] {
 		case "images", "networks", "volumes", "containers":
@@ -248,4 +290,18 @@ func splitRef(ref string) (repo, tag string) {
 		return ref, "latest"
 	}
 	return ref[:i], ref[i+1:]
+}
+
+// hostFileRecord is a record for a file on the host plakar runs on, opened
+// when kloset reads it.
+func hostFileRecord(pathname, hostpath string, st os.FileInfo) *connectors.Record {
+	finfo := objects.FileInfo{
+		Lname:    path.Base(pathname),
+		Lsize:    st.Size(),
+		Lmode:    0644,
+		LmodTime: st.ModTime(),
+	}
+	return connectors.NewRecord(pathname, "", finfo, nil, func() (io.ReadCloser, error) {
+		return os.Open(hostpath)
+	})
 }

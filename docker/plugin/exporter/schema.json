@@ -9,8 +9,8 @@
   "properties": {
     "location": {
       "type": "string",
-      "pattern": "^docker:",
-      "description": "docker: restores to the daemon DOCKER_HOST points at"
+      "pattern": "^docker(\\+compose)?:",
+      "description": "docker: restores to the daemon DOCKER_HOST points at; docker+compose:/<dir> writes a compose project's configuration to <dir> and brings it up"
     },
     "start": {
       "type": "string",

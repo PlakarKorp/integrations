@@ -12,7 +12,7 @@ import (
 )
 
 func newImporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
-	if name == "docker" {
+	if name == "docker" || name == "docker+compose" {
 		return docker.NewImporter(ctx, opts, name, config)
 	}
 	return tarimporter.NewImporter(ctx, opts, name, config)

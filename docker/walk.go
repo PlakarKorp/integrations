@@ -126,6 +126,11 @@ func (d *Docker) Import(ctx context.Context, records chan<- *connectors.Record, 
 }
 
 func (d *Docker) walk(ctx context.Context, r *relay) error {
+	if d.project != "" {
+		if err := d.loadProject(ctx); err != nil {
+			return err
+		}
+	}
 	if d.kind == "" {
 		rec, err := d.manifest(ctx)
 		if err != nil {
@@ -156,7 +161,18 @@ func (d *Docker) walk(ctx context.Context, r *relay) error {
 			return err
 		}
 	}
+	if d.project != "" {
+		return d.walkCompose(ctx, r)
+	}
 	return nil
+}
+
+// filter narrows a list to the compose project when walking one.
+func (d *Docker) filter() client.Filters {
+	if d.project == "" {
+		return nil
+	}
+	return d.projectFilter()
 }
 
 func (d *Docker) manifest(ctx context.Context) (*connectors.Record, error) {
@@ -173,6 +189,8 @@ func (d *Docker) manifest(ctx context.Context) (*connectors.Record, error) {
 		Platform:      ver.Platform.Name,
 		OS:            ver.Os,
 		Architecture:  ver.Arch,
+
+		ComposeVersion: d.proj.Version,
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -182,6 +200,9 @@ func (d *Docker) manifest(ctx context.Context) (*connectors.Record, error) {
 }
 
 func (d *Docker) walkImages(ctx context.Context, r *relay) error {
+	if d.project != "" {
+		return d.walkProjectImages(ctx, r)
+	}
 	list, err := d.cli.ImageList(ctx, client.ImageListOptions{})
 	if err != nil {
 		return fmt.Errorf("image list: %w", err)
@@ -209,7 +230,7 @@ func (d *Docker) walkImages(ctx context.Context, r *relay) error {
 }
 
 func (d *Docker) walkNetworks(ctx context.Context, r *relay) error {
-	list, err := d.cli.NetworkList(ctx, client.NetworkListOptions{})
+	list, err := d.cli.NetworkList(ctx, client.NetworkListOptions{Filters: d.filter()})
 	if err != nil {
 		return fmt.Errorf("network list: %w", err)
 	}
@@ -233,7 +254,7 @@ func (d *Docker) walkNetworks(ctx context.Context, r *relay) error {
 }
 
 func (d *Docker) walkVolumes(ctx context.Context, r *relay) error {
-	list, err := d.cli.VolumeList(ctx, client.VolumeListOptions{})
+	list, err := d.cli.VolumeList(ctx, client.VolumeListOptions{Filters: d.filter()})
 	if err != nil {
 		return fmt.Errorf("volume list: %w", err)
 	}
@@ -324,7 +345,7 @@ func (d *Docker) pauseUsers(ctx context.Context, vol string) (func(), error) {
 }
 
 func (d *Docker) walkContainers(ctx context.Context, r *relay) error {
-	list, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true})
+	list, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: d.filter()})
 	if err != nil {
 		return fmt.Errorf("container list: %w", err)
 	}

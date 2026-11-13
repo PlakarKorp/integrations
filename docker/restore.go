@@ -41,7 +41,7 @@ var builtinNetworks = map[string]bool{
 // Export recreates the snapshot's objects on the daemon.  Records arrive in
 // walk order, so a volume's config.json comes before its data and the data
 // of one volume is contiguous, which is what the single restore helper
-// relies on.
+// relies on.  A compose project is brought up once everything is in.
 func (d *Docker) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
 	defer close(results)
 
@@ -53,7 +53,7 @@ func (d *Docker) Export(ctx context.Context, records <-chan *connectors.Record, 
 			return ctx.Err()
 		case rec, ok = <-records:
 			if !ok {
-				return nil
+				return d.finishRestore(ctx)
 			}
 		}
 
@@ -74,6 +74,22 @@ func (d *Docker) Export(ctx context.Context, records <-chan *connectors.Record, 
 			results <- rec.Ok()
 		}
 	}
+}
+
+// finishRestore flushes the volume being restored and, for a compose
+// project, brings it up.
+func (d *Docker) finishRestore(ctx context.Context) error {
+	if d.cur != nil {
+		err := d.cur.finish(ctx)
+		d.cur = nil
+		if err != nil {
+			return err
+		}
+	}
+	if d.dir == "" {
+		return nil
+	}
+	return d.composeUp(ctx)
 }
 
 // readAll reads a record's content.  The reader is closed by the result
@@ -154,13 +170,20 @@ func (d *Docker) restoreRecord(ctx context.Context, rec *connectors.Record) (clo
 		}
 
 	case kind == "containers":
-		if len(segs) < 3 {
+		if len(segs) < 3 || d.dir != "" {
+			// compose creates the project's own containers
 			return false, nil
 		}
 		if segs[2] != "config.json" {
 			return false, fmt.Errorf("unexpected %s under container %s", segs[2], segs[1])
 		}
 		return false, d.restoreContainer(ctx, rec)
+
+	case kind == "compose":
+		if len(segs) < 3 {
+			return false, nil
+		}
+		return false, d.restoreComposeFile(segs[2], rec)
 
 	default:
 		return false, fmt.Errorf("unexpected path %s", p)

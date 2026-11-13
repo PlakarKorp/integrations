@@ -6,9 +6,9 @@ license: ISC
 connectors:
 - type: importer
   executable: dockerImporter
-  protocols: [docker, docker+container, docker+image]
+  protocols: [docker, docker+compose, docker+container, docker+image]
   validator: ./plugin/importer/schema.json
 - type: exporter
   executable: dockerExporter
-  protocols: [docker]
+  protocols: [docker, docker+compose]
   validator: ./plugin/exporter/schema.json
