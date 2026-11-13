@@ -5,9 +5,9 @@ import (
 
 	connector "github.com/PlakarKorp/integrations/openwrt"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, connector.NewExporter)
+	server.EntrypointExporter(connector.NewExporter, os.Args)
 }

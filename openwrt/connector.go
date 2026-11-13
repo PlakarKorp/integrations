@@ -16,12 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openwrt/openwrtclient"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 type openwrt struct {
@@ -52,8 +49,8 @@ func (o *openwrt) Ping(ctx context.Context) error {
 }
 
 func init() {
-	_ = importer.Register("openwrt", importerFlags, NewImporter)
-	_ = exporter.Register("openwrt", exporterFlags, NewExporter)
+	_ = integration.RegisterImporter("openwrt", importerFlags, NewImporter)
+	_ = integration.RegisterExporter("openwrt", exporterFlags, NewExporter)
 }
 
 func (o *openwrt) Origin() string {
@@ -61,8 +58,8 @@ func (o *openwrt) Origin() string {
 }
 
 // Come straight from the Tar integration
-func finfo(hdr *tar.Header) objects.FileInfo {
-	f := objects.FileInfo{
+func finfo(hdr *tar.Header) integration.FileInfo {
+	f := integration.FileInfo{
 		Lname:      path.Base(hdr.Name),
 		Lsize:      hdr.Size,
 		Lmode:      hdr.FileInfo().Mode(),
@@ -85,18 +82,18 @@ func linkTarget(hdr *tar.Header) string {
 	return ""
 }
 
-func (o *openwrt) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (o *openwrt) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	bFile, err := o.bClient.GetBackupArchive(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = bFile.Close() }()
 
 	g, err := gzip.NewReader(bFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = g.Close() }()
 
@@ -105,18 +102,18 @@ func (o *openwrt) Import(ctx context.Context, records chan<- *connectors.Record,
 		hdr, err := t.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				return err
+				return nil, err
 			}
-			return nil
+			return nil, nil //nolint:nilnil // no import metadata
 		}
 
 		fullpath := path.Join("/", hdr.Name)
 
-		var record *connectors.Record
+		var record *integration.Record
 		if hdr.Typeflag == tar.TypeLink {
-			record = connectors.NewError(fullpath, errors.New("hard links are not supported"))
+			record = integration.NewError(fullpath, errors.New("hard links are not supported"))
 		} else {
-			record = connectors.NewRecord(fullpath, linkTarget(hdr), finfo(hdr), nil,
+			record = integration.NewRecord(fullpath, linkTarget(hdr), finfo(hdr), nil,
 				func() (io.ReadCloser, error) {
 					return io.NopCloser(t), nil
 				})
@@ -125,25 +122,25 @@ func (o *openwrt) Import(ctx context.Context, records chan<- *connectors.Record,
 		select {
 		case records <- record:
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		case ack, ok := <-results:
 			if !ok {
-				return errors.New("ack channel closed")
+				return nil, errors.New("ack channel closed")
 			}
 			if ack.Err != nil {
-				return fmt.Errorf("cannot ack %s %w", fullpath, ack.Err)
+				return nil, fmt.Errorf("cannot ack %s %w", fullpath, ack.Err)
 			}
 			// Wait for ACK, cannot be async.
 		}
 	}
 }
 
-func (o *openwrt) handleExportChan(ctx context.Context, records <-chan *connectors.Record, result chan<- *connectors.Result) (*bytes.Buffer, error) {
+func (o *openwrt) handleExportChan(ctx context.Context, records <-chan *integration.Record, result chan<- *integration.Result) (*bytes.Buffer, error) {
 	var archive bytes.Buffer
 
 	gw := gzip.NewWriter(&archive)
@@ -208,7 +205,7 @@ func (o *openwrt) handleExportChan(ctx context.Context, records <-chan *connecto
 	}
 }
 
-func (o *openwrt) Export(ctx context.Context, records <-chan *connectors.Record, result chan<- *connectors.Result) error {
+func (o *openwrt) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, result chan<- *integration.Result) error {
 	defer close(result)
 
 	archive, err := o.handleExportChan(ctx, records, result)
@@ -330,7 +327,7 @@ func parseConfig(config map[string]string) (*openwrt, error) {
 	}, nil
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	o, err := parseConfig(config)
 	if err != nil {
 		return nil, err
@@ -339,7 +336,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, co
 	return o, nil
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	o, err := parseConfig(config)
 	if err != nil {
 		return nil, err
