@@ -10,9 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 // ManifestOptions records which dump options were active when the backup was created.
@@ -61,7 +60,7 @@ type Config struct {
 // /manifest.json as the first record on the records channel.
 // Individual metadata query failures are non-fatal — partial manifests are
 // acceptable and never abort a backup.
-func Emit(ctx context.Context, cfg Config, records chan<- *connectors.Record) error {
+func Emit(ctx context.Context, cfg Config, records chan<- *integration.Record) error {
 	connectDB := cfg.Database
 	if connectDB == "" {
 		connectDB = "information_schema"
@@ -145,14 +144,14 @@ func mysqldumpBinVersion(binPath string) string {
 }
 
 // emitManifest serialises m as /manifest.json and sends it on records.
-func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Manifest) error {
+func emitManifest(ctx context.Context, records chan<- *integration.Record, m *Manifest) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("manifest: marshalling JSON: %w", err)
 	}
 
 	now := time.Now().UTC()
-	fileinfo := objects.FileInfo{
+	fileinfo := integration.FileInfo{
 		Lname:    "manifest.json",
 		Lsize:    int64(len(data)),
 		Lmode:    0444,
@@ -165,7 +164,7 @@ func emitManifest(ctx context.Context, records chan<- *connectors.Record, m *Man
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case records <- connectors.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
+	case records <- integration.NewRecord("/manifest.json", "", fileinfo, nil, readerFunc):
 	}
 	return nil
 }
