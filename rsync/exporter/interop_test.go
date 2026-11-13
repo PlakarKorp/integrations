@@ -7,7 +7,6 @@ import (
 
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
 	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
-	"github.com/PlakarKorp/kloset/snapshot"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,9 +16,9 @@ func TestInterop(t *testing.T) {
 	ctx := context.Background()
 	addr := rsynctest.StartRsyncd(t)
 
-	snap := backup(t, "rsync://"+addr+"/pub")
+	saved := backup(t, "rsync://"+addr+"/pub")
 	exp := newExporter(t, "rsync://"+addr+"/restore/round/trip")
-	require.NoError(t, snap.Export(exp, "/pub", &snapshot.ExportOptions{}))
+	restore(t, exp, saved, "/pub")
 
 	list := func(c *rsync.Client, dir string) map[string]rsync.File {
 		files, errs, err := c.List(ctx, dir)

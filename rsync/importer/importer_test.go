@@ -2,7 +2,6 @@ package importer_test
 
 import (
 	"context"
-	"io"
 	"io/fs"
 	"maps"
 	"net"
@@ -12,12 +11,9 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/rsync/importer"
 	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
-	"github.com/PlakarKorp/kloset/connectors"
-	kimporter "github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/snapshot"
-	ktest "github.com/PlakarKorp/kloset/testing"
 	"github.com/gokrazy/rsync/rsyncd"
 	"github.com/stretchr/testify/require"
 )
@@ -57,9 +53,9 @@ func testFS() fstest.MapFS {
 	}
 }
 
-func newImporter(t *testing.T, config map[string]string) kimporter.Importer {
+func newImporter(t *testing.T, config map[string]string) integration.Importer {
 	t.Helper()
-	imp, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", config)
+	imp, err := importer.NewImporter(context.Background(), &integration.Options{}, "rsync", config)
 	require.NoError(t, err)
 	return imp
 }
@@ -108,7 +104,7 @@ func TestNewImporter(t *testing.T) {
 		{"location": "rsync://host/mod", "max_connections": "0"},
 		{"location": "rsync://host/mod", "max_connections": "many"},
 	} {
-		_, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", config)
+		_, err := importer.NewImporter(context.Background(), &integration.Options{}, "rsync", config)
 		require.Error(t, err, config)
 	}
 }
@@ -118,23 +114,10 @@ func TestNewImporterErrorsHidePassword(t *testing.T) {
 		"rsync://user:hunter2@host",
 		"rsync://user:hunter2@host:badport/mod",
 	} {
-		_, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
+		_, err := importer.NewImporter(context.Background(), &integration.Options{}, "rsync", map[string]string{"location": location})
 		require.Error(t, err, location)
 		require.NotContains(t, err.Error(), "hunter2", location)
 	}
-}
-
-func importAll(t *testing.T, imp kimporter.Importer) map[string]*connectors.Record {
-	t.Helper()
-	records := make(chan *connectors.Record)
-	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(context.Background(), records, nil) }()
-	got := map[string]*connectors.Record{}
-	for r := range records {
-		got[r.Pathname] = r
-	}
-	require.NoError(t, <-errc)
-	return got
 }
 
 func TestImport(t *testing.T) {
@@ -142,7 +125,7 @@ func TestImport(t *testing.T) {
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod/dir"})
 	require.NoError(t, imp.Ping(context.Background()))
 
-	got := importAll(t, imp)
+	got := rsynctest.Import(t, imp)
 	require.ElementsMatch(t,
 		[]string{"/mod/dir", "/mod/dir/b.txt", "/mod/dir/c.txt", "/mod/dir/link"},
 		slices.Collect(maps.Keys(got)))
@@ -161,9 +144,7 @@ func TestImport(t *testing.T) {
 	require.Equal(t, int64(3), b.FileInfo.Size())
 	require.Equal(t, fs.FileMode(0o600), b.FileInfo.Mode())
 	require.True(t, b.FileInfo.ModTime().Equal(mtime))
-	data, err := io.ReadAll(b.Reader)
-	require.NoError(t, err)
-	require.Equal(t, "bbb", string(data))
+	require.Equal(t, "bbb", rsynctest.Read(t, b))
 
 	for _, r := range got {
 		require.NoError(t, r.Close())
@@ -175,13 +156,11 @@ func TestImportFile(t *testing.T) {
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod/dir/b.txt"})
 	require.NoError(t, imp.Ping(context.Background()))
 
-	got := importAll(t, imp)
+	got := rsynctest.Import(t, imp)
 	require.Equal(t, []string{"/mod/dir/b.txt"}, slices.Collect(maps.Keys(got)))
 	b := got["/mod/dir/b.txt"]
 	require.Equal(t, "b.txt", b.FileInfo.Name())
-	data, err := io.ReadAll(b.Reader)
-	require.NoError(t, err)
-	require.Equal(t, "bbb", string(data))
+	require.Equal(t, "bbb", rsynctest.Read(t, b))
 	require.NoError(t, imp.Close(context.Background()))
 }
 
@@ -189,13 +168,11 @@ func TestImportRoot(t *testing.T) {
 	addr, _ := startServer(t, testFS())
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr, "module": "mod", "root": "dir"})
 
-	got := importAll(t, imp)
+	got := rsynctest.Import(t, imp)
 	require.ElementsMatch(t,
 		[]string{"/mod/dir", "/mod/dir/b.txt", "/mod/dir/c.txt", "/mod/dir/link"},
 		slices.Collect(maps.Keys(got)))
-	data, err := io.ReadAll(got["/mod/dir/b.txt"].Reader)
-	require.NoError(t, err)
-	require.Equal(t, "bbb", string(data))
+	require.Equal(t, "bbb", rsynctest.Read(t, got["/mod/dir/b.txt"]))
 	require.NoError(t, imp.Close(context.Background()))
 }
 
@@ -204,14 +181,12 @@ func TestImportRoot(t *testing.T) {
 func TestImportAfterInitContextCanceled(t *testing.T) {
 	addr, _ := startServer(t, testFS())
 	ctx, cancel := context.WithCancel(context.Background())
-	imp, err := importer.NewImporter(ctx, &connectors.Options{}, "rsync", map[string]string{"location": "rsync://" + addr + "/mod"})
+	imp, err := importer.NewImporter(ctx, &integration.Options{}, "rsync", map[string]string{"location": "rsync://" + addr + "/mod"})
 	require.NoError(t, err)
 	cancel()
 
-	got := importAll(t, imp)
-	data, err := io.ReadAll(got["/mod/a.txt"].Reader)
-	require.NoError(t, err)
-	require.Equal(t, "aaa", string(data))
+	got := rsynctest.Import(t, imp)
+	require.Equal(t, "aaa", rsynctest.Read(t, got["/mod/a.txt"]))
 	require.NoError(t, imp.Close(context.Background()))
 }
 
@@ -220,12 +195,13 @@ func TestImportUnknownModule(t *testing.T) {
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/nope"})
 	require.Error(t, imp.Ping(context.Background()))
 
-	records := make(chan *connectors.Record)
+	records := make(chan *integration.Record)
 	go func() {
 		for range records {
 		}
 	}()
-	require.Error(t, imp.Import(context.Background(), records, nil))
+	_, err := imp.Import(context.Background(), records, nil)
+	require.Error(t, err)
 }
 
 func TestImportUnsupportedType(t *testing.T) {
@@ -234,47 +210,69 @@ func TestImportUnsupportedType(t *testing.T) {
 	addr, _ := startServer(t, fsys)
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod/dir"})
 
-	got := importAll(t, imp)
+	got := rsynctest.Import(t, imp)
 	require.Error(t, got["/mod/dir/fifo"].Err)
 	require.NoError(t, got["/mod/dir/b.txt"].Err)
 }
 
-func readFile(t *testing.T, snap *snapshot.Snapshot, name string) string {
+// backup imports from imp what plakar would back up after prev, the records
+// of the previous backup: it reads the content of the regular files whose
+// metadata changed, or that are new. It returns the records and the paths
+// read, and closes the records left unread.
+func backup(t *testing.T, imp integration.Importer, prev map[string]*integration.Record) (map[string]*integration.Record, []string) {
 	t.Helper()
-	vfs, err := snap.Filesystem()
-	require.NoError(t, err)
-	f, err := vfs.Open(name)
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(f)
-	require.NoError(t, err)
-	return string(data)
+	got := rsynctest.Import(t, imp)
+	var read []string
+	for name, r := range got {
+		require.NoError(t, r.Err, name)
+		if old, ok := prev[name]; ok && old.FileInfo.Equal(&r.FileInfo) && old.Target == r.Target {
+			require.NoError(t, r.Close())
+			continue
+		}
+		if r.FileInfo.Mode().IsRegular() {
+			read = append(read, name)
+		}
+	}
+	return got, read
 }
 
 // The point of the integration: a backup made with the previous snapshot as
-// parent fetches only the files that changed since.
+// parent fetches only the files that changed since. The importer must report
+// the same metadata for unchanged files, and open no connection for the
+// content plakar does not read.
 func TestIncrementalBackup(t *testing.T) {
 	fsys := testFS()
 	addr, ln := startServer(t, fsys)
-	repo := ktest.GenerateRepository(t, nil, nil, nil)
 	imp := newImporter(t, map[string]string{"location": "rsync://" + addr + "/mod"})
+	content := map[string]string{}
+	fetch := func(got map[string]*integration.Record, read []string) {
+		for _, name := range read {
+			content[name] = rsynctest.Read(t, got[name])
+		}
+	}
 
 	// One connection for the listing, one per regular file.
-	first := rsynctest.Backup(t, repo, imp, nil)
+	first, read := backup(t, imp, nil)
+	require.ElementsMatch(t, []string{"/mod/a.txt", "/mod/dir/b.txt", "/mod/dir/c.txt", "/mod/other/d.md"}, read)
+	fetch(first, read)
 	require.Equal(t, int64(1+4), ln.conns.Load())
-	require.Equal(t, "bbb", readFile(t, first, "/mod/dir/b.txt"))
+	require.Equal(t, "bbb", content["/mod/dir/b.txt"])
 
 	ln.conns.Store(0)
-	second := rsynctest.Backup(t, repo, imp, first)
+	second, read := backup(t, imp, first)
+	require.Empty(t, read)
+	require.Len(t, second, len(first))
 	require.Equal(t, int64(1), ln.conns.Load())
-	require.Equal(t, "bbb", readFile(t, second, "/mod/dir/b.txt"))
 
 	fsys["dir/b.txt"] = &fstest.MapFile{Data: []byte("changed"), Mode: 0o600, ModTime: mtime.Add(time.Hour)}
 	fsys["new.txt"] = &fstest.MapFile{Data: []byte("new"), Mode: 0o644, ModTime: mtime}
 	ln.conns.Store(0)
-	third := rsynctest.Backup(t, repo, imp, second)
+	third, read := backup(t, imp, second)
+	require.ElementsMatch(t, []string{"/mod/dir/b.txt", "/mod/new.txt"}, read)
+	fetch(third, read)
 	require.Equal(t, int64(1+2), ln.conns.Load())
-	require.Equal(t, "changed", readFile(t, third, "/mod/dir/b.txt"))
-	require.Equal(t, "new", readFile(t, third, "/mod/new.txt"))
-	require.Equal(t, "ccc", readFile(t, third, "/mod/dir/c.txt"))
+	require.Equal(t, "changed", content["/mod/dir/b.txt"])
+	require.Equal(t, "new", content["/mod/new.txt"])
+	require.Equal(t, "ccc", content["/mod/dir/c.txt"])
+	require.NoError(t, imp.Close(context.Background()))
 }

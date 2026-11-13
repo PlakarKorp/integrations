@@ -8,16 +8,14 @@ import (
 	"io/fs"
 	"path"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	rsyncconfig "github.com/PlakarKorp/integrations/rsync/internal/config"
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 func init() {
-	_ = importer.Register("rsync", 0, NewImporter)
+	_ = integration.RegisterImporter("rsync", 0, NewImporter)
 }
 
 type Importer struct {
@@ -29,7 +27,7 @@ type Importer struct {
 	client *rsync.Client
 }
 
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	cfg, err := rsyncconfig.Parse(config)
 	if err != nil {
 		return nil, err
@@ -52,21 +50,21 @@ func (imp *Importer) Ping(ctx context.Context) error {
 	return imp.client.Ping(ctx, imp.cfg.Dir)
 }
 
-func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	files, errs, err := imp.client.List(ctx, imp.cfg.Dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// The server does not say which path an error is about.
 	for _, msg := range errs {
-		records <- connectors.NewError(imp.cfg.Root(), errors.New(msg))
+		records <- integration.NewError(imp.cfg.Root(), errors.New(msg))
 	}
 
 	for _, f := range files {
 		pathname := path.Join(imp.cfg.Root(), f.Name)
-		fileinfo := objects.FileInfo{
+		fileinfo := integration.FileInfo{
 			Lname:      path.Base(pathname),
 			Lsize:      f.Size,
 			Lmode:      f.Mode,
@@ -80,16 +78,16 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 		switch f.Mode.Type() {
 		case 0:
 			name := path.Join(imp.cfg.Dir, f.Name)
-			records <- connectors.NewRecord(pathname, "", fileinfo, nil, func() (io.ReadCloser, error) {
+			records <- integration.NewRecord(pathname, "", fileinfo, nil, func() (io.ReadCloser, error) {
 				return imp.client.Open(imp.ctx, name)
 			})
 		case fs.ModeDir, fs.ModeSymlink:
-			records <- connectors.NewRecord(pathname, f.LinkTarget, fileinfo, nil, nil)
+			records <- integration.NewRecord(pathname, f.LinkTarget, fileinfo, nil, nil)
 		default:
-			records <- connectors.NewError(pathname, fmt.Errorf("unsupported file type %s", f.Mode.Type()))
+			records <- integration.NewError(pathname, fmt.Errorf("unsupported file type %s", f.Mode.Type()))
 		}
 	}
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (imp *Importer) Close(ctx context.Context) error {

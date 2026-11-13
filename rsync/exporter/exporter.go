@@ -10,16 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	rsyncconfig "github.com/PlakarKorp/integrations/rsync/internal/config"
 	"github.com/PlakarKorp/integrations/rsync/internal/rsync"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"golang.org/x/sync/errgroup"
 )
 
 func init() {
-	_ = exporter.Register("rsync", 0, NewExporter)
+	_ = integration.RegisterExporter("rsync", 0, NewExporter)
 }
 
 type Exporter struct {
@@ -27,7 +26,7 @@ type Exporter struct {
 	client *rsync.Client
 }
 
-func NewExporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	cfg, err := rsyncconfig.Parse(config)
 	if err != nil {
 		return nil, err
@@ -50,7 +49,7 @@ func (exp *Exporter) Close(ctx context.Context) error {
 
 // Export sends each record on its own connection: rsync needs the whole file
 // list before any content, while records and their content arrive one by one.
-func (exp *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (exp *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	if err := exp.mkdirAll(ctx); err != nil {
@@ -139,7 +138,7 @@ func (exp *Exporter) mkdirAll(ctx context.Context) error {
 	return nil
 }
 
-func toFile(name string, record *connectors.Record) rsync.File {
+func toFile(name string, record *integration.Record) rsync.File {
 	fi := record.FileInfo
 	return rsync.File{
 		Name:       name,
@@ -154,7 +153,7 @@ func toFile(name string, record *connectors.Record) rsync.File {
 	}
 }
 
-func result(record *connectors.Record, err error) *connectors.Result {
+func result(record *integration.Record, err error) *integration.Result {
 	if err != nil {
 		return record.Error(err)
 	}
