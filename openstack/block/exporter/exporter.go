@@ -27,7 +27,6 @@ import (
 
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/PlakarKorp/kloset/connectors/exporter"
 	"github.com/PlakarKorp/kloset/location"
@@ -39,6 +38,9 @@ var ExporterSchema []byte
 
 type Exporter struct {
 	client *common.Client
+	// transfer is the openstack_transfer option: how the disk's bytes reach
+	// the new volume.
+	transfer common.Transfer
 	// imageID is the restore image, until the volume is created from it.
 	imageID string
 	// volumeID is the restored volume, once the disk was written to it
@@ -68,7 +70,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
-	return &Exporter{client: clients[0]}, nil
+	return &Exporter{client: clients[0], transfer: cfg.Transfer}, nil
 }
 
 func (exp *Exporter) Origin() string        { return "" }
@@ -165,11 +167,11 @@ loop:
 }
 
 // restoreDisk checks the disk against the metadata, then restores it one of
-// two ways. A raw disk, when plakar runs on a Nova server of the cloud, is
-// written to a new volume attached to that server: exp.volumeID is then the
-// restored volume, done. Otherwise, a qcow2 disk included, it is uploaded to
-// a Glance image, exp.imageID, for the volume to be created from once the
-// records are in.
+// two ways, as openstack_transfer allows. A raw disk, when plakar runs on a
+// Nova server of the cloud, is written to a new volume attached to that
+// server: exp.volumeID is then the restored volume, done. Otherwise, a qcow2
+// disk included, it is uploaded to a Glance image, exp.imageID, for the
+// volume to be created from once the records are in.
 func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record, volumeID string, metadata *common.DiskMetadata) error {
 	if metadata == nil {
 		return fmt.Errorf("%s before %s", record.Pathname, block.MetadataName)
@@ -178,13 +180,29 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 		return fmt.Errorf("volume ID %q in path %q does not match metadata %q", volumeID, record.Pathname, metadata.Volume.ID)
 	}
 
-	if w := attachVolume(ctx, exp.client, metadata); w != nil {
-		vol, err := writeDisk(ctx, w, record, metadata)
-		if err != nil {
-			return err
+	resolved, err := exp.restoreTransfer(ctx, metadata)
+	if err != nil {
+		return err
+	}
+	if resolved.Host != nil {
+		// None of the disk's bytes are read until writeDisk, so an attach
+		// the cloud refuses still leaves the whole disk for Glance under
+		// auto; under attach it is the restore's failure.
+		w, err := exp.client.AttachRestoreVolume(ctx, resolved.Host, metadata)
+		switch {
+		case err == nil:
+			log.Printf("openstack-block: writing volume %q to new volume %q through server %q", metadata.Volume.ID, w.Volume().ID, resolved.Host.ID)
+			vol, err := writeDisk(ctx, w, record, metadata)
+			if err != nil {
+				return err
+			}
+			exp.volumeID = vol.ID
+			return nil
+		case resolved.Transfer == common.TransferAttach:
+			return fmt.Errorf("openstack_transfer=attach: volume %q: %w", metadata.Volume.ID, err)
+		default:
+			log.Printf("openstack-block: volume %q: %v; restoring it through Glance", metadata.Volume.ID, err)
 		}
-		exp.volumeID = vol.ID
-		return nil
 	}
 
 	id, err := uploadDisk(ctx, exp.client, record, volumeID, metadata)
@@ -195,29 +213,21 @@ func (exp *Exporter) restoreDisk(ctx context.Context, record *connectors.Record,
 	return nil
 }
 
-// attachVolume attaches a new volume for the disk to the host, when the disk
-// can be written to a block device, the host is a Nova server of the cloud
-// and the attach works. It returns nil when any of that fails, logging why
-// when it is worth knowing: none of the disk's bytes are read by then, so
-// the disk can go through Glance instead.
-func attachVolume(ctx context.Context, client *common.Client, metadata *common.DiskMetadata) *common.VolumeWrite {
-	if common.ValidateWriteAttachment(metadata) != nil {
-		return nil
+// restoreTransfer
+func (exp *Exporter) restoreTransfer(ctx context.Context, metadata *common.DiskMetadata) (common.ResolvedTransfer, error) {
+	resolved := common.ResolvedTransfer{Transfer: exp.transfer}
+	if exp.transfer == common.TransferGlance {
+		return resolved, nil
 	}
-	host, err := client.PreflightHost(ctx)
-	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
-		}
-		return nil
+	err := common.ValidateWriteAttachment(metadata)
+	switch {
+	case err == nil:
+		return exp.client.ResolveTransfer(ctx, exp.transfer)
+	case exp.transfer == common.TransferAttach:
+		return resolved, fmt.Errorf("openstack_transfer=attach: volume %q: %w; glance or auto restores it through Glance", metadata.Volume.ID, err)
+	default:
+		return resolved, nil
 	}
-	w, err := client.AttachRestoreVolume(ctx, host, metadata)
-	if err != nil {
-		log.Printf("openstack-block: volume %q: %v; restoring it through Glance", metadata.Volume.ID, err)
-		return nil
-	}
-	log.Printf("openstack-block: writing volume %q to new volume %q through server %q", metadata.Volume.ID, w.Volume().ID, host.ID)
-	return w
 }
 
 // writeDisk writes the disk's bytes to the attached volume and returns it,

@@ -25,6 +25,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -61,13 +62,38 @@ func params(authURL, location string) map[string]string {
 // server by accident.
 func newExporter(t *testing.T, cloud *keystonetest.Cloud) exporter.Exporter {
 	t.Helper()
+	return newExporterTransfer(t, cloud, "")
+}
+
+// newExporterTransfer is newExporter with openstack_transfer set; "" leaves
+// it unset, for the default.
+func newExporterTransfer(t *testing.T, cloud *keystonetest.Cloud, transfer string) exporter.Exporter {
+	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	exp, err := NewExporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://"))
+	p := params(cloud.AuthURL, "openstack-block://")
+	if transfer != "" {
+		p["openstack_transfer"] = transfer
+	}
+	exp, err := NewExporter(t.Context(), nil, block.Protocol, p)
 	require.NoError(t, err)
 	return exp
+}
+
+// neverProbed fails the test if the preflight asks the metadata service.
+// Call it after newExporter, which points the preflight at the fake cloud's.
+func neverProbed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("openstack_transfer=glance probed the metadata service")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	saved := attach.MetadataURL
+	attach.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
+	t.Cleanup(func() { attach.MetadataURL = saved })
 }
 
 // onCloud makes the test host a Nova server of cloud.
@@ -275,8 +301,9 @@ func TestExportWritesAttachedVolume(t *testing.T) {
 	require.NoError(t, exp.Close(t.Context()))
 }
 
-// On the cloud, a disk that cannot be written to a block device, or one the
-// host cannot take, goes through Glance as it would off it.
+// On the cloud, under the default auto, a disk that cannot be written to a
+// block device, or one the host cannot take, goes through Glance as it would
+// off it.
 func TestExportOnCloudFallsBackToGlance(t *testing.T) {
 	encrypted := volumeMetadata("raw")
 	encrypted.ImageProperties = map[string]string{"cinder_encryption_key_id": "key-1"}
@@ -329,6 +356,79 @@ func TestExportOnCloudFallsBackToGlance(t *testing.T) {
 
 			vol := restored(t, cloud)
 			assert.Nil(t, cloud.Written(vol))
+			assert.Empty(t, cloud.Attached())
+			require.NoError(t, exp.Close(t.Context()))
+		})
+	}
+}
+
+// openstack_transfer decides the route, and a route that was asked for and
+// cannot be taken fails the restore before any of the disk's bytes are
+// read, instead of becoming the other one.
+func TestExportTransfer(t *testing.T) {
+	tests := []struct {
+		name         string
+		onCloud      bool // the host is a Nova server of the cloud
+		refuseAttach bool // Nova refuses the attach
+		metadata     common.DiskMetadata
+		transfer     string
+		wantWritten  bool   // the disk is written to an attached volume, not uploaded
+		wantErr      string // Export fails, and nothing is left
+	}{
+		{name: "off-cloud auto", metadata: deviceMetadata(), transfer: "auto"},
+		{name: "off-cloud attach", metadata: deviceMetadata(), transfer: "attach", wantErr: "openstack_transfer=attach: cannot attach to this host: not a Nova server"},
+		{name: "off-cloud glance", metadata: deviceMetadata(), transfer: "glance"},
+		{name: "on-cloud auto", onCloud: true, metadata: deviceMetadata(), transfer: "auto", wantWritten: true},
+		{name: "on-cloud attach", onCloud: true, metadata: deviceMetadata(), transfer: "attach", wantWritten: true},
+		{name: "on-cloud glance", onCloud: true, metadata: deviceMetadata(), transfer: "glance"},
+		{name: "attach refused auto", onCloud: true, refuseAttach: true, metadata: deviceMetadata(), transfer: "auto"},
+		{name: "attach refused attach", onCloud: true, refuseAttach: true, metadata: deviceMetadata(), transfer: "attach", wantErr: `openstack_transfer=attach: volume "vol-1": attaching to server "host-1"`},
+		// A qcow2 disk is no block device's content: no attach would
+		// write it, and a user who asked for attach is told so before
+		// the restore, not by its duration.
+		{name: "qcow2 auto", onCloud: true, metadata: volumeMetadata("qcow2"), transfer: "auto"},
+		{name: "qcow2 attach", onCloud: true, metadata: volumeMetadata("qcow2"), transfer: "attach", wantErr: `openstack_transfer=attach: volume "vol-1": disk cannot be written to a block device: it is qcow2; glance or auto restores it through Glance`},
+		{name: "qcow2 glance", onCloud: true, metadata: volumeMetadata("qcow2"), transfer: "glance"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t)
+			cloud.FailVolumeAttach = tt.refuseAttach
+			cloud.DetachingPolls = 1
+			if tt.onCloud {
+				onCloud(cloud)
+			}
+			exp := newExporterTransfer(t, cloud, tt.transfer)
+			if tt.transfer == "glance" {
+				neverProbed(t)
+			}
+
+			results, err := exportAll(t.Context(), exp, metadataRecord(t, tt.metadata), diskRecord(t, "vol-1", "qcow2"))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Len(t, results, 2)
+				require.ErrorContains(t, results[1].Err, tt.wantErr)
+				assert.Empty(t, cloud.Uploads(), "the disk never went through Glance")
+				assert.Empty(t, cloud.Attached())
+				require.NoError(t, exp.Close(t.Context()))
+				assert.Empty(t, cloud.Leftovers())
+				return
+			}
+			require.NoError(t, err)
+			for _, r := range results {
+				require.NoError(t, r.Err, r.Record.Pathname)
+			}
+
+			vol := restored(t, cloud)
+			if tt.wantWritten {
+				assert.Empty(t, cloud.Uploads(), "no image")
+				assert.Equal(t, disk, cloud.Written(vol))
+			} else {
+				uploads := cloud.Uploads()
+				require.Len(t, uploads, 1)
+				assert.Equal(t, disk, uploads[0].Data)
+				assert.Nil(t, cloud.Written(vol))
+			}
 			assert.Empty(t, cloud.Attached())
 			require.NoError(t, exp.Close(t.Context()))
 		})
