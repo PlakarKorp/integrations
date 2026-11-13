@@ -137,7 +137,7 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Rec
 		LmodTime: time.Now(),
 	}, nil, common.JSONReader(disk.Metadata)):
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (imp *Importer) Close(ctx context.Context) error {
