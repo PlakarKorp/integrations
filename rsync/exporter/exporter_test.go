@@ -11,14 +11,10 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/rsync/exporter"
 	"github.com/PlakarKorp/integrations/rsync/importer"
 	"github.com/PlakarKorp/integrations/rsync/internal/rsynctest"
-	"github.com/PlakarKorp/kloset/connectors"
-	kexporter "github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/snapshot"
-	ktest "github.com/PlakarKorp/kloset/testing"
 	"github.com/gokrazy/rsync/rsyncd"
 	"github.com/stretchr/testify/require"
 )
@@ -46,30 +42,43 @@ func testFS() fstest.MapFS {
 	}
 }
 
-func newExporter(t *testing.T, location string) kexporter.Exporter {
+func newExporter(t *testing.T, location string) integration.Exporter {
 	t.Helper()
-	exp, err := exporter.NewExporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
+	exp, err := exporter.NewExporter(context.Background(), &integration.Options{}, "rsync", map[string]string{"location": location})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = exp.Close(context.Background()) })
 	return exp
 }
 
-// backup backs up location into a new repository and returns the snapshot.
-func backup(t *testing.T, location string) *snapshot.Snapshot {
+// backup imports location with its content.
+func backup(t *testing.T, location string) map[string]rsynctest.Entry {
 	t.Helper()
-	imp, err := importer.NewImporter(context.Background(), &connectors.Options{}, "rsync", map[string]string{"location": location})
+	imp, err := importer.NewImporter(context.Background(), &integration.Options{}, "rsync", map[string]string{"location": location})
 	require.NoError(t, err)
-	return rsynctest.Backup(t, ktest.GenerateRepository(t, nil, nil, nil), imp, nil)
+	t.Cleanup(func() { _ = imp.Close(context.Background()) })
+	return rsynctest.Backup(t, imp)
+}
+
+// restore exports pathname of backup with exp, and requires every record
+// to succeed.
+func restore(t *testing.T, exp integration.Exporter, backup map[string]rsynctest.Entry, pathname string) {
+	t.Helper()
+	records := rsynctest.Restore(backup, pathname)
+	got := rsynctest.Export(t, exp, records...)
+	require.Len(t, got, len(records))
+	for name, err := range got {
+		require.NoError(t, err, name)
+	}
 }
 
 func TestExport(t *testing.T) {
 	addr, dst := startServer(t, testFS())
-	snap := backup(t, "rsync://"+addr+"/src")
+	saved := backup(t, "rsync://"+addr+"/src")
 
 	// The destination does not exist yet.
 	exp := newExporter(t, "rsync://"+addr+"/dst/restore/here")
 	require.NoError(t, exp.Ping(context.Background()))
-	require.NoError(t, snap.Export(exp, "/src", &snapshot.ExportOptions{}))
+	restore(t, exp, saved, "/src")
 
 	root := filepath.Join(dst, "restore", "here")
 	// The restored modes are read-only: let the test clean up.
@@ -101,31 +110,14 @@ func TestExport(t *testing.T) {
 
 func TestExportFile(t *testing.T) {
 	addr, dst := startServer(t, testFS())
-	snap := backup(t, "rsync://"+addr+"/src")
+	saved := backup(t, "rsync://"+addr+"/src")
 
 	exp := newExporter(t, "rsync://"+addr+"/dst")
-	require.NoError(t, snap.Export(exp, "/src/dir/b.txt", &snapshot.ExportOptions{}))
+	restore(t, exp, saved, "/src/dir/b.txt")
 
 	data, err := os.ReadFile(filepath.Join(dst, "b.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "bbb", string(data))
-}
-
-// export runs Export on records and returns the error of each, by pathname.
-func export(t *testing.T, exp kexporter.Exporter, records ...*connectors.Record) map[string]error {
-	t.Helper()
-	in := make(chan *connectors.Record, len(records))
-	out := make(chan *connectors.Result, len(records))
-	for _, r := range records {
-		in <- r
-	}
-	close(in)
-	require.NoError(t, exp.Export(context.Background(), in, out))
-	got := make(map[string]error)
-	for r := range out {
-		got[r.Record.Pathname] = r.Err
-	}
-	return got
 }
 
 func TestExportUnsupported(t *testing.T) {
@@ -133,10 +125,10 @@ func TestExportUnsupported(t *testing.T) {
 	exp := newExporter(t, "rsync://"+addr+"/dst")
 
 	open := func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil }
-	fifo := connectors.NewRecord("/fifo", "", objects.FileInfo{Lname: "fifo", Lmode: fs.ModeNamedPipe | 0o644, LmodTime: mtime}, nil, open)
-	xattr := connectors.NewXattr("/a.txt", "user.test", objects.AttributeExtended, open)
+	fifo := integration.NewRecord("/fifo", "", integration.FileInfo{Lname: "fifo", Lmode: fs.ModeNamedPipe | 0o644, LmodTime: mtime}, nil, open)
+	xattr := integration.NewXattr("/a.txt", "user.test", integration.AttributeExtended, open)
 
-	got := export(t, exp, fifo, xattr)
+	got := rsynctest.Export(t, exp, fifo, xattr)
 	require.ErrorContains(t, got["/fifo"], "unsupported file type")
 	require.NoError(t, got["/a.txt"])
 	entries, err := os.ReadDir(dst)
@@ -149,6 +141,6 @@ func TestExportReadOnlyModule(t *testing.T) {
 	exp := newExporter(t, "rsync://"+addr+"/src")
 
 	open := func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("aaa")), nil }
-	got := export(t, exp, connectors.NewRecord("/new.txt", "", objects.FileInfo{Lname: "new.txt", Lsize: 3, Lmode: 0o644, LmodTime: mtime}, nil, open))
+	got := rsynctest.Export(t, exp, integration.NewRecord("/new.txt", "", integration.FileInfo{Lname: "new.txt", Lsize: 3, Lmode: 0o644, LmodTime: mtime}, nil, open))
 	require.Error(t, got["/new.txt"])
 }
