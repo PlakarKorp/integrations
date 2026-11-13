@@ -13,16 +13,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/manifest"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 func init() {
-	_ = importer.Register("postgres+bin", location.FLAG_STREAM|location.FLAG_NEEDACK, NewBinImporter)
+	_ = integration.RegisterImporter("postgres+bin", location.FLAG_STREAM|location.FLAG_NEEDACK, NewBinImporter)
 }
 
 type BinImporter struct {
@@ -39,7 +37,7 @@ func (p *BinImporter) bin(name string) string {
 	return filepath.Join(p.pgBinDir, name)
 }
 
-func NewBinImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewBinImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
@@ -64,7 +62,7 @@ func NewBinImporter(appCtx context.Context, opts *connectors.Options, name strin
 	return imp, nil
 }
 
-func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connectors.Record) error {
+func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *integration.Record) error {
 	return manifest.EmitPhysicalManifest(ctx, manifest.PhysicalConfig{
 		PgBaseBackupBin: p.bin("pg_basebackup"),
 		Conn:            p.conn,
@@ -75,11 +73,11 @@ func (p *BinImporter) emitManifest(ctx context.Context, records chan<- *connecto
 // tar entry.  The results channel is used to pace reading: the loop waits for
 // an ack after each record so the caller fully consumes the entry before
 // tr.Next() advances the stream.
-func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *BinImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	if err := p.emitManifest(ctx, records); err != nil {
-		return err
+		return nil, err
 	}
 
 	<-results // wait for the manifest ack
@@ -95,11 +93,11 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("pg_basebackup: %w", err)
+		return nil, fmt.Errorf("pg_basebackup: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("pg_basebackup: %w", err)
+		return nil, fmt.Errorf("pg_basebackup: %w", err)
 	}
 
 	tr := tar.NewReader(stdout)
@@ -111,18 +109,18 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 			waitErr := cmd.Wait()
 			if !errors.Is(err, io.EOF) {
 				if s := strings.TrimSpace(stderr.String()); s != "" {
-					return fmt.Errorf("reading backup stream: %w: %s", err, s)
+					return nil, fmt.Errorf("reading backup stream: %w: %s", err, s)
 				}
-				return fmt.Errorf("reading backup stream: %w", err)
+				return nil, fmt.Errorf("reading backup stream: %w", err)
 			}
 			if waitErr != nil {
-				return fmt.Errorf("pg_basebackup: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
+				return nil, fmt.Errorf("pg_basebackup: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
 			}
-			return nil
+			return nil, nil
 		}
 
 		name := path.Join("/data/" + hdr.Name)
-		records <- &connectors.Record{
+		records <- &integration.Record{
 			Pathname: name,
 			Target:   hdr.Linkname,
 			FileInfo: finfo(hdr),
@@ -133,7 +131,7 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 		case <-ctx.Done():
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-results:
 			// wait for the ack before continuing
 		}
@@ -141,8 +139,8 @@ func (p *BinImporter) Import(ctx context.Context, records chan<- *connectors.Rec
 }
 
 // finfo has been copied from integrations/tar.
-func finfo(hdr *tar.Header) objects.FileInfo {
-	f := objects.FileInfo{
+func finfo(hdr *tar.Header) integration.FileInfo {
+	f := integration.FileInfo{
 		Lname:      path.Base(hdr.Name),
 		Lsize:      hdr.Size,
 		Lmode:      fs.FileMode(hdr.Mode),

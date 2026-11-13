@@ -16,17 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/dumpfs"
 	"github.com/PlakarKorp/integrations/postgresql/manifest"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 func init() {
-	_ = importer.Register("postgres", location.FLAG_STREAM|location.FLAG_NOCACHE, NewImporter)
+	_ = integration.RegisterImporter("postgres", location.FLAG_STREAM|location.FLAG_NOCACHE, NewImporter)
 }
 
 type Importer struct {
@@ -65,7 +63,7 @@ const defaultParallelDumps = 4
 // the raw config map for the remaining option parsing.  connType is the value
 // returned by Type(); pass an empty string to use the default "postgresql".
 // opts gives plakar's concurrency; it may be nil.
-func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, opts *connectors.Options, config map[string]string) (*Importer, error) {
+func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, opts *integration.Options, config map[string]string) (*Importer, error) {
 	database := dbPath
 	if db, ok := config["database"]; ok && db != "" {
 		database = db
@@ -152,7 +150,7 @@ func NewImporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, o
 	}, nil
 }
 
-func NewImporter(appCtx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
@@ -165,7 +163,7 @@ func NewImporter(appCtx context.Context, opts *connectors.Options, name string, 
 	return imp, nil
 }
 
-func (p *Importer) emitManifest(ctx context.Context, records chan<- *connectors.Record, dumpFormat string) error {
+func (p *Importer) emitManifest(ctx context.Context, records chan<- *integration.Record, dumpFormat string) error {
 	if err := p.refreshToken(ctx); err != nil {
 		return err
 	}
@@ -195,13 +193,13 @@ func splitList(v string) []string {
 	return items
 }
 
-func (p *Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	if err := p.emitManifest(ctx, records, p.dumpFormat()); err != nil {
-		return err
+		return nil, err
 	}
-	return p.dumpAllDatabases(ctx, records)
+	return nil, p.dumpAllDatabases(ctx, records)
 }
 
 // dumpFormat is the pg_dump archive format recorded in the manifest.
@@ -296,7 +294,7 @@ func (p *Importer) listDatabases(ctx context.Context) ([]string, error) {
 //
 // The lexicographic ordering of the filenames guarantees that globals are
 // always restored before any database dump.
-func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record) error {
+func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *integration.Record) error {
 	if p.database != "" {
 		if err := pgconn.ValidDatabaseName(p.database); err != nil {
 			return fmt.Errorf("backing up database: %w", err)
@@ -321,7 +319,7 @@ func (p *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connect
 
 // dumpDatabases emits one pg_dump record, or with format=directory one
 // directory of records, per selected database.
-func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *connectors.Record, databases []string) error {
+func (p *Importer) dumpDatabases(ctx context.Context, records chan<- *integration.Record, databases []string) error {
 	n := 0
 	for _, dbname := range databases {
 		if p.database != "" && dbname != p.database {
@@ -387,7 +385,7 @@ func (p *Importer) refreshToken(ctx context.Context) error {
 }
 
 // emitRecord starts bin with args and sends a streaming Record on records.
-func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Record, bin string, args []string, recordPath string) error {
+func (p *Importer) emitRecord(ctx context.Context, records chan<- *integration.Record, bin string, args []string, recordPath string) error {
 	if err := p.refreshToken(ctx); err != nil {
 		return err
 	}
@@ -420,13 +418,13 @@ func (p *Importer) emitRecord(ctx context.Context, records chan<- *connectors.Re
 }
 
 // sendRecord sends a streaming record for recordPath on records.
-func sendRecord(ctx context.Context, records chan<- *connectors.Record, recordPath string, read func() (io.ReadCloser, error)) error {
+func sendRecord(ctx context.Context, records chan<- *integration.Record, recordPath string, read func() (io.ReadCloser, error)) error {
 	// kloset reuses the previous snapshot's data for a record whose metadata
 	// matches it. The size is unknown until the stream is consumed, and an
 	// empty table gives an empty file, so the mtime is what tells them apart.
 	// The size must be 0, not -1: kloset ignores a -1 size. FLAG_NOCACHE
 	// makes this unnecessary, but plakar builds older than it ignore the flag.
-	fileinfo := objects.FileInfo{
+	fileinfo := integration.FileInfo{
 		Lname:    path.Base(recordPath),
 		Lmode:    0444,
 		LmodTime: time.Now(),
@@ -434,7 +432,7 @@ func sendRecord(ctx context.Context, records chan<- *connectors.Record, recordPa
 	select {
 	case <-ctx.Done():
 		return context.Cause(ctx)
-	case records <- connectors.NewRecord(recordPath, "", fileinfo, nil, read):
+	case records <- integration.NewRecord(recordPath, "", fileinfo, nil, read):
 		return nil
 	}
 }
@@ -450,7 +448,7 @@ func holdLargeObjectTOC(name string, flags uint32) bool {
 
 // emitDirectory runs pg_dump -Fd with args into a FUSE mount and emits each
 // file it writes as a streaming record under recordDir.
-func (p *Importer) emitDirectory(ctx context.Context, records chan<- *connectors.Record, args []string, recordDir string) error {
+func (p *Importer) emitDirectory(ctx context.Context, records chan<- *integration.Record, args []string, recordDir string) error {
 	if err := p.refreshToken(ctx); err != nil {
 		return err
 	}

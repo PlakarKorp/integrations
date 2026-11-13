@@ -7,10 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/postgresql/exporter"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,13 +33,13 @@ func TestExportRejectsDirectoryFormatDumps(t *testing.T) {
 				map[string]string{"pg_bin_dir": t.TempDir()}) // no pg_restore: never touch a server
 			require.NoError(t, err)
 
-			records := make(chan *connectors.Record, 1)
-			results := make(chan *connectors.Result, 1)
-			records <- connectors.NewRecord(tt.pathname, "", objects.FileInfo{Lname: path.Base(tt.pathname), Lmode: 0444}, nil,
+			records := make(chan *integration.Record, 1)
+			results := make(chan *integration.Result, 1)
+			records <- integration.NewRecord(tt.pathname, "", integration.FileInfo{Lname: path.Base(tt.pathname), Lmode: 0444}, nil,
 				func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("")), nil })
 			close(records)
 
-			require.NoError(t, exp.Export(context.Background(), records, results))
+			require.NoError(t, exp.Export(context.Background(), nil, records, results))
 			res := <-results
 			if tt.rejected {
 				assert.ErrorIs(t, res.Err, exporter.ErrDirectoryFormat)

@@ -4,18 +4,17 @@ import (
 	"context"
 	"errors"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/postgresql/awsauth"
 	pqexporter "github.com/PlakarKorp/integrations/postgresql/exporter"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
 func init() {
-	_ = exporter.Register("postgres+aws", 0, NewAWSExporter)
+	_ = integration.RegisterExporter("postgres+aws", 0, NewAWSExporter)
 }
 
-func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
+func NewAWSExporter(appCtx context.Context, opts *integration.Options, name string, cfg map[string]string) (integration.Exporter, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
