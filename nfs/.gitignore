@@ -1,4 +1,5 @@
 /nfsImporter
 /nfsExporter
-/nfs-*.ptar
+/nfsStorage
+/nfs*.ptar
 /.qa

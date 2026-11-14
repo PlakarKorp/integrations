@@ -35,20 +35,23 @@ import (
 
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
+	"github.com/vmware/go-nfs-client/nfs/xdr"
 )
 
 // Conn bundles a mounted NFS export and serializes access to it.
 //
 // The underlying go-nfs-client transport is NOT safe for concurrent RPCs: a
 // request write and its reply read are locked separately, so interleaved calls
-// trip the XID check and corrupt the stream. A single NFS file transfer is many
-// RPCs, so the lock is held for the whole of an operation (an entire file read
-// or write), not per-RPC. Every NFS access goes through the guarded methods on
-// Conn; callers must not touch the raw target.
+// trip the XID check and corrupt the stream. The lock is therefore held around
+// every call into the client, but never across calls: an open file keeps its
+// own filehandle and offset, so the RPCs of one transfer can interleave with
+// other operations on the same connection. Every NFS access goes through the
+// guarded methods on Conn; callers must not touch the raw target.
 type Conn struct {
 	mu     sync.Mutex
 	mount  *nfs.Mount
 	target *nfs.Target
+	auth   rpc.Auth
 
 	// Export is the server path that was mounted (the export point).
 	Export string
@@ -107,70 +110,188 @@ func (c *Conn) Mkdir(p string, perm os.FileMode) (err error) {
 	return err
 }
 
-// OpenReader opens the file at p for streaming reads. It acquires the
-// connection lock and holds it until the returned ReadCloser is closed, so the
-// caller MUST close it promptly: while it is open no other NFS operation on
-// this connection can proceed. This serialization is required by the
-// non-multiplexing transport.
+// OpenReader opens the file at p for streaming reads. The connection lock is
+// taken for each RPC only, so an open reader does not hold up other operations.
 func (c *Conn) OpenReader(p string) (rc io.ReadCloser, err error) {
 	c.mu.Lock()
-	defer func() {
-		if err != nil {
-			c.mu.Unlock()
-		}
-	}()
+	defer c.mu.Unlock()
 	defer recoverErr(&err)
 	f, err := c.target.Open(p)
 	if err != nil {
 		return nil, err
 	}
-	return &lockedFile{conn: c, file: f}, nil
+	return &fileReader{conn: c, file: f, r: f}, nil
 }
 
-// lockedFile is an io.ReadCloser over an NFS file that releases the connection
-// lock exactly once, on Close.
-type lockedFile struct {
+// OpenReaderRange is like OpenReader but starts at offset and reads at most
+// length bytes. Used for partial (packfile blob) reads.
+func (c *Conn) OpenReaderRange(p string, offset, length int64) (rc io.ReadCloser, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer recoverErr(&err)
+	f, err := c.target.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &fileReader{conn: c, file: f, r: io.LimitReader(f, length)}, nil
+}
+
+// fileReader is an io.ReadCloser over an NFS file that takes the connection
+// lock for each Read and for Close.
+type fileReader struct {
 	conn   *Conn
 	file   *nfs.File
+	r      io.Reader // the file itself, or a limited range of it
 	closed bool
 }
 
-func (lf *lockedFile) Read(p []byte) (n int, err error) {
+func (fr *fileReader) Read(p []byte) (n int, err error) {
+	fr.conn.mu.Lock()
+	defer fr.conn.mu.Unlock()
 	defer recoverErr(&err)
-	return lf.file.Read(p)
+	return fr.r.Read(p)
 }
 
-func (lf *lockedFile) Close() (err error) {
-	if lf.closed {
+func (fr *fileReader) Close() (err error) {
+	if fr.closed {
 		return nil
 	}
-	lf.closed = true
-	defer lf.conn.mu.Unlock()
+	fr.closed = true
+	fr.conn.mu.Lock()
+	defer fr.conn.mu.Unlock()
 	defer recoverErr(&err)
-	return lf.file.Close()
+	return fr.file.Close()
 }
 
+// writeChunk bounds how much of the caller's data is written per locked call,
+// so other operations on the connection get a turn during a large transfer.
+const writeChunk = 1 << 20
+
 // WriteFile creates the file at p with the given permissions and streams r into
-// it. The connection lock is held for the entire transfer.
+// it. Reading from r happens without the connection lock, so a slow producer
+// does not hold up other operations on the connection.
 func (c *Conn) WriteFile(p string, perm os.FileMode, r io.Reader) (err error) {
+	f, err := c.createFile(p, perm)
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, writeChunk)
+	for {
+		n, rerr := io.ReadFull(r, buf)
+		if n > 0 {
+			if werr := c.writeLocked(f, buf[:n]); werr != nil {
+				_ = c.closeLocked(f)
+				return werr
+			}
+		}
+		if rerr == io.EOF || rerr == io.ErrUnexpectedEOF {
+			break
+		}
+		if rerr != nil {
+			_ = c.closeLocked(f)
+			return rerr
+		}
+	}
+	return c.closeLocked(f)
+}
+
+func (c *Conn) createFile(p string, perm os.FileMode) (f *nfs.File, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer recoverErr(&err)
 	// OpenFile does not truncate: a shorter file would keep the old tail.
 	if _, _, lerr := c.target.Lookup(p); lerr == nil {
 		if err := c.target.Remove(p); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	f, err := c.target.OpenFile(p, perm)
+	return c.target.OpenFile(p, perm)
+}
+
+func (c *Conn) writeLocked(f *nfs.File, p []byte) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer recoverErr(&err)
+	_, err = f.Write(p)
+	return err
+}
+
+func (c *Conn) closeLocked(f *nfs.File) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer recoverErr(&err)
+	return f.Close()
+}
+
+// nfsProc3Rename is NFSv3's RENAME procedure number (RFC 1813 §3.3.14).
+// go-nfs-client doesn't implement it, so Rename builds and dispatches the RPC
+// by hand, reusing the library's exported transport (Target.Call) and XDR
+// types: there is no unexported piece that needs forking the module for.
+const nfsProc3Rename = 14
+
+type rename3Args struct {
+	rpc.Header
+	From nfs.Diropargs3
+	To   nfs.Diropargs3
+}
+
+// Rename renames oldPath to newPath, both resolved relative to the export.
+// Callers use this to make writes atomic: write to a temp name, then Rename
+// into place, so a reader never observes a partially written file.
+func (c *Conn) Rename(oldPath, newPath string) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer recoverErr(&err)
+
+	oldDir, oldName := path.Split(oldPath)
+	newDir, newName := path.Split(newPath)
+
+	_, fromFH, err := c.target.Lookup(oldDir)
+	if err != nil {
+		return fmt.Errorf("lookup %q: %w", oldDir, err)
+	}
+	_, toFH, err := c.target.Lookup(newDir)
+	if err != nil {
+		return fmt.Errorf("lookup %q: %w", newDir, err)
+	}
+
+	res, err := c.target.Call(&rename3Args{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    nfs.Nfs3Prog,
+			Vers:    nfs.Nfs3Vers,
+			Proc:    nfsProc3Rename,
+			Cred:    c.auth,
+			Verf:    rpc.AuthNull,
+		},
+		From: nfs.Diropargs3{FH: fromFH, Filename: oldName},
+		To:   nfs.Diropargs3{FH: toFH, Filename: newName},
+	})
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
-		_ = f.Close()
+
+	// RENAME3res carries wcc_data for both directories on success; neither
+	// caller here needs it, so it's left undecoded (same as this library's
+	// own Remove/RmDir, which discard it too).
+	status, err := xdr.ReadUint32(res)
+	if err != nil {
 		return err
 	}
-	return f.Close()
+	return nfs.NFS3Error(status)
+}
+
+// Remove deletes the file at p.
+func (c *Conn) Remove(p string) (err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer recoverErr(&err)
+	return c.target.Remove(p)
 }
 
 // Config is the parsed, normalized form of a connector configuration map.
@@ -300,6 +421,7 @@ func Connect(cfg *Config) (*Conn, error) {
 	return &Conn{
 		mount:  mount,
 		target: target,
+		auth:   cfg.auth(),
 		Export: cfg.Export,
 	}, nil
 }
