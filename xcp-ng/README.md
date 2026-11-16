@@ -42,3 +42,9 @@ Build and install the package:
 make package
 plakar pkg add ./xcp-ng_v0.0.1_*.ptar
 ```
+
+## Trademarks
+
+XCP-ng and the XCP-ng logo (`assets/icon.svg`) are trademarks of Vates, used to
+identify the platform this integration works with. They are not covered by this
+repository's license.
