@@ -9,3 +9,4 @@ connectors:
     executable: xoa-inventory
     validator: ./inventory/schema.json
     protocols: [xoa]
+    class: compute
