@@ -24,7 +24,9 @@
     - `GET /rest/v0/vms?fields=uuid,name_label,power_state,tags,addresses,$pool`
       - XO keeps templates, snapshots and dom0 in separate collections (`VM-template`, `VM-snapshot`, `VM-controller`), so no filtering is needed.
     - Tags come from the `tags` field
-    - Capture network IPv4: from `addresses` (keys like `0/ipv4/0`), filled from the guest tools
+    - Capture IPv4 and IPv6: from `addresses` (keys like `0/ipv4/0`, `0/ipv6/0`), filled from the guest tools
+      - Drop link-local addresses (`fe80::/10`, `169.254.0.0/16`): they are not reachable as endpoints
+      - VMs without guest tools have no addresses; that is not an error
     - `$pool` gives the pool each VM belongs to, so the resource can point at the right pool master for backup
   - **Implement Ping**:
     - `GET /rest/v0/pools`: a 200 confirms XO is reachable and the token is valid
