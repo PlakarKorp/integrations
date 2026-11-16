@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/integration-xcp-ng/xcp-ng/xoa"
 	"github.com/stretchr/testify/require"
@@ -104,4 +105,19 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestTimesOut(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c, err := xoa.New(xoa.Config{URL: srv.URL, Token: "secret", InsecureSkipVerify: true, Timeout: 50 * time.Millisecond})
+	require.NoError(t, err)
+
+	start := time.Now()
+	_, err = c.Pools(context.Background())
+	require.Error(t, err)
+	require.Less(t, time.Since(start), 5*time.Second)
 }
