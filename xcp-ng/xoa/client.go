@@ -20,6 +20,22 @@ type Config struct {
 	InsecureSkipVerify bool
 }
 
+// Error is a non-2xx response from Xen Orchestra.
+type Error struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Message    string
+}
+
+func (e *Error) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("xoa: %s %s: HTTP %d", e.Method, e.Path, e.StatusCode)
+	}
+	return fmt.Sprintf("xoa: %s %s: HTTP %d: %s", e.Method, e.Path, e.StatusCode, e.Message)
+}
+
+// Client talks to the XO REST API. Resource calls are in resources.go.
 type Client struct {
 	base  *url.URL
 	token string
@@ -57,7 +73,7 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Get[T any](ctx context.Context, path string, query url.Values) (T, error) {
+func (c *Client) get[T any](ctx context.Context, path string, query url.Values) (T, error) {
 	var out T
 
 	u := c.base.JoinPath(path)
