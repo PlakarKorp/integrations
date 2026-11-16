@@ -11,7 +11,6 @@ import (
 	"github.com/PlakarKorp/integration-xcp-ng/xcp-ng/xoa"
 )
 
-// xcpng: ironically currently only supports XOA, not XAPI
 type xcpng struct {
 	xo *xoa.Client
 }

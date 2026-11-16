@@ -19,7 +19,7 @@ const poolsJSON = `[
   }
 ]`
 
-// The first two VMs are recorded from XO; the third is hand-written to
+// The first two VMs are recorded from XO; the third is AI generated to
 // cover a global IPv6 and an IPv4 link-local address.
 const vmsJSON = `[
   {
