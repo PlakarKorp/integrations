@@ -19,7 +19,8 @@
 ## Features MVP
 
 ### Inventory
-- `xoa://`, through the Xen Orchestra REST API, authenticated with an XO token (`authenticationToken` cookie)
+- `xcp-ng://`, through the Xen Orchestra REST API, authenticated with an XO token (`authenticationToken` cookie)
+  - Post-MVP: list from XAPI in the same inventory, behind a `source` setting defaulting to `xoa`.
   - **List VMs across all pools XO manages**: 
     - `GET /rest/v0/vms?fields=uuid,name_label,power_state,tags,addresses,$pool`
       - XO keeps templates, snapshots and dom0 in separate collections (`VM-template`, `VM-snapshot`, `VM-controller`), so no filtering is needed.

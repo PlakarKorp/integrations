@@ -15,7 +15,7 @@ PTAR   =  xcp-ng_$(VERSION)_$(GOOS)_$(GOARCH).ptar
 all: build
 
 build:
-	${GO} build -v -o xoa-inventory${EXT} ./plugin/inventory
+	${GO} build -v -o xcp-ng-inventory${EXT} ./plugin/inventory
 
 test:
 	${GO} vet ./...
@@ -46,6 +46,6 @@ $(QA_DIR)/golangci.yml $(QA_DIR)/versions:
 	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
 
 clean:
-	rm -rf xoa-inventory${EXT} *.ptar .qa
+	rm -rf xcp-ng-inventory${EXT} *.ptar .qa
 
 .PHONY: all build test package uninstall install reinstall lint validate clean
