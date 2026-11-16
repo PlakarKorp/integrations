@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -18,7 +19,11 @@ type Config struct {
 	URL                string
 	Token              string
 	InsecureSkipVerify bool
+	// Timeout Zero means DefaultTimeout.
+	Timeout time.Duration
 }
+
+const DefaultTimeout = time.Minute
 
 // Error is a non-2xx response from Xen Orchestra.
 type Error struct {
@@ -54,6 +59,11 @@ func New(cfg Config) (*Client, error) {
 		return nil, errors.New("xoa: empty token")
 	}
 
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = DefaultTimeout
+	}
+
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.InsecureSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit opt-in
@@ -64,6 +74,7 @@ func New(cfg Config) (*Client, error) {
 		token: cfg.Token,
 		http: &http.Client{
 			Transport: transport,
+			Timeout:   timeout,
 			// A rejected token may redirect to the sign-in page; surface it
 			// as an error instead of trying to decode HTML.
 			CheckRedirect: func(*http.Request, []*http.Request) error {
