@@ -28,6 +28,10 @@
       - Drop link-local addresses (`fe80::/10`, `169.254.0.0/16`): they are not reachable as endpoints
       - VMs without guest tools have no addresses; that is not an error
     - `$pool` gives the pool each VM belongs to, so the resource can point at the right pool master for backup
+  - **Entry per VM**:
+    - URN: `urn:xcp-ng:pool:<pool-uuid>:vm:<vm-uuid>`. XAPI UUIDs are unique, so XO is not part of it: the URN stays the same whichever XO, or a future XAPI inventory, lists the VM.
+    - Region: pool name. Class `compute`, no subclass, as VMware.
+    - Endpoints: VM UUID, then the IPs.
   - **Implement Ping**:
     - `GET /rest/v0/pools`: a 200 confirms XO is reachable and the token is valid
 
@@ -143,5 +147,6 @@
 
 ## Risk / Edge cases
 
+- Cloned hypervisor: a cloned XCP-ng host keeps its pool and VM UUIDs, so its VMs get the same URNs as the original's. Plakar scopes URNs per inventory (`plakman`: unique on `(inventory_id, urn)`), so two inventories don't collide; one inventory seeing both would merge them. Cloning XOA is harmless: same pools, same URNs.
 - Queiscing: VMware detects quiesce failures (SOAP fault types) and automatically falls back to crash-consistent. XCP plan mentions guest-freeze but does not define: what happens if `fsfreeze`/VSS fails? Auto-fallback to crash-consistent? Error out? Record the outcome?
 - Snapshot Coalescing; XCP has the same approach as VMware has around snapshotting, which in turn brings the same issues as VMware does. The biggest issues around a snapshot chain is coalescing. When a snapshot is created, XCP creates a delta file which the VM uses to continue persisting data. When we are done with a backup, we want to delete this snapshot, because these snapshot chains bring performance issues. This snapshot cleanup does not always work and we do not know the common pitfalls of XCP yet; major tests need to be done on cleaning up snapshots, snapshot chains can get to be an utter mess. Test cases should heavily revolve around concurrency, external backup jobs and the importers' behavior.

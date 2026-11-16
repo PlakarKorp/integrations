@@ -2,7 +2,7 @@
 
 Plakar inventory for XCP-ng, through the Xen Orchestra REST API.
 
-Work in progress: the connector is not implemented yet.
+Backup and restore are not implemented yet.
 
 ## Inventory
 
@@ -19,6 +19,20 @@ manages.
 
 Create the token in Xen Orchestra under *User → Authentication tokens*, for a
 user that can see the pools to inventory.
+
+### Resources
+
+One entry per VM, across all pools:
+
+| Field | Value |
+|-------|-------|
+| URN | `urn:xcp-ng:pool:<pool-uuid>:vm:<vm-uuid>` |
+| Name | VM name |
+| Region | Pool name |
+| Tags | XO tags |
+| Endpoints | VM UUID, then the IPv4 and IPv6 addresses reported by the guest tools, without link-local ones |
+
+VMs without guest tools have no IP endpoints.
 
 ### Usage
 

@@ -10,7 +10,7 @@
     inventory.go
   /xoa/
     client.go
-    errors.go
+    resources.go
   /xapi/
     client.go
     errors.go
