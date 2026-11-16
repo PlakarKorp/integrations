@@ -142,18 +142,23 @@ func TestListReturnsXOError(t *testing.T) {
 
 func TestNewInventoryRejectsInvalidConfig(t *testing.T) {
 	srv := fakeXO(t, vmsJSON)
-	for name, change := range map[string]func(map[string]string){
-		"missing xo_url":             func(p map[string]string) { delete(p, "xo_url") },
-		"missing xo_token":           func(p map[string]string) { delete(p, "xo_token") },
-		"invalid xo_tls_skip_verify": func(p map[string]string) { p["xo_tls_skip_verify"] = "maybe" },
-		"rejected token":             func(p map[string]string) { p["xo_token"] = "wrong" },
-		"tls verified by default":    func(p map[string]string) { delete(p, "xo_tls_skip_verify") },
+	// msg is what the user needs to see to fix the config.
+	for name, tc := range map[string]struct {
+		change func(map[string]string)
+		msg    string
+	}{
+		"missing xo_url":             {func(p map[string]string) { delete(p, "xo_url") }, "xo_url"},
+		"xo_url without scheme":      {func(p map[string]string) { p["xo_url"] = "xo.example.com" }, "xo_url"},
+		"missing xo_token":           {func(p map[string]string) { delete(p, "xo_token") }, "xo_token"},
+		"invalid xo_tls_skip_verify": {func(p map[string]string) { p["xo_tls_skip_verify"] = "maybe" }, "xo_tls_skip_verify"},
+		"rejected token":             {func(p map[string]string) { p["xo_token"] = "wrong" }, "401"},
+		"tls verified by default":    {func(p map[string]string) { delete(p, "xo_tls_skip_verify") }, "certificate"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := params(srv)
-			change(p)
+			tc.change(p)
 			_, err := NewInventory(context.Background(), p)
-			require.Error(t, err)
+			require.ErrorContains(t, err, tc.msg)
 		})
 	}
 }

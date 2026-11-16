@@ -37,7 +37,7 @@ func NewInventory(ctx context.Context, params map[string]string) (integration.In
 		InsecureSkipVerify: skipVerify,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid xo_url: %w", err)
 	}
 
 	// The SDK has no Ping: fail here on a bad URL or token rather than on
