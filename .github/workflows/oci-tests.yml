@@ -20,3 +20,33 @@ jobs:
     with:
       dir: oci
       qa-version-file: oci/.qa-version
+
+  # The unit tests run against an in-memory registry; this runs them against
+  # the reference implementation as well.
+  live:
+    name: test against a registry
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2.8.3
+        ports:
+          - 5000:5000
+        env:
+          REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    defaults:
+      run:
+        working-directory: oci
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: oci/go.mod
+          cache-dependency-path: oci/go.sum
+
+      - name: test
+        env:
+          OCI_TEST_REGISTRY: localhost:5000
+        run: go test -race -count=1 -run TestLiveRegistry ./...

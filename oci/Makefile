@@ -30,7 +30,13 @@ install: package
 reinstall: uninstall install
 
 test:
-	${GO} test -v ./...
+	${GO} vet ./...
+	${GO} test -race ./...
+
+# Runs the test suite against the TLS registry of `make up` too (the plain
+# HTTP one sits on port 5000, which macOS gives to AirPlay).
+test-live:
+	OCI_TEST_REGISTRY=localhost:5443 OCI_TEST_TLS=1 ${GO} test -race -count=1 ./...
 
 check: test
 
@@ -63,4 +69,4 @@ clean:
 	rm -f bin/* *.ptar
 	rm -rf .qa
 
-.PHONY: all build package uninstall install reinstall test check up down dev clean lint validate
+.PHONY: all build package uninstall install reinstall test test-live check up down dev clean lint validate
