@@ -5,21 +5,20 @@ import (
 	"errors"
 	"os"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/server"
 	fs "github.com/PlakarKorp/integrations/fs/importer"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
 )
 
 type failingImporter struct {
-	importer.Importer
+	integration.Importer
 }
 
-func (failingImporter) Import(context.Context, chan<- *connectors.Record, <-chan *connectors.Result) (map[string]string, error) {
+func (failingImporter) Import(context.Context, chan<- *integration.Record, <-chan *integration.Result) (map[string]string, error) {
 	return nil, errors.New("fs integration cannot be used in this context")
 }
 
-func failer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func failer(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	i, err := fs.NewFSImporter(ctx, opts, name, config)
 	if err != nil {
 		return nil, err

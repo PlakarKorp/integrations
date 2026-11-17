@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/reading"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integrations/fs/reading"
 )
 
 type Buckets struct {
@@ -50,8 +50,8 @@ func (buckets *Buckets) Create() error {
 	return nil
 }
 
-func (buckets *Buckets) List() ([]objects.MAC, error) {
-	ret := make([]objects.MAC, 0)
+func (buckets *Buckets) List() ([]integration.MAC, error) {
+	ret := make([]integration.MAC, 0)
 
 	bucketsDir, err := os.ReadDir(buckets.path)
 	if err != nil {
@@ -85,7 +85,7 @@ func (buckets *Buckets) List() ([]objects.MAC, error) {
 			if len(t) != 32 {
 				continue
 			}
-			var t32 objects.MAC
+			var t32 integration.MAC
 			copy(t32[:], t)
 			ret = append(ret, t32)
 		}
@@ -93,7 +93,7 @@ func (buckets *Buckets) List() ([]objects.MAC, error) {
 	return ret, nil
 }
 
-func (buckets *Buckets) Path(mac objects.MAC) (string, error) {
+func (buckets *Buckets) Path(mac integration.MAC) (string, error) {
 	dest := filepath.Join(buckets.path,
 		fmt.Sprintf("%02x", mac[0]),
 		fmt.Sprintf("%064x", mac))
@@ -110,7 +110,7 @@ func (buckets *Buckets) Path(mac objects.MAC) (string, error) {
 	return dest, nil
 }
 
-func (buckets *Buckets) Get(mac objects.MAC) (io.ReadCloser, error) {
+func (buckets *Buckets) Get(mac integration.MAC) (io.ReadCloser, error) {
 	p, err := buckets.Path(mac)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (buckets *Buckets) Get(mac objects.MAC) (io.ReadCloser, error) {
 	return fp, nil
 }
 
-func (buckets *Buckets) GetBlob(mac objects.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
+func (buckets *Buckets) GetBlob(mac integration.MAC, offset uint64, length uint32) (io.ReadCloser, error) {
 	p, err := buckets.Path(mac)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (buckets *Buckets) GetBlob(mac objects.MAC, offset uint64, length uint32) (
 	return reading.NewSectionReadCloser(fp, int64(offset), int64(length)), nil
 }
 
-func (buckets *Buckets) Remove(mac objects.MAC) error {
+func (buckets *Buckets) Remove(mac integration.MAC) error {
 	p, err := buckets.Path(mac)
 	if err != nil {
 		return err
@@ -146,7 +146,7 @@ func (buckets *Buckets) Remove(mac objects.MAC) error {
 	return os.Remove(p)
 }
 
-func (buckets *Buckets) Put(mac objects.MAC, rd io.Reader) (int64, error) {
+func (buckets *Buckets) Put(mac integration.MAC, rd io.Reader) (int64, error) {
 	p, err := buckets.Path(mac)
 	if err != nil {
 		return 0, err

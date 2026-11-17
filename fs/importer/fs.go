@@ -29,9 +29,8 @@ import (
 	"sync"
 
 	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/exclude"
 )
 
 type FSImporter struct {
@@ -56,10 +55,10 @@ type file struct {
 }
 
 func init() {
-	_ = importer.Register("fs", location.FLAG_LOCALFS, NewFSImporter)
+	_ = integration.RegisterImporter("fs", location.FLAG_LOCALFS, NewFSImporter)
 }
 
-func NewFSImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewFSImporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
