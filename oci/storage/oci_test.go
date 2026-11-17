@@ -15,14 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeRegistry answers just enough of the distribution API for an upload.
+// uploadRegistry answers just enough of the distribution API for an upload.
 // startLoc and patchLoc are the Location headers returned by the upload
 // start and the PATCH; "%h" is replaced with the registry's own host.
-func fakeRegistry(t *testing.T, startLoc, patchLoc string) *httptest.Server {
+func uploadRegistry(t *testing.T, startLoc, patchLoc string) *httptest.Server {
 	t.Helper()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodHead:
+			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodPost && r.URL.Path == "/v2/repo/blobs/uploads/":
 			w.Header().Set("Location", strings.ReplaceAll(startLoc, "%h", srv.Listener.Addr().String()))
 			w.WriteHeader(http.StatusAccepted)
@@ -74,7 +76,7 @@ func TestUploadFollowsSameHostLocation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			reg := fakeRegistry(t, startLoc, "/v2/repo/blobs/uploads/abc?_state=x")
+			reg := uploadRegistry(t, startLoc, "/v2/repo/blobs/uploads/abc?_state=x")
 			require.NoError(t, create(t, reg.URL, false))
 		})
 	}
@@ -83,7 +85,7 @@ func TestUploadFollowsSameHostLocation(t *testing.T) {
 func TestUploadRejectsOffHostStartLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := fakeRegistry(t, other.URL+"/upload", "")
+	reg := uploadRegistry(t, other.URL+"/upload", "")
 	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
 }
@@ -133,6 +135,10 @@ func testUploadRejectsDowngradeToCleartext(t *testing.T, allowCrossHost bool) {
 	var cleartext atomic.Int32
 	var srv *httptest.Server
 	srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Location", "http://"+srv.Listener.Addr().String()+"/v2/repo/blobs/uploads/abc")
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -154,7 +160,7 @@ func testUploadRejectsDowngradeToCleartext(t *testing.T, allowCrossHost bool) {
 func TestUploadRejectsOffHostPatchLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := fakeRegistry(t, "/v2/repo/blobs/uploads/abc", other.URL+"/finish")
+	reg := uploadRegistry(t, "/v2/repo/blobs/uploads/abc", other.URL+"/finish")
 	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
 }
@@ -162,7 +168,7 @@ func TestUploadRejectsOffHostPatchLocation(t *testing.T) {
 func TestUploadFollowsOffHostLocationWhenAllowed(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := fakeRegistry(t, other.URL+"/upload", "")
+	reg := uploadRegistry(t, other.URL+"/upload", "")
 	require.NoError(t, create(t, reg.URL, true))
 	assert.NotZero(t, hits.Load(), "off-host server was not contacted")
 }
