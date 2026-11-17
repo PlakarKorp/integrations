@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -17,9 +18,11 @@ import (
 
 // uploadRegistry answers just enough of the distribution API for an upload.
 // startLoc and patchLoc are the Location headers returned by the upload
-// start and the PATCH; "%h" is replaced with the registry's own host.
-func uploadRegistry(t *testing.T, startLoc, patchLoc string) *httptest.Server {
+// start and the PATCH; "%h" is replaced with the registry's own host. The
+// Authorization header of every PATCH is recorded in patchAuth.
+func uploadRegistry(t *testing.T, startLoc, patchLoc string, patchAuth *[]string) *httptest.Server {
 	t.Helper()
+	var mu sync.Mutex
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -29,6 +32,11 @@ func uploadRegistry(t *testing.T, startLoc, patchLoc string) *httptest.Server {
 			w.Header().Set("Location", strings.ReplaceAll(startLoc, "%h", srv.Listener.Addr().String()))
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/v2/repo/blobs/uploads/"):
+			if patchAuth != nil {
+				mu.Lock()
+				*patchAuth = append(*patchAuth, r.Header.Get("Authorization"))
+				mu.Unlock()
+			}
 			if patchLoc != "" {
 				w.Header().Set("Location", strings.ReplaceAll(patchLoc, "%h", srv.Listener.Addr().String()))
 			}
@@ -76,16 +84,29 @@ func TestUploadFollowsSameHostLocation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			reg := uploadRegistry(t, startLoc, "/v2/repo/blobs/uploads/abc?_state=x")
+			reg := uploadRegistry(t, startLoc, "/v2/repo/blobs/uploads/abc?_state=x", nil)
 			require.NoError(t, create(t, reg.URL, false))
 		})
+	}
+}
+
+// http.Client turns the userinfo of a URL into an Authorization header: a
+// registry must not get to pick one through an upload location.
+func TestUploadDropsLocationUserinfo(t *testing.T) {
+	t.Parallel()
+	var patchAuth []string
+	reg := uploadRegistry(t, "http://someone:secret@%h/v2/repo/blobs/uploads/abc", "", &patchAuth)
+	require.NoError(t, create(t, reg.URL, false))
+	require.NotEmpty(t, patchAuth)
+	for _, auth := range patchAuth {
+		assert.Empty(t, auth)
 	}
 }
 
 func TestUploadRejectsOffHostStartLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := uploadRegistry(t, other.URL+"/upload", "")
+	reg := uploadRegistry(t, other.URL+"/upload", "", nil)
 	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
 }
@@ -160,7 +181,7 @@ func testUploadRejectsDowngradeToCleartext(t *testing.T, allowCrossHost bool) {
 func TestUploadRejectsOffHostPatchLocation(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := uploadRegistry(t, "/v2/repo/blobs/uploads/abc", other.URL+"/finish")
+	reg := uploadRegistry(t, "/v2/repo/blobs/uploads/abc", other.URL+"/finish", nil)
 	require.Error(t, create(t, reg.URL, false))
 	assert.Zero(t, hits.Load(), "off-host server was contacted")
 }
@@ -168,7 +189,7 @@ func TestUploadRejectsOffHostPatchLocation(t *testing.T) {
 func TestUploadFollowsOffHostLocationWhenAllowed(t *testing.T) {
 	t.Parallel()
 	other, hits := elsewhere(t)
-	reg := uploadRegistry(t, other.URL+"/upload", "")
+	reg := uploadRegistry(t, other.URL+"/upload", "", nil)
 	require.NoError(t, create(t, reg.URL, true))
 	assert.NotZero(t, hits.Load(), "off-host server was not contacted")
 }

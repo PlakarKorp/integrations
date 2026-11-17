@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -292,12 +293,14 @@ func TestTokenAuth(t *testing.T) {
 		// One token per scope the registry asked for, not one per request.
 		assert.LessOrEqual(t, f.tokenExchanges(), 4)
 
-		// The credentials go to the realm; the registry gets the tokens.
+		// The credentials go to the realm; the registry gets the tokens and
+		// never sees the password.
 		for _, r := range f.requests(http.MethodGet, "/token") {
 			assert.True(t, strings.HasPrefix(r.auth, "Basic "), "the realm must get the credentials, got %q", r.auth)
 		}
 		var bearer int
-		for _, r := range f.requests("", "/v2/"+testRepo+"/") {
+		for _, r := range f.requests("", "/v2/") {
+			assert.False(t, strings.HasPrefix(r.auth, "Basic "), "the password was offered to a token-authenticated registry: %s %s", r.method, r.path)
 			if strings.HasPrefix(r.auth, "Bearer ") {
 				bearer++
 			}
@@ -354,6 +357,120 @@ func TestTokenRealmMustNotBeCleartext(t *testing.T) {
 	assert.Empty(t, leak.requests("", "/token"), "credentials were sent to a cleartext realm")
 }
 
+// A registry can name any scope in its challenge; a token for another
+// repository is not something it should get out of the user's credentials.
+func TestChallengeForAnotherRepositoryRefused(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, fakeOptions{tokenAuth: true, basicUser: "plakar", basicPass: "s3cret", challengeScope: "repository/other:repo:pull,push"})
+	cfg := f.config(testRepo)
+	cfg["username"] = "plakar"
+	cfg["password"] = "s3cret"
+	st := open(t, cfg)
+	require.Error(t, st.Create(context.Background(), []byte("config")))
+	assert.Empty(t, f.requests("", "/token"), "credentials were traded for a token the registry picked the scope of")
+}
+
+// A host a download was redirected to is not the registry: its challenge
+// must not send the credentials to the realm it names.
+func TestChallengeFromRedirectTargetIgnored(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, fakeOptions{basicUser: "plakar", basicPass: "s3cret", redirectBlobs: true, mirrorChallenge: true})
+	cfg := f.config(testRepo)
+	cfg["username"] = "plakar"
+	cfg["password"] = "s3cret"
+	st := open(t, cfg)
+	ctx := context.Background()
+
+	mac := integration.RandomMAC()
+	_, err := st.Put(ctx, integration.StorageResourcePackfile, 0, mac, bytes.NewReader([]byte("packfile")))
+	require.NoError(t, err)
+	_, err = st.Get(ctx, integration.StorageResourcePackfile, 0, mac, nil)
+	require.Error(t, err)
+	assert.Empty(t, f.requests("", "/token"), "a redirect target's challenge was answered")
+}
+
+// On a plain-HTTP registry the realm may be plain HTTP too, but only on the
+// registry's own host: not on another cleartext host of the local network,
+// such as an instance metadata service.
+func TestCleartextRealmMustBeTheRegistryHost(t *testing.T) {
+	t.Parallel()
+	leak := newFake(t, fakeOptions{})
+	// The registry is 127.0.0.1; "localhost" is another name for the same
+	// machine, which is as close as a test gets to another host.
+	realm := "http://localhost:" + strings.TrimPrefix(leak.srv.URL, "http://127.0.0.1:") + "/token"
+	f := newFake(t, fakeOptions{tokenAuth: true, realm: realm})
+
+	cfg := f.config(testRepo)
+	cfg["username"] = "plakar"
+	cfg["password"] = "s3cret"
+	st := open(t, cfg)
+	require.Error(t, st.Create(context.Background(), []byte("config")))
+	assert.Empty(t, leak.requests("", "/token"), "credentials were sent to a cleartext realm off the registry host")
+}
+
+// Over https too, the realm must be the registry's own host unless the user
+// names it: the request to it carries the credentials.
+func TestRealmOnAnotherHost(t *testing.T) {
+	t.Parallel()
+	// The registry is 127.0.0.1; its own token endpoint reached as
+	// "localhost" counts as another host.
+	realmOf := func(f *fake) string {
+		return "https://localhost:" + strings.TrimPrefix(f.srv.URL, "https://127.0.0.1:") + "/token"
+	}
+
+	t.Run("refused", func(t *testing.T) {
+		t.Parallel()
+		f := newFake(t, fakeOptions{tls: true, tokenAuth: true, basicUser: "plakar", basicPass: "s3cret"})
+		f.opts.realm = realmOf(f)
+		cfg := f.config(testRepo)
+		cfg["username"] = "plakar"
+		cfg["password"] = "s3cret"
+		st := open(t, cfg)
+		require.Error(t, st.Create(context.Background(), []byte("config")))
+		assert.Empty(t, f.requests("", "/token"), "credentials went to a realm on another host")
+	})
+
+	t.Run("allowed by token_realm", func(t *testing.T) {
+		t.Parallel()
+		f := newFake(t, fakeOptions{tls: true, tokenAuth: true, basicUser: "plakar", basicPass: "s3cret", tagDelete: true})
+		f.opts.realm = realmOf(f)
+		cfg := f.config(testRepo)
+		cfg["username"] = "plakar"
+		cfg["password"] = "s3cret"
+		cfg["token_realm"] = "localhost"
+		roundTrip(t, open(t, cfg))
+		assert.NotEmpty(t, f.requests("", "/token"))
+	})
+}
+
+// An instance metadata service answers with a credential document whose
+// "Token" field must not pass for a registry token.
+func TestTokenResponseKeysMatchExactly(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, fakeOptions{tokenAuth: true, realmBody: `{"Code":"Success","AccessKeyId":"AKIA","SecretAccessKey":"s","Token":"session-token"}`})
+	st := open(t, f.config(testRepo))
+	require.Error(t, st.Ping(context.Background()))
+	for _, r := range f.requests("", "/v2/") {
+		assert.NotContains(t, r.auth, "session-token", "a metadata credential was sent to the registry")
+	}
+}
+
+func TestErrorBodiesAreSanitized(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("\x1b[31mboom\x1b[0m\r\n\x00end"))
+	}))
+	t.Cleanup(srv.Close)
+
+	st := open(t, map[string]string{"location": "oci://" + srv.Listener.Addr().String() + "/repo", "insecure": "true"})
+	err := st.Ping(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+	assert.NotContains(t, err.Error(), "\x1b")
+	assert.NotContains(t, err.Error(), "\x00")
+}
+
 func TestUploadRedirectRefused(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, fakeOptions{redirectUploads: true})
@@ -367,6 +484,9 @@ func TestNewRejectsBadConfig(t *testing.T) {
 	t.Parallel()
 	for name, cfg := range map[string]map[string]string{
 		"no repository":           {"location": "oci://localhost:5000"},
+		"no scheme":               {"location": "localhost:5000/repo"},
+		"other scheme":            {"location": "http://localhost:5000/repo"},
+		"token_realm with a path": {"location": "oci://localhost:5000/repo", "token_realm": "auth.example.com/token"},
 		"no host":                 {"location": "oci:///repo"},
 		"credentials in location": {"location": "oci://user:pass@localhost:5000/repo"},
 		"query":                   {"location": "oci://localhost:5000/repo?x=1"},
