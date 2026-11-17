@@ -10,8 +10,23 @@
     "location": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^oci://[^/]+/.+$",
+      "pattern": "^oci://[^/@?#]+/[^?#]+$",
       "description": "OCI registry repository: oci://<host>[:<port>]/<repository>"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Registry user; also used to obtain tokens from the registry's token service"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Password or personal access token of the user"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bearer token sent as is to the registry, instead of username and password"
     },
     "insecure": {
       "type": "boolean",
@@ -29,18 +44,23 @@
       "description": "Follow upload locations that point to another host than the registry"
     }
   },
-  "not": {
-    "properties": {
-      "insecure": {
-        "const": true
-      },
-      "tls_insecure_no_verify": {
-        "const": true
+  "dependentRequired": {
+    "password": ["username"]
+  },
+  "allOf": [
+    {
+      "not": {
+        "required": ["insecure", "tls_insecure_no_verify"],
+        "properties": {
+          "insecure": { "const": true },
+          "tls_insecure_no_verify": { "const": true }
+        }
       }
     },
-    "required": [
-      "insecure",
-      "tls_insecure_no_verify"
-    ]
-  }
+    {
+      "not": {
+        "required": ["token", "username"]
+      }
+    }
+  ]
 }
