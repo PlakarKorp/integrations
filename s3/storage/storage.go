@@ -28,6 +28,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PlakarKorp/integrations/s3/common"
 	"github.com/PlakarKorp/kloset/connectors/storage"
@@ -42,6 +43,11 @@ import (
 // maxConfigSize bounds the CONFIG read: it holds a small serialized
 // repository configuration, never anywhere near this size.
 const maxConfigSize = 2 << 10
+
+// responseHeaderTimeout bounds how long a request waits for the server to
+// start answering: if the provider takes longer than this, minio-go gives up
+// and retries the request.
+var responseHeaderTimeout = 5 * time.Second
 
 type Store struct {
 	minioClient  *minio.Client
@@ -188,6 +194,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	// bites: above it, each finished request drops its connection and the
 	// next one redials.
 	transport.MaxIdleConnsPerHost = transport.MaxIdleConns
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
 
 	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
