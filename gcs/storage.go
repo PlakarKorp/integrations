@@ -188,52 +188,44 @@ func res2prefix(res integration.StorageResource) (string, error) {
 
 func (g *gcsStore) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		macs, err := g.list(ctx, res)
+		prefix, err := res2prefix(res)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		for _, mac := range macs {
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+
+		prefix = g.realpath(prefix)
+		l := len(prefix) + 4 // /%02x/
+
+		query := &gstorage.Query{Prefix: prefix}
+		it := g.bucket.Objects(ctx, query)
+		for {
+			obj, err := it.Next()
+			if errors.Is(err, iterator.Done) {
+				return
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			if len(obj.Name) <= l {
+				continue
+			}
+			t, err := hex.DecodeString(obj.Name[l:])
+			if err != nil {
+				yield(nil, fmt.Errorf("decode %s key: %w", prefix, err))
+				return
+			}
+			if len(t) != 32 {
+				yield(nil, fmt.Errorf("invalid %s name: %s", prefix, obj.Name))
+				return
+			}
+			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
 				return
 			}
 		}
 	}
-}
-
-func (g *gcsStore) list(ctx context.Context, res integration.StorageResource) (ret []integration.MAC, err error) {
-	prefix, err := res2prefix(res)
-	if err != nil {
-		return nil, err
-	}
-
-	prefix = g.realpath(prefix)
-	l := len(prefix) + 4 // /%02x/
-
-	query := &gstorage.Query{Prefix: prefix}
-	it := g.bucket.Objects(ctx, query)
-	for {
-		obj, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		if len(obj.Name) > l {
-			t, err := hex.DecodeString(obj.Name[l:])
-			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", prefix, err)
-			}
-			if len(t) != 32 {
-				return nil, fmt.Errorf("invalid %s name: %s",
-					prefix, obj.Name)
-			}
-			ret = append(ret, integration.MAC(t))
-		}
-	}
-	return
 }
 
 func (g *gcsStore) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
