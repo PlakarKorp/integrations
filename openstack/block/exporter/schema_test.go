@@ -40,6 +40,11 @@ func TestExporterSchema(t *testing.T) {
 	}{
 		{name: "new volume", valid: true},
 		{name: "new volume, spawn sentinel", edit: map[string]string{"location": "openstack-block://spawn"}, valid: true},
+		{name: "transfer auto", edit: map[string]string{"openstack_transfer": "auto"}, valid: true},
+		{name: "transfer attach", edit: map[string]string{"openstack_transfer": "attach"}, valid: true},
+		{name: "transfer glance", edit: map[string]string{"openstack_transfer": "glance"}, valid: true},
+		{name: "unknown transfer", edit: map[string]string{"openstack_transfer": "swift"}},
+		{name: "upper-case transfer", edit: map[string]string{"openstack_transfer": "Attach"}},
 		{name: "no location", drop: []string{"location"}},
 		{name: "location naming a volume", edit: map[string]string{"location": "openstack-block://vol-1"}},
 		{name: "no region", drop: []string{"openstack_region"}},

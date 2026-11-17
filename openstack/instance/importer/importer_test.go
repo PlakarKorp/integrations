@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/PlakarKorp/integrations/openstack/block"
@@ -50,13 +51,38 @@ func params(authURL, location string) map[string]string {
 // server by accident.
 func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
 	t.Helper()
+	return newImporterTransfer(t, cloud, "")
+}
+
+// newImporterTransfer is newImporter with openstack_transfer set; "" leaves
+// it unset, for the default.
+func newImporterTransfer(t *testing.T, cloud *keystonetest.Cloud, transfer string) importer.Importer {
+	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	imp, err := NewImporter(t.Context(), nil, instance.Protocol, params(cloud.AuthURL, "openstack-instance://server-1"))
+	p := params(cloud.AuthURL, "openstack-instance://server-1")
+	if transfer != "" {
+		p["openstack_transfer"] = transfer
+	}
+	imp, err := NewImporter(t.Context(), nil, instance.Protocol, p)
 	require.NoError(t, err)
 	return imp
+}
+
+// neverProbed fails the test if the preflight asks the metadata service.
+// Call it after newImporter, which points the preflight at the fake cloud's.
+func neverProbed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("openstack_transfer=glance probed the metadata service")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	saved := attach.MetadataURL
+	attach.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
+	t.Cleanup(func() { attach.MetadataURL = saved })
 }
 
 func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record, error) {
@@ -194,6 +220,82 @@ func TestImportReadsAttachedVolumes(t *testing.T) {
 	assert.Empty(t, cloud.Attached())
 	require.NoError(t, imp.Close(t.Context()))
 	assert.Empty(t, cloud.Leftovers())
+}
+
+// openstack_transfer decides the route for every disk, and a route that was
+// asked for and cannot be taken fails the backup instead of becoming the
+// other one: {on-cloud, off-cloud, attach refused} x {auto, attach, glance}.
+func TestImportTransfer(t *testing.T) {
+	tests := []struct {
+		name         string
+		onCloud      bool // the host is a Nova server of the cloud
+		refuseAttach bool // Nova refuses the attach
+		transfer     string
+		wantFormat   string // every disk's recorded format; empty when Import fails
+		wantErr      string
+	}{
+		{name: "off-cloud auto", transfer: "auto", wantFormat: "qcow2"},
+		{name: "off-cloud attach", transfer: "attach", wantErr: "openstack_transfer=attach: cannot attach to this host: not a Nova server"},
+		{name: "off-cloud glance", transfer: "glance", wantFormat: "qcow2"},
+		{name: "on-cloud auto", onCloud: true, transfer: "auto", wantFormat: "raw"},
+		{name: "on-cloud attach", onCloud: true, transfer: "attach", wantFormat: "raw"},
+		{name: "on-cloud glance", onCloud: true, transfer: "glance", wantFormat: "qcow2"},
+		{name: "attach refused auto", onCloud: true, refuseAttach: true, transfer: "auto", wantFormat: "qcow2"},
+		// The root disk is the first attach, so it is the one refused.
+		{name: "attach refused attach", onCloud: true, refuseAttach: true, transfer: "attach", wantErr: `openstack_transfer=attach: image "image-1": attaching to server`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			fakeServer(cloud) // also answers for the host, as any ACTIVE server
+			cloud.FailVolumeAttach = tt.refuseAttach
+			if tt.onCloud {
+				cloud.HostID = "host-1"
+			}
+			imp := newImporterTransfer(t, cloud, tt.transfer)
+			if tt.transfer == "glance" {
+				neverProbed(t)
+			}
+
+			records, err := importAll(t.Context(), imp)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.NoError(t, imp.Close(t.Context()))
+				if !tt.onCloud {
+					// The route is decided before any image: only
+					// fakeServer's seeded server image is there, and
+					// it was never the backup's to delete.
+					assert.Empty(t, records)
+					assert.Equal(t, []string{"image-1"}, cloud.Leftovers())
+				} else {
+					assert.Empty(t, cloud.Leftovers())
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, records, 8)
+			if tt.wantFormat == "qcow2" {
+				assert.Empty(t, cloud.Attached())
+			}
+
+			var root, vol common.DiskMetadata
+			require.NoError(t, json.NewDecoder(records[3].Reader).Decode(&root))
+			assert.Equal(t, tt.wantFormat, root.DiskFormat)
+			require.NoError(t, json.NewDecoder(records[6].Reader).Decode(&vol))
+			assert.Equal(t, tt.wantFormat, vol.DiskFormat)
+
+			for _, r := range records {
+				if r.FileInfo.IsDir() {
+					continue
+				}
+				_, err := io.ReadAll(r.Reader)
+				require.NoError(t, err, r.Pathname)
+				require.NoError(t, r.Close())
+			}
+			require.NoError(t, imp.Close(t.Context()))
+			assert.Empty(t, cloud.Leftovers())
+		})
+	}
 }
 
 func TestImportRefusesBootFromVolume(t *testing.T) {
