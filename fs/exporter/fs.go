@@ -32,8 +32,6 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/objects"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
@@ -54,10 +52,10 @@ type FSExporter struct {
 }
 
 func init() {
-	_ = exporter.Register("fs", location.FLAG_LOCALFS, NewFSExporter)
+	_ = integration.RegisterExporter("fs", location.FLAG_LOCALFS, NewFSExporter)
 }
 
-func NewFSExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewFSExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	location := config["location"]
 	rootDir := strings.TrimPrefix(location, name+"://")
 
@@ -162,7 +160,7 @@ func (p *FSExporter) Close(ctx context.Context) error {
 
 type dirPerm struct {
 	Pathname string
-	Fileinfo objects.FileInfo
+	Fileinfo integration.FileInfo
 }
 
 func (p *FSExporter) Export(ctx context.Context, meta map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
@@ -379,7 +377,7 @@ func (p *FSExporter) writeAtomic(record *integration.Record, pathname string) er
 	return p.permissions(pathname, record.FileInfo)
 }
 
-func (p *FSExporter) permissions(pathname string, fileinfo objects.FileInfo) error {
+func (p *FSExporter) permissions(pathname string, fileinfo integration.FileInfo) error {
 	if pathname == "." && p.skipRootPermsAndTime {
 		return nil
 	}

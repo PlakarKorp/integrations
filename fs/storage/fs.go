@@ -31,8 +31,6 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/repository"
 )
 
 type Store struct {
@@ -41,11 +39,13 @@ type Store struct {
 	states    Buckets
 }
 
+var ErrPackfileNotFound = errors.New("packfile not found")
+
 func init() {
-	_ = storage.Register("fs", location.FLAG_LOCALFS, NewStore)
+	_ = integration.RegisterStore("fs", location.FLAG_LOCALFS, NewStore)
 }
 
-func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
 	return &Store{
 		location: strings.TrimPrefix(storeConfig["location"], proto+"://"),
 	}, nil
@@ -56,8 +56,8 @@ func (s *Store) Root() string          { return s.location }
 func (s *Store) Type() string          { return "fs" }
 func (s *Store) Flags() location.Flags { return location.FLAG_LOCALFS }
 
-func (s *Store) Mode(context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *Store) Mode(context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *Store) Path(args ...string) string {
@@ -154,16 +154,16 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return size, err
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		var m []integration.MAC
 		var err error
 		switch res {
-		case storage.StorageResourcePackfile:
+		case integration.StorageResourcePackfile:
 			m, err = s.packfiles.List()
-		case storage.StorageResourceState:
+		case integration.StorageResourceState:
 			m, err = s.states.List()
-		case storage.StorageResourceLock:
+		case integration.StorageResourceLock:
 			m, err = s.getLocks(ctx)
 		default:
 			m, err = nil, errors.ErrUnsupported
@@ -180,22 +180,22 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource, flag inte
 	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Put(mac, rd)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.putLock(ctx, mac, rd)
 	default:
 		return -1, errors.ErrUnsupported
 	}
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		var fp io.ReadCloser
 		var err error
 		if rg == nil {
@@ -206,28 +206,28 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integ
 
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				err = repository.ErrPackfileNotFound
+				err = ErrPackfileNotFound
 			}
 			return nil, err
 		}
 
 		return fp, err
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Get(mac)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.getLock(ctx, mac)
 	default:
 		return nil, errors.ErrUnsupported
 	}
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
+func (s *Store) Delete(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Remove(mac)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Remove(mac)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.deleteLock(ctx, mac)
 	default:
 		return errors.ErrUnsupported

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 )
 
 // drainImporter runs imp.Import to completion and returns the set of pathnames
@@ -36,10 +36,10 @@ func drainImporter(t *testing.T, imp *FSImporter) map[string]struct{} {
 
 // drainRecords runs imp.Import to completion and returns every record that
 // is not an error.
-func drainRecords(t *testing.T, imp *FSImporter) []*connectors.Record {
+func drainRecords(t *testing.T, imp *FSImporter) []*integration.Record {
 	t.Helper()
 
-	records := make(chan *connectors.Record, 64)
+	records := make(chan *integration.Record, 64)
 
 	importDone := make(chan error, 1)
 	go func() {
@@ -47,7 +47,7 @@ func drainRecords(t *testing.T, imp *FSImporter) []*connectors.Record {
 		importDone <- err
 	}()
 
-	var out []*connectors.Record
+	var out []*integration.Record
 	for rec := range records {
 		if rec.Err == nil {
 			out = append(out, rec)
@@ -64,7 +64,7 @@ func drainRecords(t *testing.T, imp *FSImporter) []*connectors.Record {
 // patterns.
 func newImporter(t *testing.T, root string, excludes []string) *FSImporter {
 	t.Helper()
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:       "test",
 		MaxConcurrency: 2,
 		Excludes:       excludes,
@@ -258,8 +258,8 @@ func TestImporter_RootSymlinkRecordsTarget(t *testing.T) {
 
 	imp := newImporter(t, link, nil)
 
-	records := make(chan *connectors.Record, 64)
-	results := make(chan *connectors.Result, 64)
+	records := make(chan *integration.Record, 64)
+	results := make(chan *integration.Result, 64)
 	go func() {
 		for range results {
 		}
