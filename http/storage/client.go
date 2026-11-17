@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"path"
@@ -162,9 +163,16 @@ func (s *Store) Root() string          { return s.location.Path }
 func (s *Store) Type() string          { return "http" }
 func (s *Store) Flags() location.Flags { return 0 }
 
-func (s *Store) sendRequest(ctx context.Context, method string, requestType string, payload io.Reader, rg *storage.Range) (*http.Response, error) {
+func (s *Store) sendRequest(ctx context.Context, method string, requestType string, payload io.Reader, rg *storage.Range, flag integration.StorageFlag) (*http.Response, error) {
 	u := *s.location
 	u.Path = path.Join(u.Path, requestType)
+
+	if flag != 0 {
+		q := u.Query()
+		q.Set("flag", strconv.Itoa(int(flag)))
+		u.RawQuery = q.Encode()
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), payload)
 	if err != nil {
 		return nil, err
@@ -186,7 +194,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-	r, err := s.sendRequest(ctx, "GET", "/", nil, nil)
+	r, err := s.sendRequest(ctx, "GET", "/", nil, nil, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -211,30 +219,40 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]integration.MAC, error) {
-	uri := "/resources/" + strres(res)
-	r, err := s.sendRequest(ctx, "GET", uri, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Body.Close()
+func (s *Store) List(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		uri := fmt.Sprintf("/resources/%s", strres(res))
+		r, err := s.sendRequest(ctx, "GET", uri, nil, nil, flag)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-	if r.StatusCode != 200 {
-		return nil, fmt.Errorf("%s", errorBody(r))
-	}
+		defer r.Body.Close()
 
-	var ret []integration.MAC
-	if err := json.NewDecoder(r.Body).Decode(&ret); err != nil {
-		return nil, err
-	} else {
-		return ret, nil
+		if r.StatusCode != 200 {
+			yield(nil, fmt.Errorf("%s", errorBody(r)))
+			return
+		}
+
+		var ret []integration.StorageResourceEntry
+		if err := json.NewDecoder(r.Body).Decode(&ret); err != nil {
+			yield(nil, err)
+			return
+		}
+
+		for i := range ret {
+			if !yield(&ret[i], nil) {
+				return
+			}
+		}
 	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	cr := &countingReader{rc: rd}
-	r, err := s.sendRequest(ctx, "PUT", uri, cr, nil)
+	r, err := s.sendRequest(ctx, "PUT", uri, cr, nil, flag)
 	if err != nil {
 		return -1, err
 	}
@@ -247,9 +265,9 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac integr
 	return cr.n, nil
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
-	r, err := s.sendRequest(ctx, "GET", uri, nil, rg)
+	r, err := s.sendRequest(ctx, "GET", uri, nil, rg, flag)
 	if err != nil {
 		return nil, err
 	}
@@ -260,9 +278,9 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac integr
 	return r.Body, nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac integration.MAC) error {
+func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
-	r, err := s.sendRequest(ctx, "DELETE", uri, nil, nil)
+	r, err := s.sendRequest(ctx, "DELETE", uri, nil, nil, flag)
 	if err != nil {
 		return err
 	}
