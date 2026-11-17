@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/kloset/connectors/storage"
 	"github.com/PlakarKorp/kloset/objects"
@@ -208,6 +209,61 @@ func TestGetReusesConnections(t *testing.T) {
 
 	if n := dials.Load(); n > inflight {
 		t.Fatalf("%d connections dialed for %d concurrent requests over %d rounds, want at most %d", n, inflight, rounds, inflight)
+	}
+}
+
+func TestGetRetriesStalledRequest(t *testing.T) {
+	saved := responseHeaderTimeout
+	responseHeaderTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { responseHeaderTimeout = saved })
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			// never answer: hold until the client gives up on us.
+			<-r.Context().Done()
+			return
+		}
+		w.Header().Set("Last-Modified", "Mon, 07 Sep 2026 00:00:00 GMT")
+		w.Header().Set("ETag", `"etag"`)
+		w.Header().Set("Content-Range", "bytes 0-3/4")
+		w.WriteHeader(http.StatusPartialContent)
+		if _, err := w.Write([]byte("data")); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(context.Background(), "s3", map[string]string{
+		"location":          "s3://" + u.Host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+		"region":            "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	rd, err := st.Get(context.Background(), storage.StorageResourcePackfile, objects.MAC{}, &storage.Range{Offset: 0, Length: 4})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer func() { _ = rd.Close() }()
+
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "data" {
+		t.Errorf("read %q, want %q", data, "data")
+	}
+	if n := requests.Load(); n != 2 {
+		t.Errorf("%d requests, want 2", n)
 	}
 }
 
