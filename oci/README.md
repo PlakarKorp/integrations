@@ -46,6 +46,7 @@ The configuration parameters are as follows:
   (e.g. `oci://ghcr.io/my-org/plakar-store`, `oci://localhost:5000/backups`)
 * `username`, `password`: credentials for the registry. The password is often a personal access token. They are sent to the registry, and to the token service it names, over TLS.
 * `token`: a bearer token sent as is, instead of `username` and `password`
+* `token_realm`: the host of the registry's token service when it is not the registry itself. Docker Hub's (`auth.docker.io`) is known; GHCR, ECR, GCR, ACR, Harbor, Quay and the reference registry keep theirs on the registry host and need nothing.
 * `insecure`: talk to the registry over plain HTTP (default `false`)
 * `tls_insecure_no_verify`: skip the verification of the registry's certificate (default `false`; for testing only)
 * `allow_cross_host_uploads`: follow upload locations pointing at another host than the registry (default `false`; see below)
@@ -106,8 +107,22 @@ the reference `registry` image. Any registry can be targeted with
 
 The connector pins where the data and the credentials go:
 
-* Credentials are sent to the registry host only, plus the token service a
-  bearer challenge names, and only over HTTPS unless `insecure=true`.
+* Credentials are sent to the registry host only, plus its token service,
+  and only over HTTPS (or plain HTTP with `insecure=true`). The token service
+  a bearer challenge names must be on the registry's own host, on the host
+  named by `token_realm`, or Docker Hub's for Docker Hub: a registry cannot
+  point the connector, and the credentials, at another host on the network,
+  such as an internal service or a cloud instance's metadata service.
+* The password is not offered up front. Like docker, the connector sends it
+  only once the registry asks for Basic auth, so a token-authenticated
+  registry never sees it.
+* Only a challenge from the registry itself is answered, never one from a
+  host a download was redirected to, and only for a token scoped to the
+  configured repository: the registry gets no token for another one out of
+  the user's credentials. Tokens are cached for an hour at most.
+* The token service's answer is read with exact field names, and only the
+  start of error answers is quoted in error messages, with control
+  characters removed.
 * Blob downloads follow redirects, as registries hand them off to CDNs and
   object stores, but a redirect never downgrades to cleartext and the
   `Authorization` header is dropped when it leaves the registry host.

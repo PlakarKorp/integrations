@@ -15,8 +15,11 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"math"
 	"strings"
 	"sync/atomic"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/PlakarKorp/integration-sdk"
 )
@@ -33,7 +36,9 @@ const (
 	keyAnnotation = "io.plakar.key"
 
 	tagsPageSize    = 1000
+	maxTagsPages    = 1 << 20 // a billion tags at the page size above
 	maxErrorBody    = 64 << 10
+	maxErrorMessage = 4 << 10
 	maxManifestSize = 4 << 20 // the size the OCI spec asks registries to accept
 	maxRedirects    = 10
 )
@@ -52,6 +57,7 @@ type registryOptions struct {
 	username              string
 	password              string
 	token                 string
+	realmHost             string
 }
 
 // registry speaks the slice of the OCI distribution API the store needs,
@@ -119,11 +125,12 @@ func newRegistry(base *url.URL, repo string, opts registryOptions) (*registry, e
 	r.auth = &authenticator{
 		host:     base.Host,
 		repo:     repo,
-		username: opts.username,
-		password: opts.password,
-		token:    opts.token,
-		insecure: opts.insecure,
-		client:   r.client,
+		username:  opts.username,
+		password:  opts.password,
+		token:     opts.token,
+		realmHost: opts.realmHost,
+		insecure:  opts.insecure,
+		client:    r.client,
 	}
 	return r, nil
 }
@@ -182,12 +189,22 @@ func (r *registry) send(req *http.Request, answerChallenge bool) (*http.Response
 		return nil, err
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized && answerChallenge {
+	// Only the registry gets to ask for credentials or send us to a token
+	// realm: not a host a download was redirected to.
+	if resp.StatusCode == http.StatusUnauthorized && answerChallenge && r.auth.forHost(resp.Request.URL) {
 		if ch, ok := parseBearerChallenge(resp.Header); ok {
 			drain(resp)
 			if err := r.auth.exchange(req.Context(), ch); err != nil {
 				return nil, err
 			}
+			retry, err := replay(req)
+			if err != nil {
+				return nil, err
+			}
+			return r.send(retry, false)
+		}
+		if hasBasicChallenge(resp.Header) && r.auth.answerBasic() {
+			drain(resp)
 			retry, err := replay(req)
 			if err != nil {
 				return nil, err
@@ -201,14 +218,26 @@ func (r *registry) send(req *http.Request, answerChallenge bool) (*http.Response
 	}
 
 	defer drain(resp)
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	return nil, &registryError{
 		Method:     req.Method,
 		URL:        req.URL.Redacted(),
 		StatusCode: resp.StatusCode,
 		Status:     resp.Status,
-		Body:       strings.TrimSpace(string(b)),
+		Body:       errorBody(resp.Body),
 	}
+}
+
+// errorBody reads the start of an error answer for the error message, with
+// anything that is not printable text taken out: it ends up in logs and on
+// terminals.
+func errorBody(rd io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(rd, maxErrorMessage))
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || (unicode.IsPrint(r) && r != utf8.RuneError) {
+			return r
+		}
+		return -1
+	}, string(b)))
 }
 
 // replay rebuilds a request whose body has been consumed.
@@ -394,6 +423,9 @@ func (r *registry) getObject(ctx context.Context, tag string, rg *integration.Ra
 
 	var h http.Header
 	if rg != nil {
+		if rg.Offset > math.MaxInt64-uint64(rg.Length) {
+			return nil, fmt.Errorf("range %d+%d is out of bounds", rg.Offset, rg.Length)
+		}
 		h = http.Header{}
 		h.Set("Range", "bytes="+strconv.FormatUint(rg.Offset, 10)+"-"+strconv.FormatUint(rg.Offset+uint64(rg.Length)-1, 10))
 	}
@@ -478,11 +510,6 @@ func tagDeleteUnsupported(err error) bool {
 
 // ---- Tags ----
 
-type tagsList struct {
-	Name string   `json:"name"`
-	Tags []string `json:"tags"`
-}
-
 // tags lists every tag of the repository, following the pagination links.
 func (r *registry) tags(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
@@ -492,6 +519,10 @@ func (r *registry) tags(ctx context.Context) iter.Seq2[string, error] {
 		for next != "" {
 			if seen[next] {
 				yield("", fmt.Errorf("tags listing loops back to %s", next))
+				return
+			}
+			if len(seen) >= maxTagsPages {
+				yield("", fmt.Errorf("tags listing goes past %d pages", maxTagsPages))
 				return
 			}
 			seen[next] = true
@@ -507,18 +538,18 @@ func (r *registry) tags(ctx context.Context) iter.Seq2[string, error] {
 				return
 			}
 
-			var tl tagsList
-			err = json.NewDecoder(resp.Body).Decode(&tl)
+			stop := false
+			err = decodeTagsList(resp.Body, func(tag string) bool {
+				stop = !yield(tag, nil)
+				return !stop
+			})
 			drain(resp)
+			if stop {
+				return
+			}
 			if err != nil {
 				yield("", fmt.Errorf("decode tags list: %w", err))
 				return
-			}
-
-			for _, t := range tl.Tags {
-				if !yield(t, nil) {
-					return
-				}
 			}
 
 			next, err = r.nextPage(resp.Header)
@@ -528,6 +559,52 @@ func (r *registry) tags(ctx context.Context) iter.Seq2[string, error] {
 			}
 		}
 	}
+}
+
+// decodeTagsList streams the "tags" array of a tags list to fn, one tag at
+// a time: a page is as large as the registry wants it, and never held whole.
+// fn returns false to stop.
+func decodeTagsList(rd io.Reader, fn func(string) bool) error {
+	dec := json.NewDecoder(rd)
+
+	if tok, err := dec.Token(); err != nil {
+		return err
+	} else if tok != json.Delim('{') {
+		return fmt.Errorf("want an object, got %v", tok)
+	}
+
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if key != "tags" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if tok, err := dec.Token(); err != nil {
+			return err
+		} else if tok == nil {
+			return nil // "tags": null, an empty repository on some registries
+		} else if tok != json.Delim('[') {
+			return fmt.Errorf("want an array of tags, got %v", tok)
+		}
+		for dec.More() {
+			var tag string
+			if err := dec.Decode(&tag); err != nil {
+				return err
+			}
+			if !fn(tag) {
+				return nil
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 // nextPage returns the URL of the next tags page, from the Link header, or
@@ -552,6 +629,7 @@ func (r *registry) nextPage(h http.Header) (string, error) {
 			if resolved.Scheme != r.base.Scheme || !strings.EqualFold(resolved.Host, r.base.Host) {
 				return "", fmt.Errorf("tags listing continues off the registry, at %s", resolved.Redacted())
 			}
+			resolved.User = nil
 			return resolved.String(), nil
 		}
 	}
@@ -651,5 +729,7 @@ func (r *registry) resolveUploadLocation(loc string) (string, error) {
 	if !r.allowCrossHostUploads && !strings.EqualFold(resolved.Host, r.base.Host) {
 		return "", fmt.Errorf("registry upload location %q is not on %s", loc, r.base.Host)
 	}
+	// http.Client turns URL userinfo into an Authorization header.
+	resolved.User = nil
 	return resolved.String(), nil
 }

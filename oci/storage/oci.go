@@ -68,13 +68,21 @@ func New(ctx context.Context, proto string, config map[string]string) (integrati
 	if password != "" && username == "" {
 		return nil, errors.New("password needs a username")
 	}
+	realmHost := config["token_realm"]
+	if strings.ContainsAny(realmHost, "/:@?#") {
+		return nil, fmt.Errorf("token_realm %q is not a host name", realmHost)
+	}
 
 	scheme := "https"
 	if insecure {
 		scheme = "http"
 	}
 
-	u, err := url.Parse(scheme + "://" + strings.TrimPrefix(config["location"], "oci://"))
+	loc, ok := strings.CutPrefix(config["location"], "oci://")
+	if !ok {
+		return nil, fmt.Errorf("location %q does not start with oci://", config["location"])
+	}
+	u, err := url.Parse(scheme + "://" + loc)
 	if err != nil {
 		return nil, fmt.Errorf("parse location: %w", err)
 	}
@@ -102,6 +110,7 @@ func New(ctx context.Context, proto string, config map[string]string) (integrati
 		username:              username,
 		password:              password,
 		token:                 token,
+		realmHost:             realmHost,
 	})
 	if err != nil {
 		return nil, err

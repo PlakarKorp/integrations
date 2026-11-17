@@ -28,6 +28,13 @@ type fakeOptions struct {
 	tokenAuth bool
 	// realm overrides the realm advertised in the challenge.
 	realm string
+	// challengeScope overrides the scope advertised in the challenge.
+	challengeScope string
+	// realmBody overrides the token endpoint's answer.
+	realmBody string
+	// mirrorChallenge makes the mirror answer every request with a 401 and
+	// a Bearer challenge pointing at the registry's token endpoint.
+	mirrorChallenge bool
 	// staticToken, when set, is the only Authorization the registry takes.
 	staticToken string
 	// tagDelete allows DELETE /manifests/<tag>. Registries without it only
@@ -218,7 +225,10 @@ func (f *fake) authorized(w http.ResponseWriter, r *http.Request, repo, action s
 			realm = f.srv.URL + "/token"
 		}
 		challenge := fmt.Sprintf(`Bearer realm=%q,service="fake"`, realm)
-		if repo != "" {
+		switch {
+		case f.opts.challengeScope != "":
+			challenge += fmt.Sprintf(`,scope=%q`, f.opts.challengeScope)
+		case repo != "":
 			actions := action
 			if action == "push" {
 				actions = "pull,push"
@@ -267,6 +277,10 @@ func (f *fake) serveToken(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
+	if f.opts.realmBody != "" {
+		_, _ = io.WriteString(w, f.opts.realmBody)
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"token": tok, "expires_in": 300})
 }
 
@@ -354,6 +368,12 @@ func (f *fake) serveMirror(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.mirrored = append(f.mirrored, request{r.Method, r.URL.RequestURI(), r.Header.Get("Authorization")})
 	f.mu.Unlock()
+
+	if f.opts.mirrorChallenge {
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm=%q,service="mirror"`, f.srv.URL+"/token"))
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 
 	if digest, ok := strings.CutPrefix(r.URL.Path, "/mirror/"); ok {
 		f.writeBlob(w, r, digest)

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,17 +21,35 @@ import (
 // credentials go there once, and the token it returns is sent to the
 // registry until it expires.
 type authenticator struct {
-	host     string // the registry: the only host that sees the credentials
-	repo     string
-	username string
-	password string
-	token    string // static bearer token, used as is
-	insecure bool   // plain-HTTP registry: a plain-HTTP token realm is accepted too
-	client   *http.Client
+	host      string // the registry: the only host that sees the credentials
+	repo      string
+	username  string
+	password  string
+	token     string // static bearer token, used as is
+	realmHost string // a token service host other than the registry's, when the user names one
+	insecure  bool   // plain-HTTP registry: a plain-HTTP token realm is accepted too
+	client    *http.Client
+
+	// basicWanted is set once the registry asks for Basic auth: like docker,
+	// the password is not offered before, so a token-authenticated registry
+	// never sees it.
+	basicWanted atomic.Bool
 
 	mu     sync.Mutex
 	tokens map[string]bearerToken // by challenge scope
 }
+
+// dockerHubRealms are the token services of the registries that keep theirs
+// on another host.
+var dockerHubRealms = map[string]string{
+	"docker.io":               "auth.docker.io",
+	"index.docker.io":         "auth.docker.io",
+	"registry-1.docker.io":    "auth.docker.io",
+	"registry.hub.docker.com": "auth.docker.io",
+}
+
+// maxTokenLifetime caps what a realm's expires_in can make the cache hold.
+const maxTokenLifetime = time.Hour
 
 type bearerToken struct {
 	value   string
@@ -66,9 +86,18 @@ func (a *authenticator) authorize(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer "+tok)
 		return
 	}
-	if a.username != "" {
+	if a.username != "" && a.basicWanted.Load() {
 		req.SetBasicAuth(a.username, a.password)
 	}
+}
+
+// answerBasic notes a Basic challenge from the registry and says whether a
+// retry with the credentials makes sense.
+func (a *authenticator) answerBasic() bool {
+	if a.username == "" || a.basicWanted.Swap(true) {
+		return false
+	}
+	return true
 }
 
 // actionOf is the scope action a request needs, as token-authenticated
@@ -117,20 +146,55 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// exchange fetches a token for a challenge from its realm and caches it.
-func (a *authenticator) exchange(ctx context.Context, ch bearerChallenge) error {
-	realm, err := url.Parse(ch.realm)
-	if err != nil || realm.Host == "" {
-		return fmt.Errorf("invalid token realm %q", ch.realm)
-	}
+// maxTokens bounds the token cache: a registry that answers every request
+// with a new scope must not grow it without end.
+const maxTokens = 64
+
+// realmAllowed says whether the credentials may go to a token service: on
+// the registry's own host, on the one the user named with token_realm, or
+// on Docker Hub's for Docker Hub. The realm is named by the registry, and
+// the request to it carries the credentials and comes back as a bearer
+// token for the registry, so it must not reach any other host, least of all
+// over cleartext.
+func (a *authenticator) realmAllowed(realm *url.URL) bool {
+	host := strings.ToLower(realm.Hostname())
 	switch realm.Scheme {
 	case "https":
 	case "http":
 		if !a.insecure {
-			return fmt.Errorf("token realm %q is not https", ch.realm)
+			return false
 		}
 	default:
-		return fmt.Errorf("token realm %q is not https", ch.realm)
+		return false
+	}
+
+	registry := strings.ToLower(hostnameOf(a.host))
+	switch host {
+	case registry, strings.ToLower(a.realmHost):
+		return host != ""
+	case dockerHubRealms[registry]:
+		return realm.Scheme == "https"
+	default:
+		return false
+	}
+}
+
+// exchange fetches a token for a challenge from its realm and caches it.
+// The scope must name this repository: the registry gets no token for
+// another one out of the user's credentials.
+func (a *authenticator) exchange(ctx context.Context, ch bearerChallenge) error {
+	realm, err := url.Parse(ch.realm)
+	if err != nil || realm.Host == "" || realm.User != nil {
+		return fmt.Errorf("invalid token realm %q", ch.realm)
+	}
+	if !a.realmAllowed(realm) {
+		return fmt.Errorf("token realm %q is not on the registry %s (set token_realm to allow it)", ch.realm, a.host)
+	}
+
+	for scope := range strings.FieldsSeq(ch.scope) {
+		if repo, _ := parseScope(scope); repo != a.repo {
+			return fmt.Errorf("registry asks for a token scoped to %q, not to %s", scope, a.repo)
+		}
 	}
 
 	q := realm.Query()
@@ -168,27 +232,9 @@ func (a *authenticator) exchange(ctx context.Context, ch bearerChallenge) error 
 		}
 	}
 
-	var tr struct {
-		Token       string `json:"token"`
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxErrorBody)).Decode(&tr); err != nil {
-		return fmt.Errorf("token exchange at %s: decode: %w", realm.Redacted(), err)
-	}
-
-	value := tr.Token
-	if value == "" {
-		value = tr.AccessToken
-	}
-	if value == "" {
-		return errors.New("token exchange returned no token")
-	}
-
-	// 60 seconds is the minimum the spec lets a realm hand out.
-	ttl := time.Duration(tr.ExpiresIn) * time.Second
-	if ttl <= 0 {
-		ttl = 60 * time.Second
+	value, ttl, err := parseTokenResponse(io.LimitReader(resp.Body, maxErrorBody))
+	if err != nil {
+		return fmt.Errorf("token exchange at %s: %w", realm.Redacted(), err)
 	}
 
 	tok := bearerToken{
@@ -198,12 +244,57 @@ func (a *authenticator) exchange(ctx context.Context, ch bearerChallenge) error 
 	tok.repo, tok.actions = parseScope(ch.scope)
 
 	a.mu.Lock()
-	if a.tokens == nil {
+	if a.tokens == nil || len(a.tokens) >= maxTokens {
 		a.tokens = map[string]bearerToken{}
 	}
 	a.tokens[ch.scope] = tok
 	a.mu.Unlock()
 	return nil
+}
+
+// parseTokenResponse reads the token of a realm's answer. The keys are
+// matched exactly: encoding/json matches field names case-insensitively,
+// which would take the "Token" of an instance metadata service's credential
+// document for a registry token.
+func parseTokenResponse(rd io.Reader) (string, time.Duration, error) {
+	var fields map[string]json.RawMessage
+	if err := json.NewDecoder(rd).Decode(&fields); err != nil {
+		return "", 0, fmt.Errorf("decode: %w", err)
+	}
+
+	var value string
+	for _, key := range []string{"token", "access_token"} {
+		if raw, ok := fields[key]; ok {
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return "", 0, fmt.Errorf("decode %s: %w", key, err)
+			}
+			if value != "" {
+				break
+			}
+		}
+	}
+	if value == "" {
+		return "", 0, errors.New("no token in the answer")
+	}
+
+	// 60 seconds is the minimum the spec lets a realm hand out.
+	var expiresIn int64
+	if raw, ok := fields["expires_in"]; ok {
+		_ = json.Unmarshal(raw, &expiresIn)
+	}
+	ttl := time.Duration(expiresIn) * time.Second
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	return value, min(ttl, maxTokenLifetime), nil
+}
+
+// hostnameOf strips the port of a host[:port].
+func hostnameOf(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return strings.Trim(host, "[]")
 }
 
 // parseScope reads the repository and actions of a "repository:<name>:<a>,<b>"
@@ -217,6 +308,17 @@ func parseScope(scope string) (string, []string) {
 	}
 	repo := strings.Join(parts[1:len(parts)-1], ":")
 	return repo, strings.Split(parts[len(parts)-1], ",")
+}
+
+// hasBasicChallenge says whether a 401 response asks for Basic auth.
+func hasBasicChallenge(h http.Header) bool {
+	for _, v := range h.Values("WWW-Authenticate") {
+		scheme, _, _ := strings.Cut(strings.TrimSpace(v), " ")
+		if strings.EqualFold(scheme, "Basic") {
+			return true
+		}
+	}
+	return false
 }
 
 // parseBearerChallenge finds the Bearer challenge in a 401 response.
