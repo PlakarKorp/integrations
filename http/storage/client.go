@@ -34,7 +34,6 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/storage"
 )
 
 const (
@@ -43,7 +42,6 @@ const (
 )
 
 type Store struct {
-	config     storage.Configuration
 	Repository string
 	location   *url.URL
 	authToken  string
@@ -51,8 +49,8 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("http", 0, NewStore)
-	storage.Register("https", 0, NewStore)
+	integration.RegisterStore("http", 0, NewStore)
+	integration.RegisterStore("https", 0, NewStore)
 }
 
 func checkRedirect(allowCrossHost bool) func(req *http.Request, via []*http.Request) error {
@@ -71,7 +69,7 @@ func checkRedirect(allowCrossHost bool) func(req *http.Request, via []*http.Requ
 	}
 }
 
-func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
 	location, err := url.Parse(storeConfig["location"])
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL %q: %w", storeConfig["location"], err)
@@ -163,7 +161,7 @@ func (s *Store) Root() string          { return s.location.Path }
 func (s *Store) Type() string          { return "http" }
 func (s *Store) Flags() location.Flags { return 0 }
 
-func (s *Store) sendRequest(ctx context.Context, method string, requestType string, payload io.Reader, rg *storage.Range, flag integration.StorageFlag) (*http.Response, error) {
+func (s *Store) sendRequest(ctx context.Context, method string, requestType string, payload io.Reader, rg *integration.Range, flag integration.StorageFlag) (*http.Response, error) {
 	u := *s.location
 	u.Path = path.Join(u.Path, requestType)
 
@@ -211,15 +209,15 @@ func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *Store) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		uri := fmt.Sprintf("/resources/%s", strres(res))
 		r, err := s.sendRequest(ctx, "GET", uri, nil, nil, flag)
@@ -249,7 +247,7 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource, flag inte
 	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	cr := &countingReader{rc: rd}
 	r, err := s.sendRequest(ctx, "PUT", uri, cr, nil, flag)
@@ -265,7 +263,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, flag integ
 	return cr.n, nil
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest(ctx, "GET", uri, nil, rg, flag)
 	if err != nil {
@@ -278,7 +276,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, flag integ
 	return r.Body, nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
+func (s *Store) Delete(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	uri := fmt.Sprintf("/resources/%s/%016x", strres(res), mac)
 	r, err := s.sendRequest(ctx, "DELETE", uri, nil, nil, flag)
 	if err != nil {
@@ -293,19 +291,19 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, flag in
 }
 
 // we need a stringer on that enum
-func strres(s storage.StorageResource) string {
+func strres(s integration.StorageResource) string {
 	switch s {
-	case storage.StorageResourceUndefined:
+	case integration.StorageResourceUndefined:
 		return "undefined"
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfiles"
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "states"
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "locks"
-	case storage.StorageResourceECCPackfile:
+	case integration.StorageResourceECCPackfile:
 		return "eccpackfiles"
-	case storage.StorageResourceECCState:
+	case integration.StorageResourceECCState:
 		return "eccstates"
 	default:
 		return ""
