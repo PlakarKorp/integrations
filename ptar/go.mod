@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/ptar
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.2
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/PlakarKorp/kloset v1.1.10
 	github.com/dustin/go-humanize v1.1.0
 )
