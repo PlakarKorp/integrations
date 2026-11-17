@@ -24,7 +24,6 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
 type StdioExporter struct {
@@ -35,8 +34,8 @@ type StdioExporter struct {
 }
 
 func init() {
-	exporter.Register("stdout", 0, NewStdioExporter)
-	exporter.Register("stderr", 0, NewStdioExporter)
+	integration.RegisterExporter("stdout", 0, NewStdioExporter)
+	integration.RegisterExporter("stderr", 0, NewStdioExporter)
 }
 
 func NewStdioExporter(appCtx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
@@ -64,7 +63,7 @@ func (p *StdioExporter) Type() string          { return "stdio" }
 func (p *StdioExporter) Root() string          { return "/" }
 func (p *StdioExporter) Flags() location.Flags { return 0 }
 
-func (p *StdioExporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
+func (p *StdioExporter) Export(ctx context.Context, meta map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	for record := range records {
 		if record.Err != nil || !record.FileInfo.Mode().IsRegular() {
 			results <- record.Ok()

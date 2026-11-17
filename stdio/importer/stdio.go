@@ -26,7 +26,6 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/connectors/importer"
 )
 
 type StdioImporter struct {
@@ -38,10 +37,10 @@ type StdioImporter struct {
 }
 
 func init() {
-	importer.Register("stdin", 0, NewStdioImporter)
+	integration.RegisterImporter("stdin", 0, NewStdioImporter)
 }
 
-func NewStdioImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewStdioImporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	location := config["location"]
 	location = strings.TrimPrefix(location, "stdin://")
 	if !strings.HasPrefix(location, "/") {
@@ -86,7 +85,7 @@ func (p *StdioImporter) stdioWalker_addPrefixDirectories(results chan<- *integra
 	}
 }
 
-func (p *StdioImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
+func (p *StdioImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 	p.stdioWalker_addPrefixDirectories(records)
 	fi := integration.FileInfo{
@@ -105,7 +104,7 @@ func (p *StdioImporter) Import(ctx context.Context, records chan<- *integration.
 	records <- integration.NewRecord(p.fileDir, "", fi, nil,
 		func() (io.ReadCloser, error) { return io.NopCloser(p.stdin), nil })
 
-	return nil
+	return nil, nil
 }
 
 func (p *StdioImporter) Ping(ctx context.Context) error {
