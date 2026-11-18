@@ -22,18 +22,23 @@ func NewInventory(ctx context.Context, params map[string]string) (integration.In
 	if params["xo_token"] == "" {
 		return nil, errors.New("xo_token is required")
 	}
-	skipVerify := false
-	if v := params["tls_insecure_no_verify"]; v != "" {
-		var err error
-		if skipVerify, err = strconv.ParseBool(v); err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify %q: %w", v, err)
-		}
+	skipVerify, err := boolParam(params, "tls_insecure_no_verify")
+	if err != nil {
+		return nil, err
+	}
+	allowHTTP, err := boolParam(params, "insecure")
+	if err != nil {
+		return nil, err
+	}
+	if allowHTTP && skipVerify {
+		return nil, errors.New("tls_insecure_no_verify is meaningless with insecure=true (no TLS to verify)")
 	}
 
 	xo, err := xoa.New(xoa.Config{
 		URL:                params["xo_url"],
 		Token:              params["xo_token"],
 		InsecureSkipVerify: skipVerify,
+		AllowHTTP:          allowHTTP,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid xo_url: %w", err)
@@ -46,6 +51,19 @@ func NewInventory(ctx context.Context, params map[string]string) (integration.In
 	}
 
 	return &xcpng{xo: xo}, nil
+}
+
+// boolParam returns false for an unset param.
+func boolParam(params map[string]string, name string) (bool, error) {
+	v := params[name]
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q: %w", name, v, err)
+	}
+	return b, nil
 }
 
 func (x *xcpng) List(ctx context.Context, resources chan<- *integration.InventoryEntry) error {

@@ -156,6 +156,9 @@ func TestNewInventoryRejectsInvalidConfig(t *testing.T) {
 		"xo_url without scheme":          {func(p map[string]string) { p["xo_url"] = "xo.example.com" }, "xo_url"},
 		"missing xo_token":               {func(p map[string]string) { delete(p, "xo_token") }, "xo_token"},
 		"invalid tls_insecure_no_verify": {func(p map[string]string) { p["tls_insecure_no_verify"] = "maybe" }, "tls_insecure_no_verify"},
+		"invalid insecure":               {func(p map[string]string) { p["insecure"] = "maybe" }, "invalid insecure"},
+		"insecure with no-verify":        {func(p map[string]string) { p["insecure"] = "true" }, "meaningless"},
+		"http without opt-in":            {func(p map[string]string) { p["xo_url"] = "http://xo.example.com" }, "cleartext"},
 		"rejected token":                 {func(p map[string]string) { p["xo_token"] = "wrong" }, "401"},
 		"tls verified by default":        {func(p map[string]string) { delete(p, "tls_insecure_no_verify") }, "certificate"},
 	} {
