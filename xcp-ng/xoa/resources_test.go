@@ -142,6 +142,13 @@ func TestVMIPs(t *testing.T) {
 			},
 			want: []netip.Addr{netip.MustParseAddr("2001:db8::1")},
 		},
+		"zoned value": {
+			addresses: map[string]string{
+				"0/ipv6/0": "2001:db8::1%41@evil.example/x",
+				"0/ipv6/1": "2001:db8::2",
+			},
+			want: []netip.Addr{netip.MustParseAddr("2001:db8::2")},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, xoa.VM{Addresses: tc.addresses}.IPs())
