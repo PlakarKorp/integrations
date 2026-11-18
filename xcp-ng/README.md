@@ -15,7 +15,7 @@ manages.
 |-----|-------------|
 | `xo_url` | Xen Orchestra base URL, e.g. `https://xo.example.com` |
 | `xo_token` | Xen Orchestra authentication token |
-| `xo_tls_skip_verify` | Disable TLS certificate verification (default `false`); for testing only |
+| `tls_insecure_no_verify` | Disable TLS certificate verification (default `false`); for testing only |
 
 Create the token in Xen Orchestra under *User → Authentication tokens*, for a
 user that can see the pools to inventory.

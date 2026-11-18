@@ -86,9 +86,9 @@ func fakeXO(t *testing.T, vms string) *httptest.Server {
 
 func params(srv *httptest.Server) map[string]string {
 	return map[string]string{
-		"xo_url":             srv.URL,
-		"xo_token":           "secret",
-		"xo_tls_skip_verify": "true",
+		"xo_url":                 srv.URL,
+		"xo_token":               "secret",
+		"tls_insecure_no_verify": "true",
 	}
 }
 
@@ -152,12 +152,12 @@ func TestNewInventoryRejectsInvalidConfig(t *testing.T) {
 		change func(map[string]string)
 		msg    string
 	}{
-		"missing xo_url":             {func(p map[string]string) { delete(p, "xo_url") }, "xo_url"},
-		"xo_url without scheme":      {func(p map[string]string) { p["xo_url"] = "xo.example.com" }, "xo_url"},
-		"missing xo_token":           {func(p map[string]string) { delete(p, "xo_token") }, "xo_token"},
-		"invalid xo_tls_skip_verify": {func(p map[string]string) { p["xo_tls_skip_verify"] = "maybe" }, "xo_tls_skip_verify"},
-		"rejected token":             {func(p map[string]string) { p["xo_token"] = "wrong" }, "401"},
-		"tls verified by default":    {func(p map[string]string) { delete(p, "xo_tls_skip_verify") }, "certificate"},
+		"missing xo_url":                 {func(p map[string]string) { delete(p, "xo_url") }, "xo_url"},
+		"xo_url without scheme":          {func(p map[string]string) { p["xo_url"] = "xo.example.com" }, "xo_url"},
+		"missing xo_token":               {func(p map[string]string) { delete(p, "xo_token") }, "xo_token"},
+		"invalid tls_insecure_no_verify": {func(p map[string]string) { p["tls_insecure_no_verify"] = "maybe" }, "tls_insecure_no_verify"},
+		"rejected token":                 {func(p map[string]string) { p["xo_token"] = "wrong" }, "401"},
+		"tls verified by default":        {func(p map[string]string) { delete(p, "tls_insecure_no_verify") }, "certificate"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := params(srv)
