@@ -98,6 +98,7 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 		"empty URL":    {Token: "secret"},
 		"no scheme":    {URL: "xo.example.com", Token: "secret"},
 		"wrong scheme": {URL: "ftp://xo.example.com", Token: "secret"},
+		"http":         {URL: "http://xo.example.com", Token: "secret"},
 		"empty token":  {URL: "https://xo.example.com"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -105,6 +106,19 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestAllowsHTTPOnOptIn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c, err := xoa.New(xoa.Config{URL: srv.URL, Token: "secret", AllowHTTP: true})
+	require.NoError(t, err)
+
+	_, err = c.Pools(context.Background())
+	require.NoError(t, err)
 }
 
 func TestNewDoesNotLeakURLPassword(t *testing.T) {

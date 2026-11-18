@@ -19,6 +19,8 @@ type Config struct {
 	URL                string
 	Token              string
 	InsecureSkipVerify bool
+	// AllowHTTP permits an http:// URL, which sends the token in cleartext.
+	AllowHTTP bool
 	// Timeout Zero means DefaultTimeout.
 	Timeout time.Duration
 }
@@ -58,6 +60,9 @@ func New(cfg Config) (*Client, error) {
 	}
 	if (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
 		return nil, fmt.Errorf("xoa: URL must be http(s)://host, got %q", base.Redacted())
+	}
+	if base.Scheme == "http" && !cfg.AllowHTTP {
+		return nil, fmt.Errorf("xoa: http URL would send the token in cleartext, got %q", base.Redacted())
 	}
 	if cfg.Token == "" {
 		return nil, errors.New("xoa: empty token")

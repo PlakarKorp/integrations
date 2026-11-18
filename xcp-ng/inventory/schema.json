@@ -20,6 +20,18 @@
       "type": "boolean",
       "default": false,
       "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "insecure": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allow an http:// xo_url, which sends the token in cleartext (dangerous; use only for testing)"
     }
+  },
+  "not": {
+    "properties": {
+      "insecure": { "const": true },
+      "tls_insecure_no_verify": { "const": true }
+    },
+    "required": ["insecure", "tls_insecure_no_verify"]
   }
 }
