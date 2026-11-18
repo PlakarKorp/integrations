@@ -2,7 +2,7 @@ GO      = go
 EXT     =
 
 PLAKAR  ?= plakar
-VERSION ?= v0.0.1
+VERSION ?= v1.1.0-devel.1
 
 # Lint rules and tool versions come from PlakarKorp/QA at this version, as in CI.
 QA_VERSION != cat .qa-version
