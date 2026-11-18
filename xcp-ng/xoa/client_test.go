@@ -107,6 +107,19 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNewDoesNotLeakURLPassword(t *testing.T) {
+	for name, u := range map[string]string{
+		"unparsable URL": "https://user:hunter2@xo.example.com/%zz",
+		"wrong scheme":   "ftp://user:hunter2@xo.example.com",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := xoa.New(xoa.Config{URL: u, Token: "secret"})
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "hunter2")
+		})
+	}
+}
+
 func TestTimesOut(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()

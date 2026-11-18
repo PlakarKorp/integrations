@@ -50,10 +50,14 @@ type Client struct {
 func New(cfg Config) (*Client, error) {
 	base, err := url.Parse(cfg.URL)
 	if err != nil {
+		// *url.Error repeats the URL, credentials included: keep only the cause.
+		if urlErr, ok := errors.AsType[*url.Error](err); ok {
+			err = urlErr.Err
+		}
 		return nil, fmt.Errorf("xoa: invalid URL: %w", err)
 	}
 	if (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
-		return nil, fmt.Errorf("xoa: URL must be http(s)://host, got %q", cfg.URL)
+		return nil, fmt.Errorf("xoa: URL must be http(s)://host, got %q", base.Redacted())
 	}
 	if cfg.Token == "" {
 		return nil, errors.New("xoa: empty token")
