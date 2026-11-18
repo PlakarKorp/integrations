@@ -23,9 +23,15 @@ type Config struct {
 	AllowHTTP bool
 	// Timeout Zero means DefaultTimeout.
 	Timeout time.Duration
+	// MaxResponseSize caps a decoded response body. Zero means
+	// DefaultMaxResponseSize.
+	MaxResponseSize int64
 }
 
-const DefaultTimeout = time.Minute
+const (
+	DefaultTimeout         = time.Minute
+	DefaultMaxResponseSize = 64 << 20
+)
 
 // Error is a non-2xx response from Xen Orchestra.
 type Error struct {
@@ -44,9 +50,10 @@ func (e *Error) Error() string {
 
 // Client talks to the XO REST API. Resource calls are in resources.go.
 type Client struct {
-	base  *url.URL
-	token string
-	http  *http.Client
+	base            *url.URL
+	token           string
+	maxResponseSize int64
+	http            *http.Client
 }
 
 func New(cfg Config) (*Client, error) {
@@ -72,6 +79,10 @@ func New(cfg Config) (*Client, error) {
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
+	maxResponseSize := cfg.MaxResponseSize
+	if maxResponseSize == 0 {
+		maxResponseSize = DefaultMaxResponseSize
+	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.InsecureSkipVerify {
@@ -79,8 +90,9 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		base:  base.JoinPath("rest/v0"),
-		token: cfg.Token,
+		base:            base.JoinPath("rest/v0"),
+		token:           cfg.Token,
+		maxResponseSize: maxResponseSize,
 		http: &http.Client{
 			Transport: transport,
 			Timeout:   timeout,
@@ -122,7 +134,10 @@ func (c *Client) get[T any](ctx context.Context, path string, query url.Values) 
 		}
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	// A nil ResponseWriter is fine: it is only used to close server-side
+	// connections.
+	body := http.MaxBytesReader(nil, resp.Body, c.maxResponseSize)
+	if err := json.NewDecoder(body).Decode(&out); err != nil {
 		return out, fmt.Errorf("xoa: GET %s: decode: %w", path, err)
 	}
 	return out, nil
