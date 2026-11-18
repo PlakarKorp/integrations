@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,20 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestCapsResponseSize(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"uuid":"` + strings.Repeat("a", 2048) + `"}]`))
+	}))
+	defer srv.Close()
+
+	c, err := xoa.New(xoa.Config{URL: srv.URL, Token: "secret", InsecureSkipVerify: true, MaxResponseSize: 1024})
+	require.NoError(t, err)
+
+	_, err = c.Pools(context.Background())
+	var tooLarge *http.MaxBytesError
+	require.ErrorAs(t, err, &tooLarge)
 }
 
 func TestAllowsHTTPOnOptIn(t *testing.T) {
