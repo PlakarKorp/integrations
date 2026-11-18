@@ -23,10 +23,10 @@ func NewInventory(ctx context.Context, params map[string]string) (integration.In
 		return nil, errors.New("xo_token is required")
 	}
 	skipVerify := false
-	if v := params["xo_tls_skip_verify"]; v != "" {
+	if v := params["tls_insecure_no_verify"]; v != "" {
 		var err error
 		if skipVerify, err = strconv.ParseBool(v); err != nil {
-			return nil, fmt.Errorf("invalid xo_tls_skip_verify %q: %w", v, err)
+			return nil, fmt.Errorf("invalid tls_insecure_no_verify %q: %w", v, err)
 		}
 	}
 

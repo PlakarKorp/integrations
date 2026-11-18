@@ -16,7 +16,7 @@
       "minLength": 1,
       "description": "Xen Orchestra authentication token"
     },
-    "xo_tls_skip_verify": {
+    "tls_insecure_no_verify": {
       "type": "boolean",
       "default": false,
       "description": "Disable TLS certificate verification (dangerous; use only for testing)"
