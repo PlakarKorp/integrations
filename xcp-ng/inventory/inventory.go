@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-xcp-ng/xcp-ng/xoa"
 )
+
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type xcpng struct {
 	xo *xoa.Client
@@ -83,6 +86,11 @@ func (x *xcpng) List(ctx context.Context, resources chan<- *integration.Inventor
 		return err
 	}
 	for _, vm := range vms {
+		// The URN is built from these: a malformed one could forge another
+		// VM's URN.
+		if !uuidRe.MatchString(vm.UUID) || !uuidRe.MatchString(vm.PoolUUID) {
+			continue
+		}
 		select {
 		case resources <- vmEntry(vm, poolNames[vm.PoolUUID]):
 		case <-ctx.Done():

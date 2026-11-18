@@ -21,6 +21,7 @@ const poolsJSON = `[
 
 // The first two VMs are recorded from XO; the third is AI generated to
 // cover a global IPv6 and the non-unicast addresses a guest can report.
+// The last two have a malformed uuid and $pool, and must be skipped.
 const vmsJSON = `[
   {
     "uuid": "f6cf3ac0-a9fb-84e7-2d73-8ee16220cde7",
@@ -59,6 +60,16 @@ const vmsJSON = `[
     },
     "$pool": "dad1e130-c99e-71c8-4ce3-d5691b6084e4",
     "href": "/rest/v0/vms/3b9e1c2a-5d4f-4e6a-9b8c-7d6e5f4a3b2c"
+  },
+  {
+    "uuid": "x:vm:f6cf3ac0-a9fb-84e7-2d73-8ee16220cde7",
+    "name_label": "bad-uuid",
+    "$pool": "dad1e130-c99e-71c8-4ce3-d5691b6084e4"
+  },
+  {
+    "uuid": "5c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+    "name_label": "bad-pool",
+    "$pool": "dad1e130-c99e-71c8-4ce3-d5691b6084e4:vm:f6cf3ac0-a9fb-84e7-2d73-8ee16220cde7"
   }
 ]`
 
