@@ -20,7 +20,7 @@ const poolsJSON = `[
 ]`
 
 // The first two VMs are recorded from XO; the third is AI generated to
-// cover a global IPv6 and an IPv4 link-local address.
+// cover a global IPv6 and the non-unicast addresses a guest can report.
 const vmsJSON = `[
   {
     "uuid": "f6cf3ac0-a9fb-84e7-2d73-8ee16220cde7",
@@ -50,7 +50,12 @@ const vmsJSON = `[
     "tags": ["prod"],
     "addresses": {
       "0/ipv4/0": "169.254.10.20",
-      "0/ipv6/0": "2001:db8::10"
+      "0/ipv6/0": "2001:db8::10",
+      "1/ipv4/0": "0.0.0.0",
+      "1/ipv4/1": "224.0.0.1",
+      "1/ipv4/2": "255.255.255.255",
+      "1/ipv6/0": "::",
+      "1/ipv6/1": "ff02::1"
     },
     "$pool": "dad1e130-c99e-71c8-4ce3-d5691b6084e4",
     "href": "/rest/v0/vms/3b9e1c2a-5d4f-4e6a-9b8c-7d6e5f4a3b2c"

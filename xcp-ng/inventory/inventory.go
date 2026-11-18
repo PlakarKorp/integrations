@@ -77,8 +77,9 @@ func (x *xcpng) List(ctx context.Context, resources chan<- *integration.Inventor
 func vmEntry(vm xoa.VM, poolName string) *integration.InventoryEntry {
 	endpoints := []integration.HostEndpoint{{Type: integration.EndpointUUID, Endpoint: vm.UUID}}
 	for _, ip := range vm.IPs() {
-		// Link-local and loopback addresses are not reachable from Plakar.
-		if ip.IsLinkLocalUnicast() || ip.IsLoopback() {
+		// Only unicast addresses can be backup targets. Link-local and
+		// loopback ones are not reachable from Plakar either.
+		if !ip.IsGlobalUnicast() {
 			continue
 		}
 		typ := integration.EndpointInet6
