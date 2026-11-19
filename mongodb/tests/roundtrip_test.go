@@ -24,6 +24,22 @@ db.getSiblingDB("blog").posts.insertOne(
 );
 `
 
+// Credentials of a user created in the shop database, with read access to
+// it only.
+const (
+	shopUser     = "shop_reader"
+	shopPassword = "secret"
+)
+
+// options turns key=value pairs into plakar -o flags.
+func options(kv []string) []string {
+	var opts []string
+	for _, o := range kv {
+		opts = append(opts, "-o", o)
+	}
+	return opts
+}
+
 // createX509User lets the client certificate authenticate with MONGODB-X509
 // and the given built-in role.
 func createX509User(ctx context.Context, t *testing.T, container testcontainers.Container, subject, role string) {
@@ -40,34 +56,31 @@ func createX509User(ctx context.Context, t *testing.T, container testcontainers.
 func TestRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
+	root := []string{"username=" + testhelpers.RootUser, "password=" + testhelpers.RootPassword}
+	plain := append([]string{"use_tls=false"}, root...)
+	tls := append([]string{"tls_ca_cert=" + testhelpers.CACertPath, "auth_mechanism=SCRAM-SHA-256"}, root...)
+	mtls := append([]string{"tls_client_cert=" + testhelpers.ClientPEMPath}, tls...)
+	x509 := []string{"tls_ca_cert=" + testhelpers.CACertPath, "tls_client_cert=" + testhelpers.ClientPEMPath,
+		"auth_mechanism=MONGODB-X509"}
+
 	cases := []struct {
-		name string
-		tls  bool
-		opts []string
+		name    string
+		tls     bool
+		backup  []string
+		restore []string
+		// dbs lists the databases expected on the target, all when empty.
+		dbs []string
 	}{
+		{name: "plain", backup: plain, restore: plain},
+		{name: "tls", tls: true, backup: tls, restore: tls},
+		{name: "mtls", tls: true, backup: mtls, restore: mtls},
+		{name: "x509", tls: true, backup: x509, restore: x509},
 		{
-			name: "plain",
-			opts: []string{"use_tls=false",
-				"username=" + testhelpers.RootUser, "password=" + testhelpers.RootPassword},
-		},
-		{
-			name: "tls",
-			tls:  true,
-			opts: []string{"tls_ca_cert=" + testhelpers.CACertPath, "auth_mechanism=SCRAM-SHA-256",
-				"username=" + testhelpers.RootUser, "password=" + testhelpers.RootPassword},
-		},
-		{
-			name: "mtls",
-			tls:  true,
-			opts: []string{"tls_ca_cert=" + testhelpers.CACertPath, "tls_client_cert=" + testhelpers.ClientPEMPath,
-				"auth_mechanism=SCRAM-SHA-256",
-				"username=" + testhelpers.RootUser, "password=" + testhelpers.RootPassword},
-		},
-		{
-			name: "x509",
-			tls:  true,
-			opts: []string{"tls_ca_cert=" + testhelpers.CACertPath, "tls_client_cert=" + testhelpers.ClientPEMPath,
-				"auth_mechanism=MONGODB-X509"},
+			name: "database",
+			backup: []string{"use_tls=false", "database=shop",
+				"username=" + shopUser, "password=" + shopPassword},
+			restore: plain,
+			dbs:     []string{"shop"},
 		},
 	}
 
@@ -78,15 +91,20 @@ func TestRoundTrip(t *testing.T) {
 	certs := testhelpers.GenerateCerts(t, hosts...)
 	net := testhelpers.NewNetwork(ctx, t)
 
-	// One source per TLS mode, keyed by requireTLS, each with the dump a
-	// restore must reproduce: _id values differ between the two.
-	type source struct{ host, want string }
+	// One source per TLS mode, keyed by requireTLS.
+	type source struct {
+		host      string
+		container testcontainers.Container
+	}
 	sources := map[bool]source{}
 	for requireTLS, host := range map[bool]string{false: "mongo-src-plain", true: "mongo-src-tls"} {
 		src := testhelpers.StartMongoContainer(ctx, t, net, host, certs, requireTLS)
 		testhelpers.Mongosh(ctx, t, src, seedScript)
 		createX509User(ctx, t, src, certs.ClientSubject, "backup")
-		sources[requireTLS] = source{host, testhelpers.Dump(ctx, t, src)}
+		testhelpers.Mongosh(ctx, t, src, fmt.Sprintf(
+			`db.getSiblingDB("shop").createUser({user: %q, pwd: %q, roles: [{role: "read", db: "shop"}]})`,
+			shopUser, shopPassword))
+		sources[requireTLS] = source{host, src}
 	}
 
 	plakar := testhelpers.StartPlakarContainer(ctx, t, net, certs.Files())
@@ -98,15 +116,10 @@ func TestRoundTrip(t *testing.T) {
 			dst := testhelpers.StartMongoContainer(ctx, t, net, dstHost, certs, tc.tls)
 			createX509User(ctx, t, dst, certs.ClientSubject, "restore")
 
-			var opts []string
-			for _, o := range tc.opts {
-				opts = append(opts, "-o", o)
-			}
-
 			store := "/var/backups/" + tc.name
 			testhelpers.ExecOK(ctx, t, plakar, "plakar", "at", store, "create", "-plaintext")
 			testhelpers.ExecOK(ctx, t, plakar, append(append(
-				[]string{"plakar", "at", store, "backup"}, opts...), "mongodb://"+src.host)...)
+				[]string{"plakar", "at", store, "backup"}, options(tc.backup)...), "mongodb://"+src.host)...)
 
 			snapshots := testhelpers.ListSnapshots(ctx, t, plakar, store)
 			if len(snapshots) != 1 {
@@ -118,10 +131,11 @@ func TestRoundTrip(t *testing.T) {
 			}
 
 			testhelpers.ExecOK(ctx, t, plakar, append(append(
-				[]string{"plakar", "at", store, "restore", "-to", "mongodb://" + dstHost}, opts...), snapshots[0])...)
+				[]string{"plakar", "at", store, "restore", "-to", "mongodb://" + dstHost}, options(tc.restore)...), snapshots[0])...)
 
-			if got := testhelpers.Dump(ctx, t, dst); got != src.want {
-				t.Errorf("restored data differs from source\ngot:  %s\nwant: %s", got, src.want)
+			want := testhelpers.Dump(ctx, t, src.container, tc.dbs...)
+			if got := testhelpers.Dump(ctx, t, dst); got != want {
+				t.Errorf("restored data differs from source\ngot:  %s\nwant: %s", got, want)
 			}
 		})
 	}
