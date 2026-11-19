@@ -26,10 +26,10 @@ import (
 	"time"
 
 	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/PlakarKorp/integrations/notion/api"
 	"github.com/PlakarKorp/integrations/notion/internal/fakenotion"
 	"github.com/PlakarKorp/integrations/notion/layout"
-	"github.com/PlakarKorp/kloset/exclude"
 	"github.com/stretchr/testify/require"
 )
 

@@ -4,7 +4,6 @@ go 1.27.3
 
 require (
 	github.com/PlakarKorp/integration-sdk v1.1.5
-	github.com/PlakarKorp/kloset v1.1.10
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.24.0
 )
