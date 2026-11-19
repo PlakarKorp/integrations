@@ -110,6 +110,10 @@ Stopping plakar with Ctrl-C or SIGTERM kills the plugin before it can clean
 up. The snapshot, the temporary volume and the image are then left behind:
 look for `plakar-backup-*` snapshots and `plakar-tmp-*` volumes and images.
 
+Each temporary volume is logged as it is created, as `openstack: created
+temporary volume id="…" name="…"` followed by the `snapshot_id`/`volume_id` or
+`image_id` it was made from.
+
 In-use volumes are snapshotted as they are, so the backup is crash-consistent.
 
 The snapshot holds:

@@ -24,6 +24,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,16 +126,35 @@ func (c *Client) CreateVolumeFromSnapshot(ctx context.Context, snap *snapshots.S
 	}
 	cleanup.block = block
 
+	name := tmpPrefix + snap.ID
 	tmp, err := volumes.Create(ctx, block, volumes.CreateOpts{
 		SnapshotID: snap.ID,
-		Name:       tmpPrefix + snap.ID,
+		Name:       name,
 		Size:       snap.Size,
 	}, nil).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("create volume from snapshot %q: %w", snap.ID, err)
 	}
 	cleanup.volumeID = tmp.ID
+	logTempVolume(tmp.ID, name, field("snapshot_id", snap.ID), field("volume_id", snap.VolumeID))
 	return waitStatus(ctx, kindVolume, tmp.ID, getVolume(block, tmp.ID), statusAvailable, statusError)
+}
+
+// logTempVolume logs
+// NOTE: External services depend on this, do not change the format without letting them know.
+//
+//	openstack: created temporary volume id="<id>" name="<name>" (OPTIONAL) snapshot_id="<id>" volume_id="<id>"
+//
+// id and name are always there;
+// snapshot_id a Cinder snapshot,
+// volume_id the Cinder volume that snapshot is of,
+func logTempVolume(id, name string, deps ...string) {
+	log.Printf("openstack: created temporary volume %s %s %s", field("id", id), field("name", name), strings.Join(deps, " "))
+}
+
+// field formats one key="value" pair of a log line.
+func field(key, value string) string {
+	return fmt.Sprintf("%s=%q", key, value)
 }
 
 // UploadVolumeImage uploads the temporary volume to a Glance image and waits
@@ -640,6 +660,7 @@ func (c *Client) CreateTempVolumeFromImage(ctx context.Context, imageID string, 
 	if err != nil {
 		return nil, err
 	}
+	logTempVolume(tmp.ID, opts.Name, field("image_id", imageID))
 	block, err := c.cinder()
 	if err != nil {
 		c.DeleteTempVolume(ctx, tmp.ID)
