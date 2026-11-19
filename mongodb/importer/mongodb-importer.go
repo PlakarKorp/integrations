@@ -17,7 +17,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -254,12 +254,6 @@ func cleanupTempFile(f *os.File) {
 	}
 }
 
-type commandResult struct {
-	stderr []byte
-	err    error
-	exit   bool
-}
-
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
@@ -328,43 +322,16 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 	}
 	cmd := exec.Command("mongodump", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongodump exits, which races with readers still draining them.
+	stdout, stdoutW := io.Pipe()
+	var stderr bytes.Buffer
+	cmd.Stdout = stdoutW
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-
-	c := make(chan commandResult, 1)
-
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
 
 	fi := integration.FileInfo{
 		Lname:      backupFilename,
@@ -380,29 +347,15 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 		Lgroupname: "",
 	}
 	records <- integration.NewRecord("/", "", fi, nil,
-		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
+		func() (io.ReadCloser, error) { return stdout, nil })
 
-	go func() {
-		read_stderr(c)
-	}()
-
-	var res commandResult
-	for err == nil && !res.exit {
-		r := <-c
-		if len(r.stderr) > 0 {
-			res.stderr = append(res.stderr, r.stderr...)
-		}
-		if !res.exit {
-			res.exit = r.exit
-		}
-		if r.err != nil {
-			err = r.err
-		}
+	err = cmd.Wait()
+	if err != nil && stderr.Len() > 0 {
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
-
-	if err != nil && res.exit && len(res.stderr) > 0 {
-		err = fmt.Errorf("%w: %s", err, res.stderr)
-	}
+	// Fail the record's reader too, so a truncated dump is not stored as
+	// a complete one.
+	stdoutW.CloseWithError(err)
 
 	return nil, err
 }

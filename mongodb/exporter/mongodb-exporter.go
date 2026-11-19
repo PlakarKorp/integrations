@@ -17,7 +17,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -249,13 +249,6 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
 }
 
-type commandResult struct {
-	stdout []byte
-	stderr []byte
-	err    error
-	exit   bool
-}
-
 func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
@@ -328,70 +321,16 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 	}
 	e.stdin = stdin
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stdout := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stdout)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stdout: buf}
-			}
-		}
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongorestore exits, which races with readers still draining
+	// them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-
-	c := make(chan commandResult, 1)
-
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
-
-	go func() {
-		read_stdout(c)
-	}()
-
-	go func() {
-		read_stderr(c)
-	}()
 
 	go func() {
 		for record := range records {
@@ -414,31 +353,16 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 		e.stdin = nil
 	}()
 
-	var res commandResult
-	for err == nil && !res.exit {
-		r := <-c
-		if len(r.stdout) > 0 {
-			res.stdout = append(res.stdout, r.stdout...)
-		}
-		if len(r.stderr) > 0 {
-			res.stderr = append(res.stderr, r.stderr...)
-		}
-		if !res.exit {
-			res.exit = r.exit
-		}
-		if r.err != nil {
-			err = r.err
-		}
-	}
+	err = cmd.Wait()
 
-	if debug && len(res.stdout) > 0 {
-		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
+	if debug && stdout.Len() > 0 {
+		fmt.Fprintf(os.Stderr, "%s", stdout.String())
 	}
-	if err != nil && res.exit && len(res.stderr) > 0 {
+	if err != nil && stderr.Len() > 0 {
 		if debug {
-			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
+			fmt.Fprintf(os.Stderr, "%s", stderr.String())
 		}
-		err = fmt.Errorf("%w: %s", err, res.stderr)
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
 
 	return err
