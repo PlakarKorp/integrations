@@ -24,7 +24,7 @@ import (
 	"sync"
 
 	"github.com/PlakarKorp/integration-sdk"
-	"github.com/PlakarKorp/kloset/reading"
+	"github.com/PlakarKorp/integrations/sftp/reading"
 	"github.com/pkg/sftp"
 	"golang.org/x/sync/errgroup"
 )

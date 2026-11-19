@@ -4,7 +4,6 @@ go 1.26.10
 
 require (
 	github.com/PlakarKorp/integration-sdk v1.1.5
-	github.com/PlakarKorp/kloset v1.1.15
 	github.com/pkg/sftp v1.13.12
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.25.0
