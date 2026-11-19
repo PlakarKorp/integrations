@@ -50,6 +50,7 @@ type mongodbExporter struct {
 	tls_client_cert  string
 	client_cert_file *os.File
 	auth_mechanism   string
+	auth_database    string
 	stdin            io.WriteCloser
 }
 
@@ -157,6 +158,7 @@ func NewExporter(ctx context.Context, opts *integration.Options, proto string, p
 		tls_client_cert:  tls_client_cert,
 		client_cert_file: client_cert_file,
 		auth_mechanism:   params["auth_mechanism"],
+		auth_database:    params["auth_database"],
 	}
 
 	return e, nil
@@ -275,6 +277,10 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 	if len(e.auth_mechanism) > 0 {
 		args = append(args, "--authenticationMechanism")
 		args = append(args, e.auth_mechanism)
+	}
+	if len(e.auth_database) > 0 {
+		args = append(args, "--authenticationDatabase")
+		args = append(args, e.auth_database)
 	}
 	if len(e.username) > 0 {
 		args = append(args, "--username")

@@ -31,6 +31,8 @@ The optional configuration parameters are as follows:
 - `tls_ca_cert`: Path to a custom CA certificate to use for verifying the MongoDB server's certificate.
 - `tls_client_cert`: Path to a client certificate and key for mTLS authentication to the MongoDB server.
 - `auth_mechanism`: Name of authentication mechanism to use with the MongoDB server.
+- `auth_database`: Database holding the user's credentials. When unset, the MongoDB tools pick it: `$external` for PLAIN, MONGODB-X509, GSSAPI and MONGODB-OIDC, otherwise `database` if set, otherwise `admin`.
+- `database`: Back up only this database instead of the whole server. Backup only. With SCRAM authentication, users created in `admin` must also set `auth_database=admin`.
 
 ## Tests
 

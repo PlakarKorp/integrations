@@ -31,10 +31,20 @@ clean:
 	rm -f ./mongodb_${V}*.ptar
 	rm -rf .qa
 
-package:
+package: build
 	rm -f ./mongodb_${V}*.ptar
 	plakar pkg create manifest.yaml ${V}
 
+uninstall:
+	-plakar pkg rm mongodb
+
 install: package
-	plakar pkg rm mongodb
 	plakar pkg add -allow-unsigned ./mongodb_${V}*.ptar
+
+reinstall: uninstall install
+
+dev-db:
+	./scripts/dev-db.sh start
+
+dev-db-stop:
+	./scripts/dev-db.sh stop
