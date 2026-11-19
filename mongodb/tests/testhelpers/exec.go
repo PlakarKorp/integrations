@@ -43,3 +43,19 @@ func ExecCapture(ctx context.Context, t *testing.T, container testcontainers.Con
 	}
 	return s
 }
+
+// ExecFails runs cmd inside container and returns its combined output. The
+// test fails if the exit code is zero.
+func ExecFails(ctx context.Context, t *testing.T, container testcontainers.Container, cmd ...string) string {
+	t.Helper()
+	code, out, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		t.Fatalf("exec %v: %v", cmd, err)
+	}
+	b, _ := io.ReadAll(out)
+	s := strings.TrimSpace(string(b))
+	if code == 0 {
+		t.Fatalf("exec %v: succeeded, want failure\n%s", cmd, s)
+	}
+	return s
+}

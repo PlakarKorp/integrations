@@ -24,11 +24,13 @@ db.getSiblingDB("blog").posts.insertOne(
 );
 `
 
-// Credentials of a user created in the shop database, with read access to
-// it only.
+// Credentials of users with read access to the shop database only, one
+// created in shop and one in admin.
 const (
-	shopUser     = "shop_reader"
-	shopPassword = "secret"
+	shopUser          = "shop_reader"
+	shopPassword      = "secret"
+	adminShopUser     = "admin_shop_reader"
+	adminShopPassword = "secret"
 )
 
 // options turns key=value pairs into plakar -o flags.
@@ -70,6 +72,8 @@ func TestRoundTrip(t *testing.T) {
 		restore []string
 		// dbs lists the databases expected on the target, all when empty.
 		dbs []string
+		// backupErr, when set, is expected in the output of a failing backup.
+		backupErr string
 	}{
 		{name: "plain", backup: plain, restore: plain},
 		{name: "tls", tls: true, backup: tls, restore: tls},
@@ -81,6 +85,20 @@ func TestRoundTrip(t *testing.T) {
 				"username=" + shopUser, "password=" + shopPassword},
 			restore: plain,
 			dbs:     []string{"shop"},
+		},
+		{
+			name: "auth_database",
+			backup: []string{"use_tls=false", "database=shop", "auth_database=admin",
+				"username=" + adminShopUser, "password=" + adminShopPassword},
+			restore: plain,
+			dbs:     []string{"shop"},
+		},
+		{
+			// Without auth_database, the tools look the user up in shop.
+			name: "auth_database_missing",
+			backup: []string{"use_tls=false", "database=shop",
+				"username=" + adminShopUser, "password=" + adminShopPassword},
+			backupErr: "Authentication failed",
 		},
 	}
 
@@ -104,6 +122,9 @@ func TestRoundTrip(t *testing.T) {
 		testhelpers.Mongosh(ctx, t, src, fmt.Sprintf(
 			`db.getSiblingDB("shop").createUser({user: %q, pwd: %q, roles: [{role: "read", db: "shop"}]})`,
 			shopUser, shopPassword))
+		testhelpers.Mongosh(ctx, t, src, fmt.Sprintf(
+			`db.getSiblingDB("admin").createUser({user: %q, pwd: %q, roles: [{role: "read", db: "shop"}]})`,
+			adminShopUser, adminShopPassword))
 		sources[requireTLS] = source{host, src}
 	}
 
@@ -113,13 +134,18 @@ func TestRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dstHost := "mongo-dst-" + tc.name
 			src := sources[tc.tls]
-			dst := testhelpers.StartMongoContainer(ctx, t, net, dstHost, certs, tc.tls)
-			createX509User(ctx, t, dst, certs.ClientSubject, "restore")
 
 			store := "/var/backups/" + tc.name
 			testhelpers.ExecOK(ctx, t, plakar, "plakar", "at", store, "create", "-plaintext")
-			testhelpers.ExecOK(ctx, t, plakar, append(append(
-				[]string{"plakar", "at", store, "backup"}, options(tc.backup)...), "mongodb://"+src.host)...)
+			backup := append(append(
+				[]string{"plakar", "at", store, "backup"}, options(tc.backup)...), "mongodb://"+src.host)
+			if tc.backupErr != "" {
+				if out := testhelpers.ExecFails(ctx, t, plakar, backup...); !strings.Contains(out, tc.backupErr) {
+					t.Fatalf("backup output lacks %q:\n%s", tc.backupErr, out)
+				}
+				return
+			}
+			testhelpers.ExecOK(ctx, t, plakar, backup...)
 
 			snapshots := testhelpers.ListSnapshots(ctx, t, plakar, store)
 			if len(snapshots) != 1 {
@@ -130,6 +156,8 @@ func TestRoundTrip(t *testing.T) {
 				t.Fatalf("snapshot has no mongodb-backup.bson:\n%s", files)
 			}
 
+			dst := testhelpers.StartMongoContainer(ctx, t, net, dstHost, certs, tc.tls)
+			createX509User(ctx, t, dst, certs.ClientSubject, "restore")
 			testhelpers.ExecOK(ctx, t, plakar, append(append(
 				[]string{"plakar", "at", store, "restore", "-to", "mongodb://" + dstHost}, options(tc.restore)...), snapshots[0])...)
 
