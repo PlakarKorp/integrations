@@ -38,3 +38,9 @@ package:
 install: package
 	plakar pkg rm mongodb
 	plakar pkg add -allow-unsigned ./mongodb_${V}*.ptar
+
+dev-db:
+	./scripts/dev-db.sh start
+
+dev-db-stop:
+	./scripts/dev-db.sh stop
