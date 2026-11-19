@@ -203,23 +203,23 @@ func (s *Store) Close(ctx context.Context) error {
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var macs []integration.MAC
-		var err error
+		var macs iter.Seq2[integration.MAC, error]
 		switch res {
 		case integration.StorageResourcePackfile:
-			macs, err = s.getPackfiles(ctx)
+			macs = s.getPackfiles(ctx)
 		case integration.StorageResourceState:
-			macs, err = s.getStates(ctx)
+			macs = s.getStates(ctx)
 		case integration.StorageResourceLock:
-			macs, err = s.getLocks(ctx)
+			macs = s.getLocks(ctx)
 		default:
-			err = errors.ErrUnsupported
-		}
-		if err != nil {
-			yield(nil, err)
+			yield(nil, errors.ErrUnsupported)
 			return
 		}
-		for _, mac := range macs {
+		for mac, err := range macs {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
 				return
 			}
@@ -276,28 +276,32 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ i
 }
 
 // states
-func (s *Store) getStates(context context.Context) ([]integration.MAC, error) {
-	rows, err := s.conn.Query("SELECT mac FROM states")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	macs := make([]integration.MAC, 0)
-	for rows.Next() {
-		var mac []byte
-		err = rows.Scan(&mac)
+func (s *Store) getStates(context context.Context) iter.Seq2[integration.MAC, error] {
+	return func(yield func(integration.MAC, error) bool) {
+		rows, err := s.conn.Query("SELECT mac FROM states")
 		if err != nil {
-			return nil, err
+			yield(integration.MAC{}, err)
+			return
 		}
-		var mac32 integration.MAC
-		copy(mac32[:], mac)
-		macs = append(macs, mac32)
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var mac []byte
+			err = rows.Scan(&mac)
+			if err != nil {
+				yield(integration.MAC{}, err)
+				return
+			}
+			var mac32 integration.MAC
+			copy(mac32[:], mac)
+			if !yield(mac32, nil) {
+				return
+			}
+		}
+		if err := rows.Err(); err != nil {
+			yield(integration.MAC{}, err)
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return macs, nil
 }
 
 func (s *Store) putState(context context.Context, mac integration.MAC, rd io.Reader) (int64, error) {
@@ -349,28 +353,32 @@ func (s *Store) deleteState(context context.Context, mac integration.MAC) error 
 }
 
 // packfiles
-func (s *Store) getPackfiles(context context.Context) ([]integration.MAC, error) {
-	rows, err := s.conn.Query("SELECT mac FROM packfiles")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	macs := make([]integration.MAC, 0)
-	for rows.Next() {
-		var mac []byte
-		err = rows.Scan(&mac)
+func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.MAC, error] {
+	return func(yield func(integration.MAC, error) bool) {
+		rows, err := s.conn.Query("SELECT mac FROM packfiles")
 		if err != nil {
-			return nil, err
+			yield(integration.MAC{}, err)
+			return
 		}
-		var mac32 integration.MAC
-		copy(mac32[:], mac)
-		macs = append(macs, mac32)
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var mac []byte
+			err = rows.Scan(&mac)
+			if err != nil {
+				yield(integration.MAC{}, err)
+				return
+			}
+			var mac32 integration.MAC
+			copy(mac32[:], mac)
+			if !yield(mac32, nil) {
+				return
+			}
+		}
+		if err := rows.Err(); err != nil {
+			yield(integration.MAC{}, err)
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return macs, nil
 }
 
 func (s *Store) putPackfile(context context.Context, mac integration.MAC, rd io.Reader) (int64, error) {
@@ -433,37 +441,41 @@ func (s *Store) deletePackfile(context context.Context, mac integration.MAC) err
 	return nil
 }
 
-func (s *Store) getLocks(context context.Context) ([]integration.MAC, error) {
-	rows, err := s.conn.Query("SELECT mac FROM locks")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	ret := make([]integration.MAC, 0)
-	for rows.Next() {
-		var mac string
-		err = rows.Scan(&mac)
+func (s *Store) getLocks(context context.Context) iter.Seq2[integration.MAC, error] {
+	return func(yield func(integration.MAC, error) bool) {
+		rows, err := s.conn.Query("SELECT mac FROM locks")
 		if err != nil {
-			return nil, err
+			yield(integration.MAC{}, err)
+			return
 		}
+		defer func() { _ = rows.Close() }()
 
-		lockID, err := hex.DecodeString(mac)
-		if err != nil {
-			return nil, err
+		for rows.Next() {
+			var mac string
+			err = rows.Scan(&mac)
+			if err != nil {
+				yield(integration.MAC{}, err)
+				return
+			}
+
+			lockID, err := hex.DecodeString(mac)
+			if err != nil {
+				yield(integration.MAC{}, err)
+				return
+			}
+
+			if len(lockID) != 32 {
+				continue
+			}
+
+			if !yield(integration.MAC(lockID), nil) {
+				return
+			}
 		}
-
-		if len(lockID) != 32 {
-			continue
+		if err := rows.Err(); err != nil {
+			yield(integration.MAC{}, err)
 		}
-
-		ret = append(ret, integration.MAC(lockID))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return ret, nil
 }
 
 func (s *Store) putLock(context context.Context, lockID integration.MAC, rd io.Reader) (int64, error) {
