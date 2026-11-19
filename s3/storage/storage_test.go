@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,8 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -83,6 +83,18 @@ func page(macHex string, token string) string {
 	return strings.ReplaceAll(body, "%TOKEN%", token)
 }
 
+// collect drains a List iterator, stopping at the first error.
+func collect(seq iter.Seq2[*integration.StorageResourceEntry, error]) ([]integration.MAC, error) {
+	var macs []integration.MAC
+	for e, err := range seq {
+		if err != nil {
+			return macs, err
+		}
+		macs = append(macs, e.MAC)
+	}
+	return macs, nil
+}
+
 func TestList(t *testing.T) {
 	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
@@ -91,11 +103,11 @@ func TestList(t *testing.T) {
 		}
 	})
 
-	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	macs, err := collect(s.List(context.Background(), integration.StorageResourcePackfile, 0))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	var want objects.MAC
+	var want integration.MAC
 	for i := range want {
 		want[i] = 0xab
 	}
@@ -119,7 +131,7 @@ func TestListErrorMidListing(t *testing.T) {
 		}
 	})
 
-	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	macs, err := collect(s.List(context.Background(), integration.StorageResourcePackfile, 0))
 	if err == nil {
 		t.Fatalf("List returned nil error with partial results %v", macs)
 	}
@@ -193,7 +205,7 @@ func TestGetReusesConnections(t *testing.T) {
 		var wg sync.WaitGroup
 		for range inflight {
 			wg.Go(func() {
-				rd, err := st.Get(context.Background(), storage.StorageResourcePackfile, objects.MAC{}, &storage.Range{Offset: 0, Length: 4})
+				rd, err := st.Get(context.Background(), integration.StorageResourcePackfile, 0, integration.MAC{}, &integration.Range{Offset: 0, Length: 4})
 				if err != nil {
 					t.Errorf("Get: %v", err)
 					return
@@ -249,7 +261,7 @@ func TestGetRetriesStalledRequest(t *testing.T) {
 		t.Fatalf("NewStore: %v", err)
 	}
 
-	rd, err := st.Get(context.Background(), storage.StorageResourcePackfile, objects.MAC{}, &storage.Range{Offset: 0, Length: 4})
+	rd, err := st.Get(context.Background(), integration.StorageResourcePackfile, 0, integration.MAC{}, &integration.Range{Offset: 0, Length: 4})
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -537,7 +549,7 @@ func TestDeleteUnsupportedResource(t *testing.T) {
 		requests.Add(1)
 	})
 
-	err := s.Delete(context.Background(), storage.StorageResourceECCPackfile, objects.MAC{})
+	err := s.Delete(context.Background(), integration.StorageResourceECCPackfile, 0, integration.MAC{})
 	if !errors.Is(err, errors.ErrUnsupported) {
 		t.Fatalf("got %v, want %v", err, errors.ErrUnsupported)
 	}
