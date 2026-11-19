@@ -282,59 +282,50 @@ func res2prefix(res integration.StorageResource) (string, error) {
 
 func (g *azblobStore) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		macs, err := g.list(ctx, res)
+		prefix, err := res2prefix(res)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
-		for _, mac := range macs {
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+
+		prefix = g.realpath(prefix)
+		l := len(prefix) + 4 // /%02x/
+
+		pager := g.client.NewListBlobsFlatPager(g.containerName, &azblob.ListBlobsFlatOptions{
+			Prefix: &prefix,
+		})
+
+		for pager.More() {
+			resp, err := pager.NextPage(ctx)
+			if err != nil {
+				yield(nil, err)
 				return
 			}
+
+			for _, item := range resp.Segment.BlobItems {
+				if item.Name == nil {
+					continue
+				}
+				name := *item.Name
+				if len(name) <= l {
+					continue
+				}
+
+				t, err := hex.DecodeString(name[l:])
+				if err != nil {
+					yield(nil, fmt.Errorf("decode %s key: %w", prefix, err))
+					return
+				}
+				if len(t) != 32 {
+					yield(nil, fmt.Errorf("invalid %s name: %s", prefix, name))
+					return
+				}
+				if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+					return
+				}
+			}
 		}
 	}
-}
-
-func (g *azblobStore) list(ctx context.Context, res integration.StorageResource) (ret []integration.MAC, err error) {
-	prefix, err := res2prefix(res)
-	if err != nil {
-		return nil, err
-	}
-
-	prefix = g.realpath(prefix)
-	l := len(prefix) + 4 // /%02x/
-
-	pager := g.client.NewListBlobsFlatPager(g.containerName, &azblob.ListBlobsFlatOptions{
-		Prefix: &prefix,
-	})
-
-	for pager.More() {
-		resp, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range resp.Segment.BlobItems {
-			if item.Name == nil {
-				continue
-			}
-			name := *item.Name
-			if len(name) <= l {
-				continue
-			}
-
-			t, err := hex.DecodeString(name[l:])
-			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", prefix, err)
-			}
-			if len(t) != 32 {
-				return nil, fmt.Errorf("invalid %s name: %s", prefix, name)
-			}
-			ret = append(ret, integration.MAC(t))
-		}
-	}
-
-	return ret, nil
 }
 
 func (g *azblobStore) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
