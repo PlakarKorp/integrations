@@ -258,6 +258,12 @@ func (s *Sftp) permissions(pathname string, fileinfo integration.FileInfo, mode 
 	// Apply ownership before mode bits so that any setuid/setgid bits are
 	// never set while the file is still owned by an unintended uid/gid.
 	if err := s.chown(pathname, fileinfo); err != nil {
+		// Still apply the mode: a directory would otherwise keep the
+		// server's mkdir default and be more open than in the snapshot.
+		// Drop setuid/setgid, they would grant the wrong owner's rights.
+		if cerr := s.chmod(pathname, fileinfo, mode&^(os.ModeSetuid|os.ModeSetgid)); cerr != nil {
+			return errors.Join(err, cerr)
+		}
 		return err
 	}
 	return s.chmod(pathname, fileinfo, mode)
