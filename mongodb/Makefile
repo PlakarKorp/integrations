@@ -31,7 +31,7 @@ clean:
 	rm -f ./mongodb_${V}*.ptar
 	rm -rf .qa
 
-package:
+package: build
 	rm -f ./mongodb_${V}*.ptar
 	plakar pkg create manifest.yaml ${V}
 
