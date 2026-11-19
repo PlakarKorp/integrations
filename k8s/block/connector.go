@@ -83,7 +83,7 @@ func (b *Block) Import(ctx context.Context, records chan<- *integration.Record, 
 	records <- integration.NewRecord(diskpath, "", fi, nil, func() (io.ReadCloser, error) {
 		return fp, nil
 	})
-	return nil, nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (b *Block) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
