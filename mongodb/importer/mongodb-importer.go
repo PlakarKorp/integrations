@@ -51,6 +51,7 @@ type mongodbImporter struct {
 	client_cert_file *os.File
 	auth_mechanism   string
 	auth_database    string
+	database         string
 }
 
 func init() {
@@ -161,6 +162,7 @@ func NewImporter(ctx context.Context, opts *integration.Options, proto string, p
 		client_cert_file: client_cert_file,
 		auth_mechanism:   params["auth_mechanism"],
 		auth_database:    params["auth_database"],
+		database:         params["database"],
 	}
 
 	return i, nil
@@ -310,6 +312,10 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 		}
 		args = append(args, "--config")
 		args = append(args, f.Name())
+	}
+	if len(i.database) > 0 {
+		args = append(args, "--db")
+		args = append(args, i.database)
 	}
 	args = append(args, "--archive")
 

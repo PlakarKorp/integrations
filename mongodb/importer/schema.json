@@ -65,6 +65,10 @@
     "auth_database": {
       "type": "string",
       "description": "Database holding the user's credentials. Defaults to the MongoDB tools' choice."
+    },
+    "database": {
+      "type": "string",
+      "description": "Back up only this database instead of the whole server."
     }
   }
 }
