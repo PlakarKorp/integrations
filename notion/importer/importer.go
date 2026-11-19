@@ -226,7 +226,7 @@ func (p *Importer) Ping(ctx context.Context) error {
 	return err
 }
 
-func (p *Importer) Import(ctx context.Context, records chan<- *integration.Record, _ <-chan *integration.Result) error {
+func (p *Importer) Import(ctx context.Context, records chan<- *integration.Record, _ <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 	p.started = time.Now()
 
@@ -238,7 +238,7 @@ func (p *Importer) Import(ctx context.Context, records chan<- *integration.Recor
 	if p.cfg.Users {
 		if err := p.emitUsers(ctx, em); err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
 			em.err("/"+layout.UsersFile, err)
 		}
@@ -246,18 +246,18 @@ func (p *Importer) Import(ctx context.Context, records chan<- *integration.Recor
 
 	idx, err := p.buildIndex(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	w := &walker{imp: p, idx: idx, em: em}
 	if err := w.run(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	if em.objects.Load() == 0 {
 		// a backup of nothing must not look like a backup
 		em.err("/", errors.New("nothing to back up: no page or database is shared with the integration"))
 	}
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (p *Importer) workspaceFile() []byte {
