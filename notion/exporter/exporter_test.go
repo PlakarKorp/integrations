@@ -100,7 +100,7 @@ func run(t *testing.T, s *fakenotion.Server, cfg Config, records ...*integration
 	}
 	close(in)
 	out := make(chan *integration.Result, len(records))
-	err = exp.Export(context.Background(), in, out)
+	err = exp.Export(context.Background(), nil, in, out)
 	results := map[string]*integration.Result{}
 	for r := range out {
 		results[r.Record.Pathname] = r

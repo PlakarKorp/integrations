@@ -69,7 +69,7 @@ func run(t *testing.T, imp *Importer) *backup {
 	t.Helper()
 	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
-	go func() { done <- imp.Import(context.Background(), records, nil) }()
+	go func() { _, err := imp.Import(context.Background(), records, nil); done <- err }()
 	b := &backup{records: map[string]*integration.Record{}, errors: map[string]error{}}
 	for r := range records {
 		if r.Err != nil {
@@ -261,7 +261,7 @@ func TestImportScoped(t *testing.T) {
 	require.NoError(t, err)
 	imp = newImporter(t, s, Config{Root: "00000000-0000-0000-0000-000000000000"}, nil)
 	records := make(chan *integration.Record, 100)
-	err = imp.Import(context.Background(), records, nil)
+	_, err = imp.Import(context.Background(), records, nil)
 	require.Error(t, err)
 }
 

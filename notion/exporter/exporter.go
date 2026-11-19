@@ -206,7 +206,7 @@ func (p *Exporter) notef(format string, args ...any) {
 	_, _ = fmt.Fprintf(p.warn, "notion: "+format+"\n", args...)
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	if err := p.Ping(ctx); err != nil {

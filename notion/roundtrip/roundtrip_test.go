@@ -51,7 +51,7 @@ func backup(t *testing.T, s *fakenotion.Server, cfg importer.Config) *snapshot {
 
 	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
-	go func() { done <- imp.Import(context.Background(), records, nil) }()
+	go func() { _, err := imp.Import(context.Background(), records, nil); done <- err }()
 	snap := &snapshot{content: map[string][]byte{}}
 	for r := range records {
 		require.NoError(t, r.Err, r.Pathname)
@@ -101,7 +101,7 @@ func restore(t *testing.T, snap *snapshot, s *fakenotion.Server, cfg exporter.Co
 	}
 	close(in)
 	out := make(chan *integration.Result, len(snap.records))
-	require.NoError(t, exp.Export(context.Background(), in, out))
+	require.NoError(t, exp.Export(context.Background(), nil, in, out))
 	results := map[string]*integration.Result{}
 	for r := range out {
 		results[r.Record.Pathname] = r
