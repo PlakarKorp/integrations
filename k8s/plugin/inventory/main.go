@@ -19,10 +19,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-inventory-sdk/sdk/server"
+	"github.com/PlakarKorp/integration-sdk/server"
 	k8s "github.com/PlakarKorp/integrations/k8s"
 )
 
 func main() {
-	sdk.Entrypoint(os.Args, k8s.NewInventory)
+	server.EntrypointInventory(k8s.NewInventory, os.Args)
 }

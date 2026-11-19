@@ -12,10 +12,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -43,7 +41,7 @@ type k8s struct {
 	mapper         *restmapper.DeferredDiscoveryRESTMapper
 	snapClient     versioned.Interface
 	kubevirtClient kubevirt.Interface
-	opts           *connectors.Options
+	opts           *integration.Options
 	export         bool
 
 	host      string
@@ -68,24 +66,24 @@ type k8s struct {
 }
 
 func init() {
-	_ = importer.Register("k8s", 0, NewImporter)
-	_ = importer.Register("k8s+csi", 0, NewImporter)
-	_ = importer.Register("k8s+pvc", 0, NewImporter)
-	_ = importer.Register("k8s+vm", 0, NewImporter)
+	_ = integration.RegisterImporter("k8s", 0, NewImporter)
+	_ = integration.RegisterImporter("k8s+csi", 0, NewImporter)
+	_ = integration.RegisterImporter("k8s+pvc", 0, NewImporter)
+	_ = integration.RegisterImporter("k8s+vm", 0, NewImporter)
 
-	_ = exporter.Register("k8s", 0, NewExporter)
-	_ = exporter.Register("k8s+pvc", 0, NewExporter)
-	_ = exporter.Register("k8s+vm", 0, NewExporter)
+	_ = integration.RegisterExporter("k8s", 0, NewExporter)
+	_ = integration.RegisterExporter("k8s+pvc", 0, NewExporter)
+	_ = integration.RegisterExporter("k8s+vm", 0, NewExporter)
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Importer, error) {
 	if params["fs_access"] == "" {
 		params["fs_access"] = "read"
 	}
 	return New(ctx, opts, name, params, false)
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, params map[string]string) (integration.Exporter, error) {
 	if params["fs_access"] == "" {
 		params["fs_access"] = "full"
 	}
@@ -126,7 +124,7 @@ func WithSkipRootPermsAndTime(skipRootPermsAndTime bool) Options {
 
 func New(
 	ctx context.Context,
-	opts *connectors.Options,
+	opts *integration.Options,
 	proto string,
 	params map[string]string,
 	export bool,
@@ -449,22 +447,22 @@ func (k *k8s) Ping(ctx context.Context) error {
 	}
 }
 
-func (k *k8s) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	switch k.proto {
 	case "k8s":
-		return k.walkResources(ctx, records)
+		return nil, k.walkResources(ctx, records)
 	case "k8s+pvc", "k8s+csi":
-		return k.backupPvc(ctx, k.namespace, k.pvcName, records, results)
+		return nil, k.backupPvc(ctx, k.namespace, k.pvcName, records, results)
 	case "k8s+vm":
-		return k.backupVM(ctx, k.namespace, k.vmName, records, results)
+		return nil, k.backupVM(ctx, k.namespace, k.vmName, records, results)
 	default:
-		return errors.ErrUnsupported
+		return nil, errors.ErrUnsupported
 	}
 }
 
-func (k *k8s) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	switch k.proto {
 	case "k8s":
 		defer close(results)
