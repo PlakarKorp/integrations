@@ -30,7 +30,7 @@ import (
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
-	"github.com/PlakarKorp/kloset/repository"
+	_ "modernc.org/sqlite"
 )
 
 type Store struct {
@@ -42,6 +42,8 @@ type Store struct {
 	Repository string
 	location   string
 }
+
+var ErrBlobNotFound = errors.New("blob not found")
 
 func init() {
 	_ = integration.RegisterStore("sqlite", location.FLAG_LOCALFS|location.FLAG_FILE, NewStore)
@@ -407,7 +409,7 @@ func (s *Store) getPackfileBlob(context context.Context, mac integration.MAC, of
 	err := s.conn.QueryRow(`SELECT substr(data, ?, ?) FROM packfiles WHERE mac=?`, offset+1, length, mac[:]).Scan(&data)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			err = repository.ErrBlobNotFound
+			err = ErrBlobNotFound
 		}
 		return nil, err
 	}
