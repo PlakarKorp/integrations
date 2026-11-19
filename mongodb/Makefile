@@ -4,7 +4,7 @@ EXT=
 V=v1.1.1
 
 # Lint rules and tool versions come from PlakarKorp/QA at this version, as in CI.
-QA_VERSION != cat .qa-version
+QA_VERSION := $(shell cat .qa-version)
 QA_DIR     =  .qa/$(QA_VERSION)
 
 all: build
