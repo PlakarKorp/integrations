@@ -9,8 +9,7 @@ import (
 
 	_ "embed"
 
-	sdk "github.com/PlakarKorp/go-inventory-sdk/inventory"
-	"github.com/PlakarKorp/pkg"
+	"github.com/PlakarKorp/integration-sdk"
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +31,7 @@ type inventory struct {
 	kubevirtClient kubevirt.Interface
 }
 
-func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory, error) {
+func NewInventory(ctx context.Context, params map[string]string) (integration.Inventory, error) {
 	var (
 		inv          inventory
 		kubeconf     []byte
@@ -102,16 +101,16 @@ func NewInventory(ctx context.Context, params map[string]string) (sdk.Inventory,
 	return &inv, nil
 }
 
-func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listConfig(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	for _, ns := range inv.namespaces {
 		if ns == "" {
 			// emit all namespaces in cluster mode
-			resources <- &sdk.InventoryEntry{
-				Class: pkg.ResourceClassCompute,
+			resources <- &integration.InventoryEntry{
+				Class: integration.ResourceClassCompute,
 				URN:   "k8s:cluster",
 				Name:  "cluster",
-				Endpoints: []sdk.HostEndpoint{{
-					Type:     sdk.EndpointIdentifier,
+				Endpoints: []integration.HostEndpoint{{
+					Type:     integration.EndpointIdentifier,
 					Endpoint: "/",
 				}},
 			}
@@ -120,12 +119,12 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 		}
 
 		name, endpoint := ns, "/"+ns
-		resources <- &sdk.InventoryEntry{
-			Class: pkg.ResourceClassCompute,
+		resources <- &integration.InventoryEntry{
+			Class: integration.ResourceClassCompute,
 			URN:   "k8s:ns-" + name,
 			Name:  name,
-			Endpoints: []sdk.HostEndpoint{{
-				Type:     sdk.EndpointIdentifier,
+			Endpoints: []integration.HostEndpoint{{
+				Type:     integration.EndpointIdentifier,
 				Endpoint: endpoint,
 			}},
 		}
@@ -134,7 +133,7 @@ func (inv *inventory) listConfig(ctx context.Context, resources chan<- *sdk.Inve
 	return nil
 }
 
-func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listNS(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	var cont string
 
 	for {
@@ -147,12 +146,12 @@ func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.Inventor
 		}
 
 		for _, ns := range ns.Items {
-			resources <- &sdk.InventoryEntry{
-				Class: pkg.ResourceClassCompute,
+			resources <- &integration.InventoryEntry{
+				Class: integration.ResourceClassCompute,
 				URN:   "k8s:ns-" + ns.Name,
 				Name:  ns.Name,
-				Endpoints: []sdk.HostEndpoint{{
-					Type:     sdk.EndpointIdentifier,
+				Endpoints: []integration.HostEndpoint{{
+					Type:     integration.EndpointIdentifier,
 					Endpoint: "/" + ns.Name,
 				}},
 			}
@@ -169,7 +168,7 @@ func (inv *inventory) listNS(ctx context.Context, resources chan<- *sdk.Inventor
 	return nil
 }
 
-func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listPVC(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	for _, ns := range inv.namespaces {
 		if err := inv.listPVCInNs(ctx, ns, resources); err != nil {
 			return err
@@ -178,7 +177,7 @@ func (inv *inventory) listPVC(ctx context.Context, resources chan<- *sdk.Invento
 	return nil
 }
 
-func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan<- *integration.InventoryEntry) error {
 	var cont string
 
 	for {
@@ -193,13 +192,13 @@ func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan
 		}
 
 		for _, pvc := range pvcs.Items {
-			resources <- &sdk.InventoryEntry{
-				Class:    pkg.ResourceClassBlockStorage,
-				SubClass: pkg.ResourceSubClassPVC,
+			resources <- &integration.InventoryEntry{
+				Class:    integration.ResourceClassBlockStorage,
+				SubClass: integration.ResourceSubClassPVC,
 				URN:      "k8s:" + pvc.Namespace + ":" + pvc.Name,
 				Name:     pvc.Name,
-				Endpoints: []sdk.HostEndpoint{{
-					Type:     sdk.EndpointIdentifier,
+				Endpoints: []integration.HostEndpoint{{
+					Type:     integration.EndpointIdentifier,
 					Endpoint: "/" + pvc.Namespace + "/" + pvc.Name,
 				}},
 			}
@@ -214,7 +213,7 @@ func (inv *inventory) listPVCInNs(ctx context.Context, ns string, resources chan
 	return nil
 }
 
-func (inv *inventory) listVM(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listVM(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	_, err := inv.clientset.Discovery().ServerResourcesForGroupVersionWithContext(ctx,
 		kvcorev1.GroupVersion.String())
 	if apierrors.IsNotFound(err) || discovery.IsGroupDiscoveryFailedError(err) {
@@ -230,7 +229,7 @@ func (inv *inventory) listVM(ctx context.Context, resources chan<- *sdk.Inventor
 	return nil
 }
 
-func (inv *inventory) listVMInNs(ctx context.Context, ns string, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) listVMInNs(ctx context.Context, ns string, resources chan<- *integration.InventoryEntry) error {
 	var cont string
 
 	for {
@@ -243,12 +242,12 @@ func (inv *inventory) listVMInNs(ctx context.Context, ns string, resources chan<
 		}
 
 		for _, vm := range vms.Items {
-			resources <- &sdk.InventoryEntry{
-				Class: pkg.ResourceClassCompute,
+			resources <- &integration.InventoryEntry{
+				Class: integration.ResourceClassCompute,
 				URN:   "k8s:" + vm.Namespace + ":" + vm.Name + ":" + string(vm.UID),
 				Name:  vm.Name,
-				Endpoints: []sdk.HostEndpoint{{
-					Type:     sdk.EndpointIdentifier,
+				Endpoints: []integration.HostEndpoint{{
+					Type:     integration.EndpointIdentifier,
 					Endpoint: "/" + vm.Namespace + "/" + vm.Name,
 				}},
 			}
@@ -263,7 +262,7 @@ func (inv *inventory) listVMInNs(ctx context.Context, ns string, resources chan<
 	return nil
 }
 
-func (inv *inventory) List(ctx context.Context, resources chan<- *sdk.InventoryEntry) error {
+func (inv *inventory) List(ctx context.Context, resources chan<- *integration.InventoryEntry) error {
 	defer close(resources)
 
 	wg, ctx := errgroup.WithContext(ctx)
