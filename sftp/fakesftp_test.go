@@ -200,7 +200,9 @@ func (h *localRootHandlers) Filecmd(r *sftp.Request) error {
 			}
 		}
 		if flags.UidGid {
-			_ = os.Chown(p, int(attrs.UID), int(attrs.GID))
+			if err := os.Chown(p, int(attrs.UID), int(attrs.GID)); err != nil {
+				return err
+			}
 		}
 		if flags.Size {
 			return os.Truncate(p, int64(attrs.Size))
