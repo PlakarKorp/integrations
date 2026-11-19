@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"net"
@@ -131,6 +132,8 @@ func TestListErrorMidListing(t *testing.T) {
 		}
 	})
 
+	// List streams, so the first page reaches the caller before the second
+	// fails; what matters is that the error is not swallowed.
 	macs, err := collect(s.List(context.Background(), integration.StorageResourcePackfile, 0))
 	if err == nil {
 		t.Fatalf("List returned nil error with partial results %v", macs)
@@ -138,8 +141,35 @@ func TestListErrorMidListing(t *testing.T) {
 	if minio.ToErrorResponse(err).Code != "AccessDenied" {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if macs != nil {
-		t.Fatalf("partial results returned alongside error: %v", macs)
+	if len(macs) != 1 {
+		t.Fatalf("got %d entries before the error, want the first page's 1", len(macs))
+	}
+}
+
+// List yields entries as pages arrive: a caller that stops after the first
+// entry must not cost a request per remaining page.
+func TestListStopsAtFirstPage(t *testing.T) {
+	var requests atomic.Int32
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		n := requests.Add(1)
+		token := ""
+		if n < 3 {
+			token = fmt.Sprintf("page%d", n)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), token))); err != nil {
+			t.Error(err)
+		}
+	})
+
+	for _, err := range s.List(context.Background(), integration.StorageResourcePackfile, 0) {
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		break
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("listed %d pages, want 1", got)
 	}
 }
 

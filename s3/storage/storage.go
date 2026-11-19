@@ -385,70 +385,47 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		macs, err := s.list(ctx, res)
-		if err != nil {
-			yield(nil, err)
+		var prefix string
+		var prefixSize int
+
+		switch res {
+		case integration.StorageResourcePackfile:
+			prefix = s.realpath("packfiles/")
+			prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
+		case integration.StorageResourceState:
+			prefix = s.realpath("states/")
+			prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
+		case integration.StorageResourceLock:
+			prefix = s.realpath("locks/")
+			prefixSize = len(prefix)
+		default:
+			yield(nil, errors.ErrUnsupported)
 			return
 		}
-		for _, mac := range macs {
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+
+		// Unlike ListObjects, the iterator fetches pages in the caller's
+		// goroutine, so stopping early leaves nothing to drain.
+		for object := range s.minioClient.ListObjectsIter(ctx, s.bucket, minio.ListObjectsOptions{
+			Prefix:    prefix,
+			Recursive: true,
+		}) {
+			if object.Err != nil {
+				yield(nil, object.Err)
+				return
+			}
+
+			if !strings.HasPrefix(object.Key, prefix) || len(object.Key) < prefixSize {
+				continue
+			}
+			t, err := hex.DecodeString(object.Key[prefixSize:])
+			if err != nil || len(t) != 32 {
+				continue
+			}
+			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
 				return
 			}
 		}
 	}
-}
-
-func (s *Store) list(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
-	var prefix string
-	var prefixSize int
-
-	switch res {
-	case integration.StorageResourcePackfile:
-		prefix = s.realpath("packfiles/")
-		prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
-	case integration.StorageResourceState:
-		prefix = s.realpath("states/")
-		prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
-	case integration.StorageResourceLock:
-		prefix = s.realpath("locks/")
-		prefixSize = len(prefix)
-	default:
-		return nil, errors.ErrUnsupported
-	}
-
-	ret := make([]integration.MAC, 0)
-	var listingErr error
-	for object := range s.minioClient.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
-		Prefix:    prefix,
-		Recursive: true,
-	}) {
-		if listingErr != nil {
-			continue // We have to drain the objects per documentation.
-		}
-
-		if object.Err != nil {
-			listingErr = object.Err
-			continue
-		}
-
-		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
-			t, err := hex.DecodeString(object.Key[prefixSize:])
-			if err != nil {
-				continue
-			}
-
-			if len(t) != 32 {
-				continue
-			}
-			ret = append(ret, integration.MAC(t))
-		}
-	}
-
-	if listingErr != nil {
-		return nil, listingErr
-	}
-
-	return ret, nil
 }
 
 func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
