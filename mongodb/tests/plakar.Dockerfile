@@ -1,7 +1,7 @@
 # Image for integration tests: plakar and the mongodb plugin built from the
 # source tree, plus the MongoDB tools the plugin shells out to.
-# The image is kept between runs (KeepImage: true), so later runs only
-# rebuild the layers that changed.
+# The image is kept between runs as plakar-mongodb-test:<PLAKAR_SHA>, so
+# later runs only rebuild the layers that changed.
 ARG PLAKAR_SHA=6574a2c153c0b35db2ed98a2490aa9dda86bddbe
 ARG MONGO_IMAGE=mongodb/mongodb-community-server:8.0-ubuntu2204
 

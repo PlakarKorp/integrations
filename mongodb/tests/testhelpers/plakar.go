@@ -36,6 +36,10 @@ func StartPlakarContainer(ctx context.Context, t *testing.T, net *testcontainers
 				"PLAKAR_SHA":  &sha,
 				"MONGO_IMAGE": &image,
 			},
+			// A fixed name, so each run replaces the image instead of
+			// leaving another one behind.
+			Repo:      "plakar-mongodb-test",
+			Tag:       plakarSHA,
 			KeepImage: true,
 		},
 		Cmd:      []string{"sleep", "infinity"},
