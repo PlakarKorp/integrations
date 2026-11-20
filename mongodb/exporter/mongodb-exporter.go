@@ -209,44 +209,27 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongosh", args...)
+	cmd := exec.CommandContext(ctx, "mongosh", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Run copies the output before returning, unlike reading
+	// StdoutPipe and StderrPipe while Wait closes them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	} else {
-		buf, err = io.ReadAll(stderr)
-		if err != nil {
-			return err
+	err := cmd.Run()
+	for line := range strings.Lines(stdout.String()) {
+		if strings.HasPrefix(line, "  ok: 1") {
+			return nil
 		}
 	}
-
-	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("mongosh: %w: %s", err, stderr.Bytes())
+	}
+	if err != nil {
+		return fmt.Errorf("mongosh: %w", err)
+	}
+	return fmt.Errorf("unexpected output from mongosh: '%s'", stdout.String())
 }
 
 func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
