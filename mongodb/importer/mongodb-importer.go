@@ -17,9 +17,10 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -29,47 +30,46 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 const defaultMongoDBPort = 27017
 const backupFilename = "mongodb-backup.bson"
 
 type mongodbImporter struct {
-	url                  *url.URL
-	port                 string
-	username             string
-	password             string
-	options              *connectors.Options
-	use_tls              bool
-	tls_ca_cert          string
-	tls_ca_cert_data     string
-	ca_cert_file         *os.File
-	tls_client_cert      string
-	tls_client_cert_data string
-	tls_client_key_data  string
-	client_cert_file     *os.File
-	auth_mechanism       string
+	url              *url.URL
+	port             string
+	username         string
+	password         string
+	options          *integration.Options
+	use_tls          bool
+	tls_ca_cert      string
+	ca_cert_file     *os.File
+	tls_client_cert  string
+	client_cert_file *os.File
+	auth_mechanism   string
+	auth_database    string
+	database         string
 }
 
 func init() {
-	importer.Register("mongodb", 0, NewImporter)
+	_ = integration.RegisterImporter("mongodb", 0, NewImporter)
 }
 
 func (i *mongodbImporter) Root() string {
 	return "/"
 }
 
-func (i *mongodbImporter) Origin() string        { return i.url.Host }
-func (i *mongodbImporter) Type() string          { return "mongodb" }
-func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM }
+func (i *mongodbImporter) Origin() string { return i.url.Host }
+func (i *mongodbImporter) Type() string   { return "mongodb" }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
+// No vfs cache: its warm stage holds records back until it has a batch,
+// while Import waits for the dump to be read.
+func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM | location.FLAG_NOCACHE }
+
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	location := params["location"]
 
 	parsed, err := url.Parse(location)
@@ -89,7 +89,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	if len(port) == 0 {
-		port = fmt.Sprintf("%d", defaultMongoDBPort)
+		port = strconv.Itoa(defaultMongoDBPort)
 	}
 
 	var tls_ca_cert string
@@ -102,15 +102,17 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		ca_cert_data := params["tls_ca_cert_data"]
 		if ca_cert_data != "" {
 			if params["tls_ca_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous CA certificate parameters: " +
+				return nil, errors.New("ambiguous CA certificate parameters: " +
 					"both a CA cert file path and inline PEM CA data have been specified")
 			}
 			ca_cert_file, err = os.CreateTemp("", "plakar-mongodb")
 			if err != nil {
 				return nil, err
 			}
-			ca_cert_file.WriteString(ca_cert_data + "\n")
-			ca_cert_file.Sync()
+			if err := writePEM(ca_cert_file, ca_cert_data); err != nil {
+				cleanupTempFile(ca_cert_file)
+				return nil, err
+			}
 			tls_ca_cert = ca_cert_file.Name()
 		} else {
 			tls_ca_cert = params["tls_ca_cert"]
@@ -121,7 +123,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 
 		if cert_data != "" && cert_key != "" {
 			if params["tls_client_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous client certificate parameters: " +
+				return nil, errors.New("ambiguous client certificate parameters: " +
 					"both a client cert file path and inline PEM cert data " +
 					"have been specified")
 			}
@@ -137,12 +139,13 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 				return nil, err
 			}
 
-			client_cert_file.WriteString(cert_data + "\n")
-			client_cert_file.WriteString(cert_key + "\n")
-			client_cert_file.Sync()
+			if err := writePEM(client_cert_file, cert_data, cert_key); err != nil {
+				cleanupTempFile(client_cert_file)
+				return nil, err
+			}
 			tls_client_cert = client_cert_file.Name()
 		} else if cert_data != "" || cert_key != "" {
-			return nil, fmt.Errorf("tls_client_cert_data and " +
+			return nil, errors.New("tls_client_cert_data and " +
 				"tls_client_key_data must both be specified together")
 		} else {
 			tls_client_cert = params["tls_client_cert"]
@@ -161,6 +164,8 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		tls_client_cert:  tls_client_cert,
 		client_cert_file: client_cert_file,
 		auth_mechanism:   params["auth_mechanism"],
+		auth_database:    params["auth_database"],
+		database:         params["database"],
 	}
 
 	return i, nil
@@ -195,60 +200,47 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			i.url.Scheme, i.url.Hostname(), i.port))
 	}
-	cmd := exec.Command("mongosh", args...)
+	cmd := exec.CommandContext(ctx, "mongosh", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Run copies the output before returning, unlike reading
+	// StdoutPipe and StderrPipe while Wait closes them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	} else {
-		buf, err = io.ReadAll(stderr)
-		if err != nil {
-			return err
+	err := cmd.Run()
+	for line := range strings.Lines(stdout.String()) {
+		if strings.HasPrefix(line, "  ok: 1") {
+			return nil
 		}
 	}
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("mongosh: %w: %s", err, stderr.Bytes())
+	}
+	if err != nil {
+		return fmt.Errorf("mongosh: %w", err)
+	}
+	return fmt.Errorf("unexpected output from mongosh: '%s'", stdout.String())
+}
 
-	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
+// writePEM writes each PEM block to f, newline-terminated, and syncs it.
+func writePEM(f *os.File, blocks ...string) error {
+	for _, b := range blocks {
+		if _, err := f.WriteString(b + "\n"); err != nil {
+			return fmt.Errorf("write %s: %w", f.Name(), err)
+		}
+	}
+	return f.Sync()
 }
 
 func cleanupTempFile(f *os.File) {
 	if f != nil {
-		os.Remove(f.Name())
-		f.Close()
+		_ = os.Remove(f.Name())
+		_ = f.Close()
 	}
 }
 
-type commandResult struct {
-	stderr []byte
-	err    error
-	exit   bool
-}
-
-func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	var args []string
@@ -270,6 +262,10 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		args = append(args, "--authenticationMechanism")
 		args = append(args, i.auth_mechanism)
 	}
+	if len(i.auth_database) > 0 {
+		args = append(args, "--authenticationDatabase")
+		args = append(args, i.auth_database)
+	}
 	if len(i.username) > 0 {
 		args = append(args, "--username")
 		args = append(args, i.username)
@@ -277,25 +273,29 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 	if len(i.password) > 0 {
 		f, err = os.CreateTemp("", "plakar-mongodb")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer cleanupTempFile(f)
 
 		/* Prevent current umask value from leaking secrets. */
 		err = f.Chmod(0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		escaped, err := json.Marshal(i.password)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, err = fmt.Fprintf(f, "password: %s\n", escaped); err != nil {
-			return err
+			return nil, err
 		}
 		args = append(args, "--config")
 		args = append(args, f.Name())
+	}
+	if len(i.database) > 0 {
+		args = append(args, "--db")
+		args = append(args, i.database)
 	}
 	args = append(args, "--archive")
 
@@ -306,47 +306,26 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			i.url.Scheme, i.url.Hostname(), i.port))
 	}
-	cmd := exec.Command("mongodump", args...)
+	cmd := exec.CommandContext(ctx, "mongodump", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongodump exits, which races with readers still draining them.
+	stdout, stdoutW := io.Pipe()
+	var stderr bytes.Buffer
+	cmd.Stdout = stdoutW
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 
-	c := make(chan commandResult, 1)
+	// Killing mongodump is not enough when nobody reads the dump: Wait
+	// still waits for the copy into stdoutW, which blocks until the pipe
+	// is closed.
+	stop := context.AfterFunc(ctx, func() { stdoutW.CloseWithError(ctx.Err()) })
+	defer stop()
 
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
-
-	fi := objects.FileInfo{
+	fi := integration.FileInfo{
 		Lname:      backupFilename,
 		Lmode:      0644,
 		Lsize:      -1,
@@ -359,34 +338,18 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *connectors
 		Lusername:  "",
 		Lgroupname: "",
 	}
-	records <- connectors.NewRecord("/", "", fi, nil,
-		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
+	records <- integration.NewRecord("/", "", fi, nil,
+		func() (io.ReadCloser, error) { return stdout, nil })
 
-	go func() {
-		read_stderr(c)
-	}()
-
-	var res commandResult
-	for err == nil && res.exit == false {
-		select {
-		case r := <-c:
-			if len(r.stderr) > 0 {
-				res.stderr = append(res.stderr, r.stderr...)
-			}
-			if res.exit == false {
-				res.exit = r.exit
-			}
-			if r.err != nil {
-				err = r.err
-			}
-		}
+	err = cmd.Wait()
+	if err != nil && stderr.Len() > 0 {
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
+	// Fail the record's reader too, so a truncated dump is not stored as
+	// a complete one.
+	stdoutW.CloseWithError(err)
 
-	if err != nil && res.exit == true && len(res.stderr) > 0 {
-		err = fmt.Errorf("%s: %s", err, res.stderr)
-	}
-
-	return err
+	return nil, err
 }
 
 func (i *mongodbImporter) Close(ctx context.Context) error {
@@ -397,5 +360,5 @@ func (i *mongodbImporter) Close(ctx context.Context) error {
 }
 
 func main() {
-	sdk.EntrypointImporter(os.Args, NewImporter)
+	server.EntrypointImporter(NewImporter, os.Args)
 }

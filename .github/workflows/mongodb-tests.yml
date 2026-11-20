@@ -1,0 +1,22 @@
+name: mongodb tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/mongodb
+    paths:
+      - .github/workflows/mongodb-tests.yml
+      - 'mongodb/**'
+  pull_request:
+    paths:
+      - .github/workflows/mongodb-tests.yml
+      - 'mongodb/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: mongodb
+      qa-version-file: mongodb/.qa-version
