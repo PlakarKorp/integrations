@@ -13,7 +13,7 @@ import (
 
 // MongoImage is the MongoDB server image. The plakar test image takes its
 // MongoDB tools from it too.
-const MongoImage = "mongodb/mongodb-community-server:8.0-ubuntu2204"
+const MongoImage = "mongodb/mongodb-community-server:8.0-ubuntu2204@sha256:fe5f7a181953d5e60fd4f35ff221700a121703df48f01221be1316ebe949b365"
 
 // Credentials of the root user created in the admin database.
 const (
