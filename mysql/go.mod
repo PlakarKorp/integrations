@@ -4,7 +4,7 @@ go 1.26.10
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.27.0
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.45.0
