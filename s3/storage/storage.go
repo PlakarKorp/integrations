@@ -403,8 +403,9 @@ func (s *Store) List(ctx context.Context, res integration.StorageResource, _ int
 			return
 		}
 
-		// Unlike ListObjects, the iterator fetches pages in the caller's
-		// goroutine, so stopping early leaves nothing to drain.
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
 		for object := range s.minioClient.ListObjectsIter(ctx, s.bucket, minio.ListObjectsOptions{
 			Prefix:    prefix,
 			Recursive: true,
