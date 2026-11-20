@@ -25,6 +25,9 @@ $(QA_DIR)/golangci.yml $(QA_DIR)/versions:
 	mkdir -p $(@D)
 	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
 
+test:
+	${GO} test -v ./tests/...
+
 clean:
 	rm -f mongodb-importer${EXT}
 	rm -f mongodb-exporter${EXT}

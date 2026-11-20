@@ -36,6 +36,15 @@ The optional configuration parameters are as follows:
 
 ## Tests
 
+The Go tests run in Docker through testcontainers. They need a running
+Docker daemon and nothing else:
+
+```bash
+make test
+```
+
+### Shell tests
+
 Tests can be run with:
 
 ```bash
