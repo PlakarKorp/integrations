@@ -2,7 +2,7 @@ module github.com/PlakarKorp/integrations-private/mongodb
 
 go 1.27.3
 
-require github.com/PlakarKorp/integration-sdk v1.1.4
+require github.com/PlakarKorp/integration-sdk v1.1.5
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
