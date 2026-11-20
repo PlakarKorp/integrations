@@ -332,26 +332,24 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 		return err
 	}
 
-	go func() {
-		for record := range records {
-			// The importer writes the dump at the root only. Any
-			// other file with that name is not ours to restore.
-			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-				record.Pathname != "/"+backupFilename {
-				results <- record.Ok()
-				continue
-			}
-
-			if _, err := io.Copy(e.stdin, record.Reader); err != nil {
-				results <- record.Error(err)
-			} else {
-				results <- record.Ok()
-			}
+	for record := range records {
+		// The importer writes the dump at the root only. Any
+		// other file with that name is not ours to restore.
+		if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
+			record.Pathname != "/"+backupFilename {
+			results <- record.Ok()
+			continue
 		}
 
-		_ = e.stdin.Close()
-		e.stdin = nil
-	}()
+		if _, err := io.Copy(e.stdin, record.Reader); err != nil {
+			results <- record.Error(err)
+		} else {
+			results <- record.Ok()
+		}
+	}
+
+	_ = e.stdin.Close()
+	e.stdin = nil
 
 	err = cmd.Wait()
 

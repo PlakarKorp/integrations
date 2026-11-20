@@ -72,8 +72,10 @@ func TestRoundTrip(t *testing.T) {
 		restore []string
 		// dbs lists the databases expected on the target, all when empty.
 		dbs []string
-		// backupErr, when set, is expected in the output of a failing backup.
-		backupErr string
+		// backupErr and restoreErr, when set, are expected in the output of
+		// a failing backup or restore.
+		backupErr  string
+		restoreErr string
 	}{
 		{name: "plain", backup: plain, restore: plain},
 		{name: "tls", tls: true, backup: tls, restore: tls},
@@ -99,6 +101,13 @@ func TestRoundTrip(t *testing.T) {
 			backup: []string{"use_tls=false", "database=shop",
 				"username=" + adminShopUser, "password=" + adminShopPassword},
 			backupErr: "Authentication failed",
+		},
+		{
+			// mongorestore exits before plakar has sent the whole snapshot.
+			name:       "restore_failure",
+			backup:     plain,
+			restore:    []string{"use_tls=false", "username=" + testhelpers.RootUser, "password=wrong"},
+			restoreErr: "Authentication failed",
 		},
 	}
 
@@ -158,8 +167,15 @@ func TestRoundTrip(t *testing.T) {
 
 			dst := testhelpers.StartMongoContainer(ctx, t, net, dstHost, certs, tc.tls)
 			createX509User(ctx, t, dst, certs.ClientSubject, "restore")
-			testhelpers.ExecOK(ctx, t, plakar, append(append(
-				[]string{"plakar", "at", store, "restore", "-to", "mongodb://" + dstHost}, options(tc.restore)...), snapshots[0])...)
+			restore := append(append(
+				[]string{"plakar", "at", store, "restore", "-to", "mongodb://" + dstHost}, options(tc.restore)...), snapshots[0])
+			if tc.restoreErr != "" {
+				if out := testhelpers.ExecFails(ctx, t, plakar, restore...); !strings.Contains(out, tc.restoreErr) {
+					t.Fatalf("restore output lacks %q:\n%s", tc.restoreErr, out)
+				}
+				return
+			}
+			testhelpers.ExecOK(ctx, t, plakar, restore...)
 
 			want := testhelpers.Dump(ctx, t, src.container, tc.dbs...)
 			if got := testhelpers.Dump(ctx, t, dst); got != want {
