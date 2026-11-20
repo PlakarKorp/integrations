@@ -25,10 +25,10 @@ jobs:
         working-directory: fs
     steps:
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: fs/go.mod
 
@@ -37,3 +37,9 @@ jobs:
 
       - name: Running tests
         run: go test -v ./...
+
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: fs
+      qa-version-file: fs/.qa-version

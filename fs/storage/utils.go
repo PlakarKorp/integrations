@@ -34,19 +34,19 @@ func WriteToFileAtomicTempDir(filename string, rd io.Reader, tmpdir string) (int
 
 	var nbytes int64
 	if nbytes, err = io.Copy(f, rd); err != nil {
-		f.Close()
-		os.Remove(f.Name())
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return 0, err
 	}
 
 	if err = f.Close(); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return 0, err
 	}
 
 	err = os.Rename(f.Name(), filename)
 	if err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return 0, err
 	}
 
