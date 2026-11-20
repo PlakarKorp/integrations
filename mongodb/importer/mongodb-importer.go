@@ -62,9 +62,12 @@ func (i *mongodbImporter) Root() string {
 	return "/"
 }
 
-func (i *mongodbImporter) Origin() string        { return i.url.Host }
-func (i *mongodbImporter) Type() string          { return "mongodb" }
-func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM }
+func (i *mongodbImporter) Origin() string { return i.url.Host }
+func (i *mongodbImporter) Type() string   { return "mongodb" }
+
+// No vfs cache: its warm stage holds records back until it has a batch,
+// while Import waits for the dump to be read.
+func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM | location.FLAG_NOCACHE }
 
 func NewImporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	location := params["location"]
