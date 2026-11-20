@@ -39,8 +39,8 @@ github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd/go.mod h1:C8yoIf
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=
 github.com/Microsoft/go-winio v0.6.4 h1:kJF2pamtYCWXf0xAT8sAkwKC0pMl2HYBrRPHAqyUc+g=
 github.com/Microsoft/go-winio v0.6.4/go.mod h1:1xl5JXG4ze/m74GH6Dc4Mwxfc3VL5siRVQjIAlHH07U=
-github.com/PlakarKorp/integration-sdk v1.1.4 h1:yUTBzeGaiaXHJ5rBwTrARIsFyjT+LXTG6BWOr0tUZv8=
-github.com/PlakarKorp/integration-sdk v1.1.4/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
+github.com/PlakarKorp/integration-sdk v1.1.5 h1:nlB6QKTY3TqvHLu/6KZwOI6R/1oNMHD3NUO2V75jzBM=
+github.com/PlakarKorp/integration-sdk v1.1.5/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
 github.com/ProtonMail/bcrypt v0.0.0-20210511135022-227b4adcab57/go.mod h1:HecWFHognK8GfRDGnFQbW/LiV7A3MX3gZVs45vk5h8I=
 github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf h1:yc9daCCYUefEs69zUkSzubzjBbL+cmOXgnmt9Fyd9ug=
 github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf/go.mod h1:o0ESU9p83twszAU8LBeJKFAAMX14tISa0yk4Oo5TOqo=

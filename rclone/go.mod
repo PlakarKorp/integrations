@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/rclone
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/rclone/rclone v1.76.0
 	github.com/stretchr/testify v1.12.1
 )
