@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/webdav
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/emersion/go-webdav v0.7.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.25.0
