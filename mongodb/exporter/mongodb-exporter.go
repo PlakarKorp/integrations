@@ -296,7 +296,7 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongorestore", args...)
+	cmd := exec.CommandContext(ctx, "mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

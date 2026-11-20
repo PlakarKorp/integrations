@@ -306,7 +306,7 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			i.url.Scheme, i.url.Hostname(), i.port))
 	}
-	cmd := exec.Command("mongodump", args...)
+	cmd := exec.CommandContext(ctx, "mongodump", args...)
 
 	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
 	// soon as mongodump exits, which races with readers still draining them.
@@ -318,6 +318,12 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+
+	// Killing mongodump is not enough when nobody reads the dump: Wait
+	// still waits for the copy into stdoutW, which blocks until the pipe
+	// is closed.
+	stop := context.AfterFunc(ctx, func() { stdoutW.CloseWithError(ctx.Err()) })
+	defer stop()
 
 	fi := integration.FileInfo{
 		Lname:      backupFilename,
