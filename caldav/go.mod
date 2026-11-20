@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/caldav
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/studio-b12/gowebdav v0.13.0
 	golang.org/x/oauth2 v0.38.0
 )
