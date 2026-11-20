@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/etcd
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	go.etcd.io/etcd/client/v3 v3.7.3
 )
 
