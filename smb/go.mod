@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/smb
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.45.0
