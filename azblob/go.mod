@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.3
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 )
 
 require (
