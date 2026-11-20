@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/postgresql
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/aws/aws-sdk-go-v2/config v1.33.18
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.7.12
 	github.com/docker/docker v28.5.2+incompatible
