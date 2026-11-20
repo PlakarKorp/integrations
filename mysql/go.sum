@@ -35,8 +35,8 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.62.0/go.mod h1:sg6Wqbl0BKKZ5zKnQj2q0qic/3ziF894SCx1LpbX37Y=
 github.com/Microsoft/go-winio v0.6.4 h1:kJF2pamtYCWXf0xAT8sAkwKC0pMl2HYBrRPHAqyUc+g=
 github.com/Microsoft/go-winio v0.6.4/go.mod h1:1xl5JXG4ze/m74GH6Dc4Mwxfc3VL5siRVQjIAlHH07U=
-github.com/PlakarKorp/integration-sdk v1.1.4 h1:yUTBzeGaiaXHJ5rBwTrARIsFyjT+LXTG6BWOr0tUZv8=
-github.com/PlakarKorp/integration-sdk v1.1.4/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
+github.com/PlakarKorp/integration-sdk v1.1.5 h1:nlB6QKTY3TqvHLu/6KZwOI6R/1oNMHD3NUO2V75jzBM=
+github.com/PlakarKorp/integration-sdk v1.1.5/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
