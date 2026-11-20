@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/openstack
 go 1.27.3
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.12.1
