@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/nfs
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b
 )
 
