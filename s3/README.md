@@ -27,6 +27,10 @@ The configuration parameters are as follows:
 - `tls_insecure_no_verify` (optional): If set to `true`, disables certificate verification (defaults to `false`)
 - `virtual_host` (optional): whether the host name includes the bucket name (defaults to `false`)
 - `sse_customer_key` (optional): base64-encoded 256-bit (32-byte) AES-256 customer-provided key for SSE-C server-side encryption
+- `strict` (optional, defaults to `true`): controls how `.` and `..` key segments (anywhere in the key, not just the basename) are handled, since they would otherwise be collapsed onto the root or a parent directory
+  - on import: such a segment is escaped (e.g. `.` becomes `%2e`) so the object is kept instead of dropped
+  - on export: the destination key is written with the escaped form as-is, so it's visibly different from the original
+  - set to `false` to restore the pre-existing import behavior of dropping those keys, or, on export, to decode the escaped form back to the original key - only do this if the data actually came from a strict-mode s3 import: decoding anything else risks mistaking an unrelated `%`-containing name for an escaped one
 
 For S3-compatible storage providers, you may also need to specify:
 - `storage_class`: The storage class to use (e.g., `STANDARD`, `GLACIER`)
