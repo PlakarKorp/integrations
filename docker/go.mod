@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/docker
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/moby/moby/client v0.6.2
 )
 
