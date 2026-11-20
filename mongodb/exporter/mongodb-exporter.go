@@ -17,7 +17,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -209,51 +209,27 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongosh", args...)
+	cmd := exec.CommandContext(ctx, "mongosh", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Run copies the output before returning, unlike reading
+	// StdoutPipe and StderrPipe while Wait closes them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	} else {
-		buf, err = io.ReadAll(stderr)
-		if err != nil {
-			return err
+	err := cmd.Run()
+	for line := range strings.Lines(stdout.String()) {
+		if strings.HasPrefix(line, "  ok: 1") {
+			return nil
 		}
 	}
-
-	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
-}
-
-type commandResult struct {
-	stdout []byte
-	stderr []byte
-	err    error
-	exit   bool
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("mongosh: %w: %s", err, stderr.Bytes())
+	}
+	if err != nil {
+		return fmt.Errorf("mongosh: %w", err)
+	}
+	return fmt.Errorf("unexpected output from mongosh: '%s'", stdout.String())
 }
 
 func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
@@ -320,7 +296,7 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongorestore", args...)
+	cmd := exec.CommandContext(ctx, "mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -328,117 +304,46 @@ func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, recor
 	}
 	e.stdin = stdin
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stdout := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stdout)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stdout: buf}
-			}
-		}
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongorestore exits, which races with readers still draining
+	// them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	c := make(chan commandResult, 1)
-
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
-
-	go func() {
-		read_stdout(c)
-	}()
-
-	go func() {
-		read_stderr(c)
-	}()
-
-	go func() {
-		for record := range records {
-			// The importer writes the dump at the root only. Any
-			// other file with that name is not ours to restore.
-			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-				record.Pathname != "/"+backupFilename {
-				results <- record.Ok()
-				continue
-			}
-
-			if _, err := io.Copy(e.stdin, record.Reader); err != nil {
-				results <- record.Error(err)
-			} else {
-				results <- record.Ok()
-			}
+	for record := range records {
+		// The importer writes the dump at the root only. Any
+		// other file with that name is not ours to restore.
+		if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
+			record.Pathname != "/"+backupFilename {
+			results <- record.Ok()
+			continue
 		}
 
-		_ = e.stdin.Close()
-		e.stdin = nil
-	}()
-
-	var res commandResult
-	for err == nil && !res.exit {
-		r := <-c
-		if len(r.stdout) > 0 {
-			res.stdout = append(res.stdout, r.stdout...)
-		}
-		if len(r.stderr) > 0 {
-			res.stderr = append(res.stderr, r.stderr...)
-		}
-		if !res.exit {
-			res.exit = r.exit
-		}
-		if r.err != nil {
-			err = r.err
+		if _, err := io.Copy(e.stdin, record.Reader); err != nil {
+			results <- record.Error(err)
+		} else {
+			results <- record.Ok()
 		}
 	}
 
-	if debug && len(res.stdout) > 0 {
-		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
+	_ = e.stdin.Close()
+	e.stdin = nil
+
+	err = cmd.Wait()
+
+	if debug && stdout.Len() > 0 {
+		fmt.Fprintf(os.Stderr, "%s", stdout.String())
 	}
-	if err != nil && res.exit && len(res.stderr) > 0 {
+	if err != nil && stderr.Len() > 0 {
 		if debug {
-			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
+			fmt.Fprintf(os.Stderr, "%s", stderr.String())
 		}
-		err = fmt.Errorf("%w: %s", err, res.stderr)
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
 
 	return err

@@ -17,7 +17,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -62,9 +62,12 @@ func (i *mongodbImporter) Root() string {
 	return "/"
 }
 
-func (i *mongodbImporter) Origin() string        { return i.url.Host }
-func (i *mongodbImporter) Type() string          { return "mongodb" }
-func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM }
+func (i *mongodbImporter) Origin() string { return i.url.Host }
+func (i *mongodbImporter) Type() string   { return "mongodb" }
+
+// No vfs cache: its warm stage holds records back until it has a batch,
+// while Import waits for the dump to be read.
+func (i *mongodbImporter) Flags() location.Flags { return location.FLAG_STREAM | location.FLAG_NOCACHE }
 
 func NewImporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	location := params["location"]
@@ -197,44 +200,27 @@ func (i *mongodbImporter) Ping(ctx context.Context) error {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			i.url.Scheme, i.url.Hostname(), i.port))
 	}
-	cmd := exec.Command("mongosh", args...)
+	cmd := exec.CommandContext(ctx, "mongosh", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Run copies the output before returning, unlike reading
+	// StdoutPipe and StderrPipe while Wait closes them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	} else {
-		buf, err = io.ReadAll(stderr)
-		if err != nil {
-			return err
+	err := cmd.Run()
+	for line := range strings.Lines(stdout.String()) {
+		if strings.HasPrefix(line, "  ok: 1") {
+			return nil
 		}
 	}
-
-	return fmt.Errorf("unexpected output from mongosh: '%s'", string(buf))
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("mongosh: %w: %s", err, stderr.Bytes())
+	}
+	if err != nil {
+		return fmt.Errorf("mongosh: %w", err)
+	}
+	return fmt.Errorf("unexpected output from mongosh: '%s'", stdout.String())
 }
 
 // writePEM writes each PEM block to f, newline-terminated, and syncs it.
@@ -252,12 +238,6 @@ func cleanupTempFile(f *os.File) {
 		_ = os.Remove(f.Name())
 		_ = f.Close()
 	}
-}
-
-type commandResult struct {
-	stderr []byte
-	err    error
-	exit   bool
 }
 
 func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
@@ -326,45 +306,24 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			i.url.Scheme, i.url.Hostname(), i.port))
 	}
-	cmd := exec.Command("mongodump", args...)
+	cmd := exec.CommandContext(ctx, "mongodump", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongodump exits, which races with readers still draining them.
+	stdout, stdoutW := io.Pipe()
+	var stderr bytes.Buffer
+	cmd.Stdout = stdoutW
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
-	c := make(chan commandResult, 1)
-
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
+	// Killing mongodump is not enough when nobody reads the dump: Wait
+	// still waits for the copy into stdoutW, which blocks until the pipe
+	// is closed.
+	stop := context.AfterFunc(ctx, func() { stdoutW.CloseWithError(ctx.Err()) })
+	defer stop()
 
 	fi := integration.FileInfo{
 		Lname:      backupFilename,
@@ -380,29 +339,15 @@ func (i *mongodbImporter) Import(ctx context.Context, records chan<- *integratio
 		Lgroupname: "",
 	}
 	records <- integration.NewRecord("/", "", fi, nil,
-		func() (io.ReadCloser, error) { return io.NopCloser(stdout), nil })
+		func() (io.ReadCloser, error) { return stdout, nil })
 
-	go func() {
-		read_stderr(c)
-	}()
-
-	var res commandResult
-	for err == nil && !res.exit {
-		r := <-c
-		if len(r.stderr) > 0 {
-			res.stderr = append(res.stderr, r.stderr...)
-		}
-		if !res.exit {
-			res.exit = r.exit
-		}
-		if r.err != nil {
-			err = r.err
-		}
+	err = cmd.Wait()
+	if err != nil && stderr.Len() > 0 {
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
-
-	if err != nil && res.exit && len(res.stderr) > 0 {
-		err = fmt.Errorf("%w: %s", err, res.stderr)
-	}
+	// Fail the record's reader too, so a truncated dump is not stored as
+	// a complete one.
+	stdoutW.CloseWithError(err)
 
 	return nil, err
 }
