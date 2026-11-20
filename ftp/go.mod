@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/ftp
 go 1.27.3
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/moby/moby/api v1.56.1
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4
 	github.com/stretchr/testify v1.12.1
