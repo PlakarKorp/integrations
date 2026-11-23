@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integration-xcp-ng/xcp-ng
 go 1.27.3
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.4
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/stretchr/testify v1.12.1
 )
 

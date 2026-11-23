@@ -1,5 +1,5 @@
-github.com/PlakarKorp/integration-sdk v1.1.4 h1:yUTBzeGaiaXHJ5rBwTrARIsFyjT+LXTG6BWOr0tUZv8=
-github.com/PlakarKorp/integration-sdk v1.1.4/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
+github.com/PlakarKorp/integration-sdk v1.1.5 h1:nlB6QKTY3TqvHLu/6KZwOI6R/1oNMHD3NUO2V75jzBM=
+github.com/PlakarKorp/integration-sdk v1.1.5/go.mod h1:y6fNrqPDScbKaPEI/nSxvUR1cUSoDmefJNgtko8u4Xw=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
