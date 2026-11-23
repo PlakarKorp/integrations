@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"strings"
 	"sync"
@@ -48,7 +49,7 @@ func (f *testConnector) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (f *testConnector) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) error {
+func (f *testConnector) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	for i := range 5 {
@@ -70,10 +71,10 @@ func (f *testConnector) Import(ctx context.Context, records chan<- *integration.
 		})
 	}
 
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
-func (f *testConnector) Export(ctx context.Context, records <-chan *integration.Record, results chan<- *integration.Result) error {
+func (f *testConnector) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {
@@ -145,20 +146,20 @@ func (s *testStore) mapFor(res integration.StorageResource) (*sync.Map, error) {
 	}
 }
 
-func (s *testStore) List(ctx context.Context, res integration.StorageResource) ([]integration.MAC, error) {
-	m, err := s.mapFor(res)
-	if err != nil {
-		return nil, err
+func (s *testStore) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		m, err := s.mapFor(res)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		m.Range(func(key, _ any) bool {
+			return yield(&integration.StorageResourceEntry{MAC: key.(integration.MAC)}, nil)
+		})
 	}
-	var macs []integration.MAC
-	m.Range(func(key, _ any) bool {
-		macs = append(macs, key.(integration.MAC))
-		return true
-	})
-	return macs, nil
 }
 
-func (s *testStore) Put(ctx context.Context, res integration.StorageResource, mac integration.MAC, rd io.Reader) (int64, error) {
+func (s *testStore) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return -1, err
@@ -171,7 +172,7 @@ func (s *testStore) Put(ctx context.Context, res integration.StorageResource, ma
 	return int64(len(data)), nil
 }
 
-func (s *testStore) Get(ctx context.Context, res integration.StorageResource, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
+func (s *testStore) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return nil, err
@@ -188,7 +189,7 @@ func (s *testStore) Get(ctx context.Context, res integration.StorageResource, ma
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
-func (s *testStore) Delete(ctx context.Context, res integration.StorageResource, mac integration.MAC) error {
+func (s *testStore) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	m, err := s.mapFor(res)
 	if err != nil {
 		return err
