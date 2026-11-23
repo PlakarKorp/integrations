@@ -3,7 +3,7 @@ module github.com/PlakarKorp/integrations/http
 go 1.26.10
 
 require (
-	github.com/PlakarKorp/integration-sdk v1.1.2
+	github.com/PlakarKorp/integration-sdk v1.1.5
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.12.1
 )
