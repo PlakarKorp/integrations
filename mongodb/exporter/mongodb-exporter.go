@@ -17,9 +17,10 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -28,11 +29,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
-
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
+	"github.com/PlakarKorp/integration-sdk/server"
 )
 
 const defaultMongoDBPort = 27017
@@ -40,27 +39,23 @@ const backupFilename = "mongodb-backup.bson"
 const debug = false
 
 type mongodbExporter struct {
-	url                  *url.URL
-	port                 string
-	username             string
-	password             string
-	options              *connectors.Options
-	use_tls              bool
-	tls_ca_cert          string
-	tls_ca_cert_data     string
-	ca_cert_file         *os.File
-	tls_client_cert      string
-	tls_client_cert_data string
-	tls_client_key_data  string
-	client_cert_file     *os.File
-	auth_mechanism       string
-	stdin                io.WriteCloser
-	stdout               io.ReadCloser
-	stderr               io.ReadCloser
+	url              *url.URL
+	port             string
+	username         string
+	password         string
+	options          *integration.Options
+	use_tls          bool
+	tls_ca_cert      string
+	ca_cert_file     *os.File
+	tls_client_cert  string
+	client_cert_file *os.File
+	auth_mechanism   string
+	auth_database    string
+	stdin            io.WriteCloser
 }
 
 func init() {
-	exporter.Register("mongodb", 0, NewExporter)
+	_ = integration.RegisterExporter("mongodb", 0, NewExporter)
 }
 
 func (e *mongodbExporter) Root() string          { return "/" }
@@ -68,7 +63,7 @@ func (e *mongodbExporter) Origin() string        { return e.url.Host }
 func (e *mongodbExporter) Type() string          { return "mongodb" }
 func (e *mongodbExporter) Flags() location.Flags { return location.FLAG_STREAM }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	location := params["location"]
 
 	parsed, err := url.Parse(location)
@@ -88,7 +83,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	}
 
 	if len(port) == 0 {
-		port = fmt.Sprintf("%d", defaultMongoDBPort)
+		port = strconv.Itoa(defaultMongoDBPort)
 	}
 
 	var tls_ca_cert string
@@ -101,15 +96,17 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		ca_cert_data := params["tls_ca_cert_data"]
 		if ca_cert_data != "" {
 			if params["tls_ca_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous CA certificate parameters: " +
+				return nil, errors.New("ambiguous CA certificate parameters: " +
 					"both a CA cert file path and inline PEM CA data have been specified")
 			}
 			ca_cert_file, err = os.CreateTemp("", "plakar-mongodb")
 			if err != nil {
 				return nil, err
 			}
-			ca_cert_file.WriteString(ca_cert_data + "\n")
-			ca_cert_file.Sync()
+			if err := writePEM(ca_cert_file, ca_cert_data); err != nil {
+				cleanupTempFile(ca_cert_file)
+				return nil, err
+			}
 			tls_ca_cert = ca_cert_file.Name()
 		} else {
 			tls_ca_cert = params["tls_ca_cert"]
@@ -120,7 +117,7 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 
 		if cert_data != "" && cert_key != "" {
 			if params["tls_client_cert"] != "" {
-				return nil, fmt.Errorf("ambiguous client certificate parameters: " +
+				return nil, errors.New("ambiguous client certificate parameters: " +
 					"both a client cert file path and inline PEM cert data " +
 					"have been specified")
 			}
@@ -136,12 +133,13 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 				return nil, err
 			}
 
-			client_cert_file.WriteString(cert_data + "\n")
-			client_cert_file.WriteString(cert_key + "\n")
-			client_cert_file.Sync()
+			if err := writePEM(client_cert_file, cert_data, cert_key); err != nil {
+				cleanupTempFile(client_cert_file)
+				return nil, err
+			}
 			tls_client_cert = client_cert_file.Name()
 		} else if cert_data != "" || cert_key != "" {
-			return nil, fmt.Errorf("tls_client_cert_data and " +
+			return nil, errors.New("tls_client_cert_data and " +
 				"tls_client_key_data must both be specified together")
 		} else {
 			tls_client_cert = params["tls_client_cert"]
@@ -160,15 +158,26 @@ func NewExporter(ctx context.Context, opts *connectors.Options, proto string, pa
 		tls_client_cert:  tls_client_cert,
 		client_cert_file: client_cert_file,
 		auth_mechanism:   params["auth_mechanism"],
+		auth_database:    params["auth_database"],
 	}
 
 	return e, nil
 }
 
+// writePEM writes each PEM block to f, newline-terminated, and syncs it.
+func writePEM(f *os.File, blocks ...string) error {
+	for _, b := range blocks {
+		if _, err := f.WriteString(b + "\n"); err != nil {
+			return fmt.Errorf("write %s: %w", f.Name(), err)
+		}
+	}
+	return f.Sync()
+}
+
 func cleanupTempFile(f *os.File) {
 	if f != nil {
-		os.Remove(f.Name())
-		f.Close()
+		_ = os.Remove(f.Name())
+		_ = f.Close()
 	}
 }
 
@@ -200,54 +209,30 @@ func (e *mongodbExporter) Ping(ctx context.Context) error {
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongosh", args...)
+	cmd := exec.CommandContext(ctx, "mongosh", args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	// Run copies the output before returning, unlike reading
+	// StdoutPipe and StderrPipe while Wait closes them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// reap process
-	go func() { _ = cmd.Wait() }()
-
-	buf, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-
-	if len(buf) > 0 {
-		for line := range strings.Lines(string(buf)) {
-			if strings.HasPrefix(line, "  ok: 1") {
-				return nil
-			}
-		}
-	} else {
-		buf, err = io.ReadAll(stderr)
-		if err != nil {
-			return err
+	err := cmd.Run()
+	for line := range strings.Lines(stdout.String()) {
+		if strings.HasPrefix(line, "  ok: 1") {
+			return nil
 		}
 	}
-
-	return fmt.Errorf("Unexpected output from mongosh: '%s'", string(buf))
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("mongosh: %w: %s", err, stderr.Bytes())
+	}
+	if err != nil {
+		return fmt.Errorf("mongosh: %w", err)
+	}
+	return fmt.Errorf("unexpected output from mongosh: '%s'", stdout.String())
 }
 
-type commandResult struct {
-	stdout []byte
-	stderr []byte
-	err    error
-	exit   bool
-}
-
-func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (e *mongodbExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	var f *os.File
@@ -268,6 +253,10 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	if len(e.auth_mechanism) > 0 {
 		args = append(args, "--authenticationMechanism")
 		args = append(args, e.auth_mechanism)
+	}
+	if len(e.auth_database) > 0 {
+		args = append(args, "--authenticationDatabase")
+		args = append(args, e.auth_database)
 	}
 	if len(e.username) > 0 {
 		args = append(args, "--username")
@@ -307,7 +296,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 		args = append(args, fmt.Sprintf("%s://%s:%s",
 			e.url.Scheme, e.url.Hostname(), e.port))
 	}
-	cmd := exec.Command("mongorestore", args...)
+	cmd := exec.CommandContext(ctx, "mongorestore", args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -315,119 +304,46 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 	}
 	e.stdin = stdin
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stdout := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stdout)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stdout: buf}
-			}
-		}
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	read_stderr := func(c chan (commandResult)) {
-		rd := bufio.NewReader(stderr)
-
-		for {
-			buf, err := rd.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				c <- commandResult{err: fmt.Errorf("%s", buf)}
-				return
-			}
-
-			if len(buf) > 0 {
-				c <- commandResult{stderr: buf}
-			}
-		}
-	}
+	// Let Wait copy the output: it closes StdoutPipe and StderrPipe as
+	// soon as mongorestore exits, which races with readers still draining
+	// them.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	c := make(chan commandResult, 1)
-
-	// reap process
-	go func() { err := cmd.Wait(); c <- commandResult{exit: true, err: err} }()
-
-	go func() {
-		read_stdout(c)
-	}()
-
-	go func() {
-		read_stderr(c)
-	}()
-
-	go func() {
-		for record := range records {
-			// The importer writes the dump at the root only. Any
-			// other file with that name is not ours to restore.
-			if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
-				record.Pathname != "/"+backupFilename {
-				results <- record.Ok()
-				continue
-			}
-
-			if _, err := io.Copy(e.stdin, record.Reader); err != nil {
-				results <- record.Error(err)
-			} else {
-				results <- record.Ok()
-			}
+	for record := range records {
+		// The importer writes the dump at the root only. Any
+		// other file with that name is not ours to restore.
+		if record.Err != nil || !record.FileInfo.Mode().IsRegular() ||
+			record.Pathname != "/"+backupFilename {
+			results <- record.Ok()
+			continue
 		}
 
-		e.stdin.Close()
-		e.stdin = nil
-	}()
-
-	var res commandResult
-	for err == nil && res.exit == false {
-		select {
-		case r := <-c:
-			if len(r.stdout) > 0 {
-				res.stdout = append(res.stdout, r.stdout...)
-			}
-			if len(r.stderr) > 0 {
-				res.stderr = append(res.stderr, r.stderr...)
-			}
-			if res.exit == false {
-				res.exit = r.exit
-			}
-			if r.err != nil {
-				err = r.err
-			}
+		if _, err := io.Copy(e.stdin, record.Reader); err != nil {
+			results <- record.Error(err)
+		} else {
+			results <- record.Ok()
 		}
 	}
 
-	if debug && len(res.stdout) > 0 {
-		fmt.Fprintf(os.Stderr, "%s", string(res.stdout))
+	_ = e.stdin.Close()
+	e.stdin = nil
+
+	err = cmd.Wait()
+
+	if debug && stdout.Len() > 0 {
+		fmt.Fprintf(os.Stderr, "%s", stdout.String())
 	}
-	if err != nil && res.exit == true && len(res.stderr) > 0 {
+	if err != nil && stderr.Len() > 0 {
 		if debug {
-			fmt.Fprintf(os.Stderr, "%s", string(res.stderr))
+			fmt.Fprintf(os.Stderr, "%s", stderr.String())
 		}
-		err = fmt.Errorf("%s: %s", err, res.stderr)
+		err = fmt.Errorf("%w: %s", err, stderr.Bytes())
 	}
 
 	return err
@@ -435,7 +351,7 @@ func (e *mongodbExporter) Export(ctx context.Context, records <-chan *connectors
 
 func (e *mongodbExporter) Close(ctx context.Context) error {
 	if e.stdin != nil {
-		e.stdin.Close()
+		_ = e.stdin.Close()
 	}
 	cleanupTempFile(e.ca_cert_file)
 	cleanupTempFile(e.client_cert_file)
@@ -444,5 +360,5 @@ func (e *mongodbExporter) Close(ctx context.Context) error {
 }
 
 func main() {
-	sdk.EntrypointExporter(os.Args, NewExporter)
+	server.EntrypointExporter(NewExporter, os.Args)
 }

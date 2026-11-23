@@ -9,7 +9,7 @@
       "type": "string",
       "minLength": 1,
       "description": "MongoDB server URL",
-      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-\\]+$"
+      "pattern": "^mongodb(|\\+srv)://[a-zA-Z0-9.:-]+$"
     },
     "port": {
       "type": "integer",
@@ -61,6 +61,10 @@
     "auth_mechanism": {
       "type": "string",
       "description": "Authentication mechanism to use with the MongoDB server, such as SCRAM-SHA-256 or MONGODB-X509."
+    },
+    "auth_database": {
+      "type": "string",
+      "description": "Database holding the user's credentials. Defaults to the MongoDB tools' choice."
     }
   }
 }
