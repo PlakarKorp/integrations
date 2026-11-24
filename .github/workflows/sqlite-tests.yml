@@ -15,23 +15,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: build and test the sqlite integration
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v5
-
-      - name: set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: sqlite/go.mod
-          cache-dependency-path: sqlite/go.sum
-
-      - name: build
-        working-directory: sqlite
-        run: go build ./...
-
-      - name: test
-        working-directory: sqlite
-        run: go test -race ./...
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: sqlite
+      qa-version-file: sqlite/.qa-version
