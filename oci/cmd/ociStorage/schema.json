@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar OCI Storage Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^oci://[^/@?#]+/[^?#]+$",
+      "description": "OCI registry repository: oci://<host>[:<port>]/<repository>"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Registry user; also used to obtain tokens from the registry's token service"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Password or personal access token of the user"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bearer token sent as is to the registry, instead of username and password"
+    },
+    "token_realm": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/:@?#]+$",
+      "description": "Host of the registry's token service when it is not the registry itself (Docker Hub's is known); credentials go there to be traded for tokens"
+    },
+    "insecure": {
+      "type": "boolean",
+      "default": false,
+      "description": "Talk to the registry over plain HTTP"
+    },
+    "tls_insecure_no_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable TLS certificate verification (dangerous; use only for testing)"
+    },
+    "allow_cross_host_uploads": {
+      "type": "boolean",
+      "default": false,
+      "description": "Follow upload locations that point to another host than the registry"
+    }
+  },
+  "dependentRequired": {
+    "password": ["username"]
+  },
+  "allOf": [
+    {
+      "not": {
+        "required": ["insecure", "tls_insecure_no_verify"],
+        "properties": {
+          "insecure": { "const": true },
+          "tls_insecure_no_verify": { "const": true }
+        }
+      }
+    },
+    {
+      "not": {
+        "required": ["token", "username"]
+      }
+    }
+  ]
+}
