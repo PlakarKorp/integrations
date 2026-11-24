@@ -2,6 +2,7 @@ package conn
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -64,7 +65,7 @@ func ParseOptions(config map[string]string) (Options, error) {
 	}
 
 	if opts.TLS == TLSNone && !opts.InsecureSkipVerify {
-		return Options{}, fmt.Errorf("tls=none sends credentials and data in cleartext; " +
+		return Options{}, errors.New("tls=none sends credentials and data in cleartext; " +
 			"set tls_insecure_no_verify=true as well to acknowledge it, or use tls=explicit")
 	}
 
