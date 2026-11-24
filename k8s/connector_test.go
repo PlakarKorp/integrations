@@ -1,9 +1,10 @@
 package k8s
 
 import (
+	"io/fs"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -302,7 +303,7 @@ func TestNewSkipRootPermsAndTime(t *testing.T) {
 	t.Parallel()
 	newK8s := func(t *testing.T, options ...Options) *k8s {
 		t.Helper()
-		k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+		k, err := New(t.Context(), &integration.Options{}, "k8s+pvc", map[string]string{
 			"location":   "k8s+pvc://cluster.example/ns/data",
 			"kubeconfig": testKubeconf,
 		}, true, options...)
@@ -380,7 +381,7 @@ requiredDuringSchedulingIgnoredDuringExecution:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			k, err := New(t.Context(), &connectors.Options{}, "k8s+pvc", map[string]string{
+			k, err := New(t.Context(), &integration.Options{}, "k8s+pvc", map[string]string{
 				"location":      "k8s+pvc://cluster.example/ns/data",
 				"kubeconfig":    testKubeconf,
 				"node_affinity": tt.value,
@@ -393,4 +394,13 @@ requiredDuringSchedulingIgnoredDuringExecution:
 			require.Equal(t, tt.want, k.nodeAffinity)
 		})
 	}
+}
+
+func TestNewRemoteHostRequiresKubeconfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	_, err := New(t.Context(), &integration.Options{}, "k8s", map[string]string{
+		"location": "k8s://cluster.example/ns",
+	}, false)
+	require.ErrorIs(t, err, fs.ErrNotExist)
 }

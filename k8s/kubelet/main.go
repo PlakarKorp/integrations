@@ -8,14 +8,12 @@ import (
 	"os"
 	"path"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	fsexporter "github.com/PlakarKorp/integrations/fs/exporter"
 	fsimporter "github.com/PlakarKorp/integrations/fs/importer"
 	"github.com/PlakarKorp/integrations/k8s/block"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/connectors/importer"
 )
 
 func usage() {
@@ -29,7 +27,7 @@ func fatal(format string, a ...any) {
 	os.Exit(1)
 }
 
-func source(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (importer.Importer, error) {
+func source(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	switch proto {
 	case "block":
 		return block.NewImporter(ctx, opts, proto, config)
@@ -40,7 +38,7 @@ func source(ctx context.Context, opts *connectors.Options, proto string, config 
 	}
 }
 
-func destination(ctx context.Context, opts *connectors.Options, proto string, config map[string]string) (exporter.Exporter, error) {
+func destination(ctx context.Context, opts *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	switch proto {
 	case "block":
 		return block.NewExporter(ctx, opts, proto, config)
@@ -92,11 +90,11 @@ func main() {
 	fmt.Fprintf(os.Stderr, "listening on :%d\n", port)
 
 	if doexport {
-		if err := sdk.RunExporterOn(destination, listener); err != nil {
+		if err := server.RunExporterOn(destination, listener); err != nil {
 			fatal("failed to run the fs exporter: %s", err)
 		}
 	} else {
-		if err := sdk.RunImporterOn(source, listener); err != nil {
+		if err := server.RunImporterOn(source, listener); err != nil {
 			fatal("failed to run the fs importer: %s", err)
 		}
 	}

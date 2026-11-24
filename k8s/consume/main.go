@@ -7,10 +7,9 @@ import (
 	"os"
 	"path"
 
-	gimporter "github.com/PlakarKorp/integration-grpc/importer"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	sdkclient "github.com/PlakarKorp/integration-sdk/client"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -21,16 +20,16 @@ func fatal(format string, a ...any) {
 	os.Exit(1)
 }
 
-func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connectors.Record, chan<- *connectors.Result)) error {
+func progress(ctx context.Context, imp integration.Importer, fn func(<-chan *integration.Record, chan<- *integration.Result)) error {
 	var (
 		size    = 2
-		records = make(chan *connectors.Record, size)
+		records = make(chan *integration.Record, size)
 		retch   = make(chan struct{}, 1)
 	)
 
-	var results chan *connectors.Result
+	var results chan *integration.Result
 	if (imp.Flags() & location.FLAG_NEEDACK) != 0 {
-		results = make(chan *connectors.Result, size)
+		results = make(chan *integration.Result, size)
 	}
 
 	go func() {
@@ -41,7 +40,7 @@ func progress(ctx context.Context, imp importer.Importer, fn func(<-chan *connec
 		close(retch)
 	}()
 
-	err := imp.Import(ctx, records, results)
+	_, err := imp.Import(ctx, records, results)
 	<-retch
 	return err
 }
@@ -57,7 +56,7 @@ func main() {
 
 	path := "/home/op/w/pk/plakar/docs"
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "foobar",
 		OperatingSystem: "linux",
 		Architecture:    "amd64",
@@ -65,7 +64,7 @@ func main() {
 		MaxConcurrency:  2,
 	}
 
-	importer, err := gimporter.NewImporter(context.Background(), client, opts, "fs", map[string]string{
+	importer, err := sdkclient.NewImporter(context.Background(), client, opts, "fs", map[string]string{
 		"location":         "fs://" + path,
 		"dont_traverse_fs": "true",
 	})
@@ -73,10 +72,10 @@ func main() {
 		fatal("failed to instantiate the importer: %s", err)
 	}
 
-	err = progress(context.Background(), importer, func(records <-chan *connectors.Record, results chan<- *connectors.Result) {
+	err = progress(context.Background(), importer, func(records <-chan *integration.Record, results chan<- *integration.Result) {
 		for record := range records {
 			if results == nil {
-				record.Close()
+				_ = record.Close()
 			} else {
 				results <- record.Ok()
 			}

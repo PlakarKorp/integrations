@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"errors"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,7 +14,7 @@ func objectMeta(obj *unstructured.Unstructured) (metav1.ObjectMeta, error) {
 
 	raw, ok := obj.Object["metadata"].(map[string]any)
 	if !ok {
-		return meta, fmt.Errorf("object has no metadata")
+		return meta, errors.New("object has no metadata")
 	}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &meta); err != nil {
 		return meta, fmt.Errorf("decoding metadata: %w", err)
