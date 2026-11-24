@@ -15,23 +15,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: build and test the s3 integration
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v5
-
-      - name: set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: s3/go.mod
-          cache-dependency-path: s3/go.sum
-
-      - name: build
-        working-directory: s3
-        run: go build ./...
-
-      - name: test
-        working-directory: s3
-        run: go test -race ./...
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: s3
+      qa-version-file: s3/.qa-version

@@ -24,15 +24,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/url"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/s3/common"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -42,6 +43,11 @@ import (
 // maxConfigSize bounds the CONFIG read: it holds a small serialized
 // repository configuration, never anywhere near this size.
 const maxConfigSize = 2 << 10
+
+// responseHeaderTimeout bounds how long a request waits for the server to
+// start answering: if the provider takes longer than this, minio-go gives up
+// and retries the request.
+var responseHeaderTimeout = 5 * time.Second
 
 type Store struct {
 	minioClient  *minio.Client
@@ -54,10 +60,10 @@ type Store struct {
 }
 
 func init() {
-	storage.Register("s3", 0, NewStore)
+	_ = integration.RegisterStore("s3", 0, NewStore)
 }
 
-func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
 	var accessKey string
 	if tmp, ok := storeConfig["access_key"]; ok {
 		accessKey = tmp
@@ -72,7 +78,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["use_tls"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid use_tls value")
+			return nil, errors.New("invalid use_tls value")
 		}
 		useSsl = tmp
 	}
@@ -81,7 +87,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["tls_insecure_no_verify"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+			return nil, errors.New("invalid tls_insecure_no_verify value")
 		}
 		insecure = tmp
 	}
@@ -90,7 +96,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["storage_class"]; ok {
 		storageClass = strings.ToUpper(value)
 		if storageClass != "STANDARD" && storageClass != "REDUCED_REDUNDANCY" && storageClass != "STANDARD_IA" && storageClass != "ONEZONE_IA" && storageClass != "INTELLIGENT_TIERING" && storageClass != "GLACIER" && storageClass != "GLACIER_IR" && storageClass != "DEEP_ARCHIVE" {
-			return nil, fmt.Errorf("invalid storage_class value")
+			return nil, errors.New("invalid storage_class value")
 		}
 	}
 
@@ -98,7 +104,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	if value, ok := storeConfig["virtual_host"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid virtual_host value")
+			return nil, errors.New("invalid virtual_host value")
 		}
 		virtualHost = tmp
 	}
@@ -140,7 +146,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	var bucket, prefixDir, host string
 	if virtualHost {
 		if endpoint == "" {
-			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
+			return nil, errors.New("missing endpoint when virtual_host=true")
 		}
 
 		bucket, host, err = common.SplitVirtualHost(u.Host, endpoint)
@@ -168,7 +174,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	}
 
 	if bucket == "" || host == "" {
-		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
+		return nil, errors.New("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if !strings.HasPrefix(prefixDir, "/") {
@@ -188,6 +194,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
 	// bites: above it, each finished request drops its connection and the
 	// next one redials.
 	transport.MaxIdleConnsPerHost = transport.MaxIdleConns
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
 
 	if useSsl && insecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
@@ -246,7 +253,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 			return fmt.Errorf("stat object CONFIG: %w", err)
 		}
 	} else {
-		return fmt.Errorf("bucket already initialized")
+		return errors.New("bucket already initialized")
 	}
 
 	if err := s.checkObjectLockHistory(ctx); err != nil {
@@ -311,7 +318,7 @@ func (s *Store) checkObjectLockHistory(ctx context.Context) error {
 	if object.Err != nil {
 		return fmt.Errorf("list CONFIG versions: %w", object.Err)
 	}
-	return fmt.Errorf("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
+	return errors.New("bucket already initialized: object lock is enabled and still holds CONFIG's version history; clear it or use a different bucket or prefix")
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
@@ -320,7 +327,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("error checking if bucket exists: %w", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("bucket does not exist")
+		return nil, errors.New("bucket does not exist")
 	}
 
 	object := common.NewRetryReader(ctx, -1, func(offset int64) (io.ReadCloser, error) {
@@ -332,7 +339,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		}
 		return s.minioClient.GetObject(ctx, s.bucket, s.realpath("CONFIG"), opts)
 	})
-	defer object.Close()
+	defer func() { _ = object.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(object, maxConfigSize+1))
 	if err != nil {
@@ -351,7 +358,7 @@ func (p *Store) Ping(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("bucket does not exist")
+		return errors.New("bucket does not exist")
 	}
 	return nil
 }
@@ -361,14 +368,14 @@ func (s *Store) Root() string          { return path.Join("/", s.bucket, s.prefi
 func (s *Store) Type() string          { return "s3" }
 func (s *Store) Flags() location.Flags { return 0 }
 
-func (s *Store) mode() storage.Mode {
+func (s *Store) mode() integration.Mode {
 	if s.isGlacier {
-		return storage.ModeWrite
+		return integration.ModeWrite
 	}
-	return storage.ModeRead | storage.ModeWrite
+	return integration.ModeRead | integration.ModeWrite
 }
 
-func (s *Store) Mode(ctx context.Context) (storage.Mode, error) {
+func (s *Store) Mode(ctx context.Context) (integration.Mode, error) {
 	return s.mode(), nil
 }
 
@@ -376,60 +383,53 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	var prefix string
-	var prefixSize int
+func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var prefix string
+		var prefixSize int
 
-	switch res {
-	case storage.StorageResourcePackfile:
-		prefix = s.realpath("packfiles/")
-		prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
-	case storage.StorageResourceState:
-		prefix = s.realpath("states/")
-		prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
-	case storage.StorageResourceLock:
-		prefix = s.realpath("locks/")
-		prefixSize = len(prefix)
-	default:
-		return nil, errors.ErrUnsupported
-	}
-
-	ret := make([]objects.MAC, 0)
-	var listingErr error
-	for object := range s.minioClient.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
-		Prefix:    prefix,
-		Recursive: true,
-	}) {
-		if listingErr != nil {
-			continue // We have to drain the objects per documentation.
+		switch res {
+		case integration.StorageResourcePackfile:
+			prefix = s.realpath("packfiles/")
+			prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
+		case integration.StorageResourceState:
+			prefix = s.realpath("states/")
+			prefixSize = len(prefix) + 3 // prefix + len(%02x/) encoded
+		case integration.StorageResourceLock:
+			prefix = s.realpath("locks/")
+			prefixSize = len(prefix)
+		default:
+			yield(nil, errors.ErrUnsupported)
+			return
 		}
 
-		if object.Err != nil {
-			listingErr = object.Err
-			continue
-		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
-		if strings.HasPrefix(object.Key, prefix) && len(object.Key) >= prefixSize {
+		for object := range s.minioClient.ListObjectsIter(ctx, s.bucket, minio.ListObjectsOptions{
+			Prefix:    prefix,
+			Recursive: true,
+		}) {
+			if object.Err != nil {
+				yield(nil, object.Err)
+				return
+			}
+
+			if !strings.HasPrefix(object.Key, prefix) || len(object.Key) < prefixSize {
+				continue
+			}
 			t, err := hex.DecodeString(object.Key[prefixSize:])
-			if err != nil {
+			if err != nil || len(t) != 32 {
 				continue
 			}
-
-			if len(t) != 32 {
-				continue
+			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+				return
 			}
-			ret = append(ret, objects.MAC(t))
 		}
 	}
-
-	if listingErr != nil {
-		return nil, listingErr
-	}
-
-	return ret, nil
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	putObjectOptions := minio.PutObjectOptions{
 		// Some providers (eg. BlackBlaze) return the error
 		// "Unsupported header 'x-amz-checksum-algorithm'" if SendContentMd5
@@ -471,8 +471,8 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	}
 
 	switch res {
-	case storage.StorageResourcePackfile:
-		hot := storage.Flag(ctx) == storage.StorageHot
+	case integration.StorageResourcePackfile:
+		hot := flag == integration.StorageHot
 		name := s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac))
 
 		// Three paths here:
@@ -504,7 +504,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		}
 
 		return info.Size, nil
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		if s.isGlacier {
 			putObjectOptions.StorageClass = "STANDARD"
 		}
@@ -522,7 +522,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 		}
 
 		return info.Size, nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		// Always keep those in hot storage
 		if s.isGlacier {
 			putObjectOptions.StorageClass = "STANDARD"
@@ -533,19 +533,19 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 			return 0, fmt.Errorf("put %s object: %w", res, err)
 		}
 		return info.Size, nil
+	default:
+		return -1, errors.ErrUnsupported
 	}
-
-	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	var path string
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		path = s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac))
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		path = s.realpath(fmt.Sprintf("states/%02x/%016x", mac[0], mac))
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		path = s.realpath(fmt.Sprintf("locks/%016x", mac))
 	default:
 		return nil, errors.ErrUnsupported
@@ -576,15 +576,17 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	}), nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	var path string
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		path = s.realpath(fmt.Sprintf("packfiles/%02x/%016x", mac[0], mac))
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		path = s.realpath(fmt.Sprintf("states/%02x/%016x", mac[0], mac))
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		path = s.realpath(fmt.Sprintf("locks/%016x", mac))
+	default:
+		return errors.ErrUnsupported
 	}
 
 	err := s.minioClient.RemoveObject(ctx, s.bucket, path, minio.RemoveObjectOptions{})

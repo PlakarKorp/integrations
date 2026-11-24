@@ -19,16 +19,16 @@ package exporter
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/s3/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
@@ -36,7 +36,7 @@ import (
 )
 
 type S3Exporter struct {
-	opts        *connectors.Options
+	opts        *integration.Options
 	minioClient *minio.Client
 	rootDir     string
 	host        string
@@ -46,7 +46,7 @@ type S3Exporter struct {
 }
 
 func init() {
-	exporter.Register("s3", 0, NewS3Exporter)
+	_ = integration.RegisterExporter("s3", 0, NewS3Exporter)
 }
 
 func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
@@ -84,7 +84,7 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 	return client, nil
 }
 
-func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewS3Exporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	target := config["location"]
 	var accessKey string
 	if tmp, ok := config["access_key"]; ok {
@@ -100,7 +100,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["use_tls"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid use_tls value")
+			return nil, errors.New("invalid use_tls value")
 		}
 		useSsl = tmp
 	}
@@ -109,7 +109,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["tls_insecure_no_verify"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+			return nil, errors.New("invalid tls_insecure_no_verify value")
 		}
 		insecure = tmp
 	}
@@ -118,7 +118,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["virtual_host"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid virtual_host value")
+			return nil, errors.New("invalid virtual_host value")
 		}
 		virtualHost = tmp
 	}
@@ -160,7 +160,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	var bucket, restoreDir, host string
 	if virtualHost {
 		if endpoint == "" {
-			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
+			return nil, errors.New("missing endpoint when virtual_host=true")
 		}
 
 		bucket, host, err = common.SplitVirtualHost(parsed.Host, endpoint)
@@ -188,7 +188,7 @@ func NewS3Exporter(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	if bucket == "" || host == "" {
-		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
+		return nil, errors.New("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if !strings.HasPrefix(restoreDir, "/") {
@@ -229,12 +229,12 @@ func (p *S3Exporter) Ping(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("bucket does not exist")
+		return errors.New("bucket does not exist")
 	}
 	return nil
 }
 
-func (p *S3Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (p *S3Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	g, ctx := errgroup.WithContext(ctx)

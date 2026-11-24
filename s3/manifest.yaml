@@ -9,24 +9,18 @@ contact: mailto:help@plakar.io
 connectors:
 - type: importer
   executable: s3Importer
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/s3
-  license: ISC
   protocols: [s3]
   validator: ./importer/schema.json
   class: object-storage
   subclass: s3
 - type: exporter
   executable: s3Exporter
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/s3
-  license: ISC
   protocols: [s3]
   validator: ./exporter/schema.json
   class: object-storage
   subclass: s3
 - type: storage
   executable: s3Storage
-  homepage: https://github.com/PlakarKorp/integrations/tree/main/s3
-  license: ISC
   protocols: [s3]
   validator: ./storage/schema.json
   class: object-storage
