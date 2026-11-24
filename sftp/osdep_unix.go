@@ -3,6 +3,7 @@
 package sftp
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -16,11 +17,11 @@ func flock(p string) (*os.File, error) {
 
 	for {
 		err = syscall.Flock(int(fp.Fd()), syscall.LOCK_EX)
-		if err == syscall.EINTR {
+		if errors.Is(err, syscall.EINTR) {
 			continue
 		}
 		if err != nil {
-			fp.Close()
+			_ = fp.Close()
 			return nil, err
 		}
 

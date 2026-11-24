@@ -20,9 +20,9 @@ package sftp
 //
 //	ts := newTestServer(t)
 //	s := ts.newTestExportSftp(t, "/repo")
-//	records := make(chan *connectors.Record, 16)
+//	records := make(chan *integration.Record, 16)
 //	results, wait := runExporter(t, s, records)
-//	records <- connectors.NewRecord(...)
+//	records <- integration.NewRecord(...)
 //	close(records)
 //	got := drainResults(results)
 //	// ... assert against got, and/or against ts.realPath(...) on disk ...
@@ -39,9 +39,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/exclude"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,11 +69,11 @@ func (ts *testServer) newTestExportSftp(t *testing.T, rootDir string) *Sftp {
 // Draining before wait matters because Export's file/symlink tasks send
 // results concurrently. If results fills up, those tasks block, Export
 // cannot finish, and wait() deadlocks.
-func runExporter(t *testing.T, s *Sftp, records <-chan *connectors.Record) (<-chan *connectors.Result, func() error) {
-	results := make(chan *connectors.Result, 16)
+func runExporter(t *testing.T, s *Sftp, records <-chan *integration.Record) (<-chan *integration.Result, func() error) {
+	results := make(chan *integration.Result, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.Export(t.Context(), records, results)
+		done <- s.Export(t.Context(), nil, records, results)
 	}()
 
 	return results, func() error { return <-done }
@@ -82,8 +81,8 @@ func runExporter(t *testing.T, s *Sftp, records <-chan *connectors.Record) (<-ch
 
 // drainResults consumes every result off the channel until it is closed,
 // returning them in receipt order for assertions.
-func drainResults(results <-chan *connectors.Result) []*connectors.Result {
-	got := make([]*connectors.Result, 0, 16)
+func drainResults(results <-chan *integration.Result) []*integration.Result {
+	got := make([]*integration.Result, 0, 16)
 	for r := range results {
 		got = append(got, r)
 	}
@@ -100,10 +99,10 @@ func TestExport_DirectoryCreate(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+	records <- integration.NewRecord("/dir", "", integration.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -111,7 +110,7 @@ func TestExport_DirectoryCreate(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the directory create")
 	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the directory create")
 
 	// Verify that the directory was actually created on the fake SFTP
 	// server. Use the client (SFTP-visible path "/repo/dir"), not
@@ -130,18 +129,18 @@ func TestExport_RootDirectoryIdempotent(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Exporting the root directory itself should be a no-op (idempotent).
-	records <- connectors.NewRecord("/", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+	records <- integration.NewRecord("/", "", integration.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
 	close(records)
 	got := drainResults(results)
 
 	require.NoError(t, wait(), "Export should not return an error for exporting the root directory")
 	assert.Len(t, got, 1, "expected exactly one result for the root directory export")
 	assert.Equal(t, "/", got[0].Record.Pathname, "unexpected pathname in the result for the root directory export")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the root directory export")
+	require.NoError(t, got[0].Err, "expected no error in the result for the root directory export")
 
 	// Verify that the root directory still exists and has the expected mode.
 	rootInfo, err := ts.client.Stat("/repo")
@@ -158,11 +157,11 @@ func TestExport_FileWrite(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	content := []byte("Hello, SFTP!")
-	records <- connectors.NewRecord("/file.txt", "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord("/file.txt", "", integration.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(content)), nil
 	})
 	close(records)
@@ -172,7 +171,7 @@ func TestExport_FileWrite(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the file write")
 	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the file write")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the file write")
+	require.NoError(t, got[0].Err, "expected no error in the result for the file write")
 
 	// Verify that the file was actually created on the fake SFTP server.
 	fileInfo, err := ts.client.Stat("/repo/file.txt")
@@ -183,7 +182,7 @@ func TestExport_FileWrite(t *testing.T) {
 	// Verify the content of the file.
 	f, err := ts.client.Open("/repo/file.txt")
 	require.NoError(t, err, "expected Open to succeed for the created file")
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fileContent, err := io.ReadAll(f)
 	require.NoError(t, err, "expected reading the created file to succeed")
 	assert.Equal(t, content, fileContent, "unexpected content in the created file")
@@ -196,11 +195,11 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Create a symlink from /link.txt to /repo/file.txt
-	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	records <- integration.NewRecord("/link.txt", "/repo/file.txt", integration.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -208,7 +207,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the symlink create")
 	assert.Equal(t, "/link.txt", got[0].Record.Pathname, "unexpected pathname in the result for the symlink create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the symlink create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the symlink create")
 
 	// Verify that the symlink was actually created on the fake SFTP server.
 	// Note: symlink() (export.go) intentionally never chmods the link -
@@ -217,7 +216,7 @@ func TestExport_SymlinkCreate(t *testing.T) {
 	// Only the symlink bit itself is meaningful to assert here.
 	linkInfo, err := ts.client.Lstat("/repo/link.txt")
 	require.NoError(t, err, "expected Lstat to succeed for the created symlink")
-	assert.True(t, linkInfo.Mode()&os.ModeSymlink != 0, "expected the created path to be a symlink, got mode %v", linkInfo.Mode())
+	assert.NotEqual(t, os.FileMode(0), linkInfo.Mode()&os.ModeSymlink, "expected the created path to be a symlink, got mode %v", linkInfo.Mode())
 
 	// Verify that the symlink points to the correct target.
 	target, err := ts.client.ReadLink("/repo/link.txt")
@@ -237,10 +236,10 @@ func TestExport_SymlinkFailsIfExists(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/link.txt", "/repo/file.txt", objects.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+	records <- integration.NewRecord("/link.txt", "/repo/file.txt", integration.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -267,16 +266,16 @@ func TestExport_SymlinkTargetEscape(t *testing.T) {
 			require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0o700))
 
 			s := ts.newTestExportSftp(t, "/repo")
-			records := make(chan *connectors.Record, 1)
+			records := make(chan *integration.Record, 1)
 			results, wait := runExporter(t, s, records)
 
-			records <- connectors.NewRecord("/link.txt", tt.target, objects.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
+			records <- integration.NewRecord("/link.txt", tt.target, integration.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
 			close(records)
 
 			got := drainResults(results)
 			require.NoError(t, wait())
 			require.Len(t, got, 1)
-			assert.Error(t, got[0].Err)
+			require.Error(t, got[0].Err)
 
 			_, err := os.Lstat(ts.realPath("/repo/link.txt"))
 			assert.ErrorIs(t, err, os.ErrNotExist)
@@ -299,15 +298,15 @@ func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
 
 	s := ts.newTestExportSftp(t, "/repo")
 	s.setOwner = true
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Use the current process uid/gid so Chown succeeds without root.
 	uid := uint64(os.Getuid())
 	gid := uint64(os.Getgid())
 	content := []byte("chown test")
-	records <- connectors.NewRecord("/file.txt", "",
-		objects.FileInfo{Lmode: 0644, Luid: uid, Lgid: gid},
+	records <- integration.NewRecord("/file.txt", "",
+		integration.FileInfo{Lmode: 0644, Luid: uid, Lgid: gid},
 		nil,
 		func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(content)), nil
@@ -318,7 +317,7 @@ func TestExport_ChownAppliedWhenSetOwner(t *testing.T) {
 	got := drainResults(results)
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
-	assert.NoError(t, got[0].Err, "chown with current uid/gid should succeed")
+	require.NoError(t, got[0].Err, "chown with current uid/gid should succeed")
 
 	// Verify the file was written and ownership matches.
 	info, err := ts.realStat("/repo/file.txt")
@@ -335,15 +334,15 @@ func TestExport_HardlinkCanonicalOnce(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Create a hardlink from /hardlink.txt to /file.txt. Lnlink must be >1
 	// for file() to route through hardlink() (see export.go); a nil read
 	// func would otherwise panic once anything actually reads the lazy
 	// Reader, so provide real content too.
-	content := []byte("hardlinked content")
-	records <- connectors.NewRecord("/hardlink.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+	content := []byte("hardlinked content") //nolint:misspell // a hard link, not "hardline"
+	records <- integration.NewRecord("/hardlink.txt", "/file.txt", integration.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(content)), nil
 	})
 	close(records)
@@ -353,7 +352,7 @@ func TestExport_HardlinkCanonicalOnce(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the hardlink create")
 	assert.Equal(t, "/hardlink.txt", got[0].Record.Pathname, "unexpected pathname in the result for the hardlink create")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the hardlink create")
+	require.NoError(t, got[0].Err, "expected no error in the result for the hardlink create")
 
 	// Verify that the hardlink was actually created on the fake SFTP server.
 	hardlinkInfo, err := ts.client.Stat("/repo/hardlink.txt")
@@ -369,16 +368,16 @@ func TestExport_HardlinkConcurrentRace(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Create two hardlinks to the same target concurrently. Both should
 	// succeed, and the underlying file should only be created once.
 	content := []byte("concurrent hardlink content")
-	records <- connectors.NewRecord("/hardlink1.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord("/hardlink1.txt", "/file.txt", integration.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(content)), nil
 	})
-	records <- connectors.NewRecord("/hardlink2.txt", "/file.txt", objects.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord("/hardlink2.txt", "/file.txt", integration.FileInfo{Lmode: 0644, Lnlink: 2}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(content)), nil
 	})
 	close(records)
@@ -388,7 +387,7 @@ func TestExport_HardlinkConcurrentRace(t *testing.T) {
 
 	assert.Len(t, got, 2, "expected exactly two results for the concurrent hardlink creates")
 	for _, r := range got {
-		assert.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
+		require.NoError(t, r.Err, "expected no error in the result for the concurrent hardlink create: %v", r.Record.Pathname)
 	}
 
 	// Verify that both paths exist with the expected mode.
@@ -426,7 +425,7 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Send parent before child, with a restrictive parent mode (0500:
@@ -436,8 +435,8 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 	// Export must defer all directory chmod calls until after every record
 	// has been processed and apply them in reverse order (child before
 	// parent), which is what the dirPerms reverse loop in export.go does.
-	records <- connectors.NewRecord("/parent", "", objects.FileInfo{Lmode: os.ModeDir | 0500}, nil, nil)
-	records <- connectors.NewRecord("/parent/child", "", objects.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
+	records <- integration.NewRecord("/parent", "", integration.FileInfo{Lmode: os.ModeDir | 0500}, nil, nil)
+	records <- integration.NewRecord("/parent/child", "", integration.FileInfo{Lmode: os.ModeDir | 0750}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -445,7 +444,7 @@ func TestExport_PermissionsAppliedBottomUp(t *testing.T) {
 
 	require.Len(t, got, 2)
 	for _, r := range got {
-		assert.NoError(t, r.Err, "unexpected error for %q", r.Record.Pathname)
+		require.NoError(t, r.Err, "unexpected error for %q", r.Record.Pathname)
 	}
 
 	// Both directories must exist with their requested modes.
@@ -468,11 +467,11 @@ func TestExport_ChownNoopByDefault(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Export a directory with a different owner than the pre-created one.
-	records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | 0750, Luid: 1001, Lgid: 1001}, nil, nil)
+	records <- integration.NewRecord("/dir", "", integration.FileInfo{Lmode: os.ModeDir | 0750, Luid: 1001, Lgid: 1001}, nil, nil)
 	close(records)
 
 	got := drainResults(results)
@@ -480,7 +479,7 @@ func TestExport_ChownNoopByDefault(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the directory create with chown info")
 	assert.Equal(t, "/dir", got[0].Record.Pathname, "unexpected pathname in the result for the directory create with chown info")
-	assert.NoError(t, got[0].Err, "expected no error in the result for the directory create with chown info")
+	require.NoError(t, got[0].Err, "expected no error in the result for the directory create with chown info")
 
 	// Verify that the directory was actually created on the fake SFTP server
 	// and that its owner has not changed (i.e., it remains the same as the
@@ -495,12 +494,12 @@ func TestExport_ChownNoopByDefault(t *testing.T) {
 func TestExport_ErrorIsolation(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Send a record that will cause an error (e.g., trying to create a file
 	// in a non-existent directory).
-	records <- connectors.NewRecord("/nonexistentdir/file.txt", "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord("/nonexistentdir/file.txt", "", integration.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader([]byte("content"))), nil
 	})
 	close(records)
@@ -510,12 +509,10 @@ func TestExport_ErrorIsolation(t *testing.T) {
 
 	assert.Len(t, got, 1, "expected exactly one result for the record that causes an isolated error")
 	assert.Equal(t, "/nonexistentdir/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the record that causes an isolated error")
-	assert.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
-	// The error should indicate that the parent directory does not exist.
-	// Note: this goes through the SFTP protocol (writeAtomic's temp-file
-	// creation), so the message is pkg/sftp's own wording for
-	// SSH_FX_NO_SUCH_FILE, not the raw OS errno string.
-	assert.Contains(t, got[0].Err.Error(), "file does not exist", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
+	require.Error(t, got[0].Err, "expected an error in the result for the record that causes an isolated error")
+	// The parent was never created by this restore, so the exporter
+	// refuses the record before anything reaches the server.
+	assert.Contains(t, got[0].Err.Error(), "/repo/nonexistentdir", "unexpected error message for the record that causes an isolated error: %v", got[0].Err)
 }
 
 func TestExport_XattrRecordsSkipped(t *testing.T) {
@@ -525,12 +522,12 @@ func TestExport_XattrRecordsSkipped(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	// Records marked IsXattr should be acked immediately without any
 	// filesystem action (see Export's `if record.IsXattr` branch).
-	rec := connectors.NewXattr("/file.txt", "user.test", objects.AttributeExtended, nil)
+	rec := integration.NewXattr("/file.txt", "user.test", integration.AttributeExtended, nil)
 	require.True(t, rec.IsXattr, "test setup: NewXattr should produce a record with IsXattr set")
 	records <- rec
 	close(records)
@@ -540,7 +537,7 @@ func TestExport_XattrRecordsSkipped(t *testing.T) {
 
 	require.Len(t, got, 1, "expected exactly one result for the xattr record")
 	assert.Equal(t, "/file.txt", got[0].Record.Pathname, "unexpected pathname in the result for the xattr record")
-	assert.NoError(t, got[0].Err, "xattr records should be acked without error")
+	require.NoError(t, got[0].Err, "xattr records should be acked without error")
 
 	// No file should have been created on disk: the xattr record was
 	// never written to, only acked.
@@ -555,11 +552,11 @@ func TestExport_PathTraversalEscape(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	newFileRecord := func(pathname, content string) *connectors.Record {
-		return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
+	newFileRecord := func(pathname, content string) *integration.Record {
+		return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: 0644}, nil, func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader([]byte(content))), nil
 		})
 	}
@@ -577,35 +574,35 @@ func TestExport_PathTraversalEscape(t *testing.T) {
 
 	require.Len(t, got, 3, "expected exactly three results, one per record")
 
-	byPath := make(map[string]*connectors.Result, len(got))
+	byPath := make(map[string]*integration.Result, len(got))
 	for _, r := range got {
 		byPath[r.Record.Pathname] = r
 	}
 
 	// The two legitimate files should succeed and land inside /repo.
 	require.Contains(t, byPath, "/good1.txt")
-	assert.NoError(t, byPath["/good1.txt"].Err, "expected the first well-behaved file to succeed")
+	require.NoError(t, byPath["/good1.txt"].Err, "expected the first well-behaved file to succeed")
 	good1, err := ts.client.Open("/repo/good1.txt")
 	require.NoError(t, err, "expected the first well-behaved file to exist inside the restore root")
 	good1Content, err := io.ReadAll(good1)
 	require.NoError(t, err)
-	good1.Close()
+	_ = good1.Close()
 	assert.Equal(t, "good1-content", string(good1Content))
 
 	require.Contains(t, byPath, "/good2.txt")
-	assert.NoError(t, byPath["/good2.txt"].Err, "expected the second well-behaved file to succeed")
+	require.NoError(t, byPath["/good2.txt"].Err, "expected the second well-behaved file to succeed")
 	good2, err := ts.client.Open("/repo/good2.txt")
 	require.NoError(t, err, "expected the second well-behaved file to exist inside the restore root")
 	good2Content, err := io.ReadAll(good2)
 	require.NoError(t, err)
-	good2.Close()
+	_ = good2.Close()
 	assert.Equal(t, "good2-content", string(good2Content))
 
 	// The hostile record should fail with a path containment error, and
 	// nothing should be written outside of /repo on the fake server's
 	// filesystem.
 	require.Contains(t, byPath, "/../../outside.txt")
-	assert.Error(t, byPath["/../../outside.txt"].Err, "expected Export to reject a path that escapes the restore root")
+	require.Error(t, byPath["/../../outside.txt"].Err, "expected Export to reject a path that escapes the restore root")
 
 	_, statErr := ts.client.Stat("/outside.txt")
 	assert.Error(t, statErr, "expected no file to have been written outside of the restore root")
@@ -705,18 +702,18 @@ func TestExport_SkipPermissions(t *testing.T) {
 
 			s := ts.newTestExportSftp(t, "/repo")
 			s.skipPermissions = tc.skipPermissions
-			records := make(chan *connectors.Record, 16)
+			records := make(chan *integration.Record, 16)
 			results, wait := runExporter(t, s, records)
 
 			pathname := "/repo/file.txt"
 			specialBits := os.ModeSetuid | os.ModeSetgid
 			if tc.isDir {
 				pathname = "/repo/dir"
-				records <- connectors.NewRecord("/dir", "", objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750}, nil, nil)
+				records <- integration.NewRecord("/dir", "", integration.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750}, nil, nil)
 			} else {
 				content := []byte("setuid test")
-				records <- connectors.NewRecord("/file.txt", "",
-					objects.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | 0755},
+				records <- integration.NewRecord("/file.txt", "",
+					integration.FileInfo{Lmode: os.ModeSetuid | os.ModeSetgid | 0755},
 					nil,
 					func() (io.ReadCloser, error) {
 						return io.NopCloser(bytes.NewReader(content)), nil
@@ -728,7 +725,7 @@ func TestExport_SkipPermissions(t *testing.T) {
 			got := drainResults(results)
 			require.NoError(t, wait())
 			require.Len(t, got, 1)
-			assert.NoError(t, got[0].Err)
+			require.NoError(t, got[0].Err)
 
 			info, err := ts.client.Stat(pathname)
 			require.NoError(t, err)
@@ -762,20 +759,20 @@ func TestExport_DirectorySetgidSurvivesChownOrdering(t *testing.T) {
 
 	s := ts.newTestExportSftp(t, "/repo")
 	s.setOwner = true
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
 	uid := uint64(os.Getuid())
 	gid := uint64(os.Getgid())
-	records <- connectors.NewRecord("/dir", "",
-		objects.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750, Luid: uid, Lgid: gid},
+	records <- integration.NewRecord("/dir", "",
+		integration.FileInfo{Lmode: os.ModeDir | os.ModeSetgid | 0750, Luid: uid, Lgid: gid},
 		nil, nil)
 	close(records)
 
 	got := drainResults(results)
 	require.NoError(t, wait())
 	require.Len(t, got, 1)
-	assert.NoError(t, got[0].Err)
+	require.NoError(t, got[0].Err)
 
 	info, err := ts.client.Stat("/repo/dir")
 	require.NoError(t, err)
@@ -793,7 +790,7 @@ func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
 		lnlink uint16
 	}{
 		{name: "regular file", lnlink: 1},
-		{name: "hardlinked file", lnlink: 2},
+		{name: "hardlinked file", lnlink: 2}, //nolint:misspell // a hard link, not "hardline"
 	}
 
 	for _, tc := range cases {
@@ -803,12 +800,12 @@ func TestExport_FileSetuidSurvivesSetOwner(t *testing.T) {
 
 			s := ts.newTestExportSftp(t, "/repo")
 			s.setOwner = true
-			records := make(chan *connectors.Record, 16)
+			records := make(chan *integration.Record, 16)
 			results, wait := runExporter(t, s, records)
 
 			content := []byte("setuid test")
-			records <- connectors.NewRecord("/file.bin", "",
-				objects.FileInfo{
+			records <- integration.NewRecord("/file.bin", "",
+				integration.FileInfo{
 					Lmode:  os.ModeSetuid | os.ModeSetgid | 0755,
 					Luid:   uint64(os.Getuid()),
 					Lgid:   uint64(os.Getgid()),
@@ -842,10 +839,10 @@ func TestExport_DirectoryModeAppliedBeforeChildrenRestore(t *testing.T) {
 	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0750))
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 1)
+	records := make(chan *integration.Record, 1)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/secret", "", objects.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
+	records <- integration.NewRecord("/secret", "", integration.FileInfo{Lmode: os.ModeDir | 0700}, nil, nil)
 
 	r := <-results
 	require.NoError(t, r.Err)
@@ -925,10 +922,10 @@ func TestExport_FileNeverExposesBroaderMode(t *testing.T) {
 	}
 
 	s := ts.newTestExportSftp(t, "/repo")
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	results, wait := runExporter(t, s, records)
 
-	records <- connectors.NewRecord("/secret-key", "", objects.FileInfo{Lmode: 0600}, nil, func() (io.ReadCloser, error) {
+	records <- integration.NewRecord("/secret-key", "", integration.FileInfo{Lmode: 0600}, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader([]byte("private key"))), nil
 	})
 	close(records)
@@ -942,4 +939,145 @@ func TestExport_FileNeverExposesBroaderMode(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Empty(t, exposed)
+}
+
+func exportRecords(t *testing.T, ts *testServer, root string, recs ...*integration.Record) []*integration.Result {
+	t.Helper()
+	s := ts.newTestExportSftp(t, root)
+	records := make(chan *integration.Record, len(recs))
+	results, wait := runExporter(t, s, records)
+	for _, r := range recs {
+		records <- r
+	}
+	close(records)
+	got := drainResults(results)
+	require.NoError(t, wait())
+	return got
+}
+
+// resultsByPath indexes results by pathname, since file and symlink results
+// are produced concurrently and arrive in no particular order.
+func resultsByPath(t *testing.T, got []*integration.Result, n int) map[string]error {
+	t.Helper()
+	require.Len(t, got, n)
+	m := make(map[string]error, n)
+	for _, r := range got {
+		m[r.Record.Pathname] = r.Err
+	}
+	return m
+}
+
+func dirRecord(p string, mode os.FileMode) *integration.Record {
+	return integration.NewRecord(p, "", integration.FileInfo{Lmode: os.ModeDir | mode}, nil, nil)
+}
+
+func linkRecord(p, target string) *integration.Record {
+	return integration.NewRecord(p, target, integration.FileInfo{Lmode: os.ModeSymlink | 0777}, nil, nil)
+}
+
+func fileRecord(p string) *integration.Record {
+	return integration.NewRecord(p, "", integration.FileInfo{Lmode: 0644, Lsize: 1}, nil,
+		func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("x")), nil })
+}
+
+// TestExport_RefusesWriteBelowPreexistingSymlink covers the restore escape
+// of PlakarKorp/security#51: root/logs already is a symlink to a directory
+// outside the restore root, and the snapshot holds logs/authorized_keys.
+// The server would follow the symlink, so the records must be refused.
+func TestExport_RefusesWriteBelowPreexistingSymlink(t *testing.T) {
+	const root = "/r1/r2/repo"
+
+	tests := []struct {
+		name    string
+		records []*integration.Record
+	}{
+		{
+			name:    "file",
+			records: []*integration.Record{fileRecord("/logs/authorized_keys")},
+		},
+		{
+			name:    "file below the directory record",
+			records: []*integration.Record{dirRecord("/logs", 0755), fileRecord("/logs/authorized_keys")},
+		},
+		{
+			name:    "directory with a mode to apply",
+			records: []*integration.Record{dirRecord("/logs", 0755), dirRecord("/logs/sub", 0000)},
+		},
+		{
+			name:    "symlink",
+			records: []*integration.Record{dirRecord("/logs", 0755), linkRecord("/logs/authorized_keys", "../../../etc/passwd")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+			require.NoError(t, os.MkdirAll(ts.realPath("/outside"), 0755))
+			require.NoError(t, os.Symlink(ts.realPath("/outside"), ts.realPath(root+"/logs")))
+
+			got := exportRecords(t, ts, root, tt.records...)
+			require.Len(t, got, len(tt.records))
+			for _, r := range got {
+				require.Error(t, r.Err, r.Record.Pathname)
+			}
+
+			entries, err := os.ReadDir(ts.realPath("/outside"))
+			require.NoError(t, err)
+			assert.Empty(t, entries, "something was written through the symlink")
+			fi, err := os.Stat(ts.realPath("/outside"))
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0755), fi.Mode().Perm(), "mode was applied through the symlink")
+		})
+	}
+}
+
+// TestExport_RefusesWriteBelowRestoredSymlink covers a symlink created by
+// the restore itself: its target stays inside the root, but a later record
+// below it would be resolved through it by the server. Symlinks are created
+// concurrently, so the refusal must not depend on whether the link exists
+// yet.
+func TestExport_RefusesWriteBelowRestoredSymlink(t *testing.T) {
+	const root = "/r1/r2/repo"
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+	require.NoError(t, os.MkdirAll(ts.realPath("/outside"), 0755))
+	require.NoError(t, os.Symlink(ts.realPath("/outside"), ts.realPath(root+"/x")))
+
+	errs := resultsByPath(t, exportRecords(t, ts, root,
+		dirRecord("/a", 0755), linkRecord("/a/b", ".."), linkRecord("/a/b/x", "../y"), fileRecord("/a/b/x/f")), 4)
+	assert.NoError(t, errs["/a"])
+	assert.NoError(t, errs["/a/b"])
+	require.Error(t, errs["/a/b/x"])
+	require.Error(t, errs["/a/b/x/f"])
+
+	entries, err := os.ReadDir(ts.realPath("/outside"))
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+	_, err = os.Lstat(ts.realPath(root + "/y"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// TestExport_NestedRestore is the control: a plain nested restore must
+// still work, and so must restoring again into the tree it produced.
+func TestExport_NestedRestore(t *testing.T) {
+	const root = "/r1/r2/repo"
+	ts := newTestServer(t)
+	require.NoError(t, os.MkdirAll(ts.realPath(root), 0700))
+
+	got := exportRecords(t, ts, root,
+		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/f"), linkRecord("/a/b/l", "f"))
+	for _, r := range got {
+		require.NoError(t, r.Err, r.Record.Pathname)
+	}
+	_, err := os.Stat(ts.realPath(root + "/a/b/f"))
+	require.NoError(t, err)
+
+	errs := resultsByPath(t, exportRecords(t, ts, root,
+		dirRecord("/a", 0755), dirRecord("/a/b", 0755), fileRecord("/a/b/g")), 3)
+	require.Error(t, errs["/a"], "mkdir of an existing directory fails as before")
+	require.Error(t, errs["/a/b"], "mkdir of an existing directory fails as before")
+	require.NoError(t, errs["/a/b/g"], "a file below an existing real directory is written")
+	_, err = os.Stat(ts.realPath(root + "/a/b/g"))
+	assert.NoError(t, err)
 }

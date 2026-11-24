@@ -35,8 +35,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/exclude"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,12 +61,13 @@ func (ts *testServer) newTestImportSftp(t *testing.T, rootDir string) *Sftp {
 // Reversing the order deadlocks: workers block trying to send on a full
 // records channel, Import blocks waiting for workers to finish, and the
 // test blocks waiting for Import.
-func runImporter(t *testing.T, s *Sftp) (<-chan *connectors.Record, func() error) {
+func runImporter(t *testing.T, s *Sftp) (<-chan *integration.Record, func() error) {
 	t.Helper()
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.Import(t.Context(), records, nil)
+		_, err := s.Import(t.Context(), records, nil)
+		done <- err
 	}()
 
 	return records, func() error { return <-done }
@@ -74,8 +75,8 @@ func runImporter(t *testing.T, s *Sftp) (<-chan *connectors.Record, func() error
 
 // drainRecords consumes every record off the channel until it is closed,
 // returning them in receipt order for assertions.
-func drainRecords(records <-chan *connectors.Record) []*connectors.Record {
-	got := make([]*connectors.Record, 0, 16)
+func drainRecords(records <-chan *integration.Record) []*integration.Record {
+	got := make([]*integration.Record, 0, 16)
 	for r := range records {
 		got = append(got, r)
 	}
@@ -85,8 +86,8 @@ func drainRecords(records <-chan *connectors.Record) []*connectors.Record {
 // byPathname indexes a drained record slice by its SFTP-visible pathname,
 // for convenient lookups/assertions regardless of the (non-deterministic,
 // worker-pool-driven) order records arrive in.
-func byPathname(records []*connectors.Record) map[string]*connectors.Record {
-	m := make(map[string]*connectors.Record, len(records))
+func byPathname(records []*integration.Record) map[string]*integration.Record {
+	m := make(map[string]*integration.Record, len(records))
 	for _, r := range records {
 		m[r.Pathname] = r
 	}
@@ -94,7 +95,7 @@ func byPathname(records []*connectors.Record) map[string]*connectors.Record {
 }
 
 // keysOf returns the map's keys, for use in failure messages.
-func keysOf(m map[string]*connectors.Record) []string {
+func keysOf(m map[string]*integration.Record) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -162,7 +163,7 @@ func TestImport_WalksNestedTree(t *testing.T) {
 	seedTree(t, ts.realPath("/repo"))
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -202,7 +203,7 @@ func TestImport_FileMetadata(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -250,7 +251,7 @@ func TestImport_SymlinkTarget(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -333,7 +334,7 @@ func TestImport_ExcludeRules(t *testing.T) {
 			seedTree(t, ts.realPath("/repo"))
 
 			s := ts.newTestImportSftp(t, "/repo")
-			defer s.Close(context.Background())
+			defer func() { _ = s.Close(context.Background()) }()
 
 			require.NoError(t, s.excludes.AddRulesFromArray(tc.rules),
 				"failed to add exclude rules")
@@ -369,7 +370,7 @@ func TestImport_ExcludeRules(t *testing.T) {
 func TestWalk_RootLstatError(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -385,7 +386,7 @@ func TestWalk_RootLstatError(t *testing.T) {
 	require.Len(t, got, 1, "expected exactly one record for the root Lstat error")
 	rec := got[0]
 	assert.Equal(t, "/repo", rec.Pathname)
-	assert.Error(t, rec.Err, "expected record for root Lstat error to have non-nil Err")
+	require.Error(t, rec.Err, "expected record for root Lstat error to have non-nil Err")
 	assert.Contains(t, rec.Err.Error(), "file does not exist", "unexpected record error message: %v", rec.Err)
 }
 
@@ -394,7 +395,7 @@ func TestImport_ContextCancellation(t *testing.T) {
 	seedTree(t, ts.realPath("/repo"))
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -402,17 +403,18 @@ func TestImport_ContextCancellation(t *testing.T) {
 	// runImporter always uses t.Context(), so we wire channels manually here
 	// to pass the pre-cancelled context while preserving the mandatory
 	// drain-before-wait order.
-	records := make(chan *connectors.Record, 16)
+	records := make(chan *integration.Record, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.Import(ctx, records, nil)
+		_, err := s.Import(ctx, records, nil)
+		done <- err
 	}()
 
 	got := drainRecords(records)
 	err := <-done
 
 	require.Error(t, err, "expected Import to return an error when context is already cancelled")
-	assert.ErrorIs(t, err, context.Canceled, "unexpected error: %v", err)
+	require.ErrorIs(t, err, context.Canceled, "unexpected error: %v", err)
 
 	// No records should have been produced: the walk aborts on the
 	// root entry before any job is ever dispatched to the workers.
@@ -450,7 +452,7 @@ func TestImport_WorkerPoolConcurrency(t *testing.T) {
 
 	s := ts.newTestImportSftp(t, "/repo")
 	s.maxConcurrency = 8
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -496,7 +498,7 @@ func TestImport_FileReaderReturnsContent(t *testing.T) {
 	}
 
 	s := ts.newTestImportSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	records, wait := runImporter(t, s)
 	got := drainRecords(records)
@@ -510,7 +512,7 @@ func TestImport_FileReaderReturnsContent(t *testing.T) {
 	// Reader is a LazyReader: the underlying client.Open runs on first Read,
 	// not when the record was emitted. This call exercises that deferred open.
 	require.NotNil(t, rec.Reader, "expected a non-nil Reader on /repo/file.txt record")
-	defer rec.Reader.Close()
+	defer func() { _ = rec.Reader.Close() }()
 
 	data, err := io.ReadAll(rec.Reader)
 	require.NoError(t, err, "io.ReadAll from lazy Reader failed")

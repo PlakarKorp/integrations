@@ -32,8 +32,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +92,7 @@ func TestStoragePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
 			s := ts.newTestSftp(t, tt.rootDir)
-			defer s.Close(context.Background())
+			defer func() { _ = s.Close(context.Background()) }()
 
 			got := s.path(tt.args...)
 			require.Equal(t, tt.want, got)
@@ -104,7 +103,7 @@ func TestStoragePath(t *testing.T) {
 func TestStorageCreate_FreshRepo(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
@@ -127,7 +126,7 @@ func TestStorageCreate_FreshRepo(t *testing.T) {
 func TestStorageCreate_NonEmptyRepo(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	// Create a non-empty directory at /repo.
 	require.NoError(t, os.MkdirAll(ts.realPath("/repo"), 0700))
@@ -140,9 +139,9 @@ func TestStorageCreate_NonEmptyRepo(t *testing.T) {
 func TestStorageOpen(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
-	s.Create(context.Background(), []byte("test config"))
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 	_, err := s.Open(context.Background())
 
 	require.NoError(t, err, "failed to open CONFIG file")
@@ -151,7 +150,7 @@ func TestStorageOpen(t *testing.T) {
 func TestStorageOpen_MissingConfig(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	_, err := s.Open(context.Background())
 
@@ -161,11 +160,11 @@ func TestStorageOpen_MissingConfig(t *testing.T) {
 func TestStorageMetadata(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	mode, err := s.Mode(context.Background())
 	require.NoError(t, err)
-	want := storage.ModeRead | storage.ModeWrite
+	want := integration.ModeRead | integration.ModeWrite
 	require.Equal(t, want, mode)
 
 	size, err := s.Size(context.Background())
@@ -176,28 +175,28 @@ func TestStorageMetadata(t *testing.T) {
 func TestStorageList_Supported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
-	supportedStorageFiletypes := []storage.StorageResource{
-		storage.StorageResourcePackfile,
-		storage.StorageResourceLock,
-		storage.StorageResourceState,
+	supportedStorageFiletypes := []integration.StorageResource{
+		integration.StorageResourcePackfile,
+		integration.StorageResourceLock,
+		integration.StorageResourceState,
 	}
 	for _, tt := range supportedStorageFiletypes {
 		t.Run(tt.String(), func(t *testing.T) {
-			got, err := s.List(context.Background(), tt)
+			got, err := list(s, tt)
 			require.NoError(t, err)
 			// Fresh repo: nothing has been Put() for this resource yet.
 			require.Empty(t, got)
 
 			m := mac(0x33)
-			_, err = s.Put(context.Background(), tt, m, bytes.NewReader([]byte("data")))
+			_, err = s.Put(context.Background(), tt, 0, m, bytes.NewReader([]byte("data")))
 			require.NoError(t, err)
 
-			got, err = s.List(context.Background(), tt)
+			got, err = list(s, tt)
 			require.NoError(t, err)
-			require.Equal(t, []objects.MAC{m}, got)
+			require.Equal(t, []integration.MAC{m}, got)
 		})
 	}
 }
@@ -205,17 +204,17 @@ func TestStorageList_Supported(t *testing.T) {
 func TestStorageList_UnsupportedResource(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close((context.Background()))
+	defer func() { _ = s.Close(context.Background()) }()
 
-	s.Create(context.Background(), []byte("test config"))
-	unsupportedStorageFiletypes := []storage.StorageResource{
-		storage.StorageResourceUndefined,
-		storage.StorageResourceECCPackfile,
-		storage.StorageResourceECCState,
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
+	unsupportedStorageFiletypes := []integration.StorageResource{
+		integration.StorageResourceUndefined,
+		integration.StorageResourceECCPackfile,
+		integration.StorageResourceECCState,
 	}
 	for _, tt := range unsupportedStorageFiletypes {
 		t.Run(tt.String(), func(t *testing.T) {
-			_, err := s.List(context.Background(), tt)
+			_, err := list(s, tt)
 			require.Error(t, err, "expected error when accessing s.List() for %s", tt.String())
 		})
 	}
@@ -224,19 +223,19 @@ func TestStorageList_UnsupportedResource(t *testing.T) {
 func TestStorageGetPut_Packfile(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourcePackfile, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourcePackfile, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	rc, err := s.Get(context.Background(), storage.StorageResourcePackfile, m, nil)
+	rc, err := s.Get(context.Background(), integration.StorageResourcePackfile, 0, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -246,19 +245,19 @@ func TestStorageGetPut_Packfile(t *testing.T) {
 func TestStorageGetPut_State(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourceState, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourceState, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	rc, err := s.Get(context.Background(), storage.StorageResourceState, m, nil)
+	rc, err := s.Get(context.Background(), integration.StorageResourceState, 0, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -268,19 +267,19 @@ func TestStorageGetPut_State(t *testing.T) {
 func TestStorageGet_PackfileRange(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourcePackfile, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourcePackfile, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	rc, err := s.Get(context.Background(), storage.StorageResourcePackfile, m, &storage.Range{Offset: 5, Length: 8})
+	rc, err := s.Get(context.Background(), integration.StorageResourcePackfile, 0, m, &integration.Range{Offset: 5, Length: 8})
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -290,36 +289,36 @@ func TestStorageGet_PackfileRange(t *testing.T) {
 func TestStorageGet_StateRangeUnsupported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourceState, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourceState, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	_, err = s.Get(context.Background(), storage.StorageResourceState, m, &storage.Range{Offset: 5, Length: 8})
+	_, err = s.Get(context.Background(), integration.StorageResourceState, 0, m, &integration.Range{Offset: 5, Length: 8})
 	require.Error(t, err, "s.Get() expected to fail for state range request")
 }
 
 func TestStorageGetPut_Lock(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourceLock, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourceLock, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	rc, err := s.Get(context.Background(), storage.StorageResourceLock, m, nil)
+	rc, err := s.Get(context.Background(), integration.StorageResourceLock, 0, m, nil)
 	require.NoError(t, err)
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	got, err := io.ReadAll(rc)
 	require.NoError(t, err)
@@ -329,96 +328,96 @@ func TestStorageGetPut_Lock(t *testing.T) {
 func TestStorageGet_LockRangeUnsupported(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	want := []byte("test packfile data")
 	m := mac(0x2a)
 
-	_, err := s.Put(context.Background(), storage.StorageResourceLock, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourceLock, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	_, err = s.Get(context.Background(), storage.StorageResourceLock, m, &storage.Range{Offset: 5, Length: 8})
+	_, err = s.Get(context.Background(), integration.StorageResourceLock, 0, m, &integration.Range{Offset: 5, Length: 8})
 	require.Error(t, err, "s.Get() expected to fail for lock range request")
 }
 
 func TestStorageDelete_Packfile(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	m := mac(0x2a)
 	want := []byte("test packfile data")
-	_, err := s.Put(context.Background(), storage.StorageResourcePackfile, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourcePackfile, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	require.NoError(t, s.Delete(context.Background(), storage.StorageResourcePackfile, m))
+	require.NoError(t, s.Delete(context.Background(), integration.StorageResourcePackfile, 0, m))
 
-	_, err = s.Get(context.Background(), storage.StorageResourcePackfile, m, nil)
+	_, err = s.Get(context.Background(), integration.StorageResourcePackfile, 0, m, nil)
 	require.Error(t, err, "s.Get() succeeded after Delete(), want error")
 }
 
 func TestStorageDelete_State(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	m := mac(0x2a)
 	want := []byte("test packfile data")
-	_, err := s.Put(context.Background(), storage.StorageResourceState, m, bytes.NewReader(want))
+	_, err := s.Put(context.Background(), integration.StorageResourceState, 0, m, bytes.NewReader(want))
 	require.NoError(t, err)
 
-	require.NoError(t, s.Delete(context.Background(), storage.StorageResourceState, m))
+	require.NoError(t, s.Delete(context.Background(), integration.StorageResourceState, 0, m))
 
-	_, err = s.Get(context.Background(), storage.StorageResourceState, m, nil)
+	_, err = s.Get(context.Background(), integration.StorageResourceState, 0, m, nil)
 	require.Error(t, err, "s.Get() succeeded after Delete(), want error")
 }
 
 func TestStorageDelete_LockNonExistent(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	m := mac(0x2a)
 
-	err := s.Delete(context.Background(), storage.StorageResourceLock, m)
+	err := s.Delete(context.Background(), integration.StorageResourceLock, 0, m)
 	require.Error(t, err, "s.Put() expected a failure")
 }
 
 func TestStorageDelete_UnsupportedResource(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	m := mac(0x2a)
 
-	err := s.Delete(context.Background(), storage.StorageResourceUndefined, m)
+	err := s.Delete(context.Background(), integration.StorageResourceUndefined, 0, m)
 	require.Error(t, err, "s.Put() expected a failure")
 }
 
 func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	// Two valid locks, put through the real API.
-	want := map[objects.MAC]bool{
+	want := map[integration.MAC]bool{
 		mac(0x11): true,
 		mac(0x22): true,
 	}
 	for m := range want {
-		_, err := s.Put(context.Background(), storage.StorageResourceLock, m, bytes.NewReader([]byte("data")))
+		_, err := s.Put(context.Background(), integration.StorageResourceLock, 0, m, bytes.NewReader([]byte("data")))
 		require.NoError(t, err)
 	}
 
@@ -426,7 +425,7 @@ func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 	require.NoError(t, os.WriteFile(ts.realPath("/repo/locks/not-a-hexname"), []byte("x"), 0600))
 	require.NoError(t, os.WriteFile(ts.realPath("/repo/locks/deadbeef"), []byte("x"), 0600))
 
-	got, err := s.List(context.Background(), storage.StorageResourceLock)
+	got, err := list(s, integration.StorageResourceLock)
 	require.NoError(t, err)
 
 	require.ElementsMatch(t, keys(want), got)
@@ -439,46 +438,46 @@ func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 func TestStorageConcurrentPacksAndStates(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
-	defer s.Close(context.Background())
+	defer func() { _ = s.Close(context.Background()) }()
 
 	require.NoError(t, s.Create(context.Background(), []byte("test config")))
 
 	const n = 32
-	wantPackfiles := make(map[objects.MAC]bool, n)
-	wantStates := make(map[objects.MAC]bool, n)
+	wantPackfiles := make(map[integration.MAC]bool, n)
+	wantStates := make(map[integration.MAC]bool, n)
 	for i := range n {
-		var m objects.MAC
+		var m integration.MAC
 		m[0] = byte(i)
 		m[1] = 0xaa
 		wantPackfiles[m] = true
 
-		var sm objects.MAC
+		var sm integration.MAC
 		sm[0] = byte(i)
 		sm[1] = 0xbb
 		wantStates[sm] = true
 	}
 
 	var wg sync.WaitGroup
-	put := func(res storage.StorageResource, m objects.MAC) {
+	put := func(res integration.StorageResource, m integration.MAC) {
 		defer wg.Done()
-		_, err := s.Put(context.Background(), res, m, bytes.NewReader([]byte("data")))
+		_, err := s.Put(context.Background(), res, 0, m, bytes.NewReader([]byte("data")))
 		assert.NoError(t, err, "s.Put(%s, %x) failed", res.String(), m)
 	}
 	for m := range wantPackfiles {
 		wg.Add(1)
-		go put(storage.StorageResourcePackfile, m)
+		go put(integration.StorageResourcePackfile, m)
 	}
 	for m := range wantStates {
 		wg.Add(1)
-		go put(storage.StorageResourceState, m)
+		go put(integration.StorageResourceState, m)
 	}
 	wg.Wait()
 
-	gotPackfiles, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	gotPackfiles, err := list(s, integration.StorageResourcePackfile)
 	require.NoError(t, err)
 	require.ElementsMatch(t, keys(wantPackfiles), gotPackfiles)
 
-	gotStates, err := s.List(context.Background(), storage.StorageResourceState)
+	gotStates, err := list(s, integration.StorageResourceState)
 	require.NoError(t, err)
 	require.ElementsMatch(t, keys(wantStates), gotStates)
 }
@@ -516,22 +515,34 @@ func TestStorageBuckets_CreatePermissions(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------
 
-// mac builds a deterministic objects.MAC for use in table-driven tests,
+// mac builds a deterministic integration.MAC for use in table-driven tests,
 // with the first byte set to b (useful for landing entries in a specific
 // bucket, since buckets are keyed off mac[0]).
-func mac(b byte) objects.MAC {
-	var m objects.MAC
+func mac(b byte) integration.MAC {
+	var m integration.MAC
 	m[0] = b
 	return m
 }
 
-// keys returns the keys of a map[objects.MAC]bool as a slice, for use with
-// require.ElementsMatch (order-independent comparison against a []objects.MAC
+// keys returns the keys of a map[integration.MAC]bool as a slice, for use with
+// require.ElementsMatch (order-independent comparison against a []integration.MAC
 // result, e.g. from s.List()).
-func keys(m map[objects.MAC]bool) []objects.MAC {
-	ret := make([]objects.MAC, 0, len(m))
+func keys(m map[integration.MAC]bool) []integration.MAC {
+	ret := make([]integration.MAC, 0, len(m))
 	for k := range m {
 		ret = append(ret, k)
 	}
 	return ret
+}
+
+// list collects s.List() into a slice of MACs, stopping at the first error.
+func list(s *Sftp, res integration.StorageResource) ([]integration.MAC, error) {
+	var ret []integration.MAC
+	for entry, err := range s.List(context.Background(), res, 0) {
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, entry.MAC)
+	}
+	return ret, nil
 }

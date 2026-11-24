@@ -18,19 +18,19 @@ package sftp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"golang.org/x/sync/errgroup"
 )
 
 type dirPerm struct {
 	Pathname string
-	Fileinfo objects.FileInfo
+	Fileinfo integration.FileInfo
 }
 
 // isContained reports whether joined (a path already produced by joining
@@ -52,12 +52,18 @@ func isContained(root, joined string) bool {
 	return strings.HasPrefix(cleanJoined, prefix)
 }
 
-func (s *Sftp) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (s *Sftp) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.maxConcurrency)
 
 	dirPerms := make([]dirPerm, 0, 1024)
+
+	// The server resolves symlinks in every path it is handed, so a
+	// restore may only write below directories it created itself or
+	// verified with Lstat to be real directories, never below a
+	// symlink that was already in the destination.
+	dirOK := make(map[string]bool)
 
 loop:
 	for {
@@ -86,9 +92,20 @@ loop:
 				results <- record.Error(fmt.Errorf("path %q escapes restore root", record.Pathname))
 				continue
 			}
+			if parent := path.Dir(pathname); record.Pathname != "/" && parent != path.Clean(s.Root()) && !dirOK[parent] {
+				results <- record.Error(fmt.Errorf("refusing to restore %q: parent %q is not a directory created by this restore", record.Pathname, parent))
+				continue
+			}
 			if record.FileInfo.Lmode.IsDir() {
 				err := s.directory(record, pathname)
 				results <- record.Error(err)
+
+				if err == nil {
+					dirOK[pathname] = true
+				} else if fi, serr := s.client.Lstat(pathname); serr == nil && fi.IsDir() {
+					// Already there from an earlier restore.
+					dirOK[pathname] = true
+				}
 
 				if err == nil && restoreMode(record.FileInfo)&0700 != 0700 {
 					dirPerms = append(dirPerms, dirPerm{
@@ -132,7 +149,7 @@ loop:
 	return ret
 }
 
-func (s *Sftp) directory(record *connectors.Record, pathname string) error {
+func (s *Sftp) directory(record *integration.Record, pathname string) error {
 	var err error
 	if record.Pathname == "/" {
 		// special case for the root directory of the restore,
@@ -164,7 +181,7 @@ func (s *Sftp) directory(record *connectors.Record, pathname string) error {
 	return s.permissions(pathname, record.FileInfo, restoreMode(record.FileInfo)|0700)
 }
 
-func (s *Sftp) symlink(record *connectors.Record, pathname string) error {
+func (s *Sftp) symlink(record *integration.Record, pathname string) error {
 	resolved := record.Target
 	if !path.IsAbs(resolved) {
 		resolved = path.Join(path.Dir(pathname), resolved)
@@ -173,14 +190,14 @@ func (s *Sftp) symlink(record *connectors.Record, pathname string) error {
 		return fmt.Errorf("symlink target %q escapes restore root", record.Target)
 	}
 	if err := s.client.Symlink(record.Target, pathname); err != nil {
-		return fmt.Errorf("could not create symlink")
+		return errors.New("could not create symlink")
 	}
 	// don't attempt to p.setPerms in here, sftp lacks a lchown(2)
 	// thingy.
 	return nil
 }
 
-func (s *Sftp) hardlink(record *connectors.Record, pathname string) error {
+func (s *Sftp) hardlink(record *integration.Record, pathname string) error {
 	fileinfo := record.FileInfo
 	key := fmt.Sprintf("%d:%d", fileinfo.Dev(), fileinfo.Ino())
 
@@ -209,14 +226,14 @@ func (s *Sftp) hardlink(record *connectors.Record, pathname string) error {
 	return nil
 }
 
-func (s *Sftp) file(record *connectors.Record, pathname string) error {
+func (s *Sftp) file(record *integration.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return s.hardlink(record, pathname)
 	}
 	return s.writeAtomic(record, pathname)
 }
 
-func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
+func (s *Sftp) writeAtomic(record *integration.Record, pathname string) error {
 	fileinfo := record.FileInfo
 
 	var mode *os.FileMode
@@ -233,11 +250,11 @@ func (s *Sftp) writeAtomic(record *connectors.Record, pathname string) error {
 }
 
 // Preserve setuid (04000), setgid (02000) and sticky (01000), not just Mode().Perm().
-func restoreMode(fileinfo objects.FileInfo) os.FileMode {
+func restoreMode(fileinfo integration.FileInfo) os.FileMode {
 	return fileinfo.Mode().Perm() | fileinfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky)
 }
 
-func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo, mode os.FileMode) error {
+func (s *Sftp) permissions(pathname string, fileinfo integration.FileInfo, mode os.FileMode) error {
 	// Apply ownership before mode bits so that any setuid/setgid bits are
 	// never set while the file is still owned by an unintended uid/gid.
 	if err := s.chown(pathname, fileinfo); err != nil {
@@ -246,16 +263,16 @@ func (s *Sftp) permissions(pathname string, fileinfo objects.FileInfo, mode os.F
 	return s.chmod(pathname, fileinfo, mode)
 }
 
-func (s *Sftp) chmod(pathname string, fileinfo objects.FileInfo, mode os.FileMode) error {
+func (s *Sftp) chmod(pathname string, fileinfo integration.FileInfo, mode os.FileMode) error {
 	if fileinfo.Mode()&os.ModeSymlink == 0 && !s.skipPermissions {
 		if err := s.client.Chmod(pathname, mode); err != nil {
-			return fmt.Errorf("could not chmod")
+			return errors.New("could not chmod")
 		}
 	}
 	return nil
 }
 
-func (s *Sftp) chown(pathname string, fileinfo objects.FileInfo) error {
+func (s *Sftp) chown(pathname string, fileinfo integration.FileInfo) error {
 	if !s.setOwner {
 		return nil
 	}
