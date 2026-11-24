@@ -82,7 +82,7 @@ type Config struct {
 func ParseConfig(config map[string]string) (*Config, error) {
 	target := config["location"]
 	if target == "" {
-		return nil, fmt.Errorf("missing location")
+		return nil, errors.New("missing location")
 	}
 
 	parsed, err := url.Parse(target)
@@ -117,7 +117,7 @@ func ParseConfig(config map[string]string) (*Config, error) {
 		share = strings.Trim(s, "/")
 	}
 	if share == "" {
-		return nil, fmt.Errorf("missing share: set it in the location (smb://host/share) or the share parameter")
+		return nil, errors.New("missing share: set it in the location (smb://host/share) or the share parameter")
 	}
 
 	root := sub
@@ -142,12 +142,12 @@ func ParseConfig(config map[string]string) (*Config, error) {
 	// Credentials from the URL userinfo, if present.
 	if parsed.User != nil {
 		if cfg.User != "" {
-			return nil, fmt.Errorf("can not use user@host syntax and username parameter")
+			return nil, errors.New("can not use user@host syntax and username parameter")
 		}
 		cfg.User = parsed.User.Username()
 		if pw, ok := parsed.User.Password(); ok {
 			if cfg.Password != "" {
-				return nil, fmt.Errorf("can not use user:password@host syntax and password parameter")
+				return nil, errors.New("can not use user:password@host syntax and password parameter")
 			}
 			cfg.Password = pw
 		}
@@ -192,14 +192,14 @@ func Connect(ctx context.Context, cfg *Config) (*Conn, error) {
 
 	session, err := dialer.DialContext(ctx, tcpConn)
 	if err != nil {
-		tcpConn.Close()
+		_ = tcpConn.Close()
 		return nil, fmt.Errorf("smb session setup on %s: %w", addr, err)
 	}
 
 	share, err := session.Mount(cfg.Share)
 	if err != nil {
-		session.Logoff()
-		tcpConn.Close()
+		_ = session.Logoff()
+		_ = tcpConn.Close()
 		return nil, fmt.Errorf("mount share %q on %s: %w", cfg.Share, addr, err)
 	}
 
