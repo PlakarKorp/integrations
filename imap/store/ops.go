@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/imap/common"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/emersion/go-imap/v2"
 )
 
@@ -61,28 +61,38 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	return out, err
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	leaf, ok := resourceMailbox(res)
-	if !ok {
-		return nil, nil
-	}
-	var macs []objects.MAC
-	err := s.withSession(func(sess *common.ImapSession) error {
-		mbox := s.mailbox(leaf)
-		idx, err := s.refreshIndex(sess, mbox)
+func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		leaf, ok := resourceMailbox(res)
+		if !ok {
+			return
+		}
+		var macs []integration.MAC
+		err := s.withSession(func(sess *common.ImapSession) error {
+			mbox := s.mailbox(leaf)
+			idx, err := s.refreshIndex(sess, mbox)
+			if err != nil {
+				return err
+			}
+			macs = make([]integration.MAC, 0, len(idx))
+			for mac := range idx {
+				macs = append(macs, mac)
+			}
+			return nil
+		})
 		if err != nil {
-			return err
+			yield(nil, err)
+			return
 		}
-		macs = make([]objects.MAC, 0, len(idx))
-		for mac := range idx {
-			macs = append(macs, mac)
+		for _, mac := range macs {
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+				return
+			}
 		}
-		return nil
-	})
-	return macs, err
+	}
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	leaf, ok := resourceMailbox(res)
 	if !ok {
 		return -1, fmt.Errorf("unsupported resource %v", res)
@@ -110,7 +120,7 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 	return int64(len(blob)), nil
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	leaf, ok := resourceMailbox(res)
 	if !ok {
 		return nil, fmt.Errorf("unsupported resource %v", res)
@@ -125,6 +135,10 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 		if uid == 0 {
 			return fmt.Errorf("blob %s not found", macToHex(mac))
 		}
+		// A cached UID does not select the mailbox; make sure we fetch from it.
+		if err := s.selectMailbox(sess, mbox); err != nil {
+			return err
+		}
 		blob, err := s.fetchBlob(sess, uid, rg)
 		if err != nil {
 			return err
@@ -138,7 +152,7 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	leaf, ok := resourceMailbox(res)
 	if !ok {
 		return fmt.Errorf("unsupported resource %v", res)
@@ -194,7 +208,7 @@ func (s *Store) appendBlob(sess *common.ImapSession, mbox, name string, blob []b
 
 // fetchBlob fetches and decodes the blob carried by a message UID. If rg is
 // non-nil, only the requested byte range of the decoded blob is returned.
-func (s *Store) fetchBlob(sess *common.ImapSession, uid imap.UID, rg *storage.Range) ([]byte, error) {
+func (s *Store) fetchBlob(sess *common.ImapSession, uid imap.UID, rg *integration.Range) ([]byte, error) {
 	var set imap.UIDSet
 	set.AddNum(uid)
 	fopts := &imap.FetchOptions{
@@ -229,14 +243,14 @@ func (s *Store) fetchBlob(sess *common.ImapSession, uid imap.UID, rg *storage.Ra
 
 // refreshIndex selects mbox and rebuilds the MAC->UID map by reading the MAC
 // header of every message.
-func (s *Store) refreshIndex(sess *common.ImapSession, mbox string) (map[objects.MAC]imap.UID, error) {
+func (s *Store) refreshIndex(sess *common.ImapSession, mbox string) (map[integration.MAC]imap.UID, error) {
 	sel, err := sess.Client.Select(mbox, nil).Wait()
 	if err != nil {
 		return nil, err
 	}
 	s.selected = mbox
 
-	idx := make(map[objects.MAC]imap.UID)
+	idx := make(map[integration.MAC]imap.UID)
 	if sel.NumMessages == 0 {
 		s.setIndex(mbox, idx)
 		return idx, nil
@@ -324,11 +338,11 @@ func (s *Store) findUID(sess *common.ImapSession, mbox, name string) (imap.UID, 
 
 // setIndex and dropFromIndex are always called while s.mu is held (via
 // withSession), so they touch the index maps directly.
-func (s *Store) setIndex(mbox string, idx map[objects.MAC]imap.UID) {
+func (s *Store) setIndex(mbox string, idx map[integration.MAC]imap.UID) {
 	s.index[mbox] = idx
 }
 
-func (s *Store) dropFromIndex(mbox string, mac objects.MAC) {
+func (s *Store) dropFromIndex(mbox string, mac integration.MAC) {
 	if m := s.index[mbox]; m != nil {
 		delete(m, mac)
 	}

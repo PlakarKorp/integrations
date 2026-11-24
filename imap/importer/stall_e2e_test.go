@@ -6,19 +6,13 @@
 package importer_test
 
 import (
-	"context"
 	"io"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	imapimporter "github.com/PlakarKorp/integrations/imap/importer"
-
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/snapshot"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +43,7 @@ func newStallProxyN(t *testing.T, backend string, stallAfter int64, stallConns i
 	require.NoError(t, err)
 	p := &stallProxy{backend: backend, stallAfter: stallAfter, ln: ln, stallConns: stallConns}
 	go p.serve()
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	return p
 }
 
@@ -66,19 +60,22 @@ func (p *stallProxy) serve() {
 }
 
 func (p *stallProxy) handle(client net.Conn) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	server, err := net.Dial("tcp", p.backend)
 	if err != nil {
 		return
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	// client -> server, verbatim
+	// client -> server, verbatim. Once the client hangs up, drop the backend
+	// connection too, so a stalled relay does not keep a server session open
+	// (and count against the server's per-user connection limit) after the test.
 	go func() {
 		defer wg.Done()
-		io.Copy(server, client)
+		_, _ = io.Copy(server, client)
+		_ = server.Close()
 	}()
 	// server -> client, until stallAfter bytes then (maybe) go silent. The
 	// stall budget is consumed only when a connection actually reaches the
@@ -96,11 +93,11 @@ func (p *stallProxy) handle(client net.Conn) {
 					decided = true
 					if p.stallConns < 0 || p.connSeq.Add(1) <= p.stallConns {
 						p.stalls.Add(1)
-						io.Copy(io.Discard, server) // stall: keep socket open, relay nothing
+						_, _ = io.Copy(io.Discard, server) // stall: keep socket open, relay nothing
 						return
 					}
 				}
-				client.Write(buf[:n])
+				_, _ = client.Write(buf[:n])
 				relayed += int64(n)
 			}
 			if err != nil {
@@ -119,105 +116,52 @@ func TestBackupStallDoesNotHangForever(t *testing.T) {
 	// FETCH phase, so several body reads hang mid-transfer.
 	proxy := newStallProxy(t, a, 64*1024)
 
-	repo := newFsRepo(t)
-
-	imp, err := imapimporter.NewImporter(repo.AppContext(), &connectors.Options{}, "imap", map[string]string{
+	imp := newImporter(t, map[string]string{
 		"location":   "imap://" + proxy.addr(),
 		"username":   "srcuser",
 		"password":   "secret",
 		"tls":        "no-tls",
 		"io_timeout": "3s", // short so the stalled reads fail fast
 	})
-	require.NoError(t, err)
-	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
-	require.NoError(t, err)
-	builder, err := snapshot.Create(repo, 0, "", [32]byte{}, &snapshot.BuilderOptions{})
-	require.NoError(t, err)
-
-	done := make(chan error, 1)
-	go func() {
-		err := builder.Backup(src)
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		// We don't require success — a stalled server should surface as an
-		// error, not a hang. The point of the test is that we get HERE.
-		t.Logf("backup returned (stalls=%d): err=%v", proxy.stalls.Load(), err)
-	case <-time.After(45 * time.Second):
-		buf := make([]byte, 1<<20)
-		n := runtime.Stack(buf, true)
-		t.Fatalf("backup HUNG on a stalled IMAP server (stalls=%d)\n--- goroutines ---\n%s", proxy.stalls.Load(), buf[:n])
-	}
-	_ = builder.Close()
+	// More concurrent readers than the importer's connection pool, so stalled
+	// reads can exhaust it. We don't require success — a stalled server should
+	// surface as errors, not a hang. The point of the test is that runImport
+	// returns before its timeout.
+	run := runImport(t, imp, 8, 45*time.Second)
+	t.Logf("import returned (stalls=%d): err=%v, error records=%d, read errors=%d",
+		proxy.stalls.Load(), run.err, len(run.recErrs), len(run.readErrs))
 }
 
 // TestBackupTransientStallRetries verifies that when only the first couple of
 // body-fetch connections stall (a transient throttle), the importer's retry on
-// a fresh connection recovers them, so the backup completes with the FULL set
-// of files rather than recording errors.
+// a fresh connection recovers them, so every message body is read in full
+// rather than failing.
 func TestBackupTransientStallRetries(t *testing.T) {
 	a := addr(t)
 	const n = 6
-	seedLarge(t, a, "srcuser", n, 256*1024)
+	const size = 256 * 1024
+	seedLarge(t, a, "srcuser", n, size)
 
 	// Only the first 2 large-body connections stall; their retries land on
 	// fresh, healthy connections.
 	proxy := newStallProxyN(t, a, 64*1024, 2)
 
-	repo := newFsRepo(t)
-	imp, err := imapimporter.NewImporter(repo.AppContext(), &connectors.Options{}, "imap", map[string]string{
+	imp := newImporter(t, map[string]string{
 		"location":   "imap://" + proxy.addr(),
 		"username":   "srcuser",
 		"password":   "secret",
 		"tls":        "no-tls",
 		"io_timeout": "2s",
 	})
-	require.NoError(t, err)
-	defer imp.Close(context.Background())
 
-	src, err := snapshot.NewSource(repo.AppContext(), 0, imp)
-	require.NoError(t, err)
-	builder, err := snapshot.Create(repo, 0, "", [32]byte{}, &snapshot.BuilderOptions{})
-	require.NoError(t, err)
+	run := runImport(t, imp, 8, 45*time.Second)
+	requireCleanRun(t, run)
 
-	done := make(chan error, 1)
-	go func() {
-		if err := builder.Backup(src); err != nil {
-			done <- err
-			return
-		}
-		done <- builder.Commit()
-	}()
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(45 * time.Second):
-		buf := make([]byte, 1<<20)
-		sz := runtime.Stack(buf, true)
-		t.Fatalf("backup hung (stalls=%d)\n%s", proxy.stalls.Load(), buf[:sz])
-	}
-	require.NoError(t, builder.Close())
-	require.NoError(t, builder.Repository().RebuildState())
-
-	snap, err := snapshot.Load(repo, builder.Header.Identifier)
-	require.NoError(t, err)
-	defer snap.Close()
-
-	fs, err := snap.Filesystem()
-	require.NoError(t, err)
-	got := 0
-	for pathname, err := range fs.Pathnames() {
-		require.NoError(t, err)
-		if e, err := fs.GetEntry(pathname); err == nil && !e.Stat().Mode().IsDir() {
-			got++
-		}
-	}
-	t.Logf("stalls observed=%d, files in snapshot=%d/%d", proxy.stalls.Load(), got, n)
+	t.Logf("stalls observed=%d, bodies read=%d/%d", proxy.stalls.Load(), len(run.bodies), n)
 	require.GreaterOrEqual(t, proxy.stalls.Load(), int64(1), "expected at least one stall to be exercised")
-	require.Equal(t, n, got, "retry should have recovered every message despite transient stalls")
+	require.Len(t, run.bodies, n, "retry should have recovered every message despite transient stalls")
+	for p, body := range run.bodies {
+		require.Greater(t, len(body), size, "body of %q is truncated", p)
+	}
 }
