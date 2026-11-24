@@ -7,12 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/mysql/importer"
 	"github.com/PlakarKorp/integrations/mysql/manifest"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	iimporter "github.com/PlakarKorp/kloset/connectors/importer"
 )
 
 type mysqlImporter struct {
@@ -21,7 +20,7 @@ type mysqlImporter struct {
 	setGTIDPurged    string
 }
 
-func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iimporter.Importer, error) {
+func newMySQL(_ context.Context, _ *integration.Options, proto string, config map[string]string) (integration.Importer, error) {
 	conn, err := mysqlconn.ParseConnConfig(false, config)
 	if err != nil {
 		return nil, err
@@ -58,9 +57,9 @@ func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map
 	return m, nil
 }
 
-func (m *mysqlImporter) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
+func (m *mysqlImporter) Import(ctx context.Context, records chan<- *integration.Record, _ <-chan *integration.Result) (map[string]string, error) {
 	if err := m.Conn.CheckFlavor(ctx, "mysql"); err != nil {
-		return err
+		return nil, err
 	}
 	cs := m.columnStatistics
 	opts := m.CommonManifestOptions()
@@ -82,9 +81,9 @@ func (m *mysqlImporter) Import(ctx context.Context, records chan<- *connectors.R
 		extraFlags = append(extraFlags, "--set-gtid-purged="+m.setGTIDPurged)
 	}
 
-	return m.Run(ctx, records, cfg, extraFlags)
+	return nil, m.Run(ctx, records, cfg, extraFlags)
 }
 
 func main() {
-	sdk.EntrypointImporter(os.Args, newMySQL)
+	server.EntrypointImporter(newMySQL, os.Args)
 }

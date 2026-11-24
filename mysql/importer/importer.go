@@ -3,6 +3,7 @@ package importer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -11,12 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/mysql/manifest"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	iimporter "github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 // AllDatabasesDumpFile is the snapshot path used for full-server dumps.
@@ -90,7 +89,7 @@ func New(proto string, conn mysqlconn.ConnConfig, config map[string]string) (*Im
 		return nil, err
 	}
 	if imp.NoData && imp.NoCreateInfo {
-		return nil, fmt.Errorf("no_data and no_create_info are mutually exclusive")
+		return nil, errors.New("no_data and no_create_info are mutually exclusive")
 	}
 	return imp, nil
 }
@@ -163,7 +162,7 @@ func (i *Importer) CommonDumpFlags() []string {
 
 // Run is the shared entry point called by provider-specific Import() implementations.
 // It emits the manifest then the dump; extraFlags are appended to CommonDumpFlags().
-func (i *Importer) Run(ctx context.Context, records chan<- *connectors.Record, cfg manifest.Config, extraFlags []string) error {
+func (i *Importer) Run(ctx context.Context, records chan<- *integration.Record, cfg manifest.Config, extraFlags []string) error {
 	defer close(records)
 
 	if err := manifest.Emit(ctx, cfg, records); err != nil {
@@ -177,14 +176,14 @@ func (i *Importer) Run(ctx context.Context, records chan<- *connectors.Record, c
 	return i.dumpAllDatabases(ctx, records, flags)
 }
 
-var _ iimporter.Importer = (*Importer)(nil)
+var _ integration.Importer = (*Importer)(nil)
 
 // Import must be overridden by each provider plugin.
-func (i *Importer) Import(_ context.Context, _ chan<- *connectors.Record, _ <-chan *connectors.Result) error {
-	return fmt.Errorf("Import not implemented: provider must override this method")
+func (i *Importer) Import(_ context.Context, _ chan<- *integration.Record, _ <-chan *integration.Result) (map[string]string, error) {
+	return nil, errors.New("Import not implemented: provider must override this method")
 }
 
-func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *connectors.Record, flags []string) error {
+func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *integration.Record, flags []string) error {
 	pathname := "/" + i.Database + ".sql"
 	return i.emitDump(ctx, records, pathname, func() (io.ReadCloser, error) {
 		extra := append(flags, i.Database)
@@ -192,7 +191,7 @@ func (i *Importer) dumpSingleDatabase(ctx context.Context, records chan<- *conne
 	})
 }
 
-func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *connectors.Record, flags []string) error {
+func (i *Importer) dumpAllDatabases(ctx context.Context, records chan<- *integration.Record, flags []string) error {
 	return i.emitDump(ctx, records, AllDatabasesDumpFile, func() (io.ReadCloser, error) {
 		extra := append([]string{"--all-databases"}, flags...)
 		return i.startDump(ctx, extra)
@@ -208,7 +207,7 @@ type cmdReader struct {
 }
 
 func (r *cmdReader) Close() error {
-	r.ReadCloser.Close()
+	_ = r.ReadCloser.Close()
 	err := r.cmd.Wait()
 	r.cleanup()
 	if err != nil {
@@ -246,9 +245,9 @@ func (i *Importer) startDump(ctx context.Context, extraArgs []string) (io.ReadCl
 	return &cmdReader{ReadCloser: stdout, cmd: cmd, stderr: &stderr, cleanup: cleanup}, nil
 }
 
-func (i *Importer) emitDump(ctx context.Context, records chan<- *connectors.Record, pathname string, readerFunc func() (io.ReadCloser, error)) error {
+func (i *Importer) emitDump(ctx context.Context, records chan<- *integration.Record, pathname string, readerFunc func() (io.ReadCloser, error)) error {
 	now := time.Now().UTC()
-	fileinfo := objects.FileInfo{
+	fileinfo := integration.FileInfo{
 		Lname:    path.Base(pathname),
 		Lsize:    0,
 		Lmode:    0444,
@@ -257,7 +256,7 @@ func (i *Importer) emitDump(ctx context.Context, records chan<- *connectors.Reco
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case records <- connectors.NewRecord(pathname, "", fileinfo, nil, readerFunc):
+	case records <- integration.NewRecord(pathname, "", fileinfo, nil, readerFunc):
 	}
 	return nil
 }

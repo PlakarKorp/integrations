@@ -4,14 +4,13 @@ import (
 	"context"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/mysql/exporter"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	iexporter "github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
-func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map[string]string) (iexporter.Exporter, error) {
+func newMySQL(_ context.Context, _ *integration.Options, proto string, config map[string]string) (integration.Exporter, error) {
 	conn, err := mysqlconn.ParseConnConfig(true, config)
 	if err != nil {
 		return nil, err
@@ -23,5 +22,5 @@ func newMySQL(_ context.Context, _ *connectors.Options, proto string, config map
 }
 
 func main() {
-	sdk.EntrypointExporter(os.Args, newMySQL)
+	server.EntrypointExporter(newMySQL, os.Args)
 }

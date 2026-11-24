@@ -120,7 +120,7 @@ func MustQueryInt(ctx context.Context, t *testing.T, container testcontainers.Co
 	if err != nil {
 		t.Fatalf("open connection: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var n int
 	if err := db.QueryRowContext(ctx, query).Scan(&n); err != nil {
 		t.Fatalf("query %q: %v", query, err)

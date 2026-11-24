@@ -2,12 +2,12 @@ package exporter
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/mysql/mysqlconn"
-	"github.com/PlakarKorp/kloset/connectors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +19,7 @@ type tripwireReader struct {
 
 func (r *tripwireReader) Read([]byte) (int, error) {
 	require.Fail(r.t, "record body was read: the restore reached the client subprocess")
-	return 0, fmt.Errorf("unexpected read")
+	return 0, errors.New("unexpected read")
 }
 
 func (r *tripwireReader) Close() error { return nil }
@@ -38,7 +38,7 @@ func TestRestoreSQLRejectsHostileRecordName(t *testing.T) {
 		"/--execute=DROP DATABASE prod.sql",
 		"/db`; DROP DATABASE prod; --.sql",
 	} {
-		record := &connectors.Record{Pathname: pathname, Reader: &tripwireReader{t: t}}
+		record := &integration.Record{Pathname: pathname, Reader: &tripwireReader{t: t}}
 		err := e.restoreSQL(context.Background(), record)
 		require.ErrorContainsf(t, err, "invalid database name", "restoreSQL(%q)", pathname)
 	}
@@ -51,7 +51,7 @@ func TestRestoreSQLAcceptsOrdinaryRecordName(t *testing.T) {
 		conn: mysqlconn.ConnConfig{ClientBin: filepath.Join(t.TempDir(), "no-such-mysql")},
 	}
 
-	record := &connectors.Record{Pathname: "/my_app.sql", Reader: &tripwireReader{t: t}}
+	record := &integration.Record{Pathname: "/my_app.sql", Reader: &tripwireReader{t: t}}
 	err := e.restoreSQL(context.Background(), record)
 	require.Error(t, err, "want the missing-binary error")
 	require.NotContains(t, err.Error(), "invalid database name")

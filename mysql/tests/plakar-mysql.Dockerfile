@@ -21,6 +21,10 @@ ARG PLAKAR_SHA
 
 RUN microdnf install -y golang && microdnf clean all
 
+# The distro Go lags behind go.mod and pins GOTOOLCHAIN=local; let it fetch
+# the toolchain go.mod asks for.
+ENV GOTOOLCHAIN=auto
+
 RUN go install github.com/PlakarKorp/plakar@${PLAKAR_SHA}
 
 ENV PATH="/root/go/bin:${PATH}"

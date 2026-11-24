@@ -10,7 +10,6 @@ import (
 func TestAllDatabasesBackup(t *testing.T) {
 	t.Parallel()
 	for _, v := range testhelpers.DBVariants {
-		v := v
 		t.Run(v.Name, func(t *testing.T) {
 			t.Parallel()
 			runAllDatabasesBackup(t, v)
