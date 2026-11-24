@@ -11,13 +11,13 @@ import (
 	"net/http/httptest"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/emersion/go-webdav"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +72,7 @@ func newwebdav(ctx context.Context, client webdav.HTTPClient, proto, insecure, l
 		params["insecure"] = insecure
 	}
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "localhost",
 		OperatingSystem: runtime.GOOS,
 		Architecture:    runtime.GOARCH,
@@ -123,7 +123,7 @@ func TestInsecureOption(t *testing.T) {
 	}
 
 	for _, test := range suite {
-		webdav, err := newwebdav(t.Context(), nil, test.proto, fmt.Sprint(test.insecure), "")
+		webdav, err := newwebdav(t.Context(), nil, test.proto, strconv.FormatBool(test.insecure), "")
 
 		msg := fmt.Sprintf("proto=%s insecure=%v", test.proto, test.insecure)
 		if test.ok {
@@ -148,7 +148,7 @@ func TestPing(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	err = webdav.Ping(t.Context())
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestUserAgent(t *testing.T) {
@@ -159,12 +159,12 @@ func TestUserAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	locationWithNoProto := strings.Replace(srv.URL, "http://", "", -1)
+	locationWithNoProto := strings.ReplaceAll(srv.URL, "http://", "")
 
 	webdav, err := newwebdav(t.Context(), nil, "dav", "true", locationWithNoProto)
 	require.NoError(t, err)
 
-	webdav.Ping(t.Context())
+	_ = webdav.Ping(t.Context())
 	require.Equal(t, "PlakarBackup/1.0", got)
 }
 
@@ -180,9 +180,9 @@ func TestImport(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	var (
-		records = make(chan *connectors.Record)
+		records = make(chan *integration.Record)
 		ok      = make(chan struct{})
-		seen    = make(map[string]*connectors.Record)
+		seen    = make(map[string]*integration.Record)
 	)
 
 	go func() {
@@ -198,7 +198,7 @@ func TestImport(t *testing.T) {
 		close(ok)
 	}()
 
-	err = webdav.Import(t.Context(), records, nil)
+	_, err = webdav.Import(t.Context(), records, nil)
 	<-ok
 	require.NoError(t, err)
 
@@ -224,12 +224,12 @@ func TestImport(t *testing.T) {
 
 			t.Errorf("%s %q not of the type expected", typ, item.name)
 
-			record.Close()
+			_ = record.Close()
 			continue
 		}
 
 		if item.dir {
-			record.Close()
+			_ = record.Close()
 			continue
 		}
 
@@ -237,7 +237,7 @@ func TestImport(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, buf)
 
-		record.Close()
+		_ = record.Close()
 
 		require.Equal(t, item.content, string(buf))
 	}
@@ -259,8 +259,8 @@ func TestImportFailingServer(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	// on purpose, because it shall fail immediately
-	records := make(chan *connectors.Record)
-	err = webdav.Import(t.Context(), records, nil)
+	records := make(chan *integration.Record)
+	_, err = webdav.Import(t.Context(), records, nil)
 	require.Error(t, err, "importer shall fail")
 }
 
@@ -276,8 +276,8 @@ func TestExport(t *testing.T) {
 	require.NotNil(t, webdav)
 
 	var (
-		records = make(chan *connectors.Record)
-		results = make(chan *connectors.Result)
+		records = make(chan *integration.Record)
+		results = make(chan *integration.Result)
 		ok      = make(chan struct{})
 		seen    = make(map[string]struct{})
 	)
@@ -298,10 +298,10 @@ func TestExport(t *testing.T) {
 				mode = fs.ModeDir
 			}
 
-			records <- &connectors.Record{
+			records <- &integration.Record{
 				Reader:   rd,
 				Pathname: item.name,
-				FileInfo: objects.FileInfo{
+				FileInfo: integration.FileInfo{
 					Lname:    path.Base(item.name),
 					Lsize:    size,
 					Lmode:    mode,
@@ -324,7 +324,7 @@ func TestExport(t *testing.T) {
 		close(ok)
 	}()
 
-	err = webdav.Export(t.Context(), records, results)
+	err = webdav.Export(t.Context(), nil, records, results)
 	<-ok
 	require.NoError(t, err)
 
