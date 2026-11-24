@@ -24,9 +24,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/smb/exporter"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,24 +41,24 @@ func testDir(t *testing.T) string {
 	return dir
 }
 
-func dirRecord(pathname string) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
+func dirRecord(pathname string) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
-	fi := objects.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
-	return connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
+func fileRecord(pathname, content string) *integration.Record {
+	fi := integration.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
+	return integration.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(content)), nil
 	})
 }
 
 // export restores recs below root on the server and returns the per-record
 // errors, keyed by pathname.
-func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[string]error {
+func export(t *testing.T, addr, root string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	ctx := t.Context()
 
-	exp, err := exporter.NewExporter(ctx, &connectors.Options{MaxConcurrency: 1}, "smb", map[string]string{
+	exp, err := exporter.NewExporter(ctx, &integration.Options{MaxConcurrency: 1}, "smb", map[string]string{
 		"location": "smb://" + addr + "/" + share + root,
 		"username": username,
 		"password": password,
@@ -67,10 +66,10 @@ func export(t *testing.T, addr, root string, recs ...*connectors.Record) map[str
 	require.NoError(t, err)
 	defer func() { _ = exp.Close(ctx) }()
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	errc := make(chan error, 1)
-	go func() { errc <- exp.Export(ctx, records, results) }()
+	go func() { errc <- exp.Export(ctx, nil, records, results) }()
 	go func() {
 		defer close(records)
 		for _, r := range recs {
@@ -98,7 +97,7 @@ func TestExportWritesTree(t *testing.T) {
 		fileRecord("/deep/er/c.txt", "charlie"),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "alpha", sh(t, "cat "+shareDir+dir+"/a.txt"))
@@ -121,15 +120,15 @@ func TestExportRefusesWriteBelowPreExistingSymlink(t *testing.T) {
 		dirRecord("/keys"),
 		fileRecord("/keys/authorized_keys", "attacker"),
 	)
-	assert.NoError(t, errs["/"])
-	assert.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
-	assert.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
+	require.NoError(t, errs["/"])
+	require.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
+	require.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
 	assert.Equal(t, "original", sh(t, "cat "+shareDir+dir+"/.ssh/authorized_keys"), "the write escaped the restore root")
 
 	// Without the directory record the parent is created on the way, and
 	// must be refused the same.
 	errs = export(t, addr, root, fileRecord("/keys/authorized_keys", "attacker"))
-	assert.Error(t, errs["/keys/authorized_keys"])
+	require.Error(t, errs["/keys/authorized_keys"])
 	assert.Equal(t, "original", sh(t, "cat "+shareDir+dir+"/.ssh/authorized_keys"))
 }
 
@@ -147,9 +146,9 @@ func TestExportRefusesDanglingSymlinkAtRoot(t *testing.T) {
 		dirRecord("/keys"),
 		fileRecord("/keys/id", "attacker"),
 	)
-	assert.NoError(t, errs["/"])
+	require.NoError(t, errs["/"])
 	for _, name := range []string{"/authorized_keys", "/keys", "/keys/id"} {
-		assert.Error(t, errs[name], "%s was restored through a dangling symlink", name)
+		require.Error(t, errs[name], "%s was restored through a dangling symlink", name)
 	}
 	assert.False(t, exists(t, dir+"/.ssh/authorized_keys"), "the dangling link's target was created")
 	assert.False(t, exists(t, dir+"/.ssh/keys"), "the dangling link's target was created")
@@ -168,11 +167,11 @@ func TestExportRefusesPreExistingEntries(t *testing.T) {
 		fileRecord("/a.txt", "new"),
 		fileRecord("/b.txt", "new"),
 	)
-	assert.NoError(t, errs["/"])
-	assert.Error(t, errs["/old"])
-	assert.Error(t, errs["/old/x.txt"])
-	assert.Error(t, errs["/a.txt"])
-	assert.NoError(t, errs["/b.txt"])
+	require.NoError(t, errs["/"])
+	require.Error(t, errs["/old"])
+	require.Error(t, errs["/old/x.txt"])
+	require.Error(t, errs["/a.txt"])
+	require.NoError(t, errs["/b.txt"])
 	assert.Equal(t, "old", sh(t, "cat "+shareDir+dir+"/a.txt"), "an existing file was truncated")
 	assert.False(t, exists(t, dir+"/old/x.txt"))
 	assert.Equal(t, "new", sh(t, "cat "+shareDir+dir+"/b.txt"))

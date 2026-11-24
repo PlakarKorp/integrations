@@ -26,8 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,31 +191,31 @@ func (f *fakeShare) Symlink(target, linkpath string) error {
 func (f *fakeShare) Chtimes(p string, mtime time.Time) error { return nil }
 func (f *fakeShare) Close() error                            { return nil }
 
-func dirRecord(pathname string) *connectors.Record {
-	return connectors.NewRecord(pathname, "", objects.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
+func dirRecord(pathname string) *integration.Record {
+	return integration.NewRecord(pathname, "", integration.FileInfo{Lmode: os.ModeDir | 0o755}, nil, nil)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
-	fi := objects.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
-	return connectors.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
+func fileRecord(pathname, content string) *integration.Record {
+	fi := integration.FileInfo{Lsize: int64(len(content)), Lmode: 0o644}
+	return integration.NewRecord(pathname, "", fi, nil, func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(content)), nil
 	})
 }
 
-func symlinkRecord(pathname, target string) *connectors.Record {
-	return connectors.NewRecord(pathname, target, objects.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
+func symlinkRecord(pathname, target string) *integration.Record {
+	return integration.NewRecord(pathname, target, integration.FileInfo{Lmode: os.ModeSymlink | 0o777}, nil, nil)
 }
 
 // export restores recs into root on fs and returns the per-record errors,
 // keyed by pathname.
-func export(t *testing.T, fs *fakeShare, root string, recs ...*connectors.Record) map[string]error {
+func export(t *testing.T, fs *fakeShare, root string, recs ...*integration.Record) map[string]error {
 	t.Helper()
 	p := &Exporter{conn: fs, rootDir: root}
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result)
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result)
 	errc := make(chan error, 1)
-	go func() { errc <- p.Export(t.Context(), records, results) }()
+	go func() { errc <- p.Export(t.Context(), nil, records, results) }()
 	go func() {
 		defer close(records)
 		for _, r := range recs {
@@ -259,7 +258,7 @@ func TestExportWritesTree(t *testing.T) {
 		dirRecord("/deep"),
 	)
 	for name, err := range errs {
-		assert.NoError(t, err, name)
+		require.NoError(t, err, name)
 	}
 
 	assert.Equal(t, "alpha", fs.content("/restore/new/a.txt"))
@@ -286,15 +285,15 @@ func TestExportRefusesWriteBelowPreExistingSymlink(t *testing.T) {
 			dirRecord("/keys"),
 			fileRecord("/keys/authorized_keys", "attacker"),
 		)
-		assert.NoError(t, errs["/"])
-		assert.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
-		assert.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
+		require.NoError(t, errs["/"])
+		require.Error(t, errs["/keys"], "mkdir over a pre-existing symlink was accepted")
+		require.Error(t, errs["/keys/authorized_keys"], "write below a pre-existing symlink was accepted")
 		assert.Equal(t, "original", fs.content("/.ssh/authorized_keys"), "the write escaped the restore root")
 
 		// Without the directory record the parent is created on the way, and
 		// must be refused the same.
 		errs = export(t, fs, "/backup-restore", fileRecord("/keys/authorized_keys", "attacker"))
-		assert.Error(t, errs["/keys/authorized_keys"])
+		require.Error(t, errs["/keys/authorized_keys"])
 		assert.Equal(t, "original", fs.content("/.ssh/authorized_keys"))
 	})
 }
@@ -315,9 +314,9 @@ func TestExportRefusesDanglingSymlinkAtRoot(t *testing.T) {
 			dirRecord("/keys"),
 			fileRecord("/keys/id", "attacker"),
 		)
-		assert.NoError(t, errs["/"])
+		require.NoError(t, errs["/"])
 		for _, name := range []string{"/authorized_keys", "/keys", "/keys/id"} {
-			assert.Error(t, errs[name], "%s was restored through a dangling symlink", name)
+			require.Error(t, errs[name], "%s was restored through a dangling symlink", name)
 		}
 		assert.Nil(t, fs.entries["/.ssh/authorized_keys"], "the dangling link's target was created")
 		assert.Nil(t, fs.entries["/.ssh/keys"], "the dangling link's target was created")
@@ -339,11 +338,11 @@ func TestExportRefusesPreExistingEntries(t *testing.T) {
 			fileRecord("/a.txt", "new"),
 			fileRecord("/b.txt", "new"),
 		)
-		assert.NoError(t, errs["/"])
-		assert.Error(t, errs["/old"])
-		assert.Error(t, errs["/old/x.txt"])
-		assert.Error(t, errs["/a.txt"])
-		assert.NoError(t, errs["/b.txt"])
+		require.NoError(t, errs["/"])
+		require.Error(t, errs["/old"])
+		require.Error(t, errs["/old/x.txt"])
+		require.Error(t, errs["/a.txt"])
+		require.NoError(t, errs["/b.txt"])
 		assert.Equal(t, "old", fs.content("/restore/a.txt"), "an existing file was truncated")
 		assert.Nil(t, fs.entries["/restore/old/x.txt"])
 		assert.Equal(t, "new", fs.content("/restore/b.txt"))
@@ -361,9 +360,9 @@ func TestExportRefusesEscapingSymlinkTarget(t *testing.T) {
 		symlinkRecord("/sub/escape", "../../etc"),
 		symlinkRecord("/sub/abs", "/etc"),
 	)
-	assert.NoError(t, errs["/sub/ok"])
-	assert.Error(t, errs["/sub/escape"])
-	assert.Error(t, errs["/sub/abs"])
+	require.NoError(t, errs["/sub/ok"])
+	require.Error(t, errs["/sub/escape"])
+	require.Error(t, errs["/sub/abs"])
 	assert.Nil(t, fs.entries["/restore/sub/escape"])
 	assert.Nil(t, fs.entries["/restore/sub/abs"])
 }
