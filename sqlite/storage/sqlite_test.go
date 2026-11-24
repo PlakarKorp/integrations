@@ -10,8 +10,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +27,9 @@ func TestCreateRestrictsFileModes(t *testing.T) {
 	st, err := NewStore(ctx, "sqlite", map[string]string{"location": "sqlite://" + path})
 	require.NoError(t, err)
 	require.NoError(t, st.Create(ctx, []byte("config")))
-	defer st.Close(ctx)
+	defer func() { _ = st.Close(ctx) }()
 
-	_, err = st.Put(ctx, storage.StorageResourceState, objects.MAC{1}, bytes.NewReader([]byte("state")))
+	_, err = st.Put(ctx, integration.StorageResourceState, 0, integration.MAC{1}, bytes.NewReader([]byte("state")))
 	require.NoError(t, err)
 
 	for _, name := range []string{path, path + "-wal", path + "-shm"} {
