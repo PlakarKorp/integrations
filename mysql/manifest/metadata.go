@@ -149,26 +149,12 @@ func openDB(conn mysqlconn.ConnConfig, database string) (*sql.DB, error) {
 	return db, nil
 }
 
-func nullableString(ns sql.NullString) string {
-	if ns.Valid {
-		return ns.String
-	}
-	return ""
-}
-
 func nullableTime(nt sql.NullTime) *time.Time {
 	if nt.Valid {
 		t := nt.Time
 		return &t
 	}
 	return nil
-}
-
-func nullableInt64(ni sql.NullInt64) int64 {
-	if ni.Valid {
-		return ni.Int64
-	}
-	return 0
 }
 
 // collectServerConfig queries key server variables from INFORMATION_SCHEMA / SHOW VARIABLES.
@@ -189,7 +175,7 @@ ORDER BY VARIABLE_NAME`
 		// Fallback: performance_schema may not be available on all setups.
 		return collectServerConfigFallback(ctx, db)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cfg ServerConfig
 	for rows.Next() {
@@ -197,6 +183,7 @@ ORDER BY VARIABLE_NAME`
 		if err := rows.Scan(&name, &value); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "datadir":
 			cfg.DataDir = value
@@ -210,11 +197,11 @@ ORDER BY VARIABLE_NAME`
 			cfg.CollationServer = value
 		case "innodb_buffer_pool_size":
 			var v int64
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.InnoDBBufferPoolSize = v
 		case "max_connections":
 			var v int
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.MaxConnections = v
 		case "sql_mode":
 			cfg.SQLMode = value
@@ -239,7 +226,7 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 	if err != nil {
 		return ServerConfig{}, fmt.Errorf("SHOW GLOBAL VARIABLES: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cfg ServerConfig
 	for rows.Next() {
@@ -247,6 +234,7 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 		if err := rows.Scan(&name, &value); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "datadir":
 			cfg.DataDir = value
@@ -260,11 +248,11 @@ func collectServerConfigFallback(ctx context.Context, db *sql.DB) (ServerConfig,
 			cfg.CollationServer = value
 		case "innodb_buffer_pool_size":
 			var v int64
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.InnoDBBufferPoolSize = v
 		case "max_connections":
 			var v int
-			fmt.Sscanf(value, "%d", &v)
+			_, _ = fmt.Sscanf(value, "%d", &v)
 			cfg.MaxConnections = v
 		case "sql_mode":
 			cfg.SQLMode = value
@@ -293,7 +281,7 @@ ORDER BY User, Host`)
 	if err != nil {
 		return nil, fmt.Errorf("querying mysql.user: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []UserInfo
 	for rows.Next() {
@@ -331,7 +319,7 @@ ORDER BY SCHEMA_NAME`
 	if err != nil {
 		return nil, fmt.Errorf("querying SCHEMATA: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var dbs []DatabaseInfo
 	for rows.Next() {
@@ -387,7 +375,7 @@ ORDER BY t.TABLE_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying TABLES for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tables []TableInfo
 	for rows.Next() {
@@ -417,15 +405,10 @@ ORDER BY t.TABLE_NAME`, schema)
 		tableIdx[t.Name] = i
 	}
 
-	if err := queryColumns(ctx, db, schema, tables, tableIdx); err == nil {
-		// columns populated
-	}
-	if err := queryIndexes(ctx, db, schema, tables, tableIdx); err == nil {
-		// indexes populated
-	}
-	if err := queryConstraints(ctx, db, schema, tables, tableIdx); err == nil {
-		// constraints populated
-	}
+	// Best effort: a table is still listed when its details can't be read.
+	_ = queryColumns(ctx, db, schema, tables, tableIdx)
+	_ = queryIndexes(ctx, db, schema, tables, tableIdx)
+	_ = queryConstraints(ctx, db, schema, tables, tableIdx)
 
 	return tables, nil
 }
@@ -448,7 +431,7 @@ ORDER BY TABLE_NAME, ORDINAL_POSITION`, schema)
 	if err != nil {
 		return fmt.Errorf("querying COLUMNS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var tableName string
@@ -482,10 +465,9 @@ ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`, schema)
 	if err != nil {
 		return fmt.Errorf("querying STATISTICS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// Accumulate columns per (table, index).
-	type key struct{ table, index string }
 	type entry struct {
 		idx       int // position in tables[tableIdx[table]].Indexes
 		nonUnique bool
@@ -544,7 +526,7 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`, schema)
 	if err != nil {
 		return fmt.Errorf("querying TABLE_CONSTRAINTS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type key struct{ table, constraint string }
 	type entry struct{ idx int }
@@ -599,7 +581,7 @@ ORDER BY ROUTINE_TYPE, ROUTINE_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying ROUTINES for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var routines []RoutineInfo
 	for rows.Next() {
@@ -633,7 +615,7 @@ ORDER BY TRIGGER_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying TRIGGERS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var triggers []TriggerInfo
 	for rows.Next() {
@@ -666,7 +648,7 @@ ORDER BY EVENT_NAME`, schema)
 	if err != nil {
 		return nil, fmt.Errorf("querying EVENTS for %s: %w", schema, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []EventInfo
 	for rows.Next() {

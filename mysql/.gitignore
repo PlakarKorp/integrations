@@ -7,3 +7,4 @@ mariadbExporter
 dist/
 *.ptar
 *.local.json
+/.qa
