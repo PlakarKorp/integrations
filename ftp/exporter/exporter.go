@@ -29,19 +29,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/ftp/conn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 	"golang.org/x/sync/errgroup"
 )
 
 func init() {
-	exporter.Register("ftp", 0, NewExporter)
+	_ = integration.RegisterExporter("ftp", 0, NewExporter)
 }
 
 type Exporter struct {
-	opts *connectors.Options
+	opts *integration.Options
 
 	host    string
 	rootDir string
@@ -51,7 +50,7 @@ type Exporter struct {
 	skipPermissions bool
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	target := config["location"]
 
 	parsed, err := url.Parse(target)
@@ -134,6 +133,24 @@ func contained(root, pathname string) (string, error) {
 	return joined, nil
 }
 
+// verifyParent refuses a record whose parent exists but wasn't created by
+// this restore, which are the ones in dirOK: MKD fails the same way on a
+// directory or a symlink to one, so a parent symlink would otherwise be
+// followed instead of rejected.
+func (p *Exporter) verifyParent(record *integration.Record, pathname string, dirOK map[string]struct{}) error {
+	parent := path.Dir(pathname)
+	if record.Pathname == "/" || parent == path.Clean(p.rootDir) {
+		return nil
+	}
+	if _, ok := dirOK[parent]; ok {
+		return nil
+	}
+	if _, err := p.client.Stat(parent); err == nil {
+		return fmt.Errorf("refusing to restore %q: %q already exists and is not a directory created by this restore (possibly a symlink); remove it or restore into an empty directory", record.Pathname, parent)
+	}
+	return nil
+}
+
 func (p *Exporter) Root() string {
 	return p.rootDir
 }
@@ -154,16 +171,19 @@ func (p *Exporter) Close(ctx context.Context) error {
 }
 
 type dirPerm struct {
-	record   *connectors.Record
+	record   *integration.Record
 	pathname string
 }
 
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) (ret error) {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) (ret error) {
 	defer close(results)
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(p.opts.MaxConcurrency)
 
 	var dirPerms []dirPerm
+	// Directories this restore created, so a record isn't written through a
+	// pre-existing destination symlink.
+	dirOK := map[string]struct{}{}
 
 loop:
 	for {
@@ -193,6 +213,11 @@ loop:
 				continue
 			}
 
+			if err := p.verifyParent(record, pathname, dirOK); err != nil {
+				results <- record.Error(err)
+				continue
+			}
+
 			if record.FileInfo.Lmode.IsDir() {
 				// The restore root is the user's target, not ours to chmod.
 				if pathname == p.Root() {
@@ -200,6 +225,10 @@ loop:
 				} else if _, err := p.client.Mkdir(pathname); err != nil {
 					results <- record.Error(err)
 				} else {
+					// Only a real directory, not a symlink MKD resolved through.
+					if fi, err := p.client.Stat(pathname); err == nil && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+						dirOK[pathname] = struct{}{}
+					}
 					// Reported once its mode is set, after its
 					// children are written: a read-only
 					// directory would refuse them.
@@ -242,15 +271,15 @@ loop:
 	return ret
 }
 
-func (p *Exporter) symlink(record *connectors.Record, pathname string) error {
+func (p *Exporter) symlink(record *integration.Record, pathname string) error {
 	return errors.ErrUnsupported
 }
 
-func (p *Exporter) hardlink(record *connectors.Record, pathname string) error {
+func (p *Exporter) hardlink(record *integration.Record, pathname string) error {
 	return errors.ErrUnsupported
 }
 
-func (p *Exporter) file(record *connectors.Record, pathname string) error {
+func (p *Exporter) file(record *integration.Record, pathname string) error {
 	if record.FileInfo.Lnlink > 1 {
 		return p.hardlink(record, pathname)
 	}
@@ -270,7 +299,7 @@ func tempName(pathname string) (string, error) {
 	return pathname + ".tmp." + suffix, nil
 }
 
-func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error {
+func (p *Exporter) writeAtomic(record *integration.Record, pathname string) error {
 	tmpName, err := tempName(pathname)
 	if err != nil {
 		return err
@@ -285,7 +314,7 @@ func (p *Exporter) writeAtomic(record *connectors.Record, pathname string) error
 	return p.chmod(pathname, record)
 }
 
-func (p *Exporter) chmod(pathname string, record *connectors.Record) error {
+func (p *Exporter) chmod(pathname string, record *integration.Record) error {
 	if p.skipPermissions {
 		return nil
 	}
