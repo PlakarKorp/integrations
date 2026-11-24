@@ -22,7 +22,7 @@ func TestOrigin(t *testing.T) {
 		if got := imp.Origin(); got != tc.want {
 			t.Errorf("%s: origin %q, want %q", tc.location, got, tc.want)
 		}
-		imp.Close(context.Background())
+		_ = imp.Close(context.Background())
 	}
 }
 
