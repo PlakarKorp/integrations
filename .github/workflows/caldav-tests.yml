@@ -1,0 +1,22 @@
+name: caldav tests
+
+on:
+  push:
+    branches:
+      - main
+      - integration/caldav
+    paths:
+      - .github/workflows/caldav-tests.yml
+      - 'caldav/**'
+  pull_request:
+    paths:
+      - .github/workflows/caldav-tests.yml
+      - 'caldav/**'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    uses: PlakarKorp/QA/.github/workflows/integration.yml@3948eb6a452a193d48fcecb1d99ab173d81271bc # v1.0.1
+    with:
+      dir: caldav
+      qa-version-file: caldav/.qa-version
