@@ -19,6 +19,7 @@ package importer
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -30,11 +31,9 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/s3/common"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 type S3Importer struct {
@@ -47,7 +46,7 @@ type S3Importer struct {
 }
 
 func init() {
-	importer.Register("s3", 0, NewS3Importer)
+	_ = integration.RegisterImporter("s3", 0, NewS3Importer)
 }
 
 func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID, secretAccessKey string) (*minio.Client, error) {
@@ -82,7 +81,7 @@ func connect(endpoint string, region string, useSsl, insecure bool, accessKeyID,
 	return client, nil
 }
 
-func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (importer.Importer, error) {
+func NewS3Importer(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Importer, error) {
 	target := config["location"]
 
 	var accessKey string
@@ -99,7 +98,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["use_tls"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid use_tls value")
+			return nil, errors.New("invalid use_tls value")
 		}
 		useSsl = tmp
 	}
@@ -108,7 +107,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["tls_insecure_no_verify"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tls_insecure_no_verify value")
+			return nil, errors.New("invalid tls_insecure_no_verify value")
 		}
 		insecure = tmp
 	}
@@ -117,7 +116,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	if value, ok := config["virtual_host"]; ok {
 		tmp, err := strconv.ParseBool(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid virtual_host value")
+			return nil, errors.New("invalid virtual_host value")
 		}
 		virtualHost = tmp
 	}
@@ -159,7 +158,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	var bucket, scanDir, host string
 	if virtualHost {
 		if endpoint == "" {
-			return nil, fmt.Errorf("missing endpoint when virtual_host=true")
+			return nil, errors.New("missing endpoint when virtual_host=true")
 		}
 
 		bucket, host, err = common.SplitVirtualHost(parsed.Host, endpoint)
@@ -187,7 +186,7 @@ func NewS3Importer(ctx context.Context, opts *connectors.Options, name string, c
 	}
 
 	if bucket == "" || host == "" {
-		return nil, fmt.Errorf("failed to parse the location: bucket name or host name are empty")
+		return nil, errors.New("failed to parse the location: bucket name or host name are empty")
 	}
 
 	if !strings.HasPrefix(scanDir, "/") {
@@ -219,12 +218,12 @@ func (p *S3Importer) Ping(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("bucket does not exist")
+		return errors.New("bucket does not exist")
 	}
 	return nil
 }
 
-func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (p *S3Importer) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	listopts := minio.ListObjectsOptions{
@@ -244,7 +243,7 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			continue
 		}
 
-		fi := objects.FileInfo{
+		fi := integration.FileInfo{
 			Lname:    path.Base("/" + object.Key),
 			Lsize:    object.Size,
 			Lmode:    0o700,
@@ -252,12 +251,12 @@ func (p *S3Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 			Ldev:     1,
 		}
 
-		records <- connectors.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
+		records <- integration.NewRecord("/"+object.Key, "", fi, nil, func() (io.ReadCloser, error) {
 			return p.minioClient.GetObject(ctx, p.bucket, object.Key, minio.GetObjectOptions{ServerSideEncryption: p.ssec})
 		})
 	}
 
-	return err
+	return nil, err
 }
 
 func (p *S3Importer) Close(ctx context.Context) error {

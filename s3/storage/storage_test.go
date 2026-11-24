@@ -3,7 +3,10 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +15,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -81,17 +84,31 @@ func page(macHex string, token string) string {
 	return strings.ReplaceAll(body, "%TOKEN%", token)
 }
 
+// collect drains a List iterator, stopping at the first error.
+func collect(seq iter.Seq2[*integration.StorageResourceEntry, error]) ([]integration.MAC, error) {
+	var macs []integration.MAC
+	for e, err := range seq {
+		if err != nil {
+			return macs, err
+		}
+		macs = append(macs, e.MAC)
+	}
+	return macs, nil
+}
+
 func TestList(t *testing.T) {
 	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(page(strings.Repeat("ab", 32), "")))
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), ""))); err != nil {
+			t.Fatal(err)
+		}
 	})
 
-	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	macs, err := collect(s.List(context.Background(), integration.StorageResourcePackfile, 0))
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	var want objects.MAC
+	var want integration.MAC
 	for i := range want {
 		want[i] = 0xab
 	}
@@ -105,21 +122,54 @@ func TestListErrorMidListing(t *testing.T) {
 		w.Header().Set("Content-Type", "application/xml")
 		if r.URL.Query().Get("continuation-token") != "" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(listError))
+			if _, err := w.Write([]byte(listError)); err != nil {
+				t.Fatal(err)
+			}
 			return
 		}
-		w.Write([]byte(page(strings.Repeat("ab", 32), "next")))
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), "next"))); err != nil {
+			t.Fatal(err)
+		}
 	})
 
-	macs, err := s.List(context.Background(), storage.StorageResourcePackfile)
+	// List streams, so the first page reaches the caller before the second
+	// fails; what matters is that the error is not swallowed.
+	macs, err := collect(s.List(context.Background(), integration.StorageResourcePackfile, 0))
 	if err == nil {
 		t.Fatalf("List returned nil error with partial results %v", macs)
 	}
 	if minio.ToErrorResponse(err).Code != "AccessDenied" {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if macs != nil {
-		t.Fatalf("partial results returned alongside error: %v", macs)
+	if len(macs) != 1 {
+		t.Fatalf("got %d entries before the error, want the first page's 1", len(macs))
+	}
+}
+
+// List yields entries as pages arrive: a caller that stops after the first
+// entry must not cost a request per remaining page.
+func TestListStopsAtFirstPage(t *testing.T) {
+	var requests atomic.Int32
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		n := requests.Add(1)
+		token := ""
+		if n < 3 {
+			token = fmt.Sprintf("page%d", n)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		if _, err := w.Write([]byte(page(strings.Repeat("ab", 32), token))); err != nil {
+			t.Error(err)
+		}
+	})
+
+	for _, err := range s.List(context.Background(), integration.StorageResourcePackfile, 0) {
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		break
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("listed %d pages, want 1", got)
 	}
 }
 
@@ -148,7 +198,9 @@ func TestGetReusesConnections(t *testing.T) {
 		w.Header().Set("ETag", `"etag"`)
 		w.Header().Set("Content-Range", "bytes 0-3/4")
 		w.WriteHeader(http.StatusPartialContent)
-		w.Write([]byte("data"))
+		if _, err := w.Write([]byte("data")); err != nil {
+			t.Fatal(err)
+		}
 	}))
 	var dials atomic.Int64
 	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
@@ -183,12 +235,12 @@ func TestGetReusesConnections(t *testing.T) {
 		var wg sync.WaitGroup
 		for range inflight {
 			wg.Go(func() {
-				rd, err := st.Get(context.Background(), storage.StorageResourcePackfile, objects.MAC{}, &storage.Range{Offset: 0, Length: 4})
+				rd, err := st.Get(context.Background(), integration.StorageResourcePackfile, 0, integration.MAC{}, &integration.Range{Offset: 0, Length: 4})
 				if err != nil {
 					t.Errorf("Get: %v", err)
 					return
 				}
-				defer rd.Close()
+				defer func() { _ = rd.Close() }()
 				if _, err := io.ReadAll(rd); err != nil {
 					t.Errorf("read: %v", err)
 				}
@@ -202,6 +254,61 @@ func TestGetReusesConnections(t *testing.T) {
 	}
 }
 
+func TestGetRetriesStalledRequest(t *testing.T) {
+	saved := responseHeaderTimeout
+	responseHeaderTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { responseHeaderTimeout = saved })
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			// never answer: hold until the client gives up on us.
+			<-r.Context().Done()
+			return
+		}
+		w.Header().Set("Last-Modified", "Mon, 07 Sep 2026 00:00:00 GMT")
+		w.Header().Set("ETag", `"etag"`)
+		w.Header().Set("Content-Range", "bytes 0-3/4")
+		w.WriteHeader(http.StatusPartialContent)
+		if _, err := w.Write([]byte("data")); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := NewStore(context.Background(), "s3", map[string]string{
+		"location":          "s3://" + u.Host + "/bucket",
+		"access_key":        "test",
+		"secret_access_key": "test",
+		"use_tls":           "false",
+		"region":            "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	rd, err := st.Get(context.Background(), integration.StorageResourcePackfile, 0, integration.MAC{}, &integration.Range{Offset: 0, Length: 4})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer func() { _ = rd.Close() }()
+
+	data, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "data" {
+		t.Errorf("read %q, want %q", data, "data")
+	}
+	if n := requests.Load(); n != 2 {
+		t.Errorf("%d requests, want 2", n)
+	}
+}
+
 func TestOpenRejectsOversizedConfig(t *testing.T) {
 	data := bytes.Repeat([]byte("a"), maxConfigSize+1)
 	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +316,9 @@ func TestOpenRejectsOversizedConfig(t *testing.T) {
 		case r.Method == http.MethodHead && r.URL.Path == "/bucket/":
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/bucket/CONFIG":
-			w.Write(data)
+			if _, err := w.Write(data); err != nil {
+				t.Fatal(err)
+			}
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -293,13 +402,19 @@ func TestCreateObjectLockHistoryCheck(t *testing.T) {
 				w.Header().Set("Content-Type", "application/xml")
 				switch {
 				case r.URL.Query().Has("object-lock") && tt.lockEnabled:
-					w.Write([]byte(objectLockEnabledXML))
+					if _, err := w.Write([]byte(objectLockEnabledXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.URL.Query().Has("object-lock"):
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(objectLockNotFoundXML))
+					if _, err := w.Write([]byte(objectLockNotFoundXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.URL.Query().Has("versions"):
 					listCalled = true
-					w.Write([]byte(tt.versionsXML))
+					if _, err := w.Write([]byte(tt.versionsXML)); err != nil {
+						t.Fatal(err)
+					}
 				case r.Method == http.MethodPut:
 					w.WriteHeader(http.StatusOK)
 				default:
@@ -330,11 +445,13 @@ func TestCreateObjectLockUnsupported(t *testing.T) {
 		case r.URL.Query().Has("object-lock"):
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusNotImplemented)
-			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+			if _, err := w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <Error>
 	<Code>NotImplemented</Code>
 	<Message>Unimplemented action: GetObjectLockConfiguration</Message>
-</Error>`))
+</Error>`)); err != nil {
+				t.Fatal(err)
+			}
 		case r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -453,5 +570,20 @@ func TestNewStorePathStyleControlPlaneLocation(t *testing.T) {
 				t.Errorf("bucket, prefixDir = %q, %q, want %q, %q", s.bucket, s.prefixDir, tt.wantBucket, tt.wantPrefix)
 			}
 		})
+	}
+}
+
+func TestDeleteUnsupportedResource(t *testing.T) {
+	var requests atomic.Int32
+	s := newTestStore(t, func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	})
+
+	err := s.Delete(context.Background(), integration.StorageResourceECCPackfile, 0, integration.MAC{})
+	if !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("got %v, want %v", err, errors.ErrUnsupported)
+	}
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("sent %d requests, want none", n)
 	}
 }
