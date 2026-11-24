@@ -18,16 +18,16 @@ This integration allows:
 The configuration parameters are as follow:
 
 - `location` (required):
-  - For sources: use `stdio` to read from standard input
+  - For sources: use `stdin` to read from standard input
   - For destinations: use `stdout` or `stderr` to write to standard output or standard error
 
-> **Note:** The location can be write directly in the command, with `stdio://`, `stdout://` or `stderr://` prefix. No need to add it in the configuration.
+> **Note:** The location can be write directly in the command, with `stdin://`, `stdout://` or `stderr://` prefix. No need to add it in the configuration.
 
 ## Examples
 
 ```bash
 # backup the source (e.g., from a file or command output)
-$ cat myfile.txt | plakar at /tmp/store backup stdio://
+$ cat myfile.txt | plakar at /tmp/store backup stdin://
 
 # restore the snapshot (writes to stdout or stderr)
 $ plakar at /tmp/store restore -to stdout:// <snapid>
