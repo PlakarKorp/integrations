@@ -2,19 +2,19 @@ package azblob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	exporter.Register("azblob", 0, NewExporter)
+	_ = integration.RegisterExporter("azblob", 0, NewExporter)
 }
 
 type azblobExporter struct {
@@ -32,7 +32,7 @@ type azblobExporter struct {
 	client *azblob.Client
 }
 
-func NewExporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, _ *integration.Options, proto string, params map[string]string) (integration.Exporter, error) {
 	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (g *azblobExporter) connect(ctx context.Context) error {
 
 	case g.noAuth:
 		if g.endpoint == "" {
-			return fmt.Errorf("no_auth requires endpoint")
+			return errors.New("no_auth requires endpoint")
 		}
 		client, err := azblob.NewClientWithNoCredential(strings.TrimRight(g.endpoint, "/")+"/", nil)
 		if err != nil {
@@ -104,7 +104,7 @@ func (g *azblobExporter) connect(ctx context.Context) error {
 		serviceURL := g.endpoint
 		if serviceURL == "" {
 			if g.accountName == "" {
-				return fmt.Errorf("managed identity requires endpoint or account_name")
+				return errors.New("managed identity requires endpoint or account_name")
 			}
 			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
 		}
@@ -127,7 +127,7 @@ func (g *azblobExporter) connect(ctx context.Context) error {
 		return nil
 
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
+		return errors.New("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
@@ -156,7 +156,7 @@ func (g *azblobExporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (g *azblobExporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (g *azblobExporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 	for record := range records {

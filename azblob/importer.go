@@ -2,6 +2,7 @@ package azblob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -10,14 +11,12 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	importer.Register("azblob", 0, NewImporter)
+	_ = integration.RegisterImporter("azblob", 0, NewImporter)
 }
 
 type azblobImporter struct {
@@ -36,7 +35,7 @@ type azblobImporter struct {
 	client *azblob.Client
 }
 
-func NewImporter(ctx context.Context, _ *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, _ *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -78,7 +77,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 
 	case g.noAuth:
 		if g.endpoint == "" {
-			return fmt.Errorf("no_auth requires endpoint")
+			return errors.New("no_auth requires endpoint")
 		}
 		client, err := azblob.NewClientWithNoCredential(strings.TrimRight(g.endpoint, "/")+"/", nil)
 		if err != nil {
@@ -109,7 +108,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 		serviceURL := g.endpoint
 		if serviceURL == "" {
 			if g.accountName == "" {
-				return fmt.Errorf("managed identity requires endpoint or account_name")
+				return errors.New("managed identity requires endpoint or account_name")
 			}
 			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
 		}
@@ -132,7 +131,7 @@ func (g *azblobImporter) connect(ctx context.Context) error {
 		return nil
 
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
+		return errors.New("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
@@ -161,7 +160,7 @@ func (g *azblobImporter) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (g *azblobImporter) Import(ctx context.Context, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (g *azblobImporter) Import(ctx context.Context, records chan<- *integration.Record, results <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	opts := &azblob.ListBlobsFlatOptions{}
@@ -178,7 +177,7 @@ func (g *azblobImporter) Import(ctx context.Context, records chan<- *connectors.
 	for pager.More() {
 		resp, err := pager.NextPage(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		for _, item := range resp.Segment.BlobItems {
@@ -207,7 +206,7 @@ func (g *azblobImporter) Import(ctx context.Context, records chan<- *connectors.
 				modTime = *item.Properties.LastModified
 			}
 
-			fi := objects.FileInfo{
+			fi := integration.FileInfo{
 				Lname:    path.Base(name),
 				Lsize:    size,
 				Lmode:    0644,
@@ -218,7 +217,7 @@ func (g *azblobImporter) Import(ctx context.Context, records chan<- *connectors.
 			}
 
 			blobName := name
-			records <- connectors.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
+			records <- integration.NewRecord(fullpath, "", fi, nil, func() (io.ReadCloser, error) {
 				resp, err := g.client.DownloadStream(ctx, g.containerName, blobName, nil)
 				if err != nil {
 					return nil, err
@@ -228,7 +227,7 @@ func (g *azblobImporter) Import(ctx context.Context, records chan<- *connectors.
 		}
 	}
 
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (g *azblobImporter) Close(ctx context.Context) error {

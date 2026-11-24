@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"path"
 	"strconv"
 	"strings"
@@ -14,13 +15,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 func init() {
-	storage.Register("azblob", 0, NewStore)
+	_ = integration.RegisterStore("azblob", 0, NewStore)
 }
 
 type azblobStore struct {
@@ -82,13 +82,13 @@ func parse(params map[string]string, proto string) (container, prefix, endpoint,
 	}
 
 	if container == "" {
-		return "", "", "", "", "", "", false, false, "", fmt.Errorf("missing container in location")
+		return "", "", "", "", "", "", false, false, "", errors.New("missing container in location")
 	}
 
 	return
 }
 
-func NewStore(ctx context.Context, proto string, params map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, params map[string]string) (integration.Store, error) {
 	container, prefix, endpoint, accountName, accountKey, connectionString, noAuth, useManagedIdentity, managedIdentityClientID, err := parse(params, proto)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 
 	case g.noAuth:
 		if g.endpoint == "" {
-			return fmt.Errorf("no_auth requires endpoint")
+			return errors.New("no_auth requires endpoint")
 		}
 		client, err := azblob.NewClientWithNoCredential(g.endpoint+"/", nil)
 		if err != nil {
@@ -154,7 +154,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 		serviceURL := g.endpoint
 		if serviceURL == "" {
 			if g.accountName == "" {
-				return fmt.Errorf("managed identity requires endpoint or account_name")
+				return errors.New("managed identity requires endpoint or account_name")
 			}
 			serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net", g.accountName)
 		}
@@ -177,7 +177,7 @@ func (g *azblobStore) connect(ctx context.Context) error {
 		return nil
 
 	default:
-		return fmt.Errorf("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
+		return errors.New("missing credentials: provide connection_string, or account_name/account_key, or no_auth=true with endpoint, or use_managed_identity=true with endpoint or account_name")
 	}
 }
 
@@ -204,7 +204,7 @@ func (g *azblobStore) Create(ctx context.Context, config []byte) error {
 	rd, err := g.client.DownloadStream(ctx, g.containerName, cfgName, nil)
 	if err == nil {
 		_ = rd.Body.Close()
-		return fmt.Errorf("repository already exists")
+		return errors.New("repository already exists")
 	}
 	if !bloberror.HasCode(err, bloberror.BlobNotFound) {
 		return err
@@ -223,7 +223,7 @@ func (g *azblobStore) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Body.Close()
+	defer func() { _ = rd.Body.Close() }()
 
 	data, err := io.ReadAll(rd.Body)
 	if err != nil {
@@ -261,68 +261,74 @@ func (g *azblobStore) Type() string          { return "azblob" }
 func (g *azblobStore) Root() string          { return g.path }
 func (g *azblobStore) Flags() location.Flags { return 0 }
 
-func (g *azblobStore) Mode(ctx context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (g *azblobStore) Mode(ctx context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (g *azblobStore) Size(ctx context.Context) (int64, error) { return -1, nil }
 
-func res2prefix(res storage.StorageResource) (string, error) {
+func res2prefix(res integration.StorageResource) (string, error) {
 	switch res {
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return "states", nil
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return "packfiles", nil
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return "locks", nil
 	default:
 		return "", fmt.Errorf("%w on %s", errors.ErrUnsupported, res)
 	}
 }
 
-func (g *azblobStore) List(ctx context.Context, res storage.StorageResource) (ret []objects.MAC, err error) {
-	prefix, err := res2prefix(res)
-	if err != nil {
-		return nil, err
-	}
-
-	prefix = g.realpath(prefix)
-	l := len(prefix) + 4 // /%02x/
-
-	pager := g.client.NewListBlobsFlatPager(g.containerName, &azblob.ListBlobsFlatOptions{
-		Prefix: &prefix,
-	})
-
-	for pager.More() {
-		resp, err := pager.NextPage(ctx)
+func (g *azblobStore) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		prefix, err := res2prefix(res)
 		if err != nil {
-			return nil, err
+			yield(nil, err)
+			return
 		}
 
-		for _, item := range resp.Segment.BlobItems {
-			if item.Name == nil {
-				continue
-			}
-			name := *item.Name
-			if len(name) <= l {
-				continue
+		prefix = g.realpath(prefix)
+		l := len(prefix) + 4 // /%02x/
+
+		pager := g.client.NewListBlobsFlatPager(g.containerName, &azblob.ListBlobsFlatOptions{
+			Prefix: &prefix,
+		})
+
+		for pager.More() {
+			resp, err := pager.NextPage(ctx)
+			if err != nil {
+				yield(nil, err)
+				return
 			}
 
-			t, err := hex.DecodeString(name[l:])
-			if err != nil {
-				return nil, fmt.Errorf("decode %s key: %w", prefix, err)
+			for _, item := range resp.Segment.BlobItems {
+				if item.Name == nil {
+					continue
+				}
+				name := *item.Name
+				if len(name) <= l {
+					continue
+				}
+
+				t, err := hex.DecodeString(name[l:])
+				if err != nil {
+					yield(nil, fmt.Errorf("decode %s key: %w", prefix, err))
+					return
+				}
+				if len(t) != 32 {
+					yield(nil, fmt.Errorf("invalid %s name: %s", prefix, name))
+					return
+				}
+				if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+					return
+				}
 			}
-			if len(t) != 32 {
-				return nil, fmt.Errorf("invalid %s name: %s", prefix, name)
-			}
-			ret = append(ret, objects.MAC(t))
 		}
 	}
-
-	return ret, nil
 }
 
-func (g *azblobStore) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (g *azblobStore) Put(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return -1, err
@@ -341,7 +347,7 @@ func (g *azblobStore) Put(ctx context.Context, res storage.StorageResource, mac 
 	return cr.n, nil
 }
 
-func (g *azblobStore) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, r *storage.Range) (io.ReadCloser, error) {
+func (g *azblobStore) Get(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC, r *integration.Range) (io.ReadCloser, error) {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return nil, err
@@ -366,7 +372,7 @@ func (g *azblobStore) Get(ctx context.Context, res storage.StorageResource, mac 
 	return resp.Body, nil
 }
 
-func (g *azblobStore) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (g *azblobStore) Delete(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag, mac integration.MAC) error {
 	prefix, err := res2prefix(res)
 	if err != nil {
 		return err
