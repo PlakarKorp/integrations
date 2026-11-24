@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/postgresql/awsexporter"
 )
 
 func main() {
-	sdk.EntrypointExporter(os.Args, awsexporter.NewAWSExporter)
+	server.EntrypointExporter(awsexporter.NewAWSExporter, os.Args)
 }

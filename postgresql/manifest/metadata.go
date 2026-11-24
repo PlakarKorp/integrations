@@ -196,7 +196,7 @@ func queryDatabaseDetail(ctx context.Context, conn pgconn.ConnConfig, db *Databa
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", db.Name, err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	if err := queryExtensions(ctx, sqlDB, db); err != nil {
 		return err
@@ -232,7 +232,7 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 	if err != nil {
 		return ClusterConfig{}, fmt.Errorf("query cluster config: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cfg ClusterConfig
 	for rows.Next() {
@@ -240,13 +240,14 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		if err := rows.Scan(&name, &setting); err != nil {
 			continue
 		}
+		// Best effort: a numeric setting that does not parse is left at 0.
 		switch name {
 		case "archive_command":
 			cfg.ArchiveCommandSet = setting != "" && setting != "(disabled)"
 		case "archive_mode":
 			cfg.ArchiveMode = setting
 		case "block_size":
-			fmt.Sscanf(setting, "%d", &cfg.BlockSize)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.BlockSize)
 		case "data_checksums":
 			cfg.DataChecksums = setting == "on"
 		case "data_directory":
@@ -256,7 +257,7 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		case "lc_ctype":
 			cfg.LCCType = setting
 		case "max_connections":
-			fmt.Sscanf(setting, "%d", &cfg.MaxConnections)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.MaxConnections)
 		case "server_encoding":
 			cfg.ServerEncoding = setting
 		case "shared_preload_libraries":
@@ -264,7 +265,7 @@ func queryClusterConfig(ctx context.Context, db *sql.DB) (ClusterConfig, error) 
 		case "timezone":
 			cfg.Timezone = setting
 		case "wal_block_size":
-			fmt.Sscanf(setting, "%d", &cfg.WalBlockSize)
+			_, _ = fmt.Sscanf(setting, "%d", &cfg.WalBlockSize)
 		case "wal_level":
 			cfg.WalLevel = setting
 		}
@@ -282,7 +283,7 @@ func queryRoles(ctx context.Context, db *sql.DB) ([]Role, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query roles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var roles []Role
 	roleIdx := make(map[string]int)
@@ -328,7 +329,7 @@ func queryRoles(ctx context.Context, db *sql.DB) ([]Role, error) {
 			`JOIN pg_roles m ON m.oid = am.member `+
 			`ORDER BY m.rolname, r.rolname`)
 	if err == nil {
-		defer memRows.Close()
+		defer func() { _ = memRows.Close() }()
 		for memRows.Next() {
 			var member, parent string
 			if err := memRows.Scan(&member, &parent); err != nil {
@@ -338,6 +339,8 @@ func queryRoles(ctx context.Context, db *sql.DB) ([]Role, error) {
 				roles[idx].MemberOf = append(roles[idx].MemberOf, parent)
 			}
 		}
+		// Best effort, like the query error above: memberships are informational.
+		_ = memRows.Err()
 	}
 
 	return roles, nil
@@ -352,7 +355,7 @@ func queryTablespaces(ctx context.Context, db *sql.DB) ([]Tablespace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query tablespaces: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tss []Tablespace
 	for rows.Next() {
@@ -382,7 +385,7 @@ func queryDatabases(ctx context.Context, db *sql.DB) ([]DatabaseInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query databases: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var dbs []DatabaseInfo
 	for rows.Next() {
@@ -419,7 +422,7 @@ func queryExtensions(ctx context.Context, db *sql.DB, info *DatabaseInfo) error 
 	if err != nil {
 		return fmt.Errorf("query extensions for %s: %w", info.Name, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var name, version, schema string
@@ -442,7 +445,7 @@ func querySchemas(ctx context.Context, db *sql.DB, info *DatabaseInfo) error {
 	if err != nil {
 		return fmt.Errorf("query schemas for %s: %w", info.Name, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var name, owner string
@@ -500,7 +503,7 @@ ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		return fmt.Errorf("query relations for %s: %w", info.Name, err)
 	}
-	defer relRows.Close()
+	defer func() { _ = relRows.Close() }()
 
 	relIdx := make(map[string]int) // "schema.name" → position in info.Relations
 	for relRows.Next() {
@@ -572,7 +575,7 @@ ORDER BY n.nspname, c.relname, a.attnum`)
 	if err != nil {
 		return fmt.Errorf("query columns for %s: %w", info.Name, err)
 	}
-	defer colRows.Close()
+	defer func() { _ = colRows.Close() }()
 
 	for colRows.Next() {
 		var schema, relname, colname, coltype, coldefault string
@@ -626,7 +629,7 @@ ORDER BY n.nspname, c.relname, con.conname`)
 	if err != nil {
 		return fmt.Errorf("query constraints for %s: %w", info.Name, err)
 	}
-	defer conRows.Close()
+	defer func() { _ = conRows.Close() }()
 
 	for conRows.Next() {
 		var schema, relname, conname, contype, cols string
@@ -671,7 +674,7 @@ ORDER BY ix.schemaname, ix.tablename, ix.indexname`)
 	if err != nil {
 		return fmt.Errorf("query indexes for %s: %w", info.Name, err)
 	}
-	defer idxRows.Close()
+	defer func() { _ = idxRows.Close() }()
 
 	for idxRows.Next() {
 		var schema, tablename, indexname, method, definition, constraintName string

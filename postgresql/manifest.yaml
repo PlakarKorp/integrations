@@ -9,40 +9,30 @@ contact: mailto:help@plakar.io
 connectors:
   - type: importer
     executable: postgresqlImporter
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
-    license: ISC
     protocols: [postgres]
     validator: ./importer/schema.json
     class: database
     subclass: postgresql
   - type: importer
     executable: postgresqlBinImporter
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
-    license: ISC
     protocols: [postgres+bin]
     validator: ./binimporter/schema.json
     class: database
     subclass: postgresql
   - type: importer
     executable: postgresqlAWSImporter
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
-    license: ISC
     protocols: [postgres+aws]
     validator: ./awsimporter/schema.json
     class: database
     subclass: postgresql
   - type: exporter
     executable: postgresqlExporter
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
-    license: ISC
     protocols: [postgres]
     validator: ./exporter/schema.json
     class: database
     subclass: postgresql
   - type: exporter
     executable: postgresqlAWSExporter
-    homepage: https://github.com/PlakarKorp/integrations/tree/main/postgresql
-    license: ISC
     protocols: [postgres+aws]
     validator: ./awsexporter/schema.json
     class: database

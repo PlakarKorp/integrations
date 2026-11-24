@@ -2,21 +2,20 @@ package awsimporter
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/awsauth"
 	pqimporter "github.com/PlakarKorp/integrations/postgresql/importer"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	importer.Register("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
+	_ = integration.RegisterImporter("postgres+aws", location.FLAG_STREAM|location.FLAG_NOCACHE, NewAWSImporter)
 }
 
-func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (importer.Importer, error) {
+func NewAWSImporter(appCtx context.Context, opts *integration.Options, name string, cfg map[string]string) (integration.Importer, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -30,11 +29,11 @@ func NewAWSImporter(appCtx context.Context, opts *connectors.Options, name strin
 
 	region := cfg["region"]
 	if region == "" {
-		return nil, fmt.Errorf("postgres+aws: region is required")
+		return nil, errors.New("postgres+aws: region is required")
 	}
 
 	if conn.Username == "" {
-		return nil, fmt.Errorf("postgres+aws: username is required for IAM authentication")
+		return nil, errors.New("postgres+aws: username is required for IAM authentication")
 	}
 
 	// Default to excluding rdsadmin — an internal AWS system database that

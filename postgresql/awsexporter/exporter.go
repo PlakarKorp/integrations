@@ -2,20 +2,19 @@ package awsexporter
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/postgresql/awsauth"
 	pqexporter "github.com/PlakarKorp/integrations/postgresql/exporter"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
 func init() {
-	exporter.Register("postgres+aws", 0, NewAWSExporter)
+	_ = integration.RegisterExporter("postgres+aws", 0, NewAWSExporter)
 }
 
-func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name string, cfg map[string]string) (exporter.Exporter, error) {
+func NewAWSExporter(appCtx context.Context, opts *integration.Options, name string, cfg map[string]string) (integration.Exporter, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -29,11 +28,11 @@ func NewAWSExporter(appCtx context.Context, opts *connectors.Options, name strin
 
 	region := cfg["region"]
 	if region == "" {
-		return nil, fmt.Errorf("postgres+aws: region is required")
+		return nil, errors.New("postgres+aws: region is required")
 	}
 
 	if conn.Username == "" {
-		return nil, fmt.Errorf("postgres+aws: username is required for IAM authentication")
+		return nil, errors.New("postgres+aws: username is required for IAM authentication")
 	}
 
 	exp, err := pqexporter.NewExporterFromConfigMap(conn, dbPath, "postgresql+aws", cfg)
