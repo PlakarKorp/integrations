@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plakar CalDAV Importer Connector Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "location",
+    "username"
+  ],
+  "properties": {
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^caldav://.+",
+      "description": "CalDAV location URI: caldav://<host>[:<port>][/path]"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CalDAV username"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CalDAV password, for basic authentication"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OAuth2 provider name; enables OAuth2 instead of basic authentication"
+    },
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OAuth2 client ID"
+    },
+    "client_secret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OAuth2 client secret"
+    }
+  },
+  "if": {
+    "required": [
+      "name"
+    ]
+  },
+  "then": {
+    "required": [
+      "client_id",
+      "client_secret"
+    ]
+  },
+  "else": {
+    "required": [
+      "password"
+    ]
+  }
+}
