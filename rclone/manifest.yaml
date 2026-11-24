@@ -7,9 +7,12 @@ connectors:
   - type: importer
     executable: rclone-importer
     protocols: ['rclone']
+    validator: ./plugin/importer/schema.json
   - type: exporter
     executable: rclone-exporter
     protocols: ['rclone']
+    validator: ./plugin/exporter/schema.json
   - type: storage
     executable: rclone-storage
     protocols: ['rclone']
+    validator: ./plugin/storage/schema.json
