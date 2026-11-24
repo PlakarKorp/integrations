@@ -36,20 +36,20 @@ func writeFileAtomic(sftpClient *sftp.Client, pathname string, rd io.Reader, mod
 	ok := false
 	defer func() {
 		if !ok {
-			sftpClient.Remove(tmpName)
+			_ = sftpClient.Remove(tmpName)
 		}
 	}()
 
 	if mode != nil {
 		if err := sftpClient.Chmod(tmpName, *mode); err != nil {
-			tmp.Close()
+			_ = tmp.Close()
 			return 0, fmt.Errorf("could not chmod %s: %w", tmpName, err)
 		}
 	}
 
 	var nbytes int64
 	if nbytes, err = tmp.ReadFromWithConcurrency(rd, 0); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return 0, fmt.Errorf("failed to write %s: %w", pathname, err)
 	}
 

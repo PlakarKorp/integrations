@@ -3,10 +3,10 @@ package main
 import (
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	"github.com/PlakarKorp/integrations/sftp"
 )
 
 func main() {
-	sdk.EntrypointImporter(os.Args, sftp.NewImporter)
+	server.EntrypointImporter(sftp.NewImporter, os.Args)
 }
