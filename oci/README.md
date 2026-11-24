@@ -2,7 +2,7 @@
 
 ## Overview
 
-**OCI Registries (Open Container Initiative registries)** are the standard distribution mechanism for container images and related artifacts (Helm charts, SBOMs, signatures, WASM modules, generic OCI artifacts). Popular implementations include Docker Hub, Amazon ECR, Google Artifact Registry, Azure Container Registry, GitHub Container Registry, and self-hosted registries such as Harbor.
+**OCI Registries (Open Container Initiative registries)** are the standard distribution mechanism for container images and related artifacts (Helm charts, SBOMs, signatures, WASM modules, generic OCI artifacts). Popular implementations include Docker Hub, Amazon ECR, Google Artifact Registry, Azure Container Registry, GitHub Container Registry, and self-hosted registries such as Harbor, zot and the reference `registry` image.
 
 This integration allows Kloset / Plakar to use an OCI registry as a **native storage backend** for repositories, leveraging existing registry infrastructure, authentication, replication, and immutability guarantees.
 
@@ -11,65 +11,82 @@ With this store, repository data is encoded as OCI artifacts and pushed to a reg
 ## Capabilities
 
 * **Store a full Kloset repository in an OCI registry**
-  Packfiles, states, indexes, and metadata are stored as OCI artifacts under a dedicated repository namespace.
+  Packfiles, states, locks and the repository configuration are stored as OCI artifacts under a dedicated repository.
 
 * **Content-addressed, immutable storage**
-  Data blobs map naturally to OCI layers, enabling strong integrity guarantees and efficient deduplication.
+  Every object is one blob, addressed by its SHA-256 digest, under a manifest tagged with the object's name.
+
+* **Registry authentication**
+  Basic authentication, static bearer tokens, and the token service flow of Docker Hub, GHCR, ECR, Harbor and the like: the connector answers the registry's challenge, trades the credentials for a scoped token at the advertised realm, and reuses the token until it expires.
 
 * **Registry-native distribution and replication**
-  Works with registry mirroring, geo-replication, and caching without special handling.
+  Blob downloads follow the registry's redirects to a CDN or an object store, over TLS, with credentials stripped. Tag listings follow the registry's pagination.
 
 * **Compatible with managed and self-hosted registries**
-  Supports Docker Hub, GHCR, ECR, GCR, ACR, Harbor, and any OCI-compliant registry.
+  Targets the OCI Distribution Specification; works with any compliant registry, including those that only delete manifests by digest.
 
 * **Air-gapped and firewall-friendly deployments**
   Uses standard HTTPS traffic and registry APIs already allowed in most environments.
 
-## Repository Layout (Conceptual)
+## Repository Layout
 
-The store maps internal repository objects to OCI artifacts:
+Each repository object is a tagged manifest with a single layer:
 
-* **Blobs** → OCI layers (content-addressed)
-* **Manifests** → Logical groupings (packfiles, states)
-* **Tags** → Repository markers (e.g. `latest`, snapshot heads, GC roots)
+* **Tags** name the objects: `CONFIG`, `packfiles-<mac>`, `state-<mac>`, `locks-<mac>` (and `ecc-packfiles-<mac>`, `ecc-state-<mac>` for error-correcting copies)
+* **Layers** hold the object's bytes, as `application/octet-stream` blobs
+* **Manifests** are `application/vnd.oci.image.manifest.v1+json`, with an empty config blob shared by all of them and an `io.plakar.key` annotation naming the tag, so that two objects with identical bytes never share a manifest
 
-The exact layout is an internal detail and may evolve, but the registry always contains valid OCI artifacts.
+Listing a resource lists the repository's tags; reading an object fetches its manifest, then its layer, with an HTTP `Range` for partial reads; deleting an object deletes its tag, or its manifest by digest on registries that cannot untag.
 
 ## Configuration
 
 The configuration parameters are as follows:
 
-* `location` (required): OCI registry reference where the store lives
-  (e.g. `oci://localhost:5000/my-org/plakar-store`)
+* `location` (required): the repository the store lives in, as `oci://<host>[:<port>]/<repository>`
+  (e.g. `oci://ghcr.io/my-org/plakar-store`, `oci://localhost:5000/backups`)
+* `username`, `password`: credentials for the registry. The password is often a personal access token. They are sent to the registry, and to the token service it names, over TLS.
+* `token`: a bearer token sent as is, instead of `username` and `password`
+* `token_realm`: the host of the registry's token service when it is not the registry itself. Docker Hub's (`auth.docker.io`) is known; GHCR, ECR, GCR, ACR, Harbor, Quay and the reference registry keep theirs on the registry host and need nothing.
+* `insecure`: talk to the registry over plain HTTP (default `false`)
+* `tls_insecure_no_verify`: skip the verification of the registry's certificate (default `false`; for testing only)
+* `allow_cross_host_uploads`: follow upload locations pointing at another host than the registry (default `false`; see below)
 
-Authentication is not yet supported, will be added in upcoming beta.
+Credentials never go in the location.
 
 ## Examples
 
-Start a test registry container:
+Start a test registry container with deletes enabled:
 
 ```bash
-$ docker run -d --name oci-registry \             
+$ docker run -d --name oci-registry \
   -p 5000:5000 \
+  -e REGISTRY_STORAGE_DELETE_ENABLED=true \
   -v $(pwd)/registry-data:/var/lib/registry \
   registry:2
-b61a4bc5df40307b6301d30f692cd276db64acd8448258ba49f2a4c6c760cb8c
-$
 ```
 
-Setup a store:
+Set up a store:
+
 ```bash
 # Configure an OCI registry store
-$ plakar at oci://localhost:5000/helloworld create
+$ plakar store add myregistry oci://localhost:5000/helloworld insecure=true
+$ plakar at @myregistry create
 
 # Use the store for backups
-$ plakar -silent at oci://localhost:5000/helloworld backup
+$ plakar -silent at @myregistry backup /path/to/data
 
 # List snapshots
-$ plakar at oci://localhost:5000/helloworld ls
+$ plakar at @myregistry ls
 
 # Restore a snapshot
-$ plakar at oci://localhost:5000/helloworld restore <snapid>
+$ plakar at @myregistry restore <snapid>
+```
+
+On a hosted registry:
+
+```bash
+$ plakar store add ghcr oci://ghcr.io/my-org/plakar-store username=my-user password=ghp_...
+$ plakar at @ghcr create
 ```
 
 ## Local Testing
@@ -78,20 +95,42 @@ $ plakar at oci://localhost:5000/helloworld restore <snapid>
 port 5000 and a self-signed TLS one on port 5443, and prints the
 `plakar store add` commands for both. `make down` stops them.
 
-## Use Cases
+`make test` runs the test suite against an in-memory registry that imitates
+the behaviours of real ones (token authentication, paginated listings,
+redirected downloads, registries without tag deletion). `make test-live` runs
+it against the TLS registry started by `make up` as well, as CI does against
+the reference `registry` image. Any registry can be targeted with
+`OCI_TEST_REGISTRY=<host>[:<port>]`, plus `OCI_TEST_TLS=1` for TLS and
+`OCI_TEST_USERNAME`/`OCI_TEST_PASSWORD` or `OCI_TEST_TOKEN` to authenticate.
 
-* **Cloud-native backup storage** using existing container registries
-* **Disaster recovery** with registry replication across regions
-* **Backup distribution** through standard OCI tooling
-* **Air-gapped environments** where registries are the only allowed artifact store
-* **Unified artifact management** (images, SBOMs, backups in one system)
+## Security
 
-## Notes and Best Practices
+The connector pins where the data and the credentials go:
 
-* Use **dedicated repositories** for backup data to avoid mixing with container images.
-* Enable **immutability / retention policies** on the registry when available.
-* Prefer **token-based authentication** over static passwords.
-* Monitor registry quotas and storage costs, especially for large repositories.
+* Credentials are sent to the registry host only, plus its token service,
+  and only over HTTPS (or plain HTTP with `insecure=true`). The token service
+  a bearer challenge names must be on the registry's own host, on the host
+  named by `token_realm`, or Docker Hub's for Docker Hub: a registry cannot
+  point the connector, and the credentials, at another host on the network,
+  such as an internal service or a cloud instance's metadata service.
+* The password is not offered up front. Like docker, the connector sends it
+  only once the registry asks for Basic auth, so a token-authenticated
+  registry never sees it.
+* Only a challenge from the registry itself is answered, never one from a
+  host a download was redirected to, and only for a token scoped to the
+  configured repository: the registry gets no token for another one out of
+  the user's credentials. Tokens are cached for an hour at most.
+* The token service's answer is read with exact field names, and only the
+  start of error answers is quoted in error messages, with control
+  characters removed.
+* Blob downloads follow redirects, as registries hand them off to CDNs and
+  object stores, but a redirect never downgrades to cleartext and the
+  `Authorization` header is dropped when it leaves the registry host.
+* Uploads never follow a redirect, and the upload location a registry returns
+  must stay on the registry host, unless `allow_cross_host_uploads=true`: the
+  upload body goes wherever that location points.
+* Manifest digests received from the registry are validated before they are
+  used in a request.
 
 ## Read Integrity
 
@@ -114,10 +153,26 @@ protecting against anything Kloset does not already catch. Plaintext
 repositories have no keyed authentication, and a connector check would not
 change that for the same reason.
 
+## Use Cases
+
+* **Cloud-native backup storage** using existing container registries
+* **Disaster recovery** with registry replication across regions
+* **Backup distribution** through standard OCI tooling
+* **Air-gapped environments** where registries are the only allowed artifact store
+* **Unified artifact management** (images, SBOMs, backups in one system)
+
+## Notes and Best Practices
+
+* Use **dedicated repositories** for backup data to avoid mixing with container images.
+* **Enable deletion** on the registry (`REGISTRY_STORAGE_DELETE_ENABLED=true` on the reference image): Plakar deletes its locks, and maintenance deletes packfiles.
+* Run the registry's **garbage collection** now and then: deleting a manifest leaves its blob behind until then.
+* Prefer **token-based authentication** over static passwords.
+* Monitor registry quotas and storage costs, especially for large repositories.
+
 ## Limitations
 
+* Uploads stream with an unknown length (chunked transfer encoding); a registry that insists on a `Content-Length` for uploads is not supported.
 * Performance depends on registry implementation and blob size limits.
-* Garbage collection behavior is registry-specific.
 * Some registries enforce strict rate limits on pushes and pulls.
 
 ## Compatibility

@@ -6,6 +6,10 @@ COMPOSE	= docker compose -f testing/compose.yml
 VERSION	= v1.1.0-beta.6
 CMDS = ociStorage
 
+# Lint rules and tool versions come from PlakarKorp/QA at this version, as in CI.
+QA_VERSION != cat .qa-version
+QA_DIR     =  .qa/$(QA_VERSION)
+
 all: build
 
 build:
@@ -26,7 +30,13 @@ install: package
 reinstall: uninstall install
 
 test:
-	${GO} test -v ./...
+	${GO} vet ./...
+	${GO} test -race ./...
+
+# Runs the test suite against the TLS registry of `make up` too (the plain
+# HTTP one sits on port 5000, which macOS gives to AirPlay).
+test-live:
+	OCI_TEST_REGISTRY=localhost:5443 OCI_TEST_TLS=1 ${GO} test -race -count=1 ./...
 
 check: test
 
@@ -43,7 +53,20 @@ dev: reinstall up
 	@echo '  ${PLAKAR} store add oci-tls oci://localhost:5443/plakar tls_insecure_no_verify=true'
 	@echo 'then: ${PLAKAR} at @oci-(http|tls) create'
 
+lint: $(QA_DIR)/golangci.yml $(QA_DIR)/versions
+	${GO} run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@`sed -n 's/^golangci-lint=//p' $(QA_DIR)/versions` \
+		run --config $(QA_DIR)/golangci.yml ./...
+
+validate: $(QA_DIR)/versions
+	${GO} run github.com/PlakarKorp/pkg/cmd/validator@`sed -n 's/^validator=//p' $(QA_DIR)/versions` \
+		-v repo .
+
+$(QA_DIR)/golangci.yml $(QA_DIR)/versions:
+	mkdir -p $(@D)
+	curl -fsSL -o $@ https://raw.githubusercontent.com/PlakarKorp/QA/$(QA_VERSION)/integrations/$(@F)
+
 clean:
 	rm -f bin/* *.ptar
+	rm -rf .qa
 
-.PHONY: all build package uninstall install reinstall test check up down dev clean
+.PHONY: all build package uninstall install reinstall test test-live check up down dev clean lint validate
