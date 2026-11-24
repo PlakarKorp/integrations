@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PlakarKorp/kloset/exclude"
+	"github.com/PlakarKorp/integration-sdk/exclude"
 	"github.com/stretchr/testify/require"
 )
 

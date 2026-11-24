@@ -4,8 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	sdk "github.com/PlakarKorp/go-inventory-sdk/inventory"
-	"github.com/PlakarKorp/pkg"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,11 +28,11 @@ func pvcObj(ns, name string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}
 }
 
-func runInventoryList(t *testing.T, inv *inventory) ([]*sdk.InventoryEntry, error) {
+func runInventoryList(t *testing.T, inv *inventory) ([]*integration.InventoryEntry, error) {
 	t.Helper()
 
-	entries := make(chan *sdk.InventoryEntry)
-	var got []*sdk.InventoryEntry
+	entries := make(chan *integration.InventoryEntry)
+	var got []*integration.InventoryEntry
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -57,21 +56,21 @@ func TestInventoryListPVCs(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []*sdk.InventoryEntry{
+	require.ElementsMatch(t, []*integration.InventoryEntry{
 		clusterEntry(),
 		{
-			Class:     pkg.ResourceClassBlockStorage,
-			SubClass:  pkg.ResourceSubClassPVC,
+			Class:     integration.ResourceClassBlockStorage,
+			SubClass:  integration.ResourceSubClassPVC,
 			URN:       "k8s:ns1:pvc1",
 			Name:      "pvc1",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1/pvc1"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns1/pvc1"}},
 		},
 		{
-			Class:     pkg.ResourceClassBlockStorage,
-			SubClass:  pkg.ResourceSubClassPVC,
+			Class:     integration.ResourceClassBlockStorage,
+			SubClass:  integration.ResourceSubClassPVC,
 			URN:       "k8s:ns2:pvc2",
 			Name:      "pvc2",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2/pvc2"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns2/pvc2"}},
 		},
 	}, entries, "PVCs created by plakar must not be inventoried")
 }
@@ -113,7 +112,7 @@ func TestInventoryListPVCsError(t *testing.T) {
 	entries, err := runInventoryList(t, inv)
 	require.ErrorContains(t, err, "apiserver unreachable")
 	for _, e := range entries {
-		require.NotEqual(t, pkg.ResourceSubClassPVC, e.SubClass,
+		require.NotEqual(t, integration.ResourceSubClassPVC, e.SubClass,
 			"no PVC entry when the listing failed")
 	}
 }
@@ -126,12 +125,12 @@ func TestInventoryClose(t *testing.T) {
 }
 
 // clusterEntry is what listConfig emits for the cluster itself.
-func clusterEntry() *sdk.InventoryEntry {
-	return &sdk.InventoryEntry{
-		Class:     pkg.ResourceClassCompute,
+func clusterEntry() *integration.InventoryEntry {
+	return &integration.InventoryEntry{
+		Class:     integration.ResourceClassCompute,
 		URN:       "k8s:cluster",
 		Name:      "cluster",
-		Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/"}},
+		Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/"}},
 	}
 }
 
@@ -142,7 +141,7 @@ func TestInventoryListsTheCluster(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
-	require.Equal(t, []*sdk.InventoryEntry{clusterEntry()}, entries,
+	require.Equal(t, []*integration.InventoryEntry{clusterEntry()}, entries,
 		"with no namespace given, the cluster itself is the only thing to back up")
 }
 
@@ -154,18 +153,18 @@ func TestInventoryListsEachGivenNamespace(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []*sdk.InventoryEntry{
+	require.ElementsMatch(t, []*integration.InventoryEntry{
 		{
-			Class:     pkg.ResourceClassCompute,
+			Class:     integration.ResourceClassCompute,
 			URN:       "k8s:ns-ns1",
 			Name:      "ns1",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
-			Class:     pkg.ResourceClassCompute,
+			Class:     integration.ResourceClassCompute,
 			URN:       "k8s:ns-ns2",
 			Name:      "ns2",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns2"}},
 		},
 	}, entries, "no cluster-wide entry when namespaces were given")
 }
@@ -177,19 +176,19 @@ func TestInventoryListsAllNamespaces(t *testing.T) {
 
 	entries, err := runInventoryList(t, inv)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []*sdk.InventoryEntry{
+	require.ElementsMatch(t, []*integration.InventoryEntry{
 		clusterEntry(),
 		{
-			Class:     pkg.ResourceClassCompute,
+			Class:     integration.ResourceClassCompute,
 			URN:       "k8s:ns-ns1",
 			Name:      "ns1",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns1"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns1"}},
 		},
 		{
-			Class:     pkg.ResourceClassCompute,
+			Class:     integration.ResourceClassCompute,
 			URN:       "k8s:ns-ns2",
 			Name:      "ns2",
-			Endpoints: []sdk.HostEndpoint{{Type: sdk.EndpointIdentifier, Endpoint: "/ns2"}},
+			Endpoints: []integration.HostEndpoint{{Type: integration.EndpointIdentifier, Endpoint: "/ns2"}},
 		},
 	}, entries, "with no namespace given, every namespace is listed alongside the cluster")
 }

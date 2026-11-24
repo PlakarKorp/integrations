@@ -247,7 +247,7 @@ func TestDiskSnapshots(t *testing.T) {
 		content := newContent(vb1, vb2)
 
 		kvClient := kubevirtfake.NewSimpleClientset(content)
-		snapClient := snapfake.NewSimpleClientset(
+		snapClient := snapfake.NewSimpleClientset( //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 			namedVolumeSnapshot("ns", "snap-disk0", readyToUse(true)),
 			namedVolumeSnapshot("ns", "snap-disk1", readyToUse(true)),
 		)
@@ -282,7 +282,7 @@ func TestDiskSnapshots(t *testing.T) {
 		content := newContent(vb)
 		k := &k8s{
 			kubevirtClient: kubevirtfake.NewSimpleClientset(content),
-			snapClient:     snapfake.NewSimpleClientset(),
+			snapClient:     snapfake.NewSimpleClientset(), //nolint:staticcheck // external-snapshotter v8 has no NewClientset
 		}
 
 		var (
@@ -309,7 +309,7 @@ func TestDiskSnapshots(t *testing.T) {
 		content := newContent(vb)
 		k := &k8s{
 			kubevirtClient: kubevirtfake.NewSimpleClientset(content),
-			snapClient:     snapfake.NewSimpleClientset(), // snap-disk0 was never created
+			snapClient:     snapfake.NewSimpleClientset(), //nolint:staticcheck // external-snapshotter v8 has no NewClientset; snap-disk0 was never created
 		}
 
 		_, err := k.gendisksnap(t.Context(), vmsFor("content1"), content)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,11 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	gexporter "github.com/PlakarKorp/integration-grpc/exporter"
-	gimporter "github.com/PlakarKorp/integration-grpc/importer"
+	"github.com/PlakarKorp/integration-sdk"
+	sdkclient "github.com/PlakarKorp/integration-sdk/client"
 	"github.com/PlakarKorp/integrations/k8s/mtls"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
 	vs "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -144,7 +143,7 @@ func (k *k8s) peerFingerprint(ctx context.Context, pod *corev1.Pod) ([32]byte, e
 		return [32]byte{}, fmt.Errorf("failed to read logs of %s/%s: %w",
 			pod.Namespace, pod.Name, err)
 	}
-	defer rc.Close() // aborts the stream once we have what we came for
+	defer func() { _ = rc.Close() }() // aborts the stream once we have what we came for
 
 	scanner := bufio.NewScanner(io.LimitReader(rc, 64*1024))
 	for scanner.Scan() {
@@ -240,7 +239,7 @@ func (k *k8s) delsnap(ctx context.Context, snap *vs.VolumeSnapshot) {
 	defer cancel()
 
 	err := k.snapClient.SnapshotV1().VolumeSnapshots(snap.ObjectMeta.Namespace).
-		Delete(ctx, snap.ObjectMeta.Name, metav1.DeleteOptions{})
+		Delete(ctx, snap.Name, metav1.DeleteOptions{})
 	if err != nil {
 		log.Printf("failed to delete volumesnapshot %s/%s: %s",
 			snap.Namespace, snap.Name, err)
@@ -508,11 +507,11 @@ func (k *k8s) delpod(ctx context.Context, pod *corev1.Pod) {
 	}
 }
 
-func filter(ctx context.Context, imp importer.Importer, Records chan<- *connectors.Record, Results <-chan *connectors.Result, fn func(*connectors.Record) *connectors.Record) error {
+func filter(ctx context.Context, imp integration.Importer, Records chan<- *integration.Record, Results <-chan *integration.Result, fn func(*integration.Record) *integration.Record) error {
 	var (
 		size    = max(cap(Records), cap(Results), 2)
-		records = make(chan *connectors.Record, size)
-		results = make(chan *connectors.Result, size)
+		records = make(chan *integration.Record, size)
+		results = make(chan *integration.Result, size)
 		retch   = make(chan error, 1)
 		done    = make(chan struct{})
 		drained = make(chan struct{})
@@ -540,7 +539,10 @@ func filter(ctx context.Context, imp importer.Importer, Records chan<- *connecto
 	}()
 
 	// run the importer as well
-	go func() { retch <- imp.Import(ctx, records, results) }()
+	go func() {
+		_, err := imp.Import(ctx, records, results)
+		retch <- err
+	}()
 
 	// the actual records filtering
 	for record := range records {
@@ -570,7 +572,7 @@ func filter(ctx context.Context, imp importer.Importer, Records chan<- *connecto
 	}
 }
 
-func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte, dest, proto, podpath, prefix string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	if prefix == "" {
 		prefix = "/"
 	}
@@ -581,9 +583,9 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", dest, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
@@ -592,16 +594,16 @@ func (k *k8s) consume(ctx context.Context, cert *tls.Certificate, peer [32]byte,
 		Excludes:        rebaseExcludes(k.opts.Excludes, prefix, podpath),
 	}
 
-	importer, err := gimporter.NewImporter(ctx, client, opts, proto, map[string]string{
+	importer, err := sdkclient.NewImporter(ctx, client, opts, proto, map[string]string{
 		"location":         proto + "://" + podpath,
 		"dont_traverse_fs": "true",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the importer: %w", err)
 	}
-	defer importer.Close(ctx)
+	defer func() { _ = importer.Close(ctx) }()
 
-	err = filter(ctx, importer, records, results, func(record *connectors.Record) *connectors.Record {
+	err = filter(ctx, importer, records, results, func(record *integration.Record) *integration.Record {
 		if proto == "block" {
 			newrecord := *record
 			newrecord.Pathname = path.Join(prefix, record.Pathname)
@@ -655,9 +657,13 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 			return "", nil, err
 		}
 
-		go pf.ForwardPorts()
+		errc := make(chan error, 1)
+		go func() { errc <- pf.ForwardPorts() }()
 
-		<-readyChan
+		if err := waitForward(ctx, readyChan, errc); err != nil {
+			close(stopChan)
+			return "", nil, fmt.Errorf("port forward to pod %s/%s: %w", pod.Namespace, pod.Name, err)
+		}
 		ports, err := pf.GetPorts()
 		if err != nil {
 			close(stopChan)
@@ -673,7 +679,23 @@ func (k *k8s) urlFor(ctx context.Context, pod *corev1.Pod) (string, chan struct{
 	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(int(port))), nil, nil
 }
 
-func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+// waitForward waits for a port forward to be ready. ForwardPorts never
+// signals ready when it fails to start, so its error and ctx end the wait too.
+func waitForward(ctx context.Context, ready <-chan struct{}, errc <-chan error) error {
+	select {
+	case <-ready:
+		return nil
+	case err := <-errc:
+		if err == nil {
+			err = errors.New("port forward ended before it was ready")
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -690,7 +712,7 @@ func (k *k8s) podBackup(ctx context.Context, fp *fspod, prefix string, records c
 	return k.consume(ctx, fp.cert, fp.peer, url, proto, path, prefix, records, results)
 }
 
-func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	url, stop, err := k.urlFor(ctx, fp.pod)
 	if err != nil {
 		return err
@@ -704,14 +726,14 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	if err != nil {
 		return fmt.Errorf("failed to create a grpc client for %s: %w", url, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	proto, path := "fs", fsPath
 	if fp.block {
 		proto, path = "block", blockPath
 	}
 
-	opts := &connectors.Options{
+	opts := &integration.Options{
 		Hostname:        "plakar-pod",
 		OperatingSystem: "linux",
 		Architecture:    runtime.GOOS,
@@ -724,16 +746,16 @@ func (k *k8s) podRestore(ctx context.Context, fp *fspod, records <-chan *connect
 	if proto == "fs" && k.skipRootPermsAndTime {
 		config["skip_root_perms_and_time"] = "true"
 	}
-	exporter, err := gexporter.NewExporter(ctx, client, opts, proto, config)
+	exporter, err := sdkclient.NewExporter(ctx, client, opts, proto, config)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate the exporter: %w", err)
 	}
-	defer exporter.Close(ctx)
+	defer func() { _ = exporter.Close(ctx) }()
 
-	return exporter.Export(ctx, records, results)
+	return exporter.Export(ctx, nil, records, results)
 }
 
-func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *connectors.Record, results <-chan *connectors.Result) error {
+func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *integration.Record, results <-chan *integration.Result) error {
 	var (
 		pvc *corev1.PersistentVolumeClaim
 		err error
@@ -778,7 +800,7 @@ func (k *k8s) backupPvc(ctx context.Context, ns, name string, records chan<- *co
 	return k.podBackup(ctx, fp, "/", records, results)
 }
 
-func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (k *k8s) restorePvc(ctx context.Context, ns, name string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	pvc, err := k.getpvc(ctx, ns, name)
 	if err != nil {
 		return fmt.Errorf("failed to get the PVC %s.%s: %w", ns, name, err)
