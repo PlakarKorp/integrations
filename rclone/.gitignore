@@ -2,3 +2,4 @@
 /rclone-importer*
 /rclone-storage*
 /rclone_*.ptar
+/.qa
