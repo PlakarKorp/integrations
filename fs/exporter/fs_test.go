@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,34 +33,34 @@ func newExporterWithConfig(t *testing.T, root string, extra map[string]string) *
 		config[k] = v
 	}
 
-	exp, err := NewFSExporter(t.Context(), &connectors.Options{MaxConcurrency: 1}, "fs", config)
+	exp, err := NewFSExporter(t.Context(), &integration.Options{MaxConcurrency: 1}, "fs", config)
 	require.NoError(t, err)
-	t.Cleanup(func() { exp.Close(context.Background()) })
+	t.Cleanup(func() { _ = exp.Close(context.Background()) })
 
 	return exp.(*FSExporter)
 }
 
-func fileRecord(pathname, content string) *connectors.Record {
-	return &connectors.Record{
+func fileRecord(pathname, content string) *integration.Record {
+	return &integration.Record{
 		Pathname: pathname,
 		Reader:   io.NopCloser(strings.NewReader(content)),
-		FileInfo: objects.FileInfo{Lname: filepath.Base(pathname), Lmode: 0644, Lsize: int64(len(content))},
+		FileInfo: integration.FileInfo{Lname: filepath.Base(pathname), Lmode: 0644, Lsize: int64(len(content))},
 	}
 }
 
-func symlinkRecord(pathname, target string) *connectors.Record {
-	return &connectors.Record{
+func symlinkRecord(pathname, target string) *integration.Record {
+	return &integration.Record{
 		Pathname: pathname,
 		Target:   target,
-		FileInfo: objects.FileInfo{Lname: filepath.Base(pathname), Lmode: os.ModeSymlink | 0777},
+		FileInfo: integration.FileInfo{Lname: filepath.Base(pathname), Lmode: os.ModeSymlink | 0777},
 	}
 }
 
-func hardlinkRecord(pathname, content string, nlink uint16) *connectors.Record {
-	return &connectors.Record{
+func hardlinkRecord(pathname, content string, nlink uint16) *integration.Record {
+	return &integration.Record{
 		Reader:   io.NopCloser(strings.NewReader(content)),
 		Pathname: pathname,
-		FileInfo: objects.FileInfo{
+		FileInfo: integration.FileInfo{
 			Lname:  filepath.Base(pathname),
 			Lmode:  0644,
 			Ldev:   1,
@@ -73,11 +72,11 @@ func hardlinkRecord(pathname, content string, nlink uint16) *connectors.Record {
 }
 
 // run feeds records through Export and returns the per-record errors.
-func run(t *testing.T, exp *FSExporter, recs ...*connectors.Record) []error {
+func run(t *testing.T, exp *FSExporter, recs ...*integration.Record) []error {
 	t.Helper()
 
-	records := make(chan *connectors.Record)
-	results := make(chan *connectors.Result, len(recs))
+	records := make(chan *integration.Record)
+	results := make(chan *integration.Result, len(recs))
 
 	go func() {
 		defer close(records)
@@ -86,7 +85,7 @@ func run(t *testing.T, exp *FSExporter, recs ...*connectors.Record) []error {
 		}
 	}()
 
-	require.NoError(t, exp.Export(t.Context(), records, results))
+	require.NoError(t, exp.Export(t.Context(), nil, records, results))
 
 	var errs []error
 	for res := range results {
@@ -173,9 +172,9 @@ func TestExportDoesNotWriteThroughNestedSymlink(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(outside, "etc"), 0700))
 
 	exp := newExporter(t, root)
-	dir := &connectors.Record{
+	dir := &integration.Record{
 		Pathname: "/sub",
-		FileInfo: objects.FileInfo{Lname: "sub", Lmode: os.ModeDir | 0755},
+		FileInfo: integration.FileInfo{Lname: "sub", Lmode: os.ModeDir | 0755},
 	}
 	errs := run(t, exp,
 		dir,
@@ -250,9 +249,9 @@ func TestExportRestoresNormalTree(t *testing.T) {
 	exp := newExporter(t, root)
 
 	errs := run(t, exp,
-		&connectors.Record{
+		&integration.Record{
 			Pathname: "/dir",
-			FileInfo: objects.FileInfo{Lname: "dir", Lmode: os.ModeDir | 0755},
+			FileInfo: integration.FileInfo{Lname: "dir", Lmode: os.ModeDir | 0755},
 		},
 		fileRecord("/dir/hello", "world"),
 		symlinkRecord("/dir/rel", "hello"),
@@ -296,11 +295,11 @@ func TestRelativeRejectsEscapes(t *testing.T) {
 // setuidRecord returns a file record whose recorded mode carries the
 // setuid, setgid and sticky bits, so permissions()/skip_permissions can be
 // exercised against it.
-func setuidRecord(pathname, content string) *connectors.Record {
-	return &connectors.Record{
+func setuidRecord(pathname, content string) *integration.Record {
+	return &integration.Record{
 		Pathname: pathname,
 		Reader:   io.NopCloser(strings.NewReader(content)),
-		FileInfo: objects.FileInfo{Lname: filepath.Base(pathname), Lmode: os.ModeSetuid | os.ModeSetgid | 0755, Lsize: int64(len(content))},
+		FileInfo: integration.FileInfo{Lname: filepath.Base(pathname), Lmode: os.ModeSetuid | os.ModeSetgid | 0755, Lsize: int64(len(content))},
 	}
 }
 
@@ -343,9 +342,9 @@ func TestExport_SkipPermissions(t *testing.T) {
 			specialBits := os.ModeSetuid | os.ModeSetgid
 			if tc.isDir {
 				entry = "dir"
-				rec = &connectors.Record{
+				rec = &integration.Record{
 					Pathname: "/dir",
-					FileInfo: objects.FileInfo{Lname: "dir", Lmode: os.ModeDir | os.ModeSetgid | 0750},
+					FileInfo: integration.FileInfo{Lname: "dir", Lmode: os.ModeDir | os.ModeSetgid | 0750},
 				}
 				specialBits = os.ModeSetgid
 			}
@@ -527,13 +526,13 @@ func TestExport_SkipRootPermsAndTime(t *testing.T) {
 
 			before := time.Now()
 
-			rootDir := &connectors.Record{
+			rootDir := &integration.Record{
 				Pathname: "/",
-				FileInfo: objects.FileInfo{Lname: "/", Lmode: os.ModeDir | 0750, LmodTime: recorded},
+				FileInfo: integration.FileInfo{Lname: "/", Lmode: os.ModeDir | 0750, LmodTime: recorded},
 			}
-			subDir := &connectors.Record{
+			subDir := &integration.Record{
 				Pathname: "/sub",
-				FileInfo: objects.FileInfo{Lname: "sub", Lmode: os.ModeDir | 0750, LmodTime: recorded},
+				FileInfo: integration.FileInfo{Lname: "sub", Lmode: os.ModeDir | 0750, LmodTime: recorded},
 			}
 			errs := run(t, exp, rootDir, subDir)
 			for _, err := range errs {

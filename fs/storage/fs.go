@@ -24,14 +24,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/PlakarKorp/kloset/connectors/storage"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
-	"github.com/PlakarKorp/kloset/repository"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 )
 
 type Store struct {
@@ -40,11 +39,13 @@ type Store struct {
 	states    Buckets
 }
 
+var ErrPackfileNotFound = errors.New("packfile not found")
+
 func init() {
-	storage.Register("fs", location.FLAG_LOCALFS, NewStore)
+	_ = integration.RegisterStore("fs", location.FLAG_LOCALFS, NewStore)
 }
 
-func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (storage.Store, error) {
+func NewStore(ctx context.Context, proto string, storeConfig map[string]string) (integration.Store, error) {
 	return &Store{
 		location: strings.TrimPrefix(storeConfig["location"], proto+"://"),
 	}, nil
@@ -55,8 +56,8 @@ func (s *Store) Root() string          { return s.location }
 func (s *Store) Type() string          { return "fs" }
 func (s *Store) Flags() location.Flags { return location.FLAG_LOCALFS }
 
-func (s *Store) Mode(context.Context) (storage.Mode, error) {
-	return storage.ModeRead | storage.ModeWrite, nil
+func (s *Store) Mode(context.Context) (integration.Mode, error) {
+	return integration.ModeRead | integration.ModeWrite, nil
 }
 
 func (s *Store) Path(args ...string) string {
@@ -78,7 +79,7 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 			return err
 		}
 	} else {
-		defer dirfp.Close()
+		defer func() { _ = dirfp.Close() }()
 		entries, err := dirfp.Readdir(1)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return err
@@ -115,7 +116,7 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rd.Close() // do we care about err?
+	defer func() { _ = rd.Close() }() // do we care about err?
 
 	data, err := io.ReadAll(rd)
 	if err != nil {
@@ -153,35 +154,48 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return size, err
 }
 
-func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-	switch res {
-	case storage.StorageResourcePackfile:
-		return s.packfiles.List()
-	case storage.StorageResourceState:
-		return s.states.List()
-	case storage.StorageResourceLock:
-		return s.getLocks(ctx)
+func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		var m []integration.MAC
+		var err error
+		switch res {
+		case integration.StorageResourcePackfile:
+			m, err = s.packfiles.List()
+		case integration.StorageResourceState:
+			m, err = s.states.List()
+		case integration.StorageResourceLock:
+			m, err = s.getLocks(ctx)
+		default:
+			m, err = nil, errors.ErrUnsupported
+		}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		for i := range m {
+			if !yield(&integration.StorageResourceEntry{MAC: m[i]}, nil) {
+				return
+			}
+		}
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rd io.Reader) (int64, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Put(mac, rd)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Put(mac, rd)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.putLock(ctx, mac, rd)
+	default:
+		return -1, errors.ErrUnsupported
 	}
-
-	return -1, errors.ErrUnsupported
 }
 
-func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
+func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC, rg *integration.Range) (io.ReadCloser, error) {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		var fp io.ReadCloser
 		var err error
 		if rg == nil {
@@ -192,40 +206,40 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				err = repository.ErrPackfileNotFound
+				err = ErrPackfileNotFound
 			}
 			return nil, err
 		}
 
 		return fp, err
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Get(mac)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.getLock(ctx, mac)
+	default:
+		return nil, errors.ErrUnsupported
 	}
-
-	return nil, errors.ErrUnsupported
 }
 
-func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
+func (s *Store) Delete(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag, mac integration.MAC) error {
 	switch res {
-	case storage.StorageResourcePackfile:
+	case integration.StorageResourcePackfile:
 		return s.packfiles.Remove(mac)
-	case storage.StorageResourceState:
+	case integration.StorageResourceState:
 		return s.states.Remove(mac)
-	case storage.StorageResourceLock:
+	case integration.StorageResourceLock:
 		return s.deleteLock(ctx, mac)
+	default:
+		return errors.ErrUnsupported
 	}
-
-	return errors.ErrUnsupported
 }
 
 func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) getLocks(ctx context.Context) ([]objects.MAC, error) {
-	ret := make([]objects.MAC, 0)
+func (s *Store) getLocks(ctx context.Context) ([]integration.MAC, error) {
+	ret := make([]integration.MAC, 0)
 
 	locksdir, err := os.ReadDir(s.Path("locks"))
 	if err != nil {
@@ -246,17 +260,17 @@ func (s *Store) getLocks(ctx context.Context) ([]objects.MAC, error) {
 			continue
 		}
 
-		ret = append(ret, objects.MAC(lockID))
+		ret = append(ret, integration.MAC(lockID))
 	}
 
 	return ret, nil
 }
 
-func (s *Store) putLock(ctx context.Context, lockID objects.MAC, rd io.Reader) (int64, error) {
+func (s *Store) putLock(ctx context.Context, lockID integration.MAC, rd io.Reader) (int64, error) {
 	return WriteToFileAtomicTempDir(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])), rd, s.Path(""))
 }
 
-func (s *Store) getLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser, error) {
+func (s *Store) getLock(ctx context.Context, lockID integration.MAC) (io.ReadCloser, error) {
 	fp, err := os.Open(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
@@ -265,7 +279,7 @@ func (s *Store) getLock(ctx context.Context, lockID objects.MAC) (io.ReadCloser,
 	return fp, nil
 }
 
-func (s *Store) deleteLock(ctx context.Context, lockID objects.MAC) error {
+func (s *Store) deleteLock(ctx context.Context, lockID integration.MAC) error {
 	if err := os.Remove(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:]))); err != nil {
 		return err
 	}
