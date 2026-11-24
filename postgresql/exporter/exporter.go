@@ -11,14 +11,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/postgresql/pgconn"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
-	"github.com/PlakarKorp/kloset/location"
 )
 
 func init() {
-	exporter.Register("postgres", 0, NewExporter)
+	_ = integration.RegisterExporter("postgres", 0, NewExporter)
 }
 
 // ErrDirectoryFormat is returned for files of a dump taken with format=directory.
@@ -97,7 +96,7 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		}
 	}
 	if exp.clean && exp.recreate {
-		return nil, fmt.Errorf("clean and recreate are mutually exclusive")
+		return nil, errors.New("clean and recreate are mutually exclusive")
 	}
 	if v, ok := config["no_globals"]; ok && v != "" {
 		exp.noGlobals, err = strconv.ParseBool(v)
@@ -118,7 +117,7 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 		}
 	}
 	if exp.schemaOnly && exp.dataOnly {
-		return nil, fmt.Errorf("schema_only and data_only are mutually exclusive")
+		return nil, errors.New("schema_only and data_only are mutually exclusive")
 	}
 	if v, ok := config["pg_bin_dir"]; ok && v != "" {
 		exp.pgBinDir = v
@@ -126,7 +125,7 @@ func NewExporterFromConfigMap(conn pgconn.ConnConfig, dbPath, connType string, c
 	return exp, nil
 }
 
-func NewExporter(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func NewExporter(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	conn, dbPath, err := pgconn.ParseConnConfig(config)
 	if err != nil {
 		return nil, err
@@ -159,7 +158,7 @@ func (p *Exporter) Close(ctx context.Context) error {
 // Export restores each record to the configured PostgreSQL server.
 // Records ending in ".dump" are restored via pg_restore (pg_dump custom format).
 // Records ending in ".sql" are fed to psql (pg_dumpall plain-SQL format).
-func (p *Exporter) Export(ctx context.Context, records <-chan *connectors.Record, results chan<- *connectors.Result) error {
+func (p *Exporter) Export(ctx context.Context, _ map[string]string, records <-chan *integration.Record, results chan<- *integration.Result) error {
 	defer close(results)
 
 loop:
@@ -218,7 +217,7 @@ func dumpBaseName(pathname string) string {
 	return base
 }
 
-func (p *Exporter) restore(ctx context.Context, record *connectors.Record) error {
+func (p *Exporter) restore(ctx context.Context, record *integration.Record) error {
 	name := path.Base(record.Pathname)
 
 	// manifest.json is metadata only; nothing to restore.

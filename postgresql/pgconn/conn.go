@@ -3,9 +3,11 @@ package pgconn
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -36,7 +38,7 @@ func writeTempFile(label, content string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s_data: create temp file: %w", label, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := f.Chmod(0600); err != nil {
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("%s_data: chmod temp file: %w", label, err)
@@ -44,6 +46,10 @@ func writeTempFile(label, content string) (string, error) {
 	if _, err := f.WriteString(content); err != nil {
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("%s_data: write temp file: %w", label, err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%s_data: close temp file: %w", label, err)
 	}
 	return f.Name(), nil
 }
@@ -157,7 +163,7 @@ func ParseConnConfig(config map[string]string) (ConnConfig, string, error) {
 
 // Args returns the common connection flags shared by all PostgreSQL client
 // tools: -h host -p port -w, plus -U username when one is configured.
-func (c ConnConfig) Args() []string {
+func (c *ConnConfig) Args() []string {
 	args := []string{"-h", c.Host, "-p", c.Port, "-w"}
 	if c.Username != "" {
 		args = append(args, "-U", c.Username)
@@ -167,7 +173,7 @@ func (c ConnConfig) Args() []string {
 
 // Env returns the current process environment with PostgreSQL authentication
 // and TLS variables injected when configured.
-func (c ConnConfig) Env() []string {
+func (c *ConnConfig) Env() []string {
 	env := os.Environ()
 	if c.Password != "" {
 		env = append(env, "PGPASSWORD="+c.Password)
@@ -189,7 +195,7 @@ func (c ConnConfig) Env() []string {
 }
 
 // DSN builds a PostgreSQL connection string for the given database.
-func (c ConnConfig) DSN(dbname string) string {
+func (c *ConnConfig) DSN(dbname string) string {
 	u := &url.URL{
 		Scheme: "postgresql",
 		Host:   c.Host + ":" + c.Port,
@@ -203,7 +209,7 @@ func (c ConnConfig) DSN(dbname string) string {
 		}
 	}
 	q := url.Values{}
-	q.Set("connect_timeout", fmt.Sprintf("%d", defaultConnectTimeout))
+	q.Set("connect_timeout", strconv.Itoa(defaultConnectTimeout))
 	if c.SSLMode != "" {
 		q.Set("sslmode", c.SSLMode)
 	}
@@ -223,13 +229,13 @@ func (c ConnConfig) DSN(dbname string) string {
 }
 
 // Open returns a *sql.DB connected to the given database.
-func (c ConnConfig) Open(dbname string) (*sql.DB, error) {
+func (c *ConnConfig) Open(dbname string) (*sql.DB, error) {
 	return sql.Open("pgx", c.DSN(dbname))
 }
 
 // Ping verifies connectivity by running a ping against the server.
 // If connectDB is empty, "postgres" is used.
-func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
+func (c *ConnConfig) Ping(ctx context.Context, connectDB string) error {
 	if connectDB == "" {
 		connectDB = "postgres"
 	}
@@ -237,7 +243,7 @@ func (c ConnConfig) Ping(ctx context.Context, connectDB string) error {
 	if err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
@@ -266,7 +272,7 @@ func TruncateOutput(out []byte) string {
 // database name, so both are refused outright.
 func ValidDatabaseName(name string) error {
 	if name == "" {
-		return fmt.Errorf("empty database name")
+		return errors.New("empty database name")
 	}
 	if strings.HasPrefix(name, "-") {
 		return fmt.Errorf("invalid database name %q: may not start with a dash", name)
