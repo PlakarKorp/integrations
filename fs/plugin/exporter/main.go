@@ -5,21 +5,20 @@ import (
 	"errors"
 	"os"
 
-	sdk "github.com/PlakarKorp/go-kloset-sdk"
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/server"
 	fs "github.com/PlakarKorp/integrations/fs/exporter"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/exporter"
 )
 
 type failingExporter struct {
-	exporter.Exporter
+	integration.Exporter
 }
 
-func (failingExporter) Export(context.Context, <-chan *connectors.Record, chan<- *connectors.Result) error {
+func (failingExporter) Export(context.Context, map[string]string, <-chan *integration.Record, chan<- *integration.Result) error {
 	return errors.New("fs integration cannot be used in this context")
 }
 
-func failer(ctx context.Context, opts *connectors.Options, name string, config map[string]string) (exporter.Exporter, error) {
+func failer(ctx context.Context, opts *integration.Options, name string, config map[string]string) (integration.Exporter, error) {
 	e, err := fs.NewFSExporter(ctx, opts, name, config)
 	if err != nil {
 		return nil, err
@@ -28,5 +27,5 @@ func failer(ctx context.Context, opts *connectors.Options, name string, config m
 }
 
 func main() {
-	sdk.EntrypointExporter(os.Args, failer)
+	server.EntrypointExporter(failer, os.Args)
 }

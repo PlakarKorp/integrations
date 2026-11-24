@@ -26,13 +26,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/objects"
+	"github.com/PlakarKorp/integration-sdk"
 	"github.com/pkg/xattr"
 )
 
 // Worker pool to handle file scanning in parallel
-func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors.Record, wg *sync.WaitGroup) {
+func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *integration.Record, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for p := range jobs {
@@ -47,7 +46,7 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 				if found {
 					errString = after
 				}
-				records <- connectors.NewError(toslash(p.path), fmt.Errorf("%s", errString))
+				records <- integration.NewError(toslash(p.path), fmt.Errorf("%s", errString))
 
 				// continue handling the file if getxattr
 				// failed.  some synthetic filesystems (fuse)
@@ -56,26 +55,31 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 			}
 		}
 
-		fileinfo := objects.FileInfoFromStat(p.info)
+		fileinfo := integration.FileInfoFromStat(p.info)
 		fileinfo.Lusername, fileinfo.Lgroupname = f.lookupIDs(fileinfo.Uid(), fileinfo.Gid())
+
+		entrypath := toslash(p.path)
+		if filepath.Dir(p.path) == p.path {
+			// a volume root (C:\ or \\host\share) is named "\" by
+			// os.Lstat on windows, see walkDir_addPrefixDirectories.
+			fileinfo.Lname = path.Base(entrypath)
+		}
 
 		var originFile string
 		if p.info.Mode()&os.ModeSymlink != 0 {
 			originFile, err = os.Readlink(p.path)
 			if err != nil {
-				records <- connectors.NewError(toslash(p.path), err)
+				records <- integration.NewError(toslash(p.path), err)
 				continue
 			}
 		}
 
-		entrypath := toslash(p.path)
-
-		records <- connectors.NewRecord(entrypath, originFile, fileinfo, extendedAttributes,
+		records <- integration.NewRecord(entrypath, originFile, fileinfo, extendedAttributes,
 			func() (io.ReadCloser, error) {
 				return open(p.path)
 			})
 		for _, attr := range extendedAttributes {
-			records <- connectors.NewXattr(entrypath, attr, objects.AttributeExtended,
+			records <- integration.NewXattr(entrypath, attr, integration.AttributeExtended,
 				func() (io.ReadCloser, error) {
 					data, err := xattr.LGet(p.path, attr)
 					if err != nil {
@@ -87,10 +91,11 @@ func (f *FSImporter) walkDir_worker(jobs <-chan file, records chan<- *connectors
 	}
 }
 
-func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record) {
+func walkDir_addPrefixDirectories(root string, records chan<- *integration.Record) {
 	for {
 		var (
-			finfo      objects.FileInfo
+			finfo      integration.FileInfo
+			target     string
 			recordpath = toslash(root)
 			newroot    = filepath.Dir(root)
 			isroot     = root == newroot
@@ -98,21 +103,31 @@ func walkDir_addPrefixDirectories(root string, records chan<- *connectors.Record
 
 		sb, err := os.Lstat(root)
 		if err != nil {
-			records <- connectors.NewError(toslash(root), err)
-			finfo = objects.FileInfo{
+			records <- integration.NewError(toslash(root), err)
+			finfo = integration.FileInfo{
 				Lname: filepath.Base(root),
 				Lmode: os.ModeDir | 0755,
 			}
 		} else {
-			finfo = objects.FileInfoFromStat(sb)
+			finfo = integration.FileInfoFromStat(sb)
 			if isroot {
 				// this prevents on windows Lname from
 				// being / or \ for C:.
 				finfo.Lname = path.Base(recordpath)
 			}
+
+			// the root the user named can be a symlink, walked
+			// through its target: record where it points so the
+			// snapshot can be rooted there and the link restored.
+			if sb.Mode()&os.ModeSymlink != 0 {
+				target, err = os.Readlink(root)
+				if err != nil {
+					records <- integration.NewError(toslash(root), err)
+				}
+			}
 		}
 
-		records <- connectors.NewRecord(recordpath, "", finfo, nil, nil)
+		records <- integration.NewRecord(recordpath, target, finfo, nil, nil)
 
 		if isroot {
 			break
