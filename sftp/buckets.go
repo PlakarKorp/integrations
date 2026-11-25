@@ -23,7 +23,6 @@ import (
 	"io"
 	"iter"
 	"path"
-	"sync"
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integrations/sftp/reading"
@@ -62,30 +61,38 @@ func (buckets *buckets) Create() error {
 	return g.Wait()
 }
 
+// listConcurrency max number of bucket read at once.
+// Bounds memory usage and outstanding requests.
+const listConcurrency = 32
+
 func (buckets *buckets) List(ctx context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
 		entries := make(chan integration.StorageResourceEntry)
-		var wg sync.WaitGroup
-		for i := range 256 {
-			path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
-			wg.Add(1)
-			go func(path string) {
-				defer wg.Done()
-				for _, entry := range buckets.readBucket(path) {
-					select {
-					case entries <- entry:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}(path)
-		}
 		go func() {
-			wg.Wait()
-			close(entries)
+			defer close(entries)
+
+			var g errgroup.Group
+			g.SetLimit(listConcurrency)
+			for i := range 256 {
+				if ctx.Err() != nil {
+					break
+				}
+				path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
+				g.Go(func() error {
+					for _, entry := range buckets.readBucket(path) {
+						select {
+						case entries <- entry:
+						case <-ctx.Done():
+							return nil
+						}
+					}
+					return nil
+				})
+			}
+			_ = g.Wait()
 		}()
 
 		for entry := range entries {
