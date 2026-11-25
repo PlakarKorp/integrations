@@ -31,6 +31,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/stretchr/testify/assert"
@@ -216,6 +217,43 @@ func TestStorageList_UnsupportedResource(t *testing.T) {
 		t.Run(tt.String(), func(t *testing.T) {
 			_, err := list(s, tt)
 			require.Error(t, err, "expected error when accessing s.List() for %s", tt.String())
+		})
+	}
+}
+
+func TestStorageList_FillsSizeAndMTime(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestSftp(t, "/repo")
+	defer func() { _ = s.Close(context.Background()) }()
+
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
+	for _, tt := range []struct {
+		res  integration.StorageResource
+		path string
+	}{
+		{integration.StorageResourcePackfile, "/repo/packfiles/42/"},
+		{integration.StorageResourceState, "/repo/states/42/"},
+		{integration.StorageResourceLock, "/repo/locks/"},
+	} {
+		t.Run(tt.res.String(), func(t *testing.T) {
+			m := mac(0x42)
+			_, err := s.Put(context.Background(), tt.res, 0, m, bytes.NewReader([]byte("some data")))
+			require.NoError(t, err)
+
+			info, err := ts.realStat(fmt.Sprintf("%s%064x", tt.path, m))
+			require.NoError(t, err)
+
+			var got []integration.StorageResourceEntry
+			for entry, err := range s.List(context.Background(), tt.res, 0) {
+				require.NoError(t, err)
+				got = append(got, *entry)
+			}
+			require.Len(t, got, 1)
+			require.Equal(t, m, got[0].MAC)
+			require.Equal(t, int64(len("some data")), got[0].Size)
+			// SFTP carries mtimes in whole seconds.
+			require.True(t, info.ModTime().Truncate(time.Second).Equal(got[0].MTime),
+				"mtime %v, want %v", got[0].MTime, info.ModTime().Truncate(time.Second))
 		})
 	}
 }

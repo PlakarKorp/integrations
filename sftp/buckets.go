@@ -62,21 +62,21 @@ func (buckets *buckets) Create() error {
 	return g.Wait()
 }
 
-func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.MAC] {
-	return func(yield func(integration.MAC) bool) {
+func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.StorageResourceEntry] {
+	return func(yield func(integration.StorageResourceEntry) bool) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		macs := make(chan integration.MAC)
+		entries := make(chan integration.StorageResourceEntry)
 		var wg sync.WaitGroup
 		for i := range 256 {
 			path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
 			wg.Add(1)
 			go func(path string) {
 				defer wg.Done()
-				for _, mac := range buckets.readBucket(path) {
+				for _, entry := range buckets.readBucket(path) {
 					select {
-					case macs <- mac:
+					case entries <- entry:
 					case <-ctx.Done():
 						return
 					}
@@ -85,25 +85,25 @@ func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.MAC] {
 		}
 		go func() {
 			wg.Wait()
-			close(macs)
+			close(entries)
 		}()
 
-		for mac := range macs {
-			if !yield(mac) {
+		for entry := range entries {
+			if !yield(entry) {
 				return
 			}
 		}
 	}
 }
 
-// readBucket ReaDir, then map to MACs so FileInfos can be freed ASAP.
-func (buckets *buckets) readBucket(path string) []integration.MAC {
+// readBucket ReaDir, then map to entries so FileInfos can be freed ASAP.
+func (buckets *buckets) readBucket(path string) []integration.StorageResourceEntry {
 	entries, err := buckets.client.ReadDir(path)
 	if err != nil {
 		return nil
 	}
 
-	macs := make([]integration.MAC, 0, len(entries))
+	ret := make([]integration.StorageResourceEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Name() == "." || entry.Name() == ".." {
 			continue
@@ -118,9 +118,13 @@ func (buckets *buckets) readBucket(path string) []integration.MAC {
 		if len(t) != 32 {
 			continue
 		}
-		macs = append(macs, integration.MAC(t))
+		ret = append(ret, integration.StorageResourceEntry{
+			MAC:   integration.MAC(t),
+			Size:  entry.Size(),
+			MTime: entry.ModTime(),
+		})
 	}
-	return macs
+	return ret
 }
 
 func (buckets *buckets) Path(mac integration.MAC) string {
