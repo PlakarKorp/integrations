@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/PlakarKorp/integration-sdk"
@@ -178,7 +177,6 @@ loop:
 	if err != nil {
 		return err
 	}
-	log.Printf("openstack-instance: spawned server %q from image %q", server.ID, root.imageID)
 	exp.client.DeleteTempImage(ctx, root.imageID)
 	root.imageID = ""
 
@@ -226,7 +224,6 @@ func (exp *Exporter) handleDisk(ctx context.Context, record *integration.Record)
 		if err != nil {
 			return fmt.Errorf("upload disk %q: %w", id, err)
 		}
-		log.Printf("openstack-instance: uploaded restore image %q for %q", image.ID, id)
 		restore.imageID = image.ID
 		return nil
 
@@ -314,7 +311,6 @@ func (exp *Exporter) restoreDisk(ctx context.Context, serverID, diskID string, r
 		exp.client.DeleteTempVolume(ctx, vol.ID)
 		return err
 	}
-	log.Printf("openstack-instance: attached volume %q to server %q", vol.ID, serverID)
 	return nil
 }
 

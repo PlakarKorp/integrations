@@ -443,13 +443,59 @@ func TestRequiredSizeGiB(t *testing.T) {
 	}
 }
 
+// captureLog redirects the standard logger for the test's duration.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return &logs
+}
+
+// Every resource a backup creates is logged with its type, name and ID.
+func TestBackupLogsCreatedResources(t *testing.T) {
+	logs := captureLog(t)
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	client := connectCloud(t, cloud)
+
+	var cleanup Cleanup
+	defer cleanup.Run(t.Context())
+	snap, err := client.SnapshotVolume(t.Context(), "vol-1", &cleanup)
+	require.NoError(t, err)
+	tmp, err := client.CreateVolumeFromSnapshot(t.Context(), snap, &cleanup)
+	require.NoError(t, err)
+	require.NoError(t, client.AttachTempVolume(t.Context(), "host-1", tmp, &cleanup))
+	require.NoError(t, cleanup.Detach(t.Context()))
+	img, err := client.UploadVolumeImage(t.Context(), tmp, &cleanup)
+	require.NoError(t, err)
+
+	assert.Regexp(t, `openstack: created snapshot id="`+snap.ID+`" name="plakar-backup-vol-1-\d+" volume_id="vol-1"`, logs.String())
+	assert.Contains(t, logs.String(), fmt.Sprintf(`openstack: attached volume id=%q server_id="host-1"`, tmp.ID))
+	assert.Contains(t, logs.String(), fmt.Sprintf(`openstack: created image id=%q name="plakar-tmp-%s" volume_id=%q`, img.ID, tmp.ID, tmp.ID))
+	// The temporary volume is logTempVolume's alone.
+	assert.NotContains(t, logs.String(), fmt.Sprintf(`openstack: created volume id=%q`, tmp.ID))
+}
+
+// A restore logs the image it uploads and the volume it creates from it.
+func TestRestoreLogsCreatedResources(t *testing.T) {
+	logs := captureLog(t)
+	cloud := keystonetest.NewCloud(t)
+	client := connectCloud(t, cloud)
+
+	img, err := client.UploadTempImage(t.Context(), "restore-image", bytes.NewReader([]byte("data")), "qcow2", nil)
+	require.NoError(t, err)
+	vol, err := client.CreateVolumeFromImage(t.Context(), img.ID, &volumes.Volume{ID: "src-1", Name: "data", Size: 1})
+	require.NoError(t, err)
+
+	assert.Contains(t, logs.String(), fmt.Sprintf(`openstack: created image id=%q name="restore-image"`, img.ID))
+	assert.Contains(t, logs.String(), fmt.Sprintf(`openstack: created volume id=%q name="data" image_id=%q`, vol.ID, img.ID))
+}
+
 // A snapshot that never becomes deletable is left behind, and logged.
 func TestCleanupLogsWhenWaitGivesUp(t *testing.T) {
 	defer func(d time.Duration) { waitTimeout = d }(waitTimeout)
 	waitTimeout = 200 * time.Millisecond
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	logs := captureLog(t)
 
 	cloud := keystonetest.NewCloud(t, "vol-1")
 	cloud.CreatingPolls = 100
