@@ -320,7 +320,17 @@ func (g *azblobStore) List(ctx context.Context, res integration.StorageResource,
 					yield(nil, fmt.Errorf("invalid %s name: %s", prefix, name))
 					return
 				}
-				if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+
+				entry := integration.StorageResourceEntry{MAC: integration.MAC(t)}
+				if props := item.Properties; props != nil {
+					if props.ContentLength != nil {
+						entry.Size = *props.ContentLength
+					}
+					if props.LastModified != nil {
+						entry.MTime = *props.LastModified
+					}
+				}
+				if !yield(&entry, nil) {
 					return
 				}
 			}
