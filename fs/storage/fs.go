@@ -161,7 +161,7 @@ func (s *Store) List(ctx context.Context, res integration.StorageResource, flag 
 	case integration.StorageResourceState:
 		return s.states.List()
 	case integration.StorageResourceLock:
-		return s.getLocks(ctx)
+		return s.getLocks()
 	default:
 		return func(yield func(*integration.StorageResourceEntry, error) bool) {
 			yield(nil, errors.ErrUnsupported)
@@ -176,7 +176,7 @@ func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag i
 	case integration.StorageResourceState:
 		return s.states.Put(mac, rd)
 	case integration.StorageResourceLock:
-		return s.putLock(ctx, mac, rd)
+		return s.putLock(mac, rd)
 	default:
 		return -1, errors.ErrUnsupported
 	}
@@ -204,7 +204,7 @@ func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag i
 	case integration.StorageResourceState:
 		return s.states.Get(mac)
 	case integration.StorageResourceLock:
-		return s.getLock(ctx, mac)
+		return s.getLock(mac)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -217,7 +217,7 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, fla
 	case integration.StorageResourceState:
 		return s.states.Remove(mac)
 	case integration.StorageResourceLock:
-		return s.deleteLock(ctx, mac)
+		return s.deleteLock(mac)
 	default:
 		return errors.ErrUnsupported
 	}
@@ -227,7 +227,7 @@ func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) getLocks(ctx context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		locksdir, err := os.ReadDir(s.Path("locks"))
 		if err != nil {
@@ -271,11 +271,11 @@ func (s *Store) getLocks(ctx context.Context) iter.Seq2[*integration.StorageReso
 	}
 }
 
-func (s *Store) putLock(ctx context.Context, lockID integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) putLock(lockID integration.MAC, rd io.Reader) (int64, error) {
 	return WriteToFileAtomicTempDir(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])), rd, s.Path(""))
 }
 
-func (s *Store) getLock(ctx context.Context, lockID integration.MAC) (io.ReadCloser, error) {
+func (s *Store) getLock(lockID integration.MAC) (io.ReadCloser, error) {
 	fp, err := os.Open(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (s *Store) getLock(ctx context.Context, lockID integration.MAC) (io.ReadClo
 	return fp, nil
 }
 
-func (s *Store) deleteLock(ctx context.Context, lockID integration.MAC) error {
+func (s *Store) deleteLock(lockID integration.MAC) error {
 	if err := os.Remove(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:]))); err != nil {
 		return err
 	}
