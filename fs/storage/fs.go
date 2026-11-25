@@ -155,38 +155,16 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
-	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var b *Buckets
-		switch res {
-		case integration.StorageResourcePackfile:
-			b = &s.packfiles
-		case integration.StorageResourceState:
-			b = &s.states
-		case integration.StorageResourceLock:
-			m, err := s.getLocks(ctx)
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			for i := range m {
-				if !yield(&m[i], nil) {
-					return
-				}
-			}
-			return
-		default:
+	switch res {
+	case integration.StorageResourcePackfile:
+		return s.packfiles.List()
+	case integration.StorageResourceState:
+		return s.states.List()
+	case integration.StorageResourceLock:
+		return s.getLocks(ctx)
+	default:
+		return func(yield func(*integration.StorageResourceEntry, error) bool) {
 			yield(nil, errors.ErrUnsupported)
-			return
-		}
-
-		for entry, err := range b.List() {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !yield(&entry, nil) {
-				return
-			}
 		}
 	}
 }
@@ -249,45 +227,48 @@ func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) getLocks(ctx context.Context) ([]integration.StorageResourceEntry, error) {
-	ret := make([]integration.StorageResourceEntry, 0)
-
-	locksdir, err := os.ReadDir(s.Path("locks"))
-	if err != nil {
-		return nil, err
-	}
-
-	for _, lock := range locksdir {
-		if !lock.Type().IsRegular() {
-			continue
-		}
-
-		lockID, err := hex.DecodeString(lock.Name())
+func (s *Store) getLocks(ctx context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		locksdir, err := os.ReadDir(s.Path("locks"))
 		if err != nil {
-			continue
+			yield(nil, err)
+			return
 		}
 
-		if len(lockID) != 32 {
-			continue
-		}
+		for _, lock := range locksdir {
+			if !lock.Type().IsRegular() {
+				continue
+			}
 
-		info, err := lock.Info()
-		if errors.Is(err, fs.ErrNotExist) {
-			// removed since ReadDir
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
+			lockID, err := hex.DecodeString(lock.Name())
+			if err != nil {
+				continue
+			}
 
-		ret = append(ret, integration.StorageResourceEntry{
-			MAC:   integration.MAC(lockID),
-			Size:  info.Size(),
-			MTime: info.ModTime(),
-		})
+			if len(lockID) != 32 {
+				continue
+			}
+
+			info, err := lock.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				// removed since ReadDir
+				continue
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			e := integration.StorageResourceEntry{
+				MAC:   integration.MAC(lockID),
+				Size:  info.Size(),
+				MTime: info.ModTime(),
+			}
+			if !yield(&e, nil) {
+				return
+			}
+		}
 	}
-
-	return ret, nil
 }
 
 func (s *Store) putLock(ctx context.Context, lockID integration.MAC, rd io.Reader) (int64, error) {

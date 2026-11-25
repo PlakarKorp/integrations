@@ -52,11 +52,11 @@ func (buckets *Buckets) Create() error {
 	return nil
 }
 
-func (buckets *Buckets) List() iter.Seq2[integration.StorageResourceEntry, error] {
-	return func(yield func(integration.StorageResourceEntry, error) bool) {
+func (buckets *Buckets) List() iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		bucketsDir, err := os.ReadDir(buckets.path)
 		if err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(&integration.StorageResourceEntry{}, err)
 			return
 		}
 
@@ -70,7 +70,7 @@ func (buckets *Buckets) List() iter.Seq2[integration.StorageResourceEntry, error
 			path := filepath.Join(buckets.path, bucket.Name())
 			entries, err := os.ReadDir(path)
 			if err != nil {
-				yield(integration.StorageResourceEntry{}, err)
+				yield(&integration.StorageResourceEntry{}, err)
 				return
 			}
 			for _, entry := range entries {
@@ -94,7 +94,7 @@ func (buckets *Buckets) List() iter.Seq2[integration.StorageResourceEntry, error
 					continue
 				}
 				if err != nil {
-					yield(integration.StorageResourceEntry{}, err)
+					yield(&integration.StorageResourceEntry{}, err)
 					return
 				}
 				e := integration.StorageResourceEntry{
@@ -102,7 +102,7 @@ func (buckets *Buckets) List() iter.Seq2[integration.StorageResourceEntry, error
 					Size:  info.Size(),
 					MTime: info.ModTime(),
 				}
-				if !yield(e, nil) {
+				if !yield(&e, nil) {
 					return
 				}
 			}
