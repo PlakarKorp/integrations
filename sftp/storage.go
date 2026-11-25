@@ -130,28 +130,36 @@ func (s *Sftp) Size(ctx context.Context) (int64, error) {
 
 func (s *Sftp) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var macs []integration.MAC
-		var err error
-
+		var b *buckets
 		switch res {
 		case integration.StorageResourcePackfile:
-			macs, err = s.packfiles.List()
+			b = &s.packfiles
 		case integration.StorageResourceState:
-			macs, err = s.states.List()
+			b = &s.states
 		case integration.StorageResourceLock:
-			macs, err = s.getLocks()
+			macs, err := s.getLocks()
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			for _, mac := range macs {
+				if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+					return
+				}
+			}
+			return
 		default:
-			err = errors.ErrUnsupported
-		}
-		if err != nil {
-			yield(nil, err)
+			yield(nil, errors.ErrUnsupported)
 			return
 		}
 
-		for _, mac := range macs {
+		for mac := range b.List(ctx) {
 			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
 				return
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			yield(nil, err)
 		}
 	}
 }

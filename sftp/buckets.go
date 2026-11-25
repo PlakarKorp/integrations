@@ -17,9 +17,11 @@
 package sftp
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"iter"
 	"path"
 	"sync"
 
@@ -60,45 +62,55 @@ func (buckets *buckets) Create() error {
 	return g.Wait()
 }
 
-func (buckets *buckets) List() ([]integration.MAC, error) {
-	ret := make([]integration.MAC, 0)
-	var mu sync.Mutex
+func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.MAC] {
+	return func(yield func(integration.MAC) bool) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
-	wg := sync.WaitGroup{}
-	for i := range 256 {
-		path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
-		wg.Add(1)
-		go func(path string) {
-			defer wg.Done()
-			entries, err := buckets.client.ReadDir(path)
-			if err != nil {
+		macs := make(chan integration.MAC)
+		var wg sync.WaitGroup
+		for i := range 256 {
+			path := path.Join(buckets.path, fmt.Sprintf("%02x", i))
+			wg.Add(1)
+			go func(path string) {
+				defer wg.Done()
+				entries, err := buckets.client.ReadDir(path)
+				if err != nil {
+					return
+				}
+				for _, entry := range entries {
+					if entry.Name() == "." || entry.Name() == ".." {
+						continue
+					}
+					if entry.IsDir() {
+						continue
+					}
+					t, err := hex.DecodeString(entry.Name())
+					if err != nil {
+						continue
+					}
+					if len(t) != 32 {
+						continue
+					}
+					select {
+					case macs <- integration.MAC(t):
+					case <-ctx.Done():
+						return
+					}
+				}
+			}(path)
+		}
+		go func() {
+			wg.Wait()
+			close(macs)
+		}()
+
+		for mac := range macs {
+			if !yield(mac) {
 				return
 			}
-			for _, entry := range entries {
-				if entry.Name() == "." || entry.Name() == ".." {
-					continue
-				}
-				if entry.IsDir() {
-					continue
-				}
-				t, err := hex.DecodeString(entry.Name())
-				if err != nil {
-					continue
-				}
-				if len(t) != 32 {
-					continue
-				}
-				var t32 integration.MAC
-				copy(t32[:], t)
-
-				mu.Lock()
-				ret = append(ret, t32)
-				mu.Unlock()
-			}
-		}(path)
+		}
 	}
-	wg.Wait()
-	return ret, nil
 }
 
 func (buckets *buckets) Path(mac integration.MAC) string {
