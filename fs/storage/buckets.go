@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"iter"
 	"os"
 	"path/filepath"
@@ -51,11 +52,11 @@ func (buckets *Buckets) Create() error {
 	return nil
 }
 
-func (buckets *Buckets) List() iter.Seq2[integration.MAC, error] {
-	return func(yield func(integration.MAC, error) bool) {
+func (buckets *Buckets) List() iter.Seq2[integration.StorageResourceEntry, error] {
+	return func(yield func(integration.StorageResourceEntry, error) bool) {
 		bucketsDir, err := os.ReadDir(buckets.path)
 		if err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 			return
 		}
 
@@ -69,7 +70,7 @@ func (buckets *Buckets) List() iter.Seq2[integration.MAC, error] {
 			path := filepath.Join(buckets.path, bucket.Name())
 			entries, err := os.ReadDir(path)
 			if err != nil {
-				yield(integration.MAC{}, err)
+				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
 			for _, entry := range entries {
@@ -87,7 +88,21 @@ func (buckets *Buckets) List() iter.Seq2[integration.MAC, error] {
 				if len(t) != 32 {
 					continue
 				}
-				if !yield(integration.MAC(t), nil) {
+				info, err := entry.Info()
+				if errors.Is(err, fs.ErrNotExist) {
+					// removed since ReadDir
+					continue
+				}
+				if err != nil {
+					yield(integration.StorageResourceEntry{}, err)
+					return
+				}
+				e := integration.StorageResourceEntry{
+					MAC:   integration.MAC(t),
+					Size:  info.Size(),
+					MTime: info.ModTime(),
+				}
+				if !yield(e, nil) {
 					return
 				}
 			}

@@ -169,7 +169,7 @@ func (s *Store) List(ctx context.Context, res integration.StorageResource, flag 
 				return
 			}
 			for i := range m {
-				if !yield(&integration.StorageResourceEntry{MAC: m[i]}, nil) {
+				if !yield(&m[i], nil) {
 					return
 				}
 			}
@@ -179,12 +179,12 @@ func (s *Store) List(ctx context.Context, res integration.StorageResource, flag 
 			return
 		}
 
-		for mac, err := range b.List() {
+		for entry, err := range b.List() {
 			if err != nil {
 				yield(nil, err)
 				return
 			}
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+			if !yield(&entry, nil) {
 				return
 			}
 		}
@@ -249,8 +249,8 @@ func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) getLocks(ctx context.Context) ([]integration.MAC, error) {
-	ret := make([]integration.MAC, 0)
+func (s *Store) getLocks(ctx context.Context) ([]integration.StorageResourceEntry, error) {
+	ret := make([]integration.StorageResourceEntry, 0)
 
 	locksdir, err := os.ReadDir(s.Path("locks"))
 	if err != nil {
@@ -271,7 +271,20 @@ func (s *Store) getLocks(ctx context.Context) ([]integration.MAC, error) {
 			continue
 		}
 
-		ret = append(ret, integration.MAC(lockID))
+		info, err := lock.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			// removed since ReadDir
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, integration.StorageResourceEntry{
+			MAC:   integration.MAC(lockID),
+			Size:  info.Size(),
+			MTime: info.ModTime(),
+		})
 	}
 
 	return ret, nil
