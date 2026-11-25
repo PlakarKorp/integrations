@@ -156,24 +156,35 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var m []integration.MAC
-		var err error
+		var b *Buckets
 		switch res {
 		case integration.StorageResourcePackfile:
-			m, err = s.packfiles.List()
+			b = &s.packfiles
 		case integration.StorageResourceState:
-			m, err = s.states.List()
+			b = &s.states
 		case integration.StorageResourceLock:
-			m, err = s.getLocks(ctx)
+			m, err := s.getLocks(ctx)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			for i := range m {
+				if !yield(&integration.StorageResourceEntry{MAC: m[i]}, nil) {
+					return
+				}
+			}
+			return
 		default:
-			m, err = nil, errors.ErrUnsupported
-		}
-		if err != nil {
-			yield(nil, err)
+			yield(nil, errors.ErrUnsupported)
 			return
 		}
-		for i := range m {
-			if !yield(&integration.StorageResourceEntry{MAC: m[i]}, nil) {
+
+		for mac, err := range b.List() {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
 				return
 			}
 		}
