@@ -103,14 +103,16 @@ func (c *Client) SnapshotVolume(ctx context.Context, volumeID string, cleanup *C
 	}
 	cleanup.block = block
 
+	name := fmt.Sprintf("%s%s-%d", backupPrefix, volumeID, time.Now().UTC().UnixNano())
 	created, err := snapshots.Create(ctx, block, snapshots.CreateOpts{
 		VolumeID: volumeID,
-		Name:     fmt.Sprintf("%s%s-%d", backupPrefix, volumeID, time.Now().UTC().UnixNano()),
+		Name:     name,
 		Force:    true, // required for in-use volumes; the snapshot is crash-consistent
 	}).Extract()
 	if err != nil {
 		return nil, fmt.Errorf("snapshot volume %q: %w", volumeID, err)
 	}
+	logCreated(kindSnapshot, created.ID, name, field("volume_id", volumeID))
 	cleanup.snapshotID = created.ID
 	return waitStatus(ctx, kindSnapshot, created.ID, getSnapshot(block, created.ID), statusAvailable, statusError)
 }
@@ -194,6 +196,7 @@ func (c *Client) UploadVolumeImage(ctx context.Context, tmp *volumes.Volume, cle
 	if err != nil {
 		return nil, fmt.Errorf("upload volume %q to an image: %w", tmp.ID, err)
 	}
+	logCreated(kindImage, upload.ImageID, tmpPrefix+tmp.ID, field("volume_id", tmp.ID))
 	cleanup.imageID = upload.ImageID
 	return waitStatus(ctx, kindImage, upload.ImageID, getUploadedImage(block, image, tmp.ID, upload.ImageID), statusActive, statusKilled, statusError)
 }
@@ -250,6 +253,7 @@ func (c *Client) AttachTempVolume(ctx context.Context, hostID string, tmp *volum
 	if _, err := volumeattach.Create(ctx, nova, hostID, volumeattach.CreateOpts{VolumeID: tmp.ID}).Extract(); err != nil {
 		return fmt.Errorf("attach volume %q to server %q: %w", tmp.ID, hostID, err)
 	}
+	logAttached(tmp.ID, hostID)
 	cleanup.attachedTo = hostID
 	waitCtx, cancel := context.WithTimeout(ctx, attachTimeout)
 	defer cancel()
@@ -373,6 +377,18 @@ func (c *Cleanup) deleteSnapshot(ctx context.Context, volumeDeleted bool) error 
 // isDeleted counts a resource already gone as deleted.
 func isDeleted(err error) bool {
 	return err == nil || gophercloud.ResponseCodeIs(err, http.StatusNotFound)
+}
+
+// logCreated logs a resource we created, so a leftover can be traced back,
+// in logTempVolume's format; temporary volumes are logged by it instead. name
+// is the one we asked for: Nova does not return it on create. deps are the
+// field()s of what it was made from.
+func logCreated(kind, id, name string, deps ...string) {
+	log.Print(strings.Join(append([]string{"openstack: created", kind, field("id", id), field("name", name)}, deps...), " "))
+}
+
+func logAttached(volumeID, serverID string) {
+	log.Printf("openstack: attached volume %s %s", field("id", volumeID), field("server_id", serverID))
 }
 
 func logFailure(kind, id string, err error) {
@@ -525,6 +541,7 @@ func (c *Client) UploadTempImage(ctx context.Context, name string, r io.Reader, 
 	if err != nil {
 		return nil, fmt.Errorf("create image %q: %w", name, err)
 	}
+	logCreated(kindImage, created.ID, name)
 
 	// net/http closes a request body that is an io.ReadCloser; r is the
 	// caller's to close, and plakar's record reader panics if closed twice.
@@ -615,7 +632,12 @@ func (c *Client) CreateVolumeFromImage(ctx context.Context, imageID string, src 
 		return nil, fmt.Errorf("create volume from image: %w", err)
 	}
 	opts.ImageID = imageID
-	return c.createVolume(ctx, opts)
+	vol, err := c.createVolume(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	logCreated(kindVolume, vol.ID, opts.Name, field("image_id", imageID))
+	return vol, nil
 }
 
 // emptyVolume creates a restored volume shaped like src with nothing on it,
@@ -626,7 +648,12 @@ func (c *Client) emptyVolume(ctx context.Context, src *volumes.Volume) (*volumes
 	if err != nil {
 		return nil, fmt.Errorf("create empty volume: %w", err)
 	}
-	return c.createVolume(ctx, opts)
+	vol, err := c.createVolume(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	logCreated(kindVolume, vol.ID, opts.Name)
+	return vol, nil
 }
 
 // restoreVolumeOpts shapes a restored volume like src: its size, type,

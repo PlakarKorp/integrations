@@ -278,6 +278,5 @@ func uploadDisk(ctx context.Context, client *common.Client, record *integration.
 	if err != nil {
 		return "", fmt.Errorf("upload disk %q: %w", volumeID, err)
 	}
-	log.Printf("openstack-block: uploaded restore image %q for volume %q", image.ID, volumeID)
 	return image.ID, nil
 }

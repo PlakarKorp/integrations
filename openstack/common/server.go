@@ -134,12 +134,14 @@ func (c *Client) CreateServerImage(ctx context.Context, server *servers.Server, 
 	}
 	cleanup.image = image
 
+	name := fmt.Sprintf("%s%s-%d", backupPrefix, server.ID, time.Now().UTC().UnixNano())
 	imageID, err := servers.CreateImage(ctx, nova, server.ID, servers.CreateImageOpts{
-		Name: fmt.Sprintf("%s%s-%d", backupPrefix, server.ID, time.Now().UTC().UnixNano()),
+		Name: name,
 	}).ExtractImageID()
 	if err != nil {
 		return nil, fmt.Errorf("snapshot server %q: %w", server.ID, err)
 	}
+	logCreated(kindImage, imageID, name, field("server_id", server.ID))
 	cleanup.imageID = imageID
 
 	img, err := waitStatus(ctx, kindImage, imageID, getImage(image, imageID), statusActive, statusKilled, statusError)
@@ -175,6 +177,7 @@ func (c *Client) CreateServer(ctx context.Context, opts servers.CreateOpts) (*se
 	if err != nil {
 		return nil, fmt.Errorf("create server %q: %w", opts.Name, err)
 	}
+	logCreated(kindServer, created.ID, opts.Name, field("image_id", opts.ImageRef))
 	server, err := waitStatus(ctx, kindServer, created.ID, getServer(nova, created.ID), statusServerActive, statusServerError)
 	if err != nil {
 		return nil, err
@@ -196,5 +199,6 @@ func (c *Client) AttachVolume(ctx context.Context, serverID, volumeID, device st
 	if err != nil {
 		return fmt.Errorf("attach volume %q to server %q: %w", volumeID, serverID, err)
 	}
+	logAttached(volumeID, serverID)
 	return nil
 }
