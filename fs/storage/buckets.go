@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,47 +51,48 @@ func (buckets *Buckets) Create() error {
 	return nil
 }
 
-func (buckets *Buckets) List() ([]integration.MAC, error) {
-	ret := make([]integration.MAC, 0)
-
-	bucketsDir, err := os.ReadDir(buckets.path)
-	if err != nil {
-		return ret, err
-	}
-
-	for _, bucket := range bucketsDir {
-		if bucket.Name() == "." || bucket.Name() == ".." {
-			continue
-		}
-		if !bucket.IsDir() {
-			continue
-		}
-		path := filepath.Join(buckets.path, bucket.Name())
-		entries, err := os.ReadDir(path)
+func (buckets *Buckets) List() iter.Seq2[integration.MAC, error] {
+	return func(yield func(integration.MAC, error) bool) {
+		bucketsDir, err := os.ReadDir(buckets.path)
 		if err != nil {
-			return ret, err
+			yield(integration.MAC{}, err)
+			return
 		}
-		for _, entry := range entries {
-			if entry.Name() == "." || entry.Name() == ".." {
+
+		for _, bucket := range bucketsDir {
+			if bucket.Name() == "." || bucket.Name() == ".." {
 				continue
 			}
-			if !entry.Type().IsRegular() {
+			if !bucket.IsDir() {
 				continue
 			}
-			t, err := hex.DecodeString(entry.Name())
+			path := filepath.Join(buckets.path, bucket.Name())
+			entries, err := os.ReadDir(path)
 			if err != nil {
-				// XXX ignore the gibberish?
-				continue
+				yield(integration.MAC{}, err)
+				return
 			}
-			if len(t) != 32 {
-				continue
+			for _, entry := range entries {
+				if entry.Name() == "." || entry.Name() == ".." {
+					continue
+				}
+				if !entry.Type().IsRegular() {
+					continue
+				}
+				t, err := hex.DecodeString(entry.Name())
+				if err != nil {
+					// XXX ignore the gibberish?
+					continue
+				}
+				if len(t) != 32 {
+					continue
+				}
+				if !yield(integration.MAC(t), nil) {
+					return
+				}
 			}
-			var t32 integration.MAC
-			copy(t32[:], t)
-			ret = append(ret, t32)
 		}
 	}
-	return ret, nil
 }
 
 func (buckets *Buckets) Path(mac integration.MAC) (string, error) {
