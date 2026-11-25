@@ -99,3 +99,31 @@ func TestListStopsWhenConsumerBreaks(t *testing.T) {
 		})
 	}
 }
+
+// The schema has no timestamp, so MTime stays zero.
+func TestListFillsSize(t *testing.T) {
+	for _, tt := range listResources {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			st, _ := newListStore(t, tt.res, 0)
+
+			want := map[integration.MAC]int64{
+				{0x01}: 0,
+				{0x02}: 1,
+				{0x03}: 4096,
+			}
+			for mac, size := range want {
+				_, err := st.Put(ctx, tt.res, 0, mac, bytes.NewReader(make([]byte, size)))
+				require.NoError(t, err)
+			}
+
+			got := map[integration.MAC]int64{}
+			for e, err := range st.List(ctx, tt.res, 0) {
+				require.NoError(t, err)
+				require.True(t, e.MTime.IsZero())
+				got[e.MAC] = e.Size
+			}
+			require.Equal(t, want, got)
+		})
+	}
+}

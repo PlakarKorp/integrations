@@ -203,24 +203,24 @@ func (s *Store) Close(ctx context.Context) error {
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var macs iter.Seq2[integration.MAC, error]
+		var entries iter.Seq2[integration.StorageResourceEntry, error]
 		switch res {
 		case integration.StorageResourcePackfile:
-			macs = s.getPackfiles(ctx)
+			entries = s.getPackfiles(ctx)
 		case integration.StorageResourceState:
-			macs = s.getStates(ctx)
+			entries = s.getStates(ctx)
 		case integration.StorageResourceLock:
-			macs = s.getLocks(ctx)
+			entries = s.getLocks(ctx)
 		default:
 			yield(nil, errors.ErrUnsupported)
 			return
 		}
-		for mac, err := range macs {
+		for entry, err := range entries {
 			if err != nil {
 				yield(nil, err)
 				return
 			}
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+			if !yield(&entry, nil) {
 				return
 			}
 		}
@@ -276,30 +276,30 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ i
 }
 
 // states
-func (s *Store) getStates(context context.Context) iter.Seq2[integration.MAC, error] {
-	return func(yield func(integration.MAC, error) bool) {
-		rows, err := s.conn.Query("SELECT mac FROM states")
+func (s *Store) getStates(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
+	return func(yield func(integration.StorageResourceEntry, error) bool) {
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM states")
 		if err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var mac []byte
-			err = rows.Scan(&mac)
+			var entry integration.StorageResourceEntry
+			err = rows.Scan(&mac, &entry.Size)
 			if err != nil {
-				yield(integration.MAC{}, err)
+				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
-			var mac32 integration.MAC
-			copy(mac32[:], mac)
-			if !yield(mac32, nil) {
+			copy(entry.MAC[:], mac)
+			if !yield(entry, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 		}
 	}
 }
@@ -353,30 +353,30 @@ func (s *Store) deleteState(context context.Context, mac integration.MAC) error 
 }
 
 // packfiles
-func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.MAC, error] {
-	return func(yield func(integration.MAC, error) bool) {
-		rows, err := s.conn.Query("SELECT mac FROM packfiles")
+func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
+	return func(yield func(integration.StorageResourceEntry, error) bool) {
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM packfiles")
 		if err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var mac []byte
-			err = rows.Scan(&mac)
+			var entry integration.StorageResourceEntry
+			err = rows.Scan(&mac, &entry.Size)
 			if err != nil {
-				yield(integration.MAC{}, err)
+				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
-			var mac32 integration.MAC
-			copy(mac32[:], mac)
-			if !yield(mac32, nil) {
+			copy(entry.MAC[:], mac)
+			if !yield(entry, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 		}
 	}
 }
@@ -441,26 +441,27 @@ func (s *Store) deletePackfile(context context.Context, mac integration.MAC) err
 	return nil
 }
 
-func (s *Store) getLocks(context context.Context) iter.Seq2[integration.MAC, error] {
-	return func(yield func(integration.MAC, error) bool) {
-		rows, err := s.conn.Query("SELECT mac FROM locks")
+func (s *Store) getLocks(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
+	return func(yield func(integration.StorageResourceEntry, error) bool) {
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM locks")
 		if err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var mac string
-			err = rows.Scan(&mac)
+			var size int64
+			err = rows.Scan(&mac, &size)
 			if err != nil {
-				yield(integration.MAC{}, err)
+				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
 
 			lockID, err := hex.DecodeString(mac)
 			if err != nil {
-				yield(integration.MAC{}, err)
+				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
 
@@ -468,12 +469,12 @@ func (s *Store) getLocks(context context.Context) iter.Seq2[integration.MAC, err
 				continue
 			}
 
-			if !yield(integration.MAC(lockID), nil) {
+			if !yield(integration.StorageResourceEntry{MAC: integration.MAC(lockID), Size: size}, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.MAC{}, err)
+			yield(integration.StorageResourceEntry{}, err)
 		}
 	}
 }
