@@ -221,7 +221,12 @@ func (g *gcsStore) List(ctx context.Context, res integration.StorageResource, fl
 				yield(nil, fmt.Errorf("invalid %s name: %s", prefix, obj.Name))
 				return
 			}
-			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+			entry := integration.StorageResourceEntry{
+				MAC:   integration.MAC(t),
+				Size:  obj.Size,
+				MTime: obj.Updated,
+			}
+			if !yield(&entry, nil) {
 				return
 			}
 		}
