@@ -220,6 +220,47 @@ func TestStorageList_UnsupportedResource(t *testing.T) {
 	}
 }
 
+func TestStorageList_StopsEarly(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestSftp(t, "/repo")
+	defer func() { _ = s.Close(context.Background()) }()
+
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
+	for _, res := range []integration.StorageResource{integration.StorageResourcePackfile, integration.StorageResourceState} {
+		for i := range 16 {
+			_, err := s.Put(context.Background(), res, 0, mac(byte(i)), bytes.NewReader([]byte("data")))
+			require.NoError(t, err)
+		}
+
+		n := 0
+		for _, err := range s.List(context.Background(), res, 0) {
+			require.NoError(t, err)
+			n++
+			break
+		}
+		require.Equal(t, 1, n)
+	}
+}
+
+func TestStorageList_CancelledContext(t *testing.T) {
+	ts := newTestServer(t)
+	s := ts.newTestSftp(t, "/repo")
+	defer func() { _ = s.Close(context.Background()) }()
+
+	require.NoError(t, s.Create(context.Background(), []byte("test config")))
+	_, err := s.Put(context.Background(), integration.StorageResourcePackfile, 0, mac(0x01), bytes.NewReader([]byte("data")))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var lastErr error
+	for _, err := range s.List(ctx, integration.StorageResourcePackfile, 0) {
+		lastErr = err
+	}
+	require.ErrorIs(t, lastErr, context.Canceled)
+}
+
 func TestStorageGetPut_Packfile(t *testing.T) {
 	ts := newTestServer(t)
 	s := ts.newTestSftp(t, "/repo")
@@ -433,7 +474,7 @@ func TestStorageGetLocks_IgnoresBadNames(t *testing.T) {
 
 // TestStorageConcurrentPacksAndStates exercises concurrent Put/List across
 // both packfiles and states buckets, run under -race to catch any data race
-// in buckets.List()'s mutex-guarded append and to confirm every concurrently
+// in buckets.List()'s fan-in and to confirm every concurrently
 // written entry is observed exactly once.
 func TestStorageConcurrentPacksAndStates(t *testing.T) {
 	ts := newTestServer(t)
