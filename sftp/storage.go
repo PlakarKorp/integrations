@@ -34,7 +34,7 @@ func (s *Sftp) path(args ...string) string {
 	return path.Join(s.rootDir, path.Join(args...))
 }
 
-func (s *Sftp) getLocks() (ret []integration.MAC, err error) {
+func (s *Sftp) getLocks() (ret []integration.StorageResourceEntry, err error) {
 	entries, err := s.client.ReadDir(s.path("locks"))
 	if err != nil {
 		return
@@ -49,7 +49,11 @@ func (s *Sftp) getLocks() (ret []integration.MAC, err error) {
 		if len(t) != 32 {
 			continue
 		}
-		ret = append(ret, integration.MAC(t))
+		ret = append(ret, integration.StorageResourceEntry{
+			MAC:   integration.MAC(t),
+			Size:  entries[i].Size(),
+			MTime: entries[i].ModTime(),
+		})
 	}
 	return
 }
@@ -137,13 +141,13 @@ func (s *Sftp) List(ctx context.Context, res integration.StorageResource, _ inte
 		case integration.StorageResourceState:
 			b = &s.states
 		case integration.StorageResourceLock:
-			macs, err := s.getLocks()
+			locks, err := s.getLocks()
 			if err != nil {
 				yield(nil, err)
 				return
 			}
-			for _, mac := range macs {
-				if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+			for i := range locks {
+				if !yield(&locks[i], nil) {
 					return
 				}
 			}
@@ -153,8 +157,8 @@ func (s *Sftp) List(ctx context.Context, res integration.StorageResource, _ inte
 			return
 		}
 
-		for mac := range b.List(ctx) {
-			if !yield(&integration.StorageResourceEntry{MAC: mac}, nil) {
+		for entry := range b.List(ctx) {
+			if !yield(&entry, nil) {
 				return
 			}
 		}
