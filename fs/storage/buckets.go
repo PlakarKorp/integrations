@@ -56,7 +56,7 @@ func (buckets *Buckets) List() iter.Seq2[*integration.StorageResourceEntry, erro
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		for bucket, err := range readdir(buckets.path) {
 			if err != nil {
-				yield(&integration.StorageResourceEntry{}, err)
+				yield(nil, err)
 				return
 			}
 
@@ -65,7 +65,7 @@ func (buckets *Buckets) List() iter.Seq2[*integration.StorageResourceEntry, erro
 			}
 			for entry, err := range readdir(filepath.Join(buckets.path, bucket.Name())) {
 				if err != nil {
-					yield(&integration.StorageResourceEntry{}, err)
+					yield(nil, err)
 					return
 				}
 				if !entry.Type().IsRegular() {
@@ -85,7 +85,7 @@ func (buckets *Buckets) List() iter.Seq2[*integration.StorageResourceEntry, erro
 					continue
 				}
 				if err != nil {
-					yield(&integration.StorageResourceEntry{}, err)
+					yield(nil, err)
 					return
 				}
 				e := integration.StorageResourceEntry{
