@@ -2,6 +2,8 @@ package storage
 
 import (
 	"bytes"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -125,5 +127,41 @@ func TestListFillsSize(t *testing.T) {
 			}
 			require.Equal(t, want, got)
 		})
+	}
+}
+
+// Put always writes 32-byte MACs, so any other length is a corrupt row
+// that List must report rather than truncate or pad.
+func TestListRejectsMalformedMAC(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		res   integration.StorageResource
+		table string
+	}{
+		{"packfile", integration.StorageResourcePackfile, "packfiles"},
+		{"state", integration.StorageResourceState, "states"},
+	} {
+		for _, n := range []int{31, 33} {
+			t.Run(fmt.Sprintf("%s/%d", tt.name, n), func(t *testing.T) {
+				ctx := t.Context()
+				path := filepath.Join(t.TempDir(), "repo.db")
+				st, err := NewStore(ctx, "sqlite", map[string]string{"location": "sqlite://" + path})
+				require.NoError(t, err)
+				require.NoError(t, st.Create(ctx, []byte("config")))
+				t.Cleanup(func() { _ = st.Close(ctx) })
+
+				db, err := sql.Open("sqlite", path)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = db.Close() })
+				_, err = db.Exec("INSERT INTO "+tt.table+" (mac, data) VALUES (?, ?)", bytes.Repeat([]byte{0xab}, n), []byte("data"))
+				require.NoError(t, err)
+
+				var lastErr error
+				for _, err := range st.List(ctx, tt.res, 0) {
+					lastErr = err
+				}
+				require.ErrorContains(t, lastErr, fmt.Sprintf("invalid mac length %d in %s", n, tt.table))
+			})
+		}
 	}
 }

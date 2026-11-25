@@ -293,6 +293,10 @@ func (s *Store) getStates(context context.Context) iter.Seq2[integration.Storage
 				yield(integration.StorageResourceEntry{}, err)
 				return
 			}
+			if len(mac) != len(entry.MAC) {
+				yield(integration.StorageResourceEntry{}, fmt.Errorf("invalid mac length %d in states", len(mac)))
+				return
+			}
 			copy(entry.MAC[:], mac)
 			if !yield(entry, nil) {
 				return
@@ -368,6 +372,10 @@ func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.Stor
 			err = rows.Scan(&mac, &entry.Size)
 			if err != nil {
 				yield(integration.StorageResourceEntry{}, err)
+				return
+			}
+			if len(mac) != len(entry.MAC) {
+				yield(integration.StorageResourceEntry{}, fmt.Errorf("invalid mac length %d in packfiles", len(mac)))
 				return
 			}
 			copy(entry.MAC[:], mac)
