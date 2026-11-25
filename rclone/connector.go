@@ -314,7 +314,12 @@ func (r *Rclone) List(ctx context.Context, res integration.StorageResource, _ in
 					continue
 				}
 
-				if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(mac)}, nil) {
+				entry := integration.StorageResourceEntry{MAC: integration.MAC(mac)}
+				// rclone reports an unknown size as -1, the SDK as 0.
+				if size := dirent.Size(); size > 0 {
+					entry.Size = size
+				}
+				if !yield(&entry, nil) {
 					stopped = true
 					return errListStopped
 				}

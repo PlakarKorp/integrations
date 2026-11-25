@@ -419,6 +419,41 @@ func TestStorageListStreams(t *testing.T) {
 	}
 }
 
+func TestStorageListFillsSize(t *testing.T) {
+	backends := map[string]func(t *testing.T) *Rclone{
+		"memory": newRclone,
+		"local": func(t *testing.T) *Rclone {
+			r, err := New(t.Context(), &integration.Options{MaxConcurrency: 1}, "rclone", map[string]string{
+				"location":    "rclone://" + t.TempDir(),
+				"rclone_type": "local",
+			})
+			require.NoError(t, err)
+			return r
+		},
+	}
+	for name, newBackend := range backends {
+		t.Run(name, func(t *testing.T) {
+			r := newBackend(t)
+			require.NoError(t, r.Create(t.Context(), []byte("config")))
+
+			want := map[integration.MAC]int64{}
+			for _, size := range []int64{1, 10, 4096} {
+				mac := integration.RandomMAC()
+				_, err := r.Put(t.Context(), integration.StorageResourcePackfile, 0, mac, strings.NewReader(strings.Repeat("x", int(size))))
+				require.NoError(t, err)
+				want[mac] = size
+			}
+
+			got := map[integration.MAC]int64{}
+			for entry, err := range r.List(t.Context(), integration.StorageResourcePackfile, 0) {
+				require.NoError(t, err)
+				got[entry.MAC] = entry.Size
+			}
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
 func TestStorageDelete(t *testing.T) {
 	r := newRclone(t)
 	mac := integration.RandomMAC()
