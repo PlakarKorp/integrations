@@ -54,28 +54,19 @@ func (buckets *Buckets) Create() error {
 
 func (buckets *Buckets) List() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		bucketsDir, err := os.ReadDir(buckets.path)
-		if err != nil {
-			yield(&integration.StorageResourceEntry{}, err)
-			return
-		}
-
-		for _, bucket := range bucketsDir {
-			if bucket.Name() == "." || bucket.Name() == ".." {
-				continue
-			}
-			if !bucket.IsDir() {
-				continue
-			}
-			path := filepath.Join(buckets.path, bucket.Name())
-			entries, err := os.ReadDir(path)
+		for bucket, err := range readdir(buckets.path) {
 			if err != nil {
 				yield(&integration.StorageResourceEntry{}, err)
 				return
 			}
-			for _, entry := range entries {
-				if entry.Name() == "." || entry.Name() == ".." {
-					continue
+
+			if !bucket.IsDir() {
+				continue
+			}
+			for entry, err := range readdir(filepath.Join(buckets.path, bucket.Name())) {
+				if err != nil {
+					yield(&integration.StorageResourceEntry{}, err)
+					return
 				}
 				if !entry.Type().IsRegular() {
 					continue

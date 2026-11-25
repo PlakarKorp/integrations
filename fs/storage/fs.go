@@ -154,6 +154,38 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 	return size, err
 }
 
+func readdir(dir string) iter.Seq2[os.DirEntry, error] {
+	return func(yield func(os.DirEntry, error) bool) {
+		dp, err := os.Open(dir)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer dp.Close()
+
+		for {
+			entries, err := dp.ReadDir(32)
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			for i := range entries {
+				if n := entries[i].Name(); n == "." || n == ".." {
+					continue
+				}
+
+				if !yield(entries[i], nil) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
 	switch res {
 	case integration.StorageResourcePackfile:
@@ -229,13 +261,12 @@ func (s *Store) Close(ctx context.Context) error {
 
 func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		locksdir, err := os.ReadDir(s.Path("locks"))
-		if err != nil {
-			yield(nil, err)
-			return
-		}
+		for lock, err := range readdir(s.Path("locks")) {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 
-		for _, lock := range locksdir {
 			if !lock.Type().IsRegular() {
 				continue
 			}
