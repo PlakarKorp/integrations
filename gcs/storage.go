@@ -212,14 +212,10 @@ func (g *gcsStore) List(ctx context.Context, res integration.StorageResource, fl
 			if len(obj.Name) <= l {
 				continue
 			}
+
 			t, err := hex.DecodeString(obj.Name[l:])
-			if err != nil {
-				yield(nil, fmt.Errorf("decode %s key: %w", prefix, err))
-				return
-			}
-			if len(t) != 32 {
-				yield(nil, fmt.Errorf("invalid %s name: %s", prefix, obj.Name))
-				return
+			if err != nil || len(t) != 32 {
+				continue
 			}
 			entry := integration.StorageResourceEntry{
 				MAC:   integration.MAC(t),
