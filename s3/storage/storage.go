@@ -418,11 +418,18 @@ func (s *Store) List(ctx context.Context, res integration.StorageResource, _ int
 			if !strings.HasPrefix(object.Key, prefix) || len(object.Key) < prefixSize {
 				continue
 			}
+
 			t, err := hex.DecodeString(object.Key[prefixSize:])
 			if err != nil || len(t) != 32 {
 				continue
 			}
-			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(t)}, nil) {
+
+			entry := integration.StorageResourceEntry{
+				MAC:   integration.MAC(t),
+				Size:  object.Size,
+				MTime: object.LastModified,
+			}
+			if !yield(&entry, nil) {
 				return
 			}
 		}
