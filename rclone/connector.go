@@ -260,6 +260,8 @@ func (r *Rclone) Size(ctx context.Context) (int64, error) {
 	return -1, nil
 }
 
+var errListStopped = errors.New("list stopped")
+
 func resdir(res integration.StorageResource) (string, error) {
 	switch res {
 	case integration.StorageResourcePackfile:
@@ -289,22 +291,38 @@ func (r *Rclone) List(ctx context.Context, res integration.StorageResource, _ in
 			return
 		}
 
-		dirents, err := r.fs.List(ctx, dir)
-		if err != nil {
-			yield(nil, fmt.Errorf("failed to list %s: %w", dir, err))
-			return
+		// Backends without ListP fall back to a full List.
+		listP := r.fs.Features().ListP
+		if listP == nil {
+			listP = func(ctx context.Context, dir string, callback rclonefs.ListRCallback) error {
+				dirents, err := r.fs.List(ctx, dir)
+				if err != nil {
+					return err
+				}
+				return callback(dirents)
+			}
 		}
 
-		for _, dirent := range dirents {
-			mac, err := hex.DecodeString(path.Base(dirent.Remote()))
-			if err != nil {
-				// rclone might create ".partial" files
-				continue
-			}
+		// Backends may wrap the callback error, so track the stop
+		// ourselves rather than matching errListStopped.
+		stopped := false
+		err = listP(ctx, dir, func(dirents rclonefs.DirEntries) error {
+			for _, dirent := range dirents {
+				mac, err := hex.DecodeString(path.Base(dirent.Remote()))
+				if err != nil {
+					// rclone might create ".partial" files
+					continue
+				}
 
-			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(mac)}, nil) {
-				return
+				if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(mac)}, nil) {
+					stopped = true
+					return errListStopped
+				}
 			}
+			return nil
+		})
+		if err != nil && !stopped {
+			yield(nil, fmt.Errorf("failed to list %s: %w", dir, err))
 		}
 	}
 }

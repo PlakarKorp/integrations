@@ -378,6 +378,47 @@ func TestStorageList(t *testing.T) {
 	assert.Contains(t, macs, mac2)
 }
 
+// memory implements ListP, local does not and goes through the List fallback.
+func TestStorageListStreams(t *testing.T) {
+	backends := map[string]func(t *testing.T) *Rclone{
+		"memory": newRclone,
+		"local": func(t *testing.T) *Rclone {
+			r, err := New(t.Context(), &integration.Options{MaxConcurrency: 1}, "rclone", map[string]string{
+				"location":    "rclone://" + t.TempDir(),
+				"rclone_type": "local",
+			})
+			require.NoError(t, err)
+			return r
+		},
+	}
+	for name, newBackend := range backends {
+		t.Run(name, func(t *testing.T) {
+			r := newBackend(t)
+			require.NoError(t, r.Create(t.Context(), []byte("config")))
+
+			want := make([]integration.MAC, 0, 8)
+			for range 8 {
+				mac := integration.RandomMAC()
+				_, err := r.Put(t.Context(), integration.StorageResourcePackfile, 0, mac, strings.NewReader("x"))
+				require.NoError(t, err)
+				want = append(want, mac)
+			}
+
+			got, err := listMACs(t.Context(), r, integration.StorageResourcePackfile)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, want, got)
+
+			n := 0
+			for _, err := range r.List(t.Context(), integration.StorageResourcePackfile, 0) {
+				require.NoError(t, err)
+				n++
+				break
+			}
+			assert.Equal(t, 1, n)
+		})
+	}
+}
+
 func TestStorageDelete(t *testing.T) {
 	r := newRclone(t)
 	mac := integration.RandomMAC()
