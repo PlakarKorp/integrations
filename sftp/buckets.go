@@ -74,26 +74,9 @@ func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.MAC] {
 			wg.Add(1)
 			go func(path string) {
 				defer wg.Done()
-				entries, err := buckets.client.ReadDir(path)
-				if err != nil {
-					return
-				}
-				for _, entry := range entries {
-					if entry.Name() == "." || entry.Name() == ".." {
-						continue
-					}
-					if entry.IsDir() {
-						continue
-					}
-					t, err := hex.DecodeString(entry.Name())
-					if err != nil {
-						continue
-					}
-					if len(t) != 32 {
-						continue
-					}
+				for _, mac := range buckets.readBucket(path) {
 					select {
-					case macs <- integration.MAC(t):
+					case macs <- mac:
 					case <-ctx.Done():
 						return
 					}
@@ -111,6 +94,33 @@ func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.MAC] {
 			}
 		}
 	}
+}
+
+// readBucket ReaDir, then map to MACs so FileInfos can be freed ASAP.
+func (buckets *buckets) readBucket(path string) []integration.MAC {
+	entries, err := buckets.client.ReadDir(path)
+	if err != nil {
+		return nil
+	}
+
+	macs := make([]integration.MAC, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name() == "." || entry.Name() == ".." {
+			continue
+		}
+		if entry.IsDir() {
+			continue
+		}
+		t, err := hex.DecodeString(entry.Name())
+		if err != nil {
+			continue
+		}
+		if len(t) != 32 {
+			continue
+		}
+		macs = append(macs, integration.MAC(t))
+	}
+	return macs
 }
 
 func (buckets *buckets) Path(mac integration.MAC) string {
