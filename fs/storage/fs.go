@@ -161,7 +161,7 @@ func readdir(dir string) iter.Seq2[os.DirEntry, error] {
 			yield(nil, err)
 			return
 		}
-		defer dp.Close()
+		defer func() { _ = dp.Close() }()
 
 		for {
 			entries, err := dp.ReadDir(32)
