@@ -202,27 +202,16 @@ func (s *Store) Close(ctx context.Context) error {
 }
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
-	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var entries iter.Seq2[integration.StorageResourceEntry, error]
-		switch res {
-		case integration.StorageResourcePackfile:
-			entries = s.getPackfiles(ctx)
-		case integration.StorageResourceState:
-			entries = s.getStates(ctx)
-		case integration.StorageResourceLock:
-			entries = s.getLocks(ctx)
-		default:
+	switch res {
+	case integration.StorageResourcePackfile:
+		return s.getPackfiles(ctx)
+	case integration.StorageResourceState:
+		return s.getStates(ctx)
+	case integration.StorageResourceLock:
+		return s.getLocks(ctx)
+	default:
+		return func(yield func(*integration.StorageResourceEntry, error) bool) {
 			yield(nil, errors.ErrUnsupported)
-			return
-		}
-		for entry, err := range entries {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !yield(&entry, nil) {
-				return
-			}
 		}
 	}
 }
@@ -276,11 +265,11 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ i
 }
 
 // states
-func (s *Store) getStates(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
-	return func(yield func(integration.StorageResourceEntry, error) bool) {
+func (s *Store) getStates(context context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM states")
 		if err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
@@ -290,20 +279,20 @@ func (s *Store) getStates(context context.Context) iter.Seq2[integration.Storage
 			var entry integration.StorageResourceEntry
 			err = rows.Scan(&mac, &entry.Size)
 			if err != nil {
-				yield(integration.StorageResourceEntry{}, err)
+				yield(nil, err)
 				return
 			}
 			if len(mac) != len(entry.MAC) {
-				yield(integration.StorageResourceEntry{}, fmt.Errorf("invalid mac length %d in states", len(mac)))
+				yield(nil, fmt.Errorf("invalid mac length %d in states", len(mac)))
 				return
 			}
 			copy(entry.MAC[:], mac)
-			if !yield(entry, nil) {
+			if !yield(&entry, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 		}
 	}
 }
@@ -357,11 +346,11 @@ func (s *Store) deleteState(context context.Context, mac integration.MAC) error 
 }
 
 // packfiles
-func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
-	return func(yield func(integration.StorageResourceEntry, error) bool) {
+func (s *Store) getPackfiles(context context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM packfiles")
 		if err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
@@ -371,20 +360,20 @@ func (s *Store) getPackfiles(context context.Context) iter.Seq2[integration.Stor
 			var entry integration.StorageResourceEntry
 			err = rows.Scan(&mac, &entry.Size)
 			if err != nil {
-				yield(integration.StorageResourceEntry{}, err)
+				yield(nil, err)
 				return
 			}
 			if len(mac) != len(entry.MAC) {
-				yield(integration.StorageResourceEntry{}, fmt.Errorf("invalid mac length %d in packfiles", len(mac)))
+				yield(nil, fmt.Errorf("invalid mac length %d in packfiles", len(mac)))
 				return
 			}
 			copy(entry.MAC[:], mac)
-			if !yield(entry, nil) {
+			if !yield(&entry, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 		}
 	}
 }
@@ -449,11 +438,11 @@ func (s *Store) deletePackfile(context context.Context, mac integration.MAC) err
 	return nil
 }
 
-func (s *Store) getLocks(context context.Context) iter.Seq2[integration.StorageResourceEntry, error] {
-	return func(yield func(integration.StorageResourceEntry, error) bool) {
+func (s *Store) getLocks(context context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM locks")
 		if err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 			return
 		}
 		defer func() { _ = rows.Close() }()
@@ -463,13 +452,13 @@ func (s *Store) getLocks(context context.Context) iter.Seq2[integration.StorageR
 			var size int64
 			err = rows.Scan(&mac, &size)
 			if err != nil {
-				yield(integration.StorageResourceEntry{}, err)
+				yield(nil, err)
 				return
 			}
 
 			lockID, err := hex.DecodeString(mac)
 			if err != nil {
-				yield(integration.StorageResourceEntry{}, err)
+				yield(nil, err)
 				return
 			}
 
@@ -477,12 +466,12 @@ func (s *Store) getLocks(context context.Context) iter.Seq2[integration.StorageR
 				continue
 			}
 
-			if !yield(integration.StorageResourceEntry{MAC: integration.MAC(lockID), Size: size}, nil) {
+			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(lockID), Size: size}, nil) {
 				return
 			}
 		}
 		if err := rows.Err(); err != nil {
-			yield(integration.StorageResourceEntry{}, err)
+			yield(nil, err)
 		}
 	}
 }
