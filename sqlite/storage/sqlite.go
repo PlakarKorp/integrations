@@ -27,6 +27,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/PlakarKorp/integration-sdk"
 	"github.com/PlakarKorp/integration-sdk/location"
@@ -152,6 +153,10 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 		return err
 	}
 
+	if err := s.migrate(ctx); err != nil {
+		return err
+	}
+
 	statement, err = s.conn.Prepare(`INSERT INTO configuration(value) VALUES(?)`)
 	if err != nil {
 		return err
@@ -172,6 +177,9 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.migrate(ctx); err != nil {
+		return nil, err
+	}
 
 	var buffer []byte
 
@@ -180,6 +188,76 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	return buffer, nil
+}
+
+// migrations upgrade the schema one step at a time, and user_version
+// records how many have been applied. Version 0 is the schema created
+// before migrations existed.
+var migrations = [...][]string{
+	// 1: modification time in Unix nanoseconds, NULL for older rows.
+	{
+		`ALTER TABLE packfiles ADD COLUMN mtime INTEGER`,
+		`ALTER TABLE states ADD COLUMN mtime INTEGER`,
+		`ALTER TABLE locks ADD COLUMN mtime INTEGER`,
+	},
+}
+
+const schemaVersion = len(migrations)
+
+// migrate applies the missing migrations. BEGIN IMMEDIATE takes the write
+// lock before reading user_version, so concurrent opens of an old database
+// apply each migration once.
+func (s *Store) migrate(ctx context.Context) error {
+	var version int
+	if err := s.conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version >= schemaVersion {
+		return nil
+	}
+
+	conn, err := s.conn.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+
+	// busy_timeout is per connection and this one may be new.
+	if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=2000"); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+
+	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	for i := version; i < schemaVersion; i++ {
+		for _, stmt := range migrations[i] {
+			if _, err := conn.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migration %d: %w", i+1, err)
+			}
+		}
+	}
+	if version < schemaVersion {
+		// PRAGMA does not take bound parameters.
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
+			return err
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *Store) Origin() string        { return "localhost" }
@@ -269,7 +347,7 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, _ i
 // states
 func (s *Store) getStates() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM states")
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0), mtime FROM states")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -278,8 +356,9 @@ func (s *Store) getStates() iter.Seq2[*integration.StorageResourceEntry, error] 
 
 		for rows.Next() {
 			var mac []byte
+			var mtime sql.NullInt64
 			var entry integration.StorageResourceEntry
-			err = rows.Scan(&mac, &entry.Size)
+			err = rows.Scan(&mac, &entry.Size, &mtime)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -289,6 +368,9 @@ func (s *Store) getStates() iter.Seq2[*integration.StorageResourceEntry, error] 
 				return
 			}
 			copy(entry.MAC[:], mac)
+			if mtime.Valid {
+				entry.MTime = time.Unix(0, mtime.Int64)
+			}
 			if !yield(&entry, nil) {
 				return
 			}
@@ -305,14 +387,14 @@ func (s *Store) putState(mac integration.MAC, rd io.Reader) (int64, error) {
 		return 0, err
 	}
 
-	statement, err := s.conn.Prepare(`INSERT INTO states (mac, data) VALUES(?, ?)`)
+	statement, err := s.conn.Prepare(`INSERT INTO states (mac, data, mtime) VALUES(?, ?, ?)`)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
-	_, err = statement.Exec(mac[:], data)
+	_, err = statement.Exec(mac[:], data, time.Now().UnixNano())
 	s.wrMutex.Unlock()
 	if err != nil {
 		return 0, err
@@ -350,7 +432,7 @@ func (s *Store) deleteState(mac integration.MAC) error {
 // packfiles
 func (s *Store) getPackfiles() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM packfiles")
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0), mtime FROM packfiles")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -359,8 +441,9 @@ func (s *Store) getPackfiles() iter.Seq2[*integration.StorageResourceEntry, erro
 
 		for rows.Next() {
 			var mac []byte
+			var mtime sql.NullInt64
 			var entry integration.StorageResourceEntry
-			err = rows.Scan(&mac, &entry.Size)
+			err = rows.Scan(&mac, &entry.Size, &mtime)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -370,6 +453,9 @@ func (s *Store) getPackfiles() iter.Seq2[*integration.StorageResourceEntry, erro
 				return
 			}
 			copy(entry.MAC[:], mac)
+			if mtime.Valid {
+				entry.MTime = time.Unix(0, mtime.Int64)
+			}
 			if !yield(&entry, nil) {
 				return
 			}
@@ -386,14 +472,14 @@ func (s *Store) putPackfile(mac integration.MAC, rd io.Reader) (int64, error) {
 		return 0, err
 	}
 
-	statement, err := s.conn.Prepare(`INSERT INTO packfiles (mac, data) VALUES(?, ?)`)
+	statement, err := s.conn.Prepare(`INSERT INTO packfiles (mac, data, mtime) VALUES(?, ?, ?)`)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
-	_, err = statement.Exec(mac[:], data)
+	_, err = statement.Exec(mac[:], data, time.Now().UnixNano())
 	s.wrMutex.Unlock()
 	if err != nil {
 		return 0, err
@@ -442,7 +528,7 @@ func (s *Store) deletePackfile(mac integration.MAC) error {
 
 func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
 	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0) FROM locks")
+		rows, err := s.conn.Query("SELECT mac, IFNULL(length(data), 0), mtime FROM locks")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -452,7 +538,8 @@ func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
 		for rows.Next() {
 			var mac string
 			var size int64
-			err = rows.Scan(&mac, &size)
+			var mtime sql.NullInt64
+			err = rows.Scan(&mac, &size, &mtime)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -468,7 +555,11 @@ func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
 				continue
 			}
 
-			if !yield(&integration.StorageResourceEntry{MAC: integration.MAC(lockID), Size: size}, nil) {
+			entry := integration.StorageResourceEntry{MAC: integration.MAC(lockID), Size: size}
+			if mtime.Valid {
+				entry.MTime = time.Unix(0, mtime.Int64)
+			}
+			if !yield(&entry, nil) {
 				return
 			}
 		}
@@ -484,14 +575,14 @@ func (s *Store) putLock(lockID integration.MAC, rd io.Reader) (int64, error) {
 		return 0, err
 	}
 
-	statement, err := s.conn.Prepare(`INSERT INTO locks (mac, data) VALUES(?, ?) ON CONFLICT(mac) DO UPDATE SET data=excluded.data`)
+	statement, err := s.conn.Prepare(`INSERT INTO locks (mac, data, mtime) VALUES(?, ?, ?) ON CONFLICT(mac) DO UPDATE SET data=excluded.data, mtime=excluded.mtime`)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = statement.Close() }()
 
 	s.wrMutex.Lock()
-	_, err = statement.Exec(hex.EncodeToString(lockID[:]), data)
+	_, err = statement.Exec(hex.EncodeToString(lockID[:]), data, time.Now().UnixNano())
 	s.wrMutex.Unlock()
 	if err != nil {
 		return 0, err
