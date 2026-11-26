@@ -34,28 +34,32 @@ func (s *Sftp) path(args ...string) string {
 	return path.Join(s.rootDir, path.Join(args...))
 }
 
-func (s *Sftp) getLocks() (ret []integration.StorageResourceEntry, err error) {
-	entries, err := s.client.ReadDir(s.path("locks"))
-	if err != nil {
-		return
-	}
-
-	for i := range entries {
-		var t []byte
-		t, err := hex.DecodeString(entries[i].Name())
+func (s *Sftp) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		entries, err := s.client.ReadDir(s.path("locks"))
 		if err != nil {
-			continue
+			yield(nil, err)
+			return
 		}
-		if len(t) != 32 {
-			continue
+
+		for i := range entries {
+			t, err := hex.DecodeString(entries[i].Name())
+			if err != nil {
+				continue
+			}
+			if len(t) != 32 {
+				continue
+			}
+			e := integration.StorageResourceEntry{
+				MAC:   integration.MAC(t),
+				Size:  entries[i].Size(),
+				MTime: entries[i].ModTime(),
+			}
+			if !yield(&e, nil) {
+				return
+			}
 		}
-		ret = append(ret, integration.StorageResourceEntry{
-			MAC:   integration.MAC(t),
-			Size:  entries[i].Size(),
-			MTime: entries[i].ModTime(),
-		})
 	}
-	return
 }
 
 func (s *Sftp) getLock(lockID integration.MAC) (io.ReadCloser, error) {
@@ -133,37 +137,16 @@ func (s *Sftp) Size(ctx context.Context) (int64, error) {
 }
 
 func (s *Sftp) List(ctx context.Context, res integration.StorageResource, _ integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
-	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var b *buckets
-		switch res {
-		case integration.StorageResourcePackfile:
-			b = &s.packfiles
-		case integration.StorageResourceState:
-			b = &s.states
-		case integration.StorageResourceLock:
-			locks, err := s.getLocks()
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			for i := range locks {
-				if !yield(&locks[i], nil) {
-					return
-				}
-			}
-			return
-		default:
+	switch res {
+	case integration.StorageResourcePackfile:
+		return s.packfiles.List(ctx)
+	case integration.StorageResourceState:
+		return s.states.List(ctx)
+	case integration.StorageResourceLock:
+		return s.getLocks()
+	default:
+		return func(yield func(*integration.StorageResourceEntry, error) bool) {
 			yield(nil, errors.ErrUnsupported)
-			return
-		}
-
-		for entry := range b.List(ctx) {
-			if !yield(&entry, nil) {
-				return
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			yield(nil, err)
 		}
 	}
 }

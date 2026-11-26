@@ -62,8 +62,8 @@ func (buckets *buckets) Create() error {
 	return g.Wait()
 }
 
-func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.StorageResourceEntry] {
-	return func(yield func(integration.StorageResourceEntry) bool) {
+func (buckets *buckets) List(ctx context.Context) iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
@@ -89,9 +89,12 @@ func (buckets *buckets) List(ctx context.Context) iter.Seq[integration.StorageRe
 		}()
 
 		for entry := range entries {
-			if !yield(entry) {
+			if !yield(&entry, nil) {
 				return
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			yield(nil, err)
 		}
 	}
 }
