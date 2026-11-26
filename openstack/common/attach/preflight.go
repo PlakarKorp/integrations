@@ -48,7 +48,7 @@ var (
 	MetadataURL = "http://169.254.169.254/openstack/latest/meta_data.json"
 	// metadataTimeout bounds the request: off-cloud, the address usually
 	// drops packets rather than refusing the connection.
-	metadataTimeout = 3 * time.Second
+	metadataTimeout = 5 * time.Second
 	// dmiDir holds the SMBIOS fields the hypervisor stamps on the server,
 	// the fallback when the metadata service is unreachable. Linux only.
 	dmiDir = "/sys/class/dmi/id"
