@@ -155,38 +155,16 @@ func (s *Store) Size(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) List(ctx context.Context, res integration.StorageResource, flag integration.StorageFlag) iter.Seq2[*integration.StorageResourceEntry, error] {
-	return func(yield func(*integration.StorageResourceEntry, error) bool) {
-		var b *Buckets
-		switch res {
-		case integration.StorageResourcePackfile:
-			b = &s.packfiles
-		case integration.StorageResourceState:
-			b = &s.states
-		case integration.StorageResourceLock:
-			m, err := s.getLocks(ctx)
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			for i := range m {
-				if !yield(&m[i], nil) {
-					return
-				}
-			}
-			return
-		default:
+	switch res {
+	case integration.StorageResourcePackfile:
+		return s.packfiles.List()
+	case integration.StorageResourceState:
+		return s.states.List()
+	case integration.StorageResourceLock:
+		return s.getLocks()
+	default:
+		return func(yield func(*integration.StorageResourceEntry, error) bool) {
 			yield(nil, errors.ErrUnsupported)
-			return
-		}
-
-		for entry, err := range b.List() {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !yield(&entry, nil) {
-				return
-			}
 		}
 	}
 }
@@ -198,7 +176,7 @@ func (s *Store) Put(ctx context.Context, res integration.StorageResource, flag i
 	case integration.StorageResourceState:
 		return s.states.Put(mac, rd)
 	case integration.StorageResourceLock:
-		return s.putLock(ctx, mac, rd)
+		return s.putLock(mac, rd)
 	default:
 		return -1, errors.ErrUnsupported
 	}
@@ -226,7 +204,7 @@ func (s *Store) Get(ctx context.Context, res integration.StorageResource, flag i
 	case integration.StorageResourceState:
 		return s.states.Get(mac)
 	case integration.StorageResourceLock:
-		return s.getLock(ctx, mac)
+		return s.getLock(mac)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -239,7 +217,7 @@ func (s *Store) Delete(ctx context.Context, res integration.StorageResource, fla
 	case integration.StorageResourceState:
 		return s.states.Remove(mac)
 	case integration.StorageResourceLock:
-		return s.deleteLock(ctx, mac)
+		return s.deleteLock(mac)
 	default:
 		return errors.ErrUnsupported
 	}
@@ -249,52 +227,55 @@ func (s *Store) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) getLocks(ctx context.Context) ([]integration.StorageResourceEntry, error) {
-	ret := make([]integration.StorageResourceEntry, 0)
-
-	locksdir, err := os.ReadDir(s.Path("locks"))
-	if err != nil {
-		return nil, err
-	}
-
-	for _, lock := range locksdir {
-		if !lock.Type().IsRegular() {
-			continue
-		}
-
-		lockID, err := hex.DecodeString(lock.Name())
+func (s *Store) getLocks() iter.Seq2[*integration.StorageResourceEntry, error] {
+	return func(yield func(*integration.StorageResourceEntry, error) bool) {
+		locksdir, err := os.ReadDir(s.Path("locks"))
 		if err != nil {
-			continue
+			yield(nil, err)
+			return
 		}
 
-		if len(lockID) != 32 {
-			continue
-		}
+		for _, lock := range locksdir {
+			if !lock.Type().IsRegular() {
+				continue
+			}
 
-		info, err := lock.Info()
-		if errors.Is(err, fs.ErrNotExist) {
-			// removed since ReadDir
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
+			lockID, err := hex.DecodeString(lock.Name())
+			if err != nil {
+				continue
+			}
 
-		ret = append(ret, integration.StorageResourceEntry{
-			MAC:   integration.MAC(lockID),
-			Size:  info.Size(),
-			MTime: info.ModTime(),
-		})
+			if len(lockID) != 32 {
+				continue
+			}
+
+			info, err := lock.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				// removed since ReadDir
+				continue
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			e := integration.StorageResourceEntry{
+				MAC:   integration.MAC(lockID),
+				Size:  info.Size(),
+				MTime: info.ModTime(),
+			}
+			if !yield(&e, nil) {
+				return
+			}
+		}
 	}
-
-	return ret, nil
 }
 
-func (s *Store) putLock(ctx context.Context, lockID integration.MAC, rd io.Reader) (int64, error) {
+func (s *Store) putLock(lockID integration.MAC, rd io.Reader) (int64, error) {
 	return WriteToFileAtomicTempDir(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])), rd, s.Path(""))
 }
 
-func (s *Store) getLock(ctx context.Context, lockID integration.MAC) (io.ReadCloser, error) {
+func (s *Store) getLock(lockID integration.MAC) (io.ReadCloser, error) {
 	fp, err := os.Open(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:])))
 	if err != nil {
 		return nil, err
@@ -303,7 +284,7 @@ func (s *Store) getLock(ctx context.Context, lockID integration.MAC) (io.ReadClo
 	return fp, nil
 }
 
-func (s *Store) deleteLock(ctx context.Context, lockID integration.MAC) error {
+func (s *Store) deleteLock(lockID integration.MAC) error {
 	if err := os.Remove(filepath.Join(s.Path("locks"), hex.EncodeToString(lockID[:]))); err != nil {
 		return err
 	}
