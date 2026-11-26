@@ -25,17 +25,17 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
 	"github.com/PlakarKorp/integrations/openstack/common/attach"
 	"github.com/PlakarKorp/integrations/openstack/common/keystonetest"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,22 +53,47 @@ func params(authURL, location string) map[string]string {
 // newImporter also points the attach preflight at cloud's metadata service
 // and device directory, so the host the tests run on never passes for a Nova
 // server by accident.
-func newImporter(t *testing.T, cloud *keystonetest.Cloud) importer.Importer {
+func newImporter(t *testing.T, cloud *keystonetest.Cloud) integration.Importer {
+	t.Helper()
+	return newImporterTransfer(t, cloud, "")
+}
+
+// newImporterTransfer is newImporter with openstack_transfer set; "" leaves
+// it unset, for the default.
+func newImporterTransfer(t *testing.T, cloud *keystonetest.Cloud, transfer string) integration.Importer {
 	t.Helper()
 	savedURL, savedDir := attach.MetadataURL, attach.DeviceDir
 	attach.MetadataURL, attach.DeviceDir = cloud.MetadataURL, cloud.DeviceDir
 	t.Cleanup(func() { attach.MetadataURL, attach.DeviceDir = savedURL, savedDir })
 
-	imp, err := NewImporter(t.Context(), nil, block.Protocol, params(cloud.AuthURL, "openstack-block://vol-1"))
+	p := params(cloud.AuthURL, "openstack-block://vol-1")
+	if transfer != "" {
+		p["openstack_transfer"] = transfer
+	}
+	imp, err := NewImporter(t.Context(), nil, block.Protocol, p)
 	require.NoError(t, err)
 	return imp
 }
 
-func importAll(ctx context.Context, imp importer.Importer) ([]*connectors.Record, error) {
-	records := make(chan *connectors.Record)
+// neverProbed fails the test if the preflight asks the metadata service.
+// Call it after newImporter, which points the preflight at the fake cloud's.
+func neverProbed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("openstack_transfer=glance probed the metadata service")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	saved := attach.MetadataURL
+	attach.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
+	t.Cleanup(func() { attach.MetadataURL = saved })
+}
+
+func importAll(ctx context.Context, imp integration.Importer) ([]*integration.Record, error) {
+	records := make(chan *integration.Record)
 	errc := make(chan error, 1)
-	go func() { errc <- imp.Import(ctx, records, nil) }()
-	var out []*connectors.Record
+	go func() { _, err := imp.Import(ctx, records, nil); errc <- err }()
+	var out []*integration.Record
 	for r := range records {
 		out = append(out, r)
 	}
@@ -169,6 +194,67 @@ func TestImportReadsAttachedVolume(t *testing.T) {
 	assert.Equal(t, "vol-1", metadata.Volume.ID)
 
 	require.NoError(t, imp.Close(t.Context()))
+}
+
+// openstack_transfer decides the route, and a route that was asked for and
+// cannot be taken fails the backup instead of becoming the other one:
+// {on-cloud, off-cloud, attach refused} x {auto, attach, glance}.
+func TestImportTransfer(t *testing.T) {
+	tests := []struct {
+		name         string
+		onCloud      bool // the host is a Nova server of the cloud
+		refuseAttach bool // Nova refuses the attach, as it does cross-AZ
+		transfer     string
+		wantDisk     string // the disk record's path; empty when Import fails
+		wantErr      string
+	}{
+		{name: "off-cloud auto", transfer: "auto", wantDisk: "/vol-1.qcow2"},
+		{name: "off-cloud attach", transfer: "attach", wantErr: "openstack_transfer=attach: cannot attach to this host: not a Nova server"},
+		{name: "off-cloud glance", transfer: "glance", wantDisk: "/vol-1.qcow2"},
+		{name: "on-cloud auto", onCloud: true, transfer: "auto", wantDisk: "/vol-1.raw"},
+		{name: "on-cloud attach", onCloud: true, transfer: "attach", wantDisk: "/vol-1.raw"},
+		{name: "on-cloud glance", onCloud: true, transfer: "glance", wantDisk: "/vol-1.qcow2"},
+		{name: "attach refused auto", onCloud: true, refuseAttach: true, transfer: "auto", wantDisk: "/vol-1.qcow2"},
+		{name: "attach refused attach", onCloud: true, refuseAttach: true, transfer: "attach", wantErr: `openstack_transfer=attach: volume "vol-1": attaching to server "host-1"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloud := keystonetest.NewCloud(t, "vol-1")
+			cloud.FailVolumeAttach = tt.refuseAttach
+			if tt.onCloud {
+				onCloud(cloud)
+			}
+			imp := newImporterTransfer(t, cloud, tt.transfer)
+			if tt.transfer == "glance" {
+				neverProbed(t)
+			}
+
+			records, err := importAll(t.Context(), imp)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, records)
+				if !tt.onCloud {
+					assert.Empty(t, cloud.Leftovers(), "the route is decided before the snapshot")
+				}
+				require.NoError(t, imp.Close(t.Context()))
+				assert.Empty(t, cloud.Leftovers())
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, records, 2)
+			assert.Equal(t, tt.wantDisk, records[0].Pathname)
+			if tt.wantDisk == "/vol-1.qcow2" {
+				assert.Empty(t, cloud.Attached())
+			}
+
+			disk, err := io.ReadAll(records[0].Reader)
+			require.NoError(t, err)
+			assert.Equal(t, cloud.Disk, disk)
+			require.NoError(t, records[0].Close())
+			require.NoError(t, imp.Close(t.Context()))
+			assert.Empty(t, cloud.Leftovers())
+		})
+	}
 }
 
 // Close detaches a clone plakar never read.
@@ -307,6 +393,9 @@ func TestCloseLeavesNothingBehind(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+			// What the cleanup logs is the claim: Import logged going
+			// through Glance, as it does off the cloud under auto.
+			logs.Reset()
 			if tt.readDisk {
 				_, _ = io.ReadAll(records[0].Reader)
 				_ = records[0].Close()

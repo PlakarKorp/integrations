@@ -17,9 +17,12 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -61,8 +64,13 @@ func sourceVolume(t *testing.T, client *Client) *volumes.Volume {
 	return vol
 }
 
-func readVolume(ctx context.Context, client *Client, vol *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
-	host, _ := client.PreflightHost(ctx)
+// readVolume reads vol as a connector does under transfer: resolved first,
+// then the snapshot, the clone, and the disk.
+func readVolume(ctx context.Context, client *Client, transfer Transfer, vol *volumes.Volume, cleanup *Cleanup) (*Disk, error) {
+	resolved, err := client.ResolveTransfer(ctx, transfer)
+	if err != nil {
+		return nil, err
+	}
 	snap, err := client.SnapshotVolume(ctx, vol.ID, cleanup)
 	if err != nil {
 		return nil, err
@@ -71,7 +79,7 @@ func readVolume(ctx context.Context, client *Client, vol *volumes.Volume, cleanu
 	if err != nil {
 		return nil, err
 	}
-	return client.ReadCinderDisk(ctx, host, vol, snap, tmp, cleanup)
+	return client.ReadCinderDisk(ctx, resolved, vol, snap, tmp, cleanup)
 }
 
 // readAndClose reads the disk and closes it, as plakar does, which runs the
@@ -88,6 +96,85 @@ func readAndClose(t *testing.T, disk *Disk) []byte {
 
 // Choosing how to read the volume.
 
+// neverProbed fails the test if the preflight asks the metadata service:
+// glance must not, on or off the cloud. Call it after connectHost, which
+// points the preflight at the fake cloud's.
+func neverProbed(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("openstack_transfer=glance probed the metadata service")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	saved := attach.MetadataURL
+	attach.MetadataURL = srv.URL + "/openstack/latest/meta_data.json"
+	t.Cleanup(func() { attach.MetadataURL = saved })
+}
+
+// The transfer is resolved once, from the option and the host, and nothing else:
+// {on-cloud, off-cloud, Nova down} x {auto, attach, glance}.
+func TestResolveTransfer(t *testing.T) {
+	tests := []struct {
+		name     string
+		onCloud  bool // the host is a Nova server of the cloud
+		novaDown bool // the host claims to be one, and Nova cannot say
+		transfer Transfer
+		wantHost bool
+		wantErr  string
+		wantLog  string
+	}{
+		{name: "off-cloud auto", transfer: TransferAuto, wantLog: "not a Nova server"},
+		{name: "off-cloud attach", transfer: TransferAttach, wantErr: "openstack_transfer=attach: cannot attach to this host: not a Nova server"},
+		{name: "off-cloud glance", transfer: TransferGlance},
+		{name: "on-cloud auto", onCloud: true, transfer: TransferAuto, wantHost: true},
+		{name: "on-cloud attach", onCloud: true, transfer: TransferAttach, wantHost: true},
+		{name: "on-cloud glance", onCloud: true, transfer: TransferGlance},
+		{name: "nova down auto", novaDown: true, transfer: TransferAuto, wantLog: "going through Glance"},
+		{name: "nova down attach", novaDown: true, transfer: TransferAttach, wantErr: "openstack_transfer=attach"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			log.SetOutput(&logs)
+			t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+			cloud := keystonetest.NewCloud(t)
+			switch {
+			case tt.onCloud:
+				onCloud(cloud)
+			case tt.novaDown:
+				cloud.HostID = hostID
+				cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				})
+			}
+			client := connectHost(t, cloud)
+			if tt.transfer == TransferGlance {
+				neverProbed(t)
+			}
+
+			resolved, err := client.ResolveTransfer(t.Context(), tt.transfer)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.transfer, resolved.Transfer)
+			if tt.wantHost {
+				require.NotNil(t, resolved.Host)
+				assert.Equal(t, hostID, resolved.Host.ID)
+			} else {
+				assert.Nil(t, resolved.Host)
+			}
+			if tt.wantLog == "" {
+				assert.Empty(t, logs.String())
+			} else {
+				assert.Contains(t, logs.String(), tt.wantLog)
+			}
+		})
+	}
+}
+
 // Off the cloud, the volume goes through a Glance image, quietly: that is
 // the usual case.
 func TestReadVolumeOffCloud(t *testing.T) {
@@ -95,7 +182,7 @@ func TestReadVolumeOffCloud(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, DiskOriginCinder, disk.Metadata.Origin)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
@@ -117,7 +204,7 @@ func TestReadVolumeOnCloud(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, DiskOriginCinder, disk.Metadata.Origin)
 	assert.Equal(t, "raw", disk.Metadata.DiskFormat)
@@ -141,10 +228,47 @@ func TestReadVolumeFallsBackToGlance(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
 	require.NotNil(t, disk.Metadata.Image)
+
+	assert.Equal(t, cloud.Disk, readAndClose(t, disk))
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// Under attach, the same refusal is the end of the backup, and says so: the
+// snapshot and clone are left for cleanup, as after any other failure.
+func TestReadVolumeAttachRefusedFails(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	cloud.FailVolumeAttach = true
+	onCloud(cloud)
+	client := connectHost(t, cloud)
+
+	var cleanup Cleanup
+	_, err := readVolume(t.Context(), client, TransferAttach, sourceVolume(t, client), &cleanup)
+	require.ErrorContains(t, err, `openstack_transfer=attach: volume "vol-1": attaching to server "host-1"`)
+	assert.Empty(t, cloud.Attached())
+	assert.Equal(t, []string{"snapshot-1", "tmp-2"}, cloud.Leftovers(), "no image was made")
+
+	cleanup.Run(t.Context())
+	assert.Empty(t, cloud.Leftovers())
+}
+
+// Under glance, a host that could take the attach is never asked: the
+// clone goes through Glance as it would off the cloud.
+func TestReadVolumeGlanceOnCloud(t *testing.T) {
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	onCloud(cloud)
+	client := connectHost(t, cloud)
+	neverProbed(t)
+
+	var cleanup Cleanup
+	disk, err := readVolume(t.Context(), client, TransferGlance, sourceVolume(t, client), &cleanup)
+	require.NoError(t, err)
+	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
+	require.NotNil(t, disk.Metadata.Image)
+	assert.Empty(t, cloud.Attached())
 
 	assert.Equal(t, cloud.Disk, readAndClose(t, disk))
 	assert.Empty(t, cloud.Leftovers())
@@ -161,7 +285,7 @@ func TestReadVolumePreflightFailureFallsBack(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+	disk, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "qcow2", disk.Metadata.DiskFormat)
 
@@ -195,7 +319,7 @@ func TestReadVolumeEncrypted(t *testing.T) {
 			client := connectHost(t, cloud)
 
 			var cleanup Cleanup
-			disk, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+			disk, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 			require.NoError(t, err)
 			assert.Equal(t, "raw", disk.Metadata.DiskFormat, "Cinder uploads an encrypted volume raw only")
 			assert.Equal(t, tt.wantProperties, disk.Metadata.ImageProperties)
@@ -213,7 +337,7 @@ func TestReadVolumeFailureLeavesCleanupToRun(t *testing.T) {
 	client := connectHost(t, cloud)
 
 	var cleanup Cleanup
-	_, err := readVolume(t.Context(), client, sourceVolume(t, client), &cleanup)
+	_, err := readVolume(t.Context(), client, TransferAuto, sourceVolume(t, client), &cleanup)
 	require.ErrorContains(t, err, "upload volume")
 	assert.Equal(t, []string{"snapshot-1", "tmp-2"}, cloud.Leftovers())
 

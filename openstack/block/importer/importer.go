@@ -19,19 +19,14 @@ package importer
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"github.com/PlakarKorp/integration-sdk"
+	"github.com/PlakarKorp/integration-sdk/location"
 	"github.com/PlakarKorp/integrations/openstack/block"
 	"github.com/PlakarKorp/integrations/openstack/common"
-	"github.com/PlakarKorp/integrations/openstack/common/attach"
-	"github.com/PlakarKorp/kloset/connectors"
-	"github.com/PlakarKorp/kloset/connectors/importer"
-	"github.com/PlakarKorp/kloset/location"
-	"github.com/PlakarKorp/kloset/objects"
 )
 
 //go:embed schema.json
@@ -40,13 +35,16 @@ var ImporterSchema []byte
 type Importer struct {
 	client   *common.Client
 	volumeID string
+	// transfer is the openstack_transfer option: how the volume's bytes
+	// reach plakar.
+	transfer common.Transfer
 	// cleanup holds the snapshot, temporary volume and its attachment or
 	// image a backup creates. Closing the disk reader runs it; Close runs
 	// whatever is left, for when the reader was never opened.
 	cleanup common.Cleanup
 }
 
-func NewImporter(ctx context.Context, opts *connectors.Options, proto string, params map[string]string) (importer.Importer, error) {
+func NewImporter(ctx context.Context, opts *integration.Options, proto string, params map[string]string) (integration.Importer, error) {
 	volumeID := strings.TrimPrefix(params["location"], proto+"://")
 	if volumeID == common.SpawnLocation {
 		return nil, fmt.Errorf("location: %q is the create-new placeholder, not a real volume to back up", params["location"])
@@ -65,7 +63,7 @@ func NewImporter(ctx context.Context, opts *connectors.Options, proto string, pa
 	if len(clients) != 1 {
 		return nil, fmt.Errorf("connect: expected one region, got %d", len(clients))
 	}
-	return &Importer{client: clients[0], volumeID: volumeID}, nil
+	return &Importer{client: clients[0], volumeID: volumeID, transfer: cfg.Transfer}, nil
 }
 
 func (imp *Importer) Origin() string { return imp.volumeID }
@@ -82,35 +80,34 @@ func (imp *Importer) Ping(ctx context.Context) error {
 
 // Import emits /<volume-id>.qcow2 and /.METADATA.json. The disk keeps its
 // .qcow2 name whatever its format; the metadata's image carries the real one.
-func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Record, _ <-chan *connectors.Result) error {
+func (imp *Importer) Import(ctx context.Context, records chan<- *integration.Record, _ <-chan *integration.Result) (map[string]string, error) {
 	defer close(records)
 
 	vol, err := imp.client.GetVolume(ctx, imp.volumeID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	host, err := imp.client.PreflightHost(ctx)
+	// Resolve the transfer before the snapshot: one that cannot be taken
+	// fails the backup with nothing to clean up.
+	resolved, err := imp.client.ResolveTransfer(ctx, imp.transfer)
 	if err != nil {
-		if !errors.Is(err, attach.ErrNotAttachable) {
-			log.Printf("openstack-block: direct attachment unavailable: %v", err)
-		}
-		host = nil
+		return nil, err
 	}
 
-	// Snapshot and clone the volume before choosing whether to attach the
-	// clone or send it through Glance. The resources go into imp.cleanup.
+	// Snapshot and clone the volume, then attach the clone or send it
+	// through Glance as resolved. The resources go into imp.cleanup.
 	snap, err := imp.client.SnapshotVolume(ctx, vol.ID, &imp.cleanup)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tmp, err := imp.client.CreateVolumeFromSnapshot(ctx, snap, &imp.cleanup)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	disk, err := imp.client.ReadCinderDisk(ctx, host, vol, snap, tmp, &imp.cleanup)
+	disk, err := imp.client.ReadCinderDisk(ctx, resolved, vol, snap, tmp, &imp.cleanup)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Emit the disk. Plakar reads it when it opens the record, and closing
@@ -118,8 +115,8 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	name := block.DiskName(imp.volumeID, common.DiskFormat(disk.Metadata))
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
-	case records <- connectors.NewRecord("/"+name, "", objects.FileInfo{
+		return nil, ctx.Err()
+	case records <- integration.NewRecord("/"+name, "", integration.FileInfo{
 		Lname:    name,
 		Lmode:    0600,
 		Lsize:    -1,
@@ -131,15 +128,15 @@ func (imp *Importer) Import(ctx context.Context, records chan<- *connectors.Reco
 	// real format.
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
-	case records <- connectors.NewRecord("/"+block.MetadataName, "", objects.FileInfo{
+		return nil, ctx.Err()
+	case records <- integration.NewRecord("/"+block.MetadataName, "", integration.FileInfo{
 		Lname:    block.MetadataName,
 		Lmode:    0600,
 		Lsize:    -1,
 		LmodTime: time.Now(),
 	}, nil, common.JSONReader(disk.Metadata)):
 	}
-	return nil
+	return nil, nil //nolint:nilnil // no import metadata
 }
 
 func (imp *Importer) Close(ctx context.Context) error {

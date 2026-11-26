@@ -60,6 +60,16 @@
       "type": "string",
       "default": "Default",
       "description": "Domain of the user, and of the project when given by name, for password authentication"
+    },
+    "openstack_transfer": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "attach",
+        "glance"
+      ],
+      "default": "auto",
+      "description": "How disks are moved: attach reads/writes them as block devices attached to the Nova server plakar runs on, or fails; glance moves them through Glance images and never probes the host; auto attaches when the host allows it, else goes through Glance"
     }
   },
   "allOf": [

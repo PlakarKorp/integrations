@@ -113,6 +113,7 @@ func fakeCreateImage(cloud *keystonetest.Cloud) {
 }
 
 func TestCreateServerImage(t *testing.T) {
+	logs := captureLog(t)
 	cloud := keystonetest.NewCloud(t)
 	fakeCreateImage(cloud)
 	client := connectCloud(t, cloud)
@@ -122,6 +123,7 @@ func TestCreateServerImage(t *testing.T) {
 	img, err := client.CreateServerImage(t.Context(), server, &cleanup)
 	require.NoError(t, err)
 	assert.Equal(t, "image-1", img.ID)
+	assert.Regexp(t, `openstack: created image id="image-1" name="plakar-backup-server-1-\d+" server_id="server-1"`, logs.String())
 }
 
 func TestCreateServerImageRefusesBootFromVolume(t *testing.T) {
@@ -170,6 +172,19 @@ func TestCreateServer(t *testing.T) {
 	assert.Equal(t, "ACTIVE", server.Status)
 }
 
+func TestCreateServerLogsIt(t *testing.T) {
+	logs := captureLog(t)
+	cloud := keystonetest.NewCloud(t)
+	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"server":{"id":"`+r.PathValue("id")+`","status":"ACTIVE"}}`)
+	})
+	client := connectCloud(t, cloud)
+
+	server, err := client.CreateServer(t.Context(), servers.CreateOpts{Name: "vmtest", ImageRef: "image-1"})
+	require.NoError(t, err)
+	assert.Contains(t, logs.String(), `openstack: created server id="`+server.ID+`" name="vmtest" image_id="image-1"`)
+}
+
 func TestCreateServerFailsOnError(t *testing.T) {
 	cloud := keystonetest.NewCloud(t)
 	cloud.Overrule("GET /compute/servers/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +203,15 @@ func TestAttachVolume(t *testing.T) {
 	err := client.AttachVolume(t.Context(), "server-1", "vol-1", "/dev/vdb")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"vol-1"}, cloud.Attached())
+}
+
+func TestAttachVolumeLogsIt(t *testing.T) {
+	logs := captureLog(t)
+	cloud := keystonetest.NewCloud(t, "vol-1")
+	client := connectCloud(t, cloud)
+
+	require.NoError(t, client.AttachVolume(t.Context(), "server-1", "vol-1", "/dev/vdb"))
+	assert.Contains(t, logs.String(), `openstack: attached volume id="vol-1" server_id="server-1"`)
 }
 
 func TestAttachVolumeFails(t *testing.T) {
