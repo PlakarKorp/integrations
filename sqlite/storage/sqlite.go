@@ -72,13 +72,15 @@ func (s *Store) connect(addr string) error {
 	}
 
 	if s.backend == "sqlite" {
-		if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-			_ = conn.Close()
-			return fmt.Errorf("setting journal_mode=WAL: %w", err)
-		}
+		// busy_timeout first, so switching to WAL waits on concurrent
+		// openers instead of failing with SQLITE_BUSY.
 		if _, err := conn.Exec("PRAGMA busy_timeout=2000;"); err != nil {
 			_ = conn.Close()
 			return fmt.Errorf("setting busy_timeout: %w", err)
+		}
+		if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("setting journal_mode=WAL: %w", err)
 		}
 	}
 
